@@ -4,14 +4,16 @@ import { siteConfig } from "@/config/site";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
-
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 // The design uses mono for anything a user might copy — ticket IDs, amounts, IPs,
 // DNS records, API keys, axis labels. Self-hosted by next/font, which is what makes
 // it reachable at all: the design's own _ds/…/fonts.css pulls both faces from Google
 // Fonts, and this app's CSP is `font-src 'self'`. Same `variable` indirection as Inter.
-const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
@@ -55,7 +57,13 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("h-dvh", "antialiased", "font-sans", inter.variable, jetbrainsMono.variable)}
+      className={cn(
+        "h-dvh",
+        "antialiased",
+        "font-sans",
+        inter.variable,
+        jetbrainsMono.variable,
+      )}
     >
       <body className="h-full">
         {/* Runs synchronously before first paint to set the theme class on <html>,
@@ -72,9 +80,8 @@ export default function RootLayout({
             }),
           }}
         />
-        
-          {children}
-         
+
+        {children}
       </body>
     </html>
   );

@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-const emptyToUndefined = (value: unknown) =>
-  value === "" ? undefined : value;
+const emptyToUndefined = (value: unknown) => (value === "" ? undefined : value);
 
 const clientSchema = z.object({
   NEXT_PUBLIC_API_URL: z.string().url(),
@@ -11,22 +10,22 @@ const clientSchema = z.object({
 
   NEXT_PUBLIC_TWITTER_HANDLE: z.preprocess(
     emptyToUndefined,
-    z.string().startsWith("@").optional()
+    z.string().startsWith("@").optional(),
   ),
 
   NEXT_PUBLIC_SENTRY_DSN: z.preprocess(
     emptyToUndefined,
-    z.string().url().optional()
+    z.string().url().optional(),
   ),
 
   NEXT_PUBLIC_SUPABASE_URL: z.preprocess(
     emptyToUndefined,
-    z.string().url().optional()
+    z.string().url().optional(),
   ),
 
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.preprocess(
     emptyToUndefined,
-    z.string().min(1).optional()
+    z.string().min(1).optional(),
   ),
 });
 
@@ -37,8 +36,8 @@ if (!parsed.success) {
     `Invalid environment variables:\n${JSON.stringify(
       parsed.error.flatten().fieldErrors,
       null,
-      2
-    )}`
+      2,
+    )}`,
   );
 }
 

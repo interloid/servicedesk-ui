@@ -6,7 +6,12 @@
 
 /** Mirrors `public.membership_role` in supabase/schemas/types/00_types.sql. */
 export type MembershipRole =
-  "platform_admin" | "tenant_admin" | "manager" | "agent" | "billing_admin" | "customer";
+  | "platform_admin"
+  | "tenant_admin"
+  | "manager"
+  | "agent"
+  | "billing_admin"
+  | "customer";
 
 /**
  * A signed-in caller, flattened from `auth.users` plus their one active membership.

@@ -1,4 +1,10 @@
-import { CreditCard, Inbox, Ticket, TriangleAlert, type LucideIcon } from "lucide-react";
+import {
+  CreditCard,
+  Inbox,
+  Ticket,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 
 /** Drives the icon tile's surface/ink pair, exactly as the design's `icoStyle` does. */
 export type NotificationTone = "brand" | "error" | "warning" | "info";

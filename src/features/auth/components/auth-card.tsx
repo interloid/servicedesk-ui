@@ -38,7 +38,10 @@ export function AuthShell({ children }: { children: ReactNode }) {
 }
 
 /** `authCard`, rendered as the <form> itself so no wrapper element is added. */
-export function AuthCard({ className, ...props }: React.ComponentProps<"form">) {
+export function AuthCard({
+  className,
+  ...props
+}: React.ComponentProps<"form">) {
   return (
     <form
       noValidate

@@ -25,7 +25,10 @@ export const metadata: Metadata = {
  * session's tenant against the same host.
  */
 export default async function LoginPage(props: PageProps<"/login">) {
-  const [identity, tenant] = await Promise.all([getShellIdentity(), getTenantContext()]);
+  const [identity, tenant] = await Promise.all([
+    getShellIdentity(),
+    getTenantContext(),
+  ]);
 
   /*
    * `?error=` is how the OAuth callback reports a failed or cancelled Google sign-in — that
@@ -38,7 +41,11 @@ export default async function LoginPage(props: PageProps<"/login">) {
 
   return (
     <AuthShell>
-      <LoginForm identity={identity} tenant={tenant} initialError={initialError} />
+      <LoginForm
+        identity={identity}
+        tenant={tenant}
+        initialError={initialError}
+      />
     </AuthShell>
   );
 }

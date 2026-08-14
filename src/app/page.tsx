@@ -24,7 +24,10 @@ export default function Home() {
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans dark:bg-slate-950 dark:text-slate-100 flex flex-col justify-between">
       <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5 font-bold text-lg text-slate-900 dark:text-white">
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 font-bold text-lg text-slate-900 dark:text-white"
+          >
             <div className="w-8 h-8 rounded-lg bg-[#0f6c44] text-white flex items-center justify-center font-bold text-sm shadow-xs">
               S
             </div>
@@ -32,19 +35,31 @@ export default function Home() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600 dark:text-slate-300">
-            <a href="#features" className="hover:text-[#0f6c44] dark:hover:text-emerald-400 transition-colors">
+            <a
+              href="#features"
+              className="hover:text-[#0f6c44] dark:hover:text-emerald-400 transition-colors"
+            >
               Features
             </a>
-            <a href="#trending-2026" className="hover:text-[#0f6c44] dark:hover:text-emerald-400 transition-colors flex items-center gap-1.5">
+            <a
+              href="#trending-2026"
+              className="hover:text-[#0f6c44] dark:hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+            >
               <span>2026 Trends</span>
               <span className="rounded-full bg-emerald-100 dark:bg-emerald-950 text-[#0f6c44] dark:text-emerald-300 text-[10px] font-bold px-2 py-0.5 border border-emerald-200 dark:border-emerald-800">
                 NEW
               </span>
             </a>
-            <a href="#pricing" className="hover:text-[#0f6c44] dark:hover:text-emerald-400 transition-colors">
+            <a
+              href="#pricing"
+              className="hover:text-[#0f6c44] dark:hover:text-emerald-400 transition-colors"
+            >
               Pricing
             </a>
-            <a href="#docs" className="hover:text-[#0f6c44] dark:hover:text-emerald-400 transition-colors">
+            <a
+              href="#docs"
+              className="hover:text-[#0f6c44] dark:hover:text-emerald-400 transition-colors"
+            >
               Documentation
             </a>
           </nav>
@@ -73,11 +88,16 @@ export default function Home() {
         </div>
 
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white max-w-4xl leading-[1.15]">
-          Supercharge your support with <span className="text-[#0f6c44] dark:text-emerald-400">ServiceDeskPro</span>
+          Supercharge your support with{" "}
+          <span className="text-[#0f6c44] dark:text-emerald-400">
+            ServiceDeskPro
+          </span>
         </h1>
 
         <p className="mt-6 text-lg text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
-          The all-in-one multi-tenant helpdesk platform equipped with 2026 AI copilots, automated ticket routing, and dedicated organization workspaces.
+          The all-in-one multi-tenant helpdesk platform equipped with 2026 AI
+          copilots, automated ticket routing, and dedicated organization
+          workspaces.
         </p>
 
         <div className="mt-8 flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
@@ -96,7 +116,10 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="trending-2026" className="py-20 bg-white dark:bg-slate-900 border-y border-slate-200/80 dark:border-slate-800">
+      <section
+        id="trending-2026"
+        className="py-20 bg-white dark:bg-slate-900 border-y border-slate-200/80 dark:border-slate-800"
+      >
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col items-center text-center max-w-2xl mx-auto mb-16">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-[#0f6c44] text-xs font-semibold border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 mb-3">
@@ -106,7 +129,8 @@ export default function Home() {
               Stay Ahead with 2026 Helpdesk Trends
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-3">
-              ServiceDeskPro comes pre-configured with modern AI and proactive ticket resolution standards.
+              ServiceDeskPro comes pre-configured with modern AI and proactive
+              ticket resolution standards.
             </p>
           </div>
 
@@ -115,9 +139,13 @@ export default function Home() {
               <div className="w-10 h-10 rounded-xl bg-emerald-100 text-[#0f6c44] flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                 <Bot className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">Autonomous Agent Copilots</h3>
+              <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
+                Autonomous Agent Copilots
+              </h3>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                AI agents pre-draft response options, summarize multi-page customer histories in seconds, and resolve standard Level-1 tickets autonomously.
+                AI agents pre-draft response options, summarize multi-page
+                customer histories in seconds, and resolve standard Level-1
+                tickets autonomously.
               </p>
             </div>
 
@@ -125,9 +153,12 @@ export default function Home() {
               <div className="w-10 h-10 rounded-xl bg-emerald-100 text-[#0f6c44] flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                 <Cpu className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">Predictive SLA Breach Alerts</h3>
+              <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
+                Predictive SLA Breach Alerts
+              </h3>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Real-time machine learning models analyze agent queue velocity and alert supervisors before SLA breaches happen, not after.
+                Real-time machine learning models analyze agent queue velocity
+                and alert supervisors before SLA breaches happen, not after.
               </p>
             </div>
 
@@ -135,23 +166,30 @@ export default function Home() {
               <div className="w-10 h-10 rounded-xl bg-emerald-100 text-[#0f6c44] flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                 <Globe className="w-5 h-5" />
               </div>
-              <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">Zero-Trust Multi-Tenancy</h3>
+              <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
+                Zero-Trust Multi-Tenancy
+              </h3>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Complete dynamic subdomain isolation, database row-level tenant security, and real-time compliance tracking out of the box.
+                Complete dynamic subdomain isolation, database row-level tenant
+                security, and real-time compliance tracking out of the box.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      <section id="features" className="py-20 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800">
+      <section
+        id="features"
+        className="py-20 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800"
+      >
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center max-w-xl mx-auto mb-16">
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
               Built for modern customer operations
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-              Everything your support team needs to handle issues faster and smarter.
+              Everything your support team needs to handle issues faster and
+              smarter.
             </p>
           </div>
 
@@ -160,9 +198,12 @@ export default function Home() {
               <div className="w-10 h-10 rounded-lg bg-emerald-100 text-[#0f6c44] flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                 <Ticket className="w-5 h-5" />
               </div>
-              <h3 className="font-semibold text-slate-800 dark:text-white mb-1">Omnichannel Ticketing</h3>
+              <h3 className="font-semibold text-slate-800 dark:text-white mb-1">
+                Omnichannel Ticketing
+              </h3>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Consolidate requests from email, web portals, and API integrations into a unified, prioritizeable queue.
+                Consolidate requests from email, web portals, and API
+                integrations into a unified, prioritizeable queue.
               </p>
             </div>
 
@@ -170,9 +211,12 @@ export default function Home() {
               <div className="w-10 h-10 rounded-lg bg-emerald-100 text-[#0f6c44] flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                 <Globe className="w-5 h-5" />
               </div>
-              <h3 className="font-semibold text-slate-800 dark:text-white mb-1">Dedicated Tenant Domains</h3>
+              <h3 className="font-semibold text-slate-800 dark:text-white mb-1">
+                Dedicated Tenant Domains
+              </h3>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Give your organization its own branded subdomain (e.g., <code>yourcompany.servicedeskpro.com</code>).
+                Give your organization its own branded subdomain (e.g.,{" "}
+                <code>yourcompany.servicedeskpro.com</code>).
               </p>
             </div>
 
@@ -180,9 +224,12 @@ export default function Home() {
               <div className="w-10 h-10 rounded-lg bg-emerald-100 text-[#0f6c44] flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                 <Lock className="w-5 h-5" />
               </div>
-              <h3 className="font-semibold text-slate-800 dark:text-white mb-1">Security & Role Control</h3>
+              <h3 className="font-semibold text-slate-800 dark:text-white mb-1">
+                Security & Role Control
+              </h3>
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                Keep client data isolated with strict multi-tenant security policies, SSO integration, and full audit logging.
+                Keep client data isolated with strict multi-tenant security
+                policies, SSO integration, and full audit logging.
               </p>
             </div>
           </div>
@@ -195,17 +242,25 @@ export default function Home() {
             Transparent plans for teams of any size
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-            Start free, scale with Pro, or power large enterprise operations with our Business plan.
+            Start free, scale with Pro, or power large enterprise operations
+            with our Business plan.
           </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
           <div className="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between">
             <div>
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white">Starter Workspace</h3>
-              <p className="text-xs text-slate-500 mt-1">Ideal for startups & small support teams.</p>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white">
+                Starter Workspace
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Ideal for startups & small support teams.
+              </p>
               <div className="mt-6 text-3xl font-extrabold text-slate-900 dark:text-white">
-                $0 <span className="text-xs font-normal text-slate-400">/ workspace / mo</span>
+                $0{" "}
+                <span className="text-xs font-normal text-slate-400">
+                  / workspace / mo
+                </span>
               </div>
               <ul className="mt-6 space-y-3 text-xs text-slate-600 dark:text-slate-400">
                 <li className="flex items-center gap-2">
@@ -235,10 +290,17 @@ export default function Home() {
               Most Popular
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white">Pro Operations</h3>
-              <p className="text-xs text-slate-500 mt-1">For growing businesses needing automation & SLAs.</p>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white">
+                Pro Operations
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                For growing businesses needing automation & SLAs.
+              </p>
               <div className="mt-6 text-3xl font-extrabold text-slate-900 dark:text-white">
-                $29 <span className="text-xs font-normal text-slate-400">/ agent / mo</span>
+                $29{" "}
+                <span className="text-xs font-normal text-slate-400">
+                  / agent / mo
+                </span>
               </div>
               <ul className="mt-6 space-y-3 text-xs text-slate-600 dark:text-slate-400">
                 <li className="flex items-center gap-2">
@@ -271,11 +333,18 @@ export default function Home() {
             <div>
               <div className="flex items-center gap-2">
                 <Building2 className="w-4 h-4 text-[#0f6c44]" />
-                <h3 className="text-lg font-bold text-slate-800 dark:text-white">Business Plan</h3>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-white">
+                  Business Plan
+                </h3>
               </div>
-              <p className="text-xs text-slate-500 mt-1">Custom infrastructure for high-scale organizations.</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Custom infrastructure for high-scale organizations.
+              </p>
               <div className="mt-6 text-3xl font-extrabold text-slate-900 dark:text-white">
-                $59 <span className="text-xs font-normal text-slate-400">/ agent / mo</span>
+                $59{" "}
+                <span className="text-xs font-normal text-slate-400">
+                  / agent / mo
+                </span>
               </div>
               <ul className="mt-6 space-y-3 text-xs text-slate-600 dark:text-slate-400">
                 <li className="flex items-center gap-2">
@@ -314,7 +383,9 @@ export default function Home() {
             </div>
             <span>ServiceDeskPro Platform</span>
           </div>
-          <p>© {new Date().getFullYear()} ServiceDeskPro. All rights reserved.</p>
+          <p>
+            © {new Date().getFullYear()} ServiceDeskPro. All rights reserved.
+          </p>
         </div>
       </footer>
     </div>

@@ -5,7 +5,6 @@ import { RegisterInput } from "./schemas/onboarding.schema";
 import { registerTenant } from "./services/onboarding.service";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-
 export async function registerOnboardingAction(payload: RegisterInput) {
   try {
     const result = await registerTenant(payload);
@@ -19,17 +18,19 @@ export async function registerOnboardingAction(payload: RegisterInput) {
   }
 }
 
-export async function checkSlugAvailabilityAction(slug: string): Promise<{ available: boolean; error?: string }> {
-  console.log("🚀 ~ checkSlugAvailabilityAction ~ slug:", slug)
+export async function checkSlugAvailabilityAction(
+  slug: string,
+): Promise<{ available: boolean; error?: string }> {
+  console.log("🚀 ~ checkSlugAvailabilityAction ~ slug:", slug);
   try {
     const supabase = await createSupabaseAdminClient();
-    
+
     const { data, error } = await supabase
       .from("tenants")
       .select("id")
       .eq("slug", slug.toLowerCase().trim())
       .maybeSingle();
-    console.log("🚀 ~ checkSlugAvailabilityAction ~ data:", data)
+    console.log("🚀 ~ checkSlugAvailabilityAction ~ data:", data);
 
     if (error) {
       console.error("Slug check error:", error.message);
@@ -43,11 +44,12 @@ export async function checkSlugAvailabilityAction(slug: string): Promise<{ avail
   }
 }
 
-
-export async function checkEmailTenant(email: string): Promise<{ exists: boolean; tenant?: any }> {
+export async function checkEmailTenant(
+  email: string,
+): Promise<{ exists: boolean; tenant?: any }> {
   const cleanEmail = email.trim().toLowerCase();
-  console.log("🚀 ~ checkEmailTenant ~ cleanEmail:", cleanEmail)
-const supabase = await createSupabaseAdminClient();  
+  console.log("🚀 ~ checkEmailTenant ~ cleanEmail:", cleanEmail);
+  const supabase = await createSupabaseAdminClient();
 
   if (!cleanEmail) {
     return { exists: false };
@@ -59,7 +61,7 @@ const supabase = await createSupabaseAdminClient();
     .select("email")
     .eq("email", cleanEmail)
     .maybeSingle();
-  console.log("🚀 ~ checkEmailTenant ~ data:", data)
+  console.log("🚀 ~ checkEmailTenant ~ data:", data);
 
   if (error || !data) {
     return { exists: false };

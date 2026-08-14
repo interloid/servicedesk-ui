@@ -20,14 +20,23 @@ interface StepProps {
   onBack: () => void;
 }
 
-export function StepInviteTeam({ data, onChange, onFinish, onSkip, onBack }: StepProps) {
+export function StepInviteTeam({
+  data,
+  onChange,
+  onFinish,
+  onSkip,
+  onBack,
+}: StepProps) {
   // Convert array of invites into a single comma-separated string for input display
   const [emailsInput, setEmailsInput] = useState(() =>
-    data.invites.map((inv) => inv.email).filter(Boolean).join(", ")
+    data.invites
+      .map((inv) => inv.email)
+      .filter(Boolean)
+      .join(", "),
   );
 
-  const [selectedRole, setSelectedRole] = useState<TeamInvite["role"]>(() =>
-    data.invites[0]?.role || "Agent"
+  const [selectedRole, setSelectedRole] = useState<TeamInvite["role"]>(
+    () => data.invites[0]?.role || "Agent",
   );
 
   const handleEmailChange = (val: string) => {
@@ -59,7 +68,9 @@ export function StepInviteTeam({ data, onChange, onFinish, onSkip, onBack }: Ste
     <div className="w-full space-y-6 text-left">
       {/* Title & Subtitle */}
       <div className="space-y-1">
-        <h3 className="text-base font-bold text-slate-900">Invite your agents</h3>
+        <h3 className="text-base font-bold text-slate-900">
+          Invite your agents
+        </h3>
         <p className="text-xs sm:text-sm text-slate-500">
           Your Free plan covers 2 seats. Add more any time from Billing.
         </p>

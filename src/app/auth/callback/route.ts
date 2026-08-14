@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AuthError, exchangeOAuthCode, safeNext } from "@/features/auth/services/auth.service";
+import {
+  AuthError,
+  exchangeOAuthCode,
+  safeNext,
+} from "@/features/auth/services/auth.service";
 
 /**
  * OAuth return leg. `googleLogin` names this route as its `redirectTo`, so it is the URL
@@ -24,14 +28,17 @@ export async function GET(request: NextRequest) {
    * rather than a code. Send them back to the form with something it can show, not to an
    * error page: cancelling a consent screen is a decision, not a fault.
    */
-  const providerError = searchParams.get("error_description") ?? searchParams.get("error");
+  const providerError =
+    searchParams.get("error_description") ?? searchParams.get("error");
 
   if (providerError) {
     return NextResponse.redirect(loginWithError(origin, providerError));
   }
 
   if (!code) {
-    return NextResponse.redirect(loginWithError(origin, "Google didn't return a sign-in code."));
+    return NextResponse.redirect(
+      loginWithError(origin, "Google didn't return a sign-in code."),
+    );
   }
 
   try {

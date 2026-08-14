@@ -3,7 +3,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { env } from "@/config/env";
 import type { LoginValues } from "@/features/auth/schemas/login";
-import type { AuthFailureCode, MembershipRole, SessionUser } from "@/features/auth/types";
+import type {
+  AuthFailureCode,
+  MembershipRole,
+  SessionUser,
+} from "@/features/auth/types";
 import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -23,7 +27,10 @@ export class AuthError extends Error {
   readonly status: number;
   readonly code: AuthFailureCode;
 
-  constructor(message: string, { status = 400, code = "unknown" as AuthFailureCode } = {}) {
+  constructor(
+    message: string,
+    { status = 400, code = "unknown" as AuthFailureCode } = {},
+  ) {
     super(message);
     this.name = "AuthError";
     this.status = status;
@@ -59,7 +66,10 @@ type ActiveMembership = { tenant_id: string; role: MembershipRole };
  * `cookies()` store, which is why this must be called from a Server Action or Route
  * Handler and not during a Server Component render.
  */
-export async function login({ email, password }: LoginValues): Promise<SessionUser> {
+export async function login({
+  email,
+  password,
+}: LoginValues): Promise<SessionUser> {
   const supabase = await createSupabaseServerClient();
 
   /*
@@ -94,7 +104,8 @@ export async function login({ email, password }: LoginValues): Promise<SessionUs
    * tenant_id
    * tenant_role
    */
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
 
   if (claimsError) {
     console.error("JWT claims error:", claimsError);
@@ -102,7 +113,8 @@ export async function login({ email, password }: LoginValues): Promise<SessionUs
     throw new Error("Unable to verify authentication session");
   }
 
-  const tenantId = (claimsData?.claims?.tenant_id as string | undefined) ?? null;
+  const tenantId =
+    (claimsData?.claims?.tenant_id as string | undefined) ?? null;
 
   // The subdomain is the security boundary: a sign-in that ends up claiming a
   // DIFFERENT tenant than the one the visitor is stood on is a revoked session,
@@ -117,7 +129,6 @@ export async function login({ email, password }: LoginValues): Promise<SessionUs
    * - refresh_token
    */
 
-  
   return {
     id: data.user.id,
     email: data.user.email ?? email,
@@ -129,7 +140,8 @@ export async function login({ email, password }: LoginValues): Promise<SessionUs
      */
     tenantId,
 
-    role: (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
+    role:
+      (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
   };
 }
 
@@ -149,7 +161,9 @@ export async function login({ email, password }: LoginValues): Promise<SessionUs
  * carried on the callback URL rather than held server-side because the round trip through
  * Google is stateless from our side.
  */
-export async function googleLogin({ next = "/tickets" }: { next?: string } = {}) {
+export async function googleLogin({
+  next = "/tickets",
+}: { next?: string } = {}) {
   const supabase = await createSupabaseServerClient();
   const origin = await requestOrigin(); // e.g., "http://demo-rag.localhost:3000"
 
@@ -159,12 +173,16 @@ export async function googleLogin({ next = "/tickets" }: { next?: string } = {})
   const baseDomain = process.env.NEXT_PUBLIC_APP_DOMAIN || "localhost:3000";
 
   const isSubdomain = hostname.endsWith(`.${baseDomain}`);
-  const tenantSlug = isSubdomain ? hostname.replace(`.${baseDomain}`, "") : null;
+  const tenantSlug = isSubdomain
+    ? hostname.replace(`.${baseDomain}`, "")
+    : null;
 
   // 2. Resolve target path
   let targetNext = safeNext(next);
   if (tenantSlug && !targetNext.startsWith(`/tenant/`)) {
-    const cleanPath = targetNext.startsWith("/") ? targetNext : `/${targetNext}`;
+    const cleanPath = targetNext.startsWith("/")
+      ? targetNext
+      : `/${targetNext}`;
     targetNext = `/tenant/${tenantSlug}${cleanPath}`;
   }
 
@@ -213,7 +231,8 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
 
   const { data: claimsData } = await supabase.auth.getClaims();
 
-  const tenantId = (claimsData?.claims?.tenant_id as string | undefined) ?? null;
+  const tenantId =
+    (claimsData?.claims?.tenant_id as string | undefined) ?? null;
 
   await verifyHostTenancy(supabase, tenantId);
 
@@ -221,7 +240,8 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
     id: data.user.id,
     email: data.user.email ?? "",
     tenantId,
-    role: (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
+    role:
+      (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
   };
 }
 
@@ -232,7 +252,10 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
  * rather than sanitised — an open redirect off the login flow is a phishing primitive, and
  * there is no legitimate case for sending a freshly authenticated user off-site.
  */
-export function safeNext(next: string | null | undefined, fallback = "/tickets"): string {
+export function safeNext(
+  next: string | null | undefined,
+  fallback = "/tickets",
+): string {
   if (!next || !next.startsWith("/") || next.startsWith("//")) {
     return fallback;
   }
@@ -281,7 +304,10 @@ async function requestOrigin(): Promise<string> {
  *
  * On the bare base host there is no subdomain to verify against — nothing to do.
  */
-async function verifyHostTenancy(supabase: SupabaseClient, tenantId: string | null): Promise<void> {
+async function verifyHostTenancy(
+  supabase: SupabaseClient,
+  tenantId: string | null,
+): Promise<void> {
   const context = await getTenantContext();
 
   if (!context) {
@@ -294,13 +320,18 @@ async function verifyHostTenancy(supabase: SupabaseClient, tenantId: string | nu
     const { error } = await supabase.auth.signOut();
 
     if (error) {
-      console.error(`[auth] failed to revoke cross-tenant session: ${error.message}`);
+      console.error(
+        `[auth] failed to revoke cross-tenant session: ${error.message}`,
+      );
     }
 
-    throw new AuthError(`You don't have access to the ${context.name} workspace.`, {
-      status: 403,
-      code: "no_workspace_access",
-    });
+    throw new AuthError(
+      `You don't have access to the ${context.name} workspace.`,
+      {
+        status: 403,
+        code: "no_workspace_access",
+      },
+    );
   }
 }
 
@@ -415,7 +446,12 @@ async function recordAuthEvent(
     tenantId,
     userId,
     email,
-  }: { action: "login" | "logout"; tenantId: string; userId: string; email: string },
+  }: {
+    action: "login" | "logout";
+    tenantId: string;
+    userId: string;
+    email: string;
+  },
 ) {
   const { error } = await supabase.from("audit_logs").insert({
     tenant_id: tenantId,

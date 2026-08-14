@@ -119,7 +119,8 @@ export function LoginForm({
    */
   const formError = form.formState.errors.root;
   const bannerMessage = formError?.message ?? initialError;
-  const errorHeadline = ERROR_HEADLINE[(formError?.type as AuthFailureCode) ?? "unknown"];
+  const errorHeadline =
+    ERROR_HEADLINE[(formError?.type as AuthFailureCode) ?? "unknown"];
   const busy = isPending || isGooglePending;
 
   return (
@@ -152,7 +153,9 @@ export function LoginForm({
             name="email"
             render={({ field }) => (
               <FormItem id="login-email" className="flex flex-col gap-1.5">
-                <FormLabel className="font-semibold text-foreground">Work email</FormLabel>
+                <FormLabel className="font-semibold text-foreground">
+                  Work email
+                </FormLabel>
                 <FormControl>
                   <Input
                     type="email"
@@ -172,7 +175,9 @@ export function LoginForm({
             name="password"
             render={({ field }) => (
               <FormItem id="login-password" className="flex flex-col gap-1.5">
-                <FormLabel className="font-semibold text-foreground">Password</FormLabel>
+                <FormLabel className="font-semibold text-foreground">
+                  Password
+                </FormLabel>
                 <FormControl>
                   <Input
                     type="password"
@@ -192,7 +197,10 @@ export function LoginForm({
               control={form.control}
               name="remember"
               render={({ field }) => (
-                <FormItem id="login-remember" className="flex flex-row items-center gap-2.5">
+                <FormItem
+                  id="login-remember"
+                  className="flex flex-row items-center gap-2.5"
+                >
                   <FormControl>
                     <Checkbox
                       name={field.name}
@@ -244,13 +252,18 @@ export function LoginForm({
             onClick={onGoogleSignIn}
             className="h-13 w-full border-input text-base text-brand-accent"
           >
-            {isGooglePending ? "Redirecting to Google…" : "Continue with Google"}
+            {isGooglePending
+              ? "Redirecting to Google…"
+              : "Continue with Google"}
           </Button>
         </div>
 
         <p className="text-center text-sm text-muted-foreground">
           New here?{" "}
-          <Link href="/setup" className="font-semibold text-brand-accent hover:underline">
+          <Link
+            href="/setup"
+            className="font-semibold text-brand-accent hover:underline"
+          >
             Create an organization
           </Link>
         </p>

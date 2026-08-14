@@ -6,7 +6,7 @@ import { registerSchema, RegisterInput } from "../schemas/onboarding.schema";
 export interface Timezone {
   id: string;
   // Adjust these field names if your table uses 'label', 'timezone', or 'iana_name'
-  label?: string; 
+  label?: string;
   name?: string;
   utc_offset?: string;
 }
@@ -95,7 +95,9 @@ export async function registerTenant(payload: RegisterInput) {
   });
 
   if (authError || !auth.user) {
-    throw new Error(authError?.message || "Failed to create authentication user.");
+    throw new Error(
+      authError?.message || "Failed to create authentication user.",
+    );
   }
 
   const userId = auth.user.id;
@@ -113,7 +115,9 @@ export async function registerTenant(payload: RegisterInput) {
     .single();
 
   if (tenantError || !tenant) {
-    throw new Error(tenantError?.message || "Failed to create organization record.");
+    throw new Error(
+      tenantError?.message || "Failed to create organization record.",
+    );
   }
 
   // 8. Create Free Subscription
@@ -145,15 +149,19 @@ export async function registerTenant(payload: RegisterInput) {
   }
 
   // 10. Add Owner Membership
-  const { error: membershipError } = await adminSupabase.from("memberships").insert({
-    tenant_id: tenant.id,
-    user_id: userId,
-    role: "tenant_admin",
-    status: "active",
-  });
+  const { error: membershipError } = await adminSupabase
+    .from("memberships")
+    .insert({
+      tenant_id: tenant.id,
+      user_id: userId,
+      role: "tenant_admin",
+      status: "active",
+    });
 
   if (membershipError) {
-    throw new Error(`Membership provisioning failed: ${membershipError.message}`);
+    throw new Error(
+      `Membership provisioning failed: ${membershipError.message}`,
+    );
   }
 
   // 11. Configure Business Hours
@@ -173,49 +181,51 @@ export async function registerTenant(payload: RegisterInput) {
     .single();
 
   if (businessError || !businessHours) {
-    throw new Error(businessError?.message || "Business hours configuration failed.");
+    throw new Error(
+      businessError?.message || "Business hours configuration failed.",
+    );
   }
 
   // 12. Create SLA Policies
- // 1. Create the parent SLA Policy
-const { data: slaPolicy, error: slaPolicyError } = await adminSupabase
-  .from("sla_policies")
-  .insert({
+  // 1. Create the parent SLA Policy
+  const { data: slaPolicy, error: slaPolicyError } = await adminSupabase
+    .from("sla_policies")
+    .insert({
+      tenant_id: tenant.id,
+      business_hours_id: businessHours.id,
+      name: "Default SLA",
+      is_default: true,
+      status: "active",
+      applies_to: "All customers",
+      notify_before_breach: true,
+      escalate_on_breach: false,
+    })
+    .select()
+    .single();
+
+  if (slaPolicyError || !slaPolicy) {
+    throw new Error(`SLA Policy creation failed: ${slaPolicyError?.message}`);
+  }
+
+  // 2. Map targets using the verified schema keys
+  const slaTargets = sla.map((rule: any) => ({
     tenant_id: tenant.id,
-    business_hours_id: businessHours.id,
-    name: "Default SLA",
-    is_default: true,
-    status: "active",
-    applies_to: "All customers",
-    notify_before_breach: true,
-    escalate_on_breach: false,
-  })
-  .select()
-  .single();
+    policy_id: slaPolicy.id, // Correct foreign key column
+    priority_scope: rule.priority.toLowerCase(), // e.g. 'urgent', 'high', 'normal', 'low'
+    first_response_mins: rule.first_response_mins,
+    resolution_mins: rule.resolution_mins,
+    first_response_business: false,
+    resolution_business: false,
+  }));
 
-if (slaPolicyError || !slaPolicy) {
-  throw new Error(`SLA Policy creation failed: ${slaPolicyError?.message}`);
-}
+  // 3. Insert into sla_policy_targets table
+  const { error: slaTargetsError } = await adminSupabase
+    .from("sla_policy_targets")
+    .insert(slaTargets);
 
-// 2. Map targets using the verified schema keys
-const slaTargets = sla.map((rule: any) => ({
-  tenant_id: tenant.id,
-  policy_id: slaPolicy.id, // Correct foreign key column
-  priority_scope: rule.priority.toLowerCase(), // e.g. 'urgent', 'high', 'normal', 'low'
-  first_response_mins: rule.first_response_mins,
-  resolution_mins: rule.resolution_mins,
-  first_response_business: false,
-  resolution_business: false,
-}));
-
-// 3. Insert into sla_policy_targets table
-const { error: slaTargetsError } = await adminSupabase
-  .from("sla_policy_targets")
-  .insert(slaTargets);
-
-if (slaTargetsError) {
-  throw new Error(`SLA Targets setup failed: ${slaTargetsError.message}`);
-}
+  if (slaTargetsError) {
+    throw new Error(`SLA Targets setup failed: ${slaTargetsError.message}`);
+  }
 
   // 13. Process Team Invites (Safe loop with error resilience)
   if (invite_users && invite_users.length > 0) {
@@ -231,7 +241,10 @@ if (slaTargetsError) {
         });
 
       if (inviteError || !inviteData.user) {
-        console.error(`[Onboarding] Failed to invite ${invite.email}:`, inviteError?.message);
+        console.error(
+          `[Onboarding] Failed to invite ${invite.email}:`,
+          inviteError?.message,
+        );
         continue;
       }
 
@@ -283,9 +296,7 @@ export async function getTimezones(): Promise<Timezone[]> {
     const supabase = await createSupabaseServerClient();
 
     // Querying all columns prevents 'column does not exist' errors
-    const { data, error } = await supabase
-      .from("timezones")
-      .select("*");
+    const { data, error } = await supabase.from("timezones").select("*");
 
     if (error) {
       console.error("Error fetching timezones:", error.message);

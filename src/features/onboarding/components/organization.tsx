@@ -25,11 +25,16 @@ import { Loader2 } from "lucide-react";
 
 // Step 2 Zod Schema
 const organizationFormSchema = z.object({
-  orgName: z.string().min(2, "Organization name must be at least 2 characters."),
+  orgName: z
+    .string()
+    .min(2, "Organization name must be at least 2 characters."),
   portalAddress: z
     .string()
     .min(2, "Portal address must be at least 2 characters.")
-    .regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens."),
+    .regex(
+      /^[a-z0-9-]+$/,
+      "Slug can only contain lowercase letters, numbers, and hyphens.",
+    ),
   timezone_id: z.string().min(1, "Please select a valid timezone."),
 });
 
@@ -92,7 +97,9 @@ export function StepOrganization({
       const { available } = await checkSlugAvailabilityAction(slug);
 
       if (!available) {
-        setSlugError("This portal address is already taken. Please choose another.");
+        setSlugError(
+          "This portal address is already taken. Please choose another.",
+        );
         return false;
       }
       return true;
@@ -127,7 +134,10 @@ export function StepOrganization({
         </p>
       </div>
 
-      <form onSubmit={handleSubmit(handleOrganizationSubmit)} className="space-y-5 text-left">
+      <form
+        onSubmit={handleSubmit(handleOrganizationSubmit)}
+        className="space-y-5 text-left"
+      >
         {/* Error Alert */}
         {slugError && (
           <Alert variant="destructive" className="py-2 text-xs">
@@ -137,7 +147,10 @@ export function StepOrganization({
 
         {/* Organization Name Field */}
         <div className="space-y-1.5">
-          <Label htmlFor="orgName" className="text-sm font-semibold text-slate-800">
+          <Label
+            htmlFor="orgName"
+            className="text-sm font-semibold text-slate-800"
+          >
             Organization name
           </Label>
           <Input
@@ -150,7 +163,9 @@ export function StepOrganization({
               setValue("orgName", val, { shouldValidate: true });
               // Auto-generate portal slug while user types
               const generatedSlug = slugify(val, { lower: true, strict: true });
-              setValue("portalAddress", generatedSlug, { shouldValidate: true });
+              setValue("portalAddress", generatedSlug, {
+                shouldValidate: true,
+              });
               setSlugError(null);
             }}
           />
@@ -163,7 +178,10 @@ export function StepOrganization({
 
         {/* Portal Address Slug Field */}
         <div className="space-y-1.5">
-          <Label htmlFor="portalAddress" className="text-sm font-semibold text-slate-800">
+          <Label
+            htmlFor="portalAddress"
+            className="text-sm font-semibold text-slate-800"
+          >
             Portal address
           </Label>
           <Input
@@ -172,13 +190,18 @@ export function StepOrganization({
             className="h-11 rounded-lg border-slate-300 text-slate-800 placeholder:text-slate-400 focus-visible:ring-emerald-700"
             {...register("portalAddress")}
             onChange={(e) => {
-              const formattedSlug = e.target.value.toLowerCase().replace(/\s+/g, "-");
-              setValue("portalAddress", formattedSlug, { shouldValidate: true });
+              const formattedSlug = e.target.value
+                .toLowerCase()
+                .replace(/\s+/g, "-");
+              setValue("portalAddress", formattedSlug, {
+                shouldValidate: true,
+              });
               setSlugError(null);
             }}
           />
           <p className="text-xs text-slate-500">
-            {portalAddressVal ? portalAddressVal : "your-domain"}.servicedesk.pro
+            {portalAddressVal ? portalAddressVal : "your-domain"}
+            .servicedesk.pro
           </p>
           {errors.portalAddress && (
             <p className="text-xs font-medium text-destructive">
@@ -189,7 +212,9 @@ export function StepOrganization({
 
         {/* Timezone Selection Field */}
         <div className="space-y-1.5">
-          <Label className="text-sm font-semibold text-slate-800">Time zone</Label>
+          <Label className="text-sm font-semibold text-slate-800">
+            Time zone
+          </Label>
           <Controller
             name="timezone_id"
             control={control}

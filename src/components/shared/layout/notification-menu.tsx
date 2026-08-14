@@ -4,7 +4,11 @@ import * as React from "react";
 import { Bell } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { NOTIFICATIONS, TONE_TILE } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
@@ -56,7 +60,9 @@ export function NotificationMenu() {
         className="w-[300px] overflow-hidden rounded-xl p-0 shadow-[0_24px_60px_rgba(15,23,42,0.18)] sm:w-[380px]"
       >
         <div className="flex items-center justify-between gap-2.5 border-b px-4 py-3.5">
-          <span className="text-sm font-bold text-foreground">Notifications</span>
+          <span className="text-sm font-bold text-foreground">
+            Notifications
+          </span>
           <button
             type="button"
             onClick={() => setReadAll(true)}
@@ -89,9 +95,15 @@ export function NotificationMenu() {
                   <n.icon className="size-4" aria-hidden />
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="text-sm font-semibold text-foreground">{n.title}</span>
-                  <span className="text-xs leading-[1.45] text-muted-foreground">{n.body}</span>
-                  <span className="text-xs text-muted-foreground/80">{n.time}</span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {n.title}
+                  </span>
+                  <span className="text-xs leading-[1.45] text-muted-foreground">
+                    {n.body}
+                  </span>
+                  <span className="text-xs text-muted-foreground/80">
+                    {n.time}
+                  </span>
                 </div>
                 <span
                   aria-hidden

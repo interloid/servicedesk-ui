@@ -14,25 +14,51 @@ interface StepSlaPolicyProps {
 const DEFAULT_SLA_TARGETS: SlaTarget[] = [
   { priority: "Urgent", firstReply: "15 minutes", resolve: "4 hours" },
   { priority: "High", firstReply: "1 hour", resolve: "8 business hours" },
-  { priority: "Normal", firstReply: "4 business hours", resolve: "2 business days" },
+  {
+    priority: "Normal",
+    firstReply: "4 business hours",
+    resolve: "2 business days",
+  },
   { priority: "Low", firstReply: "1 business day", resolve: "5 business days" },
 ];
 
-export function StepSlaPolicy({ data, onNext, onSkip, onBack }: StepSlaPolicyProps) {
-  const slaTargets = data?.slaTargets?.length ? data.slaTargets : DEFAULT_SLA_TARGETS;
+export function StepSlaPolicy({
+  data,
+  onNext,
+  onSkip,
+  onBack,
+}: StepSlaPolicyProps) {
+  const slaTargets = data?.slaTargets?.length
+    ? data.slaTargets
+    : DEFAULT_SLA_TARGETS;
 
   const getPriorityBadgeStyles = (priority: string) => {
     switch (priority.toLowerCase()) {
       case "urgent":
-        return { bg: "bg-red-50 text-red-700 border-red-100", dot: "bg-red-500" };
+        return {
+          bg: "bg-red-50 text-red-700 border-red-100",
+          dot: "bg-red-500",
+        };
       case "high":
-        return { bg: "bg-amber-50 text-amber-800 border-amber-100", dot: "bg-amber-500" };
+        return {
+          bg: "bg-amber-50 text-amber-800 border-amber-100",
+          dot: "bg-amber-500",
+        };
       case "normal":
-        return { bg: "bg-sky-50 text-sky-800 border-sky-100", dot: "bg-sky-500" };
+        return {
+          bg: "bg-sky-50 text-sky-800 border-sky-100",
+          dot: "bg-sky-500",
+        };
       case "low":
-        return { bg: "bg-slate-100 text-slate-700 border-slate-200", dot: "bg-slate-500" };
+        return {
+          bg: "bg-slate-100 text-slate-700 border-slate-200",
+          dot: "bg-slate-500",
+        };
       default:
-        return { bg: "bg-slate-100 text-slate-700 border-slate-200", dot: "bg-slate-400" };
+        return {
+          bg: "bg-slate-100 text-slate-700 border-slate-200",
+          dot: "bg-slate-400",
+        };
     }
   };
 
@@ -71,7 +97,9 @@ export function StepSlaPolicy({ data, onNext, onSkip, onBack }: StepSlaPolicyPro
               {/* First reply (5 Cols) */}
               <div className="col-span-5 text-slate-500 whitespace-nowrap">
                 First reply{" "}
-                <span className="font-bold text-slate-900">{sla.firstReply}</span>
+                <span className="font-bold text-slate-900">
+                  {sla.firstReply}
+                </span>
               </div>
 
               {/* Resolve (4 Cols) */}
@@ -106,7 +134,7 @@ export function StepSlaPolicy({ data, onNext, onSkip, onBack }: StepSlaPolicyPro
           >
             Skip for now
           </Button>
-          
+
           <Button
             type="button"
             onClick={onNext}

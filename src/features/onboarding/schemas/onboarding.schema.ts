@@ -22,16 +22,25 @@ export const registerSchema = z.object({
   portal_slug: z
     .string()
     .min(2, "Portal slug is required")
-    .regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
+    .regex(
+      /^[a-z0-9-]+$/,
+      "Slug can only contain lowercase letters, numbers, and hyphens",
+    ),
 
   // Step 3: Business Hours
   timezone_id: z.string().uuid("Invalid timezone ID"),
   working_days: z.array(z.string()).min(1, "Select at least one working day"),
-  day_start: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid start time (HH:MM)"),
-  day_end: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid end time (HH:MM)"),
+  day_start: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid start time (HH:MM)"),
+  day_end: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid end time (HH:MM)"),
 
   // Step 4: SLA Targets
-  sla: z.array(slaRuleSchema).min(1, "At least one SLA target rule is required"),
+  sla: z
+    .array(slaRuleSchema)
+    .min(1, "At least one SLA target rule is required"),
 
   // Step 5: Invites
   invite_users: z.array(inviteUserSchema).default([]),

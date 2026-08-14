@@ -11,8 +11,8 @@ export default async function TicketsPage() {
       <h1 className="text-4xl font-semibold">Tickets</h1>
 
       <p className="text-sm text-foreground/70">
-        The queue is a work in progress. It will eventually list all tickets
-        for the current tenant, and allow creating new ones.
+        The queue is a work in progress. It will eventually list all tickets for
+        the current tenant, and allow creating new ones.
       </p>
     </div>
   );

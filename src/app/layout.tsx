@@ -66,7 +66,6 @@ export default function RootLayout({
       )}
     >
       <body className="h-full">
-      
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

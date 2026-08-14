@@ -37,7 +37,10 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="flex h-11 items-center gap-2 rounded-lg px-2">
+        <button
+          type="button"
+          className="flex h-11 items-center gap-2 rounded-lg px-2"
+        >
           <Avatar className="size-8">
             <AvatarFallback className="bg-foreground text-xs font-bold text-background">
               {identity.user.initials}
@@ -56,9 +59,15 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" sideOffset={8} className="w-60 rounded-xl p-0">
+      <DropdownMenuContent
+        align="end"
+        sideOffset={8}
+        className="w-60 rounded-xl p-0"
+      >
         <DropdownMenuLabel className="flex flex-col gap-0.5 border-b px-3.5 py-3 font-normal">
-          <span className="text-sm font-semibold text-foreground">{identity.user.name}</span>
+          <span className="text-sm font-semibold text-foreground">
+            {identity.user.name}
+          </span>
 
           <span className="text-xs text-muted-foreground">
             {identity.user.role} · {identity.org.name}

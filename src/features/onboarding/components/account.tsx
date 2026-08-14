@@ -16,9 +16,7 @@ import { checkEmailTenant } from "../register-actions";
 const accountFormSchema = z.object({
   fullName: z.string().min(2, "Full name is required."),
   workEmail: z.string().email("Please enter a valid work email address."),
-  password: z
-    .string()
-    .min(10, "Password must be at least 10 characters long."),
+  password: z.string().min(10, "Password must be at least 10 characters long."),
   agreeToTerms: z.boolean().refine((val) => val === true, {
     message: "You must accept the terms to proceed.",
   }),
@@ -215,9 +213,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
         <div className="absolute inset-0 flex items-center">
           <span className="w-full border-t border-slate-200" />
         </div>
-        <div className="relative bg-white px-3 text-xs text-slate-400">
-          or
-        </div>
+        <div className="relative bg-white px-3 text-xs text-slate-400">or</div>
       </div>
 
       {/* Social Sign In Option */}

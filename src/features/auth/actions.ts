@@ -10,7 +10,11 @@ import {
   safeNext,
 } from "@/features/auth/services/auth.service";
 // import { register } from "@/features/auth/services/register.service";
-import type { ActionResult, RegisteredOrg, SessionUser } from "@/features/auth/types";
+import type {
+  ActionResult,
+  RegisteredOrg,
+  SessionUser,
+} from "@/features/auth/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -30,7 +34,9 @@ import { redirect } from "next/navigation";
  * Takes `unknown` for the same reason — the argument is untrusted input off the wire, and
  * typing it `LoginValues` would be a claim about the caller we can't enforce.
  */
-export async function loginAction(values: unknown): Promise<ActionResult<SessionUser>> {
+export async function loginAction(
+  values: unknown,
+): Promise<ActionResult<SessionUser>> {
   const parsed = loginSchema.safeParse(values);
 
   if (!parsed.success) {
@@ -38,7 +44,10 @@ export async function loginAction(values: unknown): Promise<ActionResult<Session
       success: false,
       code: "validation",
       message: "Check the highlighted fields and try again.",
-      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<
+        string,
+        string[]
+      >,
     };
   }
 
@@ -73,13 +82,10 @@ export async function loginAction(values: unknown): Promise<ActionResult<Session
     }
 
     const baseDomain = process.env.NEXT_PUBLIC_APP_DOMAIN || "localhost:3000";
-    
+
     // Store URL to execute redirect OUTSIDE the try...catch block
     targetUrl = `http://${tenant.slug}.${baseDomain}/tickets`;
-
   } catch (error) {
-    
-
     if (error instanceof AuthError) {
       return { success: false, code: error.code, message: error.message };
     }
@@ -120,7 +126,9 @@ export async function loginAction(values: unknown): Promise<ActionResult<Session
  * `next` is untrusted (it comes off the query string) and is reduced to a same-origin path
  * by `safeNext` before it is ever put on a redirect URL.
  */
-export async function googleLoginAction(next?: unknown): Promise<ActionResult<{ url: string }>> {
+export async function googleLoginAction(
+  next?: unknown,
+): Promise<ActionResult<{ url: string }>> {
   try {
     const url = await googleLogin({
       next: safeNext(typeof next === "string" ? next : null),

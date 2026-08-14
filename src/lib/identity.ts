@@ -30,7 +30,8 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
     return null;
   }
 
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+  const { data: claimsData, error: claimsError } =
+    await supabase.auth.getClaims();
 
   if (claimsError) {
     throw claimsError;
@@ -105,7 +106,14 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
     throw memberError;
   }
 
-  const plan = (subscription?.plans as unknown as { id: string; name: string; seat_limit: number }[])?.[0] ?? null;
+  const plan =
+    (
+      subscription?.plans as unknown as {
+        id: string;
+        name: string;
+        seat_limit: number;
+      }[]
+    )?.[0] ?? null;
 
   const planName = plan?.name ?? "Free";
   const seatLimit = plan?.seat_limit ?? 0;

@@ -32,7 +32,12 @@ export const registerSchema = z
     // ── Step 1: account ────────────────────────────────────────────────────────────────
     fullName: z.string().trim().min(1, "Enter your full name"),
     email: emailField("Enter your email address"),
-    password: z.string().min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`),
+    password: z
+      .string()
+      .min(
+        MIN_PASSWORD_LENGTH,
+        `Use at least ${MIN_PASSWORD_LENGTH} characters`,
+      ),
 
     // ── Step 2: organization ───────────────────────────────────────────────────────────
     organizationName: z.string().trim().min(1, "Enter an organization name"),
@@ -51,7 +56,9 @@ export const registerSchema = z
     // UUID: the Select binds these short ids, and validating a UUID here would reject every
     // real submission.
     timezoneId: z.string().min(1, "Pick a timezone"),
-    workingDays: z.array(z.enum(DAY_LABELS)).min(1, "Pick at least one working day"),
+    workingDays: z
+      .array(z.enum(DAY_LABELS))
+      .min(1, "Pick at least one working day"),
     dayStart: z.string().regex(TIME_PATTERN, "Use 24-hour times, like 09:00"),
     dayEnd: z.string().regex(TIME_PATTERN, "Use 24-hour times, like 09:00"),
 

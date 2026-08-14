@@ -23,7 +23,10 @@ export const signupAccountSchema = z
     password: z
       .string()
       .min(1, "Enter a password")
-      .min(MIN_PASSWORD_LENGTH, `Use at least ${MIN_PASSWORD_LENGTH} characters`),
+      .min(
+        MIN_PASSWORD_LENGTH,
+        `Use at least ${MIN_PASSWORD_LENGTH} characters`,
+      ),
     confirm: z.string().min(1, "Re-enter your password"),
   })
   // Reported on `confirm`, so a mismatch blocks the field the user can fix without

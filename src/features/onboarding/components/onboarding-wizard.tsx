@@ -20,7 +20,8 @@ interface OnboardingWizardProps {
 function parseSlaMinutes(timeStr: string): number {
   if (timeStr.includes("15 minutes")) return 15;
   if (timeStr.includes("1 hour")) return 60;
-  if (timeStr.includes("4 hours") || timeStr.includes("4 business hours")) return 240;
+  if (timeStr.includes("4 hours") || timeStr.includes("4 business hours"))
+    return 240;
   if (timeStr.includes("8 business hours")) return 480;
   if (timeStr.includes("1 business day")) return 1440;
   if (timeStr.includes("2 business days")) return 2880;
@@ -47,8 +48,16 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
     slaTargets: [
       { priority: "Urgent", firstReply: "15 minutes", resolve: "4 hours" },
       { priority: "High", firstReply: "1 hour", resolve: "8 business hours" },
-      { priority: "Normal", firstReply: "4 business hours", resolve: "2 business days" },
-      { priority: "Low", firstReply: "1 business day", resolve: "5 business days" },
+      {
+        priority: "Normal",
+        firstReply: "4 business hours",
+        resolve: "2 business days",
+      },
+      {
+        priority: "Low",
+        firstReply: "1 business day",
+        resolve: "5 business days",
+      },
     ],
     invites: [{ email: "priya@northwind.io", role: "Agent" }],
   });
@@ -127,7 +136,9 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
             STEP {currentStep} OF 4
           </span>
           <h1 className="text-2xl font-bold text-slate-900 mt-1">
-            {currentStep === 1 ? "Create your account" : "Create your organization"}
+            {currentStep === 1
+              ? "Create your account"
+              : "Create your organization"}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             {currentStep === 1
@@ -159,7 +170,11 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
       {/* Active Step Content */}
       <div className="mt-6">
         {currentStep === 1 && (
-          <StepAccount data={formData} onChange={updateFormData} onNext={handleNext} />
+          <StepAccount
+            data={formData}
+            onChange={updateFormData}
+            onNext={handleNext}
+          />
         )}
         {currentStep === 2 && (
           <StepOrganization

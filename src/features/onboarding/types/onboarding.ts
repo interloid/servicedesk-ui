@@ -26,7 +26,7 @@ export interface OnboardingState {
   timezone_id: string; // Foreign key referencing public.timezones.id (UUID)
   workingDays: WorkingDay[];
   dayStarts: string; // Format "HH:MM" e.g., "09:00"
-  dayEnds: string;   // Format "HH:MM" e.g., "18:30"
+  dayEnds: string; // Format "HH:MM" e.g., "18:30"
 
   // Step 4: SLA Targets
   slaTargets: SlaTarget[];

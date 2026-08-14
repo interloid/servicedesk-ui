@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import React from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Ticket,
   Bookmark,
@@ -22,7 +22,7 @@ import {
   CreditCard,
   Sparkles,
   ChevronDown,
-} from 'lucide-react';
+} from "lucide-react";
 
 import {
   Sidebar,
@@ -36,27 +36,20 @@ import {
   SidebarMenuItem,
   SidebarTrigger,
   SidebarFooter,
-} from '@/components/ui/sidebar';
+} from "@/components/ui/sidebar";
 
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
+} from "@/components/ui/tooltip";
 
-import {
-  Avatar,
-  AvatarFallback,
-} from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-import type { ShellIdentity } from '@/lib/identity';
+import type { ShellIdentity } from "@/lib/identity";
 
-export function AppSidebar({
-  identity,
-}: {
-  identity: ShellIdentity | null;
-}) {
+export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
   const pathname = usePathname();
 
   const navSections = [
@@ -64,100 +57,100 @@ export function AppSidebar({
       title: null,
       items: [
         {
-          label: 'Ticket queue',
-          href: '/tickets',
+          label: "Ticket queue",
+          href: "/tickets",
           icon: Ticket,
         },
         {
-          label: 'Saved views',
-          href: '/views',
+          label: "Saved views",
+          href: "/views",
           icon: Bookmark,
         },
         {
-          label: 'Customers',
-          href: '/customers',
+          label: "Customers",
+          href: "/customers",
           icon: Building2,
         },
         {
-          label: 'Knowledge base',
-          href: '/kb',
+          label: "Knowledge base",
+          href: "/kb",
           icon: BookOpen,
         },
         {
-          label: 'Macros & templates',
-          href: '/macros',
+          label: "Macros & templates",
+          href: "/macros",
           icon: MessageSquareText,
         },
         {
-          label: 'SLA policies',
-          href: '/sla',
+          label: "SLA policies",
+          href: "/sla",
           icon: Clock,
         },
         {
-          label: 'Reports',
-          href: '/reports',
+          label: "Reports",
+          href: "/reports",
           icon: BarChart2,
         },
       ],
     },
 
     {
-      title: 'SETTINGS',
+      title: "SETTINGS",
       items: [
         {
-          label: 'Team & roles',
-          href: '/settings/team',
+          label: "Team & roles",
+          href: "/settings/team",
           icon: Users,
         },
         {
-          label: 'Branding',
-          href: '/settings/branding',
+          label: "Branding",
+          href: "/settings/branding",
           icon: Droplet,
         },
         {
-          label: 'Channels & email',
-          href: '/settings/channels',
+          label: "Channels & email",
+          href: "/settings/channels",
           icon: Mail,
         },
         {
-          label: 'Integrations & API',
-          href: '/settings/integrations',
+          label: "Integrations & API",
+          href: "/settings/integrations",
           icon: Zap,
         },
         {
-          label: 'Security & SSO',
-          href: '/settings/security',
+          label: "Security & SSO",
+          href: "/settings/security",
           icon: Shield,
         },
         {
-          label: 'Data & privacy',
-          href: '/settings/data',
+          label: "Data & privacy",
+          href: "/settings/data",
           icon: Database,
         },
         {
-          label: 'Notification center',
-          href: '/settings/notifications',
+          label: "Notification center",
+          href: "/settings/notifications",
           icon: Bell,
         },
         {
-          label: 'Audit log',
-          href: '/settings/audit',
+          label: "Audit log",
+          href: "/settings/audit",
           icon: FileText,
         },
       ],
     },
 
     {
-      title: 'ACCOUNT',
+      title: "ACCOUNT",
       items: [
         {
-          label: 'Billing overview',
-          href: '/account/billing',
+          label: "Billing overview",
+          href: "/account/billing",
           icon: CreditCard,
         },
         {
-          label: 'Plans & pricing',
-          href: '/account/plans',
+          label: "Plans & pricing",
+          href: "/account/plans",
           icon: Sparkles,
         },
       ],
@@ -175,7 +168,6 @@ export function AppSidebar({
         text-slate-700
       "
     >
-    
       <SidebarHeader
         className="
           border-b
@@ -245,7 +237,6 @@ export function AppSidebar({
             </span>
           </div>
 
-         
           <ChevronDown
             aria-hidden
             className="
@@ -257,7 +248,6 @@ export function AppSidebar({
             "
           />
 
-      
           <SidebarTrigger
             className="
               size-8
@@ -292,7 +282,6 @@ export function AppSidebar({
               p-0
             "
           >
-            
             {group.title && (
               <SidebarGroupLabel
                 className="
@@ -351,8 +340,8 @@ export function AppSidebar({
 
                                 ${
                                   isActive
-                                    ? 'bg-slate-100/80 font-semibold text-slate-900'
-                                    : ''
+                                    ? "bg-slate-100/80 font-semibold text-slate-900"
+                                    : ""
                                 }
 
                                 group-data-[collapsible=icon]:h-10
@@ -372,7 +361,6 @@ export function AppSidebar({
                                   group-data-[collapsible=icon]:justify-center
                                 "
                               >
-                              
                                 <Icon
                                   className="
                                     size-4
@@ -381,7 +369,6 @@ export function AppSidebar({
                                   "
                                 />
 
-                           
                                 <span
                                   className="
                                     truncate

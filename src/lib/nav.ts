@@ -62,7 +62,11 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Team & roles", href: "/settings/team", icon: Users },
       { label: "Branding", href: "/settings/branding", icon: Droplet },
       { label: "Channels & email", href: "/settings/channels", icon: Mail },
-      { label: "Integrations & API", href: "/settings/integrations", icon: Zap },
+      {
+        label: "Integrations & API",
+        href: "/settings/integrations",
+        icon: Zap,
+      },
       // TODO: confirm icon — `I.shield` is commented "// Shield" in the .dc.html and its
       // path is lucide's plain Shield, but the design's own React port (react/lib/nav.ts)
       // imports ShieldCheck for this row. Following the .dc.html, which is canonical.
@@ -85,12 +89,15 @@ export const NAV_GROUPS: NavGroup[] = [
  * Longest-prefix match, so `/billing/plans` resolves to "Plans & pricing" rather than
  * to "Billing overview", which is also a prefix of it.
  */
-export function findActiveNavItem(pathname: string): { group: NavGroup; item: NavItem } | null {
+export function findActiveNavItem(
+  pathname: string,
+): { group: NavGroup; item: NavItem } | null {
   let best: { group: NavGroup; item: NavItem } | null = null;
 
   for (const group of NAV_GROUPS) {
     for (const item of group.items) {
-      const matches = pathname === item.href || pathname.startsWith(`${item.href}/`);
+      const matches =
+        pathname === item.href || pathname.startsWith(`${item.href}/`);
       if (matches && (!best || item.href.length > best.item.href.length)) {
         best = { group, item };
       }

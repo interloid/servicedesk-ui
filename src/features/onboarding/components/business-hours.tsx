@@ -106,7 +106,10 @@ export function StepBusinessHours({
         </h2>
       </div>
 
-      <form onSubmit={handleSubmit(handleBusinessHoursSubmit)} className="space-y-6 text-left">
+      <form
+        onSubmit={handleSubmit(handleBusinessHoursSubmit)}
+        className="space-y-6 text-left"
+      >
         <div>
           <h3 className="text-base font-bold text-slate-900 mb-4">
             When is your team on shift?
@@ -115,7 +118,9 @@ export function StepBusinessHours({
           <div className="space-y-5">
             {/* Time Zone Select */}
             <div className="space-y-1.5">
-              <Label className="text-sm font-semibold text-slate-800">Time zone</Label>
+              <Label className="text-sm font-semibold text-slate-800">
+                Time zone
+              </Label>
               <Controller
                 name="timezone_id"
                 control={control}
@@ -149,7 +154,9 @@ export function StepBusinessHours({
 
             {/* Working Days Pill Selector */}
             <div className="space-y-1.5">
-              <Label className="text-sm font-semibold text-slate-800">Working days</Label>
+              <Label className="text-sm font-semibold text-slate-800">
+                Working days
+              </Label>
               <div className="flex flex-wrap gap-2 pt-1">
                 {DAYS.map((day) => {
                   const isSelected = selectedWorkingDays.includes(day);
@@ -179,7 +186,10 @@ export function StepBusinessHours({
             {/* Day Starts / Ends Time Inputs */}
             <div className="grid grid-cols-2 gap-4 pt-1">
               <div className="space-y-1.5">
-                <Label htmlFor="dayStarts" className="text-sm font-semibold text-slate-800">
+                <Label
+                  htmlFor="dayStarts"
+                  className="text-sm font-semibold text-slate-800"
+                >
                   Day starts
                 </Label>
                 <Input
@@ -196,7 +206,10 @@ export function StepBusinessHours({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="dayEnds" className="text-sm font-semibold text-slate-800">
+                <Label
+                  htmlFor="dayEnds"
+                  className="text-sm font-semibold text-slate-800"
+                >
                   Day ends
                 </Label>
                 <Input

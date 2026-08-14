@@ -34,7 +34,8 @@ export function HeaderSearch({ className }: { className?: string }) {
   // own shortcut sheet ("/" → "Focus search"), so the hint has to actually do something.
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey)
+        return;
 
       const target = event.target as HTMLElement | null;
       // Never steal the keystroke from somewhere the user is already typing.

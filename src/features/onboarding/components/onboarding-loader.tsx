@@ -23,9 +23,7 @@ export function OnboardingLoader({
         />
         <div>
           <h4 className="text-xl font-bold text-slate-900">{title}</h4>
-          <p className="mt-1 text-sm font-medium text-slate-500">
-            {subtitle}
-          </p>
+          <p className="mt-1 text-sm font-medium text-slate-500">{subtitle}</p>
         </div>
       </div>
     </div>

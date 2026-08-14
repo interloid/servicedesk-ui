@@ -3,7 +3,11 @@
 import { useCallback, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-import { googleLoginAction, loginAction, logoutAction } from "@/features/auth/actions";
+import {
+  googleLoginAction,
+  loginAction,
+  logoutAction,
+} from "@/features/auth/actions";
 import type { LoginValues } from "@/features/auth/schemas/login";
 import type { ActionResult, SessionUser } from "@/features/auth/types";
 
@@ -16,7 +20,10 @@ type UseLoginOptions = {
  * Helper to compute tenant-aware redirect targets.
  * Resolves relative paths (e.g., "/tickets") to "/tenant/[tenantSlug]/tickets" if inside a tenant context.
  */
-function useResolvedRedirect(defaultPath: string, customRedirect?: string | null) {
+function useResolvedRedirect(
+  defaultPath: string,
+  customRedirect?: string | null,
+) {
   const params = useParams();
   const tenantSlug = params?.tenantSlug as string | undefined;
 
@@ -26,7 +33,9 @@ function useResolvedRedirect(defaultPath: string, customRedirect?: string | null
 
   if (tenantSlug) {
     // Prevent double slashes when prefixing
-    const cleanPath = defaultPath.startsWith("/") ? defaultPath : `/${defaultPath}`;
+    const cleanPath = defaultPath.startsWith("/")
+      ? defaultPath
+      : `/${defaultPath}`;
     return `/tenant/${tenantSlug}${cleanPath}`;
   }
 
@@ -82,7 +91,9 @@ export function useGoogleLogin({ redirectTo }: UseLoginOptions = {}) {
   const [isPending, setIsPending] = useState(false);
   const targetRedirect = useResolvedRedirect("/tickets", redirectTo);
 
-  const signInWithGoogle = useCallback(async (): Promise<ActionResult<{ url: string }>> => {
+  const signInWithGoogle = useCallback(async (): Promise<
+    ActionResult<{ url: string }>
+  > => {
     setIsPending(true);
 
     let result: ActionResult<{ url: string }>;

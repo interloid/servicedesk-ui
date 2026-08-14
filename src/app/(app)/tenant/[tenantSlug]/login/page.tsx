@@ -27,18 +27,17 @@ export default async function LoginPage(props: PageProps) {
     getShellIdentity(),
     getTenantContext(params.tenantSlug),
   ]);
-    console.log("🚀 ~ LoginPage ~ tenantSlug:", params.tenantSlug)
-
+  console.log("🚀 ~ LoginPage ~ tenantSlug:", params.tenantSlug);
 
   const errorParam = searchParams.error;
   const initialError = Array.isArray(errorParam) ? errorParam[0] : errorParam;
 
   return (
     <AuthShell>
-      <LoginForm 
-        identity={identity} 
-        tenant={tenant} 
-        initialError={initialError} 
+      <LoginForm
+        identity={identity}
+        tenant={tenant}
+        initialError={initialError}
       />
     </AuthShell>
   );

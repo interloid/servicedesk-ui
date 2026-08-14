@@ -92,8 +92,8 @@ export function ForgotPasswordForm() {
               Check your inbox
             </h1>
             <p className="text-sm leading-[1.6] text-muted-foreground">
-              If that email has an account, a reset link is on its way. It expires in 30 minutes —
-              check spam before asking for another.
+              If that email has an account, a reset link is on its way. It
+              expires in 30 minutes — check spam before asking for another.
             </p>
             {/* Secondary, auto-width, 42px — the design's `tapBtn`. */}
             <Button
@@ -112,8 +112,8 @@ export function ForgotPasswordForm() {
                 Reset your password
               </h1>
               <p className="text-sm leading-[1.6] text-muted-foreground">
-                Enter the email you sign in with. We&apos;ll send a link that&apos;s valid for 30
-                minutes.
+                Enter the email you sign in with. We&apos;ll send a link
+                that&apos;s valid for 30 minutes.
               </p>
             </div>
 
@@ -123,8 +123,11 @@ export function ForgotPasswordForm() {
               <Alert tone="error" className="rounded-[10px] px-3.5 py-3">
                 <CircleAlert className="size-[18px]" aria-hidden />
                 <AlertDescription className="text-sm leading-[1.55]">
-                  <span className="font-bold">We couldn&apos;t send that link.</span> Too many
-                  attempts from this address — try again in 60 seconds, or contact your admin.
+                  <span className="font-bold">
+                    We couldn&apos;t send that link.
+                  </span>{" "}
+                  Too many attempts from this address — try again in 60 seconds,
+                  or contact your admin.
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -134,7 +137,9 @@ export function ForgotPasswordForm() {
               name="email"
               render={({ field }) => (
                 <FormItem id="forgot-email" className="flex flex-col gap-1.5">
-                  <FormLabel className="font-semibold text-foreground">Work email</FormLabel>
+                  <FormLabel className="font-semibold text-foreground">
+                    Work email
+                  </FormLabel>
                   <FormControl>
                     <Input
                       type="email"
@@ -163,7 +168,10 @@ export function ForgotPasswordForm() {
 
         {/* Outside both states in the design — it shows on the form and the confirmation. */}
         <p className="text-center text-sm text-muted-foreground">
-          <Link href="/login" className="font-semibold text-brand-accent hover:underline">
+          <Link
+            href="/login"
+            className="font-semibold text-brand-accent hover:underline"
+          >
             Back to sign in
           </Link>
         </p>

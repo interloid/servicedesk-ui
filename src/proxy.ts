@@ -17,15 +17,15 @@ export async function proxy(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
+            request.cookies.set(name, value),
           );
           response = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
+            response.cookies.set(name, value, options),
           );
         },
       },
-    }
+    },
   );
 
   // Refresh auth session
@@ -42,7 +42,10 @@ export async function proxy(request: NextRequest) {
   // 3. Subdomain Rewriting
   if (subdomain && subdomain !== "www" && subdomain !== "app") {
     if (!url.pathname.startsWith(`/tenant/${subdomain}`)) {
-      const rewriteUrl = new URL(`/tenant/${subdomain}${url.pathname}${url.search}`, request.url);
+      const rewriteUrl = new URL(
+        `/tenant/${subdomain}${url.pathname}${url.search}`,
+        request.url,
+      );
       return NextResponse.rewrite(rewriteUrl, { headers: response.headers });
     }
   }

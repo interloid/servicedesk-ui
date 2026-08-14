@@ -51,7 +51,9 @@ function isValidTenantLabel(label: string): boolean {
  * it also matches `{label}.localhost` (with or without a port) so a `/etc/hosts`
  * entry makes a subdomain reachable without a real DNS name.
  */
-export function tenantLabelFromHost(host: string | null | undefined): string | null {
+export function tenantLabelFromHost(
+  host: string | null | undefined,
+): string | null {
   if (!host) {
     return null;
   }

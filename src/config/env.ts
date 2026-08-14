@@ -3,7 +3,6 @@ import { z } from "zod";
 const emptyToUndefined = (value: unknown) => (value === "" ? undefined : value);
 
 const clientSchema = z.object({
-  NEXT_PUBLIC_API_URL: z.string().url(),
   NEXT_PUBLIC_SITE_URL: z.string().url(),
   NEXT_PUBLIC_SITE_NAME: z.string().min(1),
   NEXT_PUBLIC_SITE_DESCRIPTION: z.string().min(1),
@@ -24,6 +23,10 @@ const clientSchema = z.object({
   ),
 
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.preprocess(
+    emptyToUndefined,
+    z.string().min(1).optional(),
+  ),
+  SUPABASE_SERVICE_ROLE_KEY: z.preprocess(
     emptyToUndefined,
     z.string().min(1).optional(),
   ),

@@ -66,8 +66,7 @@ export default function RootLayout({
       )}
     >
       <body className="h-full">
-        {/* Runs synchronously before first paint to set the theme class on <html>,
-            preventing a flash of the wrong theme. See src/lib/theme.ts. */}
+      
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

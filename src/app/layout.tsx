@@ -5,11 +5,6 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
-
-// The design uses mono for anything a user might copy — ticket IDs, amounts, IPs,
-// DNS records, API keys, axis labels. Self-hosted by next/font, which is what makes
-// it reachable at all: the design's own _ds/…/fonts.css pulls both faces from Google
-// Fonts, and this app's CSP is `font-src 'self'`. Same `variable` indirection as Inter.
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
@@ -51,9 +46,6 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // suppressHydrationWarning: the pre-hydration theme script (below) mutates the
-    // <html> class and color-scheme before React hydrates, so the server and client
-    // markup for this element legitimately differ. Scoped to <html> only.
     <html
       lang="en"
       suppressHydrationWarning

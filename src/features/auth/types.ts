@@ -27,6 +27,16 @@ export type SessionUser = {
   role: MembershipRole | null;
 };
 
+/**
+ * A successful sign-in: the session plus where to send the browser next.
+ *
+ * `redirectTo` is resolved server-side (`resolvePostAuthUrl`) because only the
+ * server knows which workspace the new session claims. It is either a path on the
+ * current origin — the clean `/tickets` a tenant subdomain shows — or an absolute
+ * URL on that workspace's subdomain. The caller checks which before navigating.
+ */
+export type LoginSuccess = SessionUser & { redirectTo: string };
+
 /** What a completed registration provisioned, for the confirmation the wizard shows. */
 export type RegisteredOrg = {
   user: { id: string; email: string; fullName: string };

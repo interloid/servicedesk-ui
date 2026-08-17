@@ -1,10 +1,6 @@
 "use client";
 
 import { DEFAULT_TIMEZONE_ID } from "@/features/auth/lib/timezones";
-import {
-  DEFAULT_WORKING_DAYS,
-  SEED_INVITE_EMAILS,
-} from "@/features/onboarding/lib/onboarding-data";
 
 /**
  * The signup wizard's in-progress values, held client-side across three routes.
@@ -30,6 +26,12 @@ import {
  */
 
 const STORAGE_KEY = "sdp.signup.draft";
+
+/** Step 3 defaults — the same Mon–Fri week the business-hours step starts from. */
+const DEFAULT_WORKING_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+
+/** Step 4 default — the placeholder invite the onboarding wizard pre-fills. */
+const SEED_INVITE_EMAILS = "priya@northwind.io";
 
 export type SignupDraft = {
   /** Step 1 — /signup. */
@@ -64,13 +66,9 @@ export const EMPTY_DRAFT: SignupDraft = {
   inviteRole: "Agent",
 };
 
-/**
- * Read the draft. Returns defaults when absent, and on any parse failure — a corrupt or
- * half-written entry should restart the wizard, not throw inside a render.
- */
+
 export function readSignupDraft(): SignupDraft {
-  // Guard for SSR: this module is imported by client components that still render on the
-  // server first, where `sessionStorage` doesn't exist.
+  
   if (typeof window === "undefined") {
     return EMPTY_DRAFT;
   }
@@ -78,16 +76,12 @@ export function readSignupDraft(): SignupDraft {
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_DRAFT;
-
-    // Spread over the defaults so a draft written by an older build, missing a key added
-    // since, still yields a complete object instead of `undefined` fields.
     return { ...EMPTY_DRAFT, ...(JSON.parse(raw) as Partial<SignupDraft>) };
   } catch {
     return EMPTY_DRAFT;
   }
 }
 
-/** Merge a step's values into the draft. */
 export function patchSignupDraft(patch: Partial<SignupDraft>): SignupDraft {
   const next = { ...readSignupDraft(), ...patch };
 
@@ -95,22 +89,17 @@ export function patchSignupDraft(patch: Partial<SignupDraft>): SignupDraft {
     try {
       window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
-      // Private-mode quota or a blocked storage partition. The wizard still works within a
-      // single route; only cross-route persistence is lost, which the final step surfaces as
-      // a missing-details error rather than a silent half-registration.
     }
   }
 
   return next;
 }
 
-/** Drop the draft — call once registration has succeeded, so the password stops living here. */
 export function clearSignupDraft(): void {
   if (typeof window === "undefined") return;
 
   try {
     window.sessionStorage.removeItem(STORAGE_KEY);
   } catch {
-    // Nothing to do; the entry expires with the tab regardless.
   }
 }

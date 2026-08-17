@@ -7,7 +7,6 @@ import { z } from "zod";
 import slugify from "slugify";
 
 import { OnboardingState } from "../types/onboarding";
-import { checkSlugAvailabilityAction } from "../register-actions";
 
 // shadcn UI Primitives
 import { Input } from "@/components/ui/input";
@@ -22,6 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2 } from "lucide-react";
+import { checkSlugAvailabilityAction } from "../register-actions";
+
 
 // Step 2 Zod Schema
 const organizationFormSchema = z.object({
@@ -121,7 +122,6 @@ export function StepOrganization({
 
   return (
     <div className="w-full space-y-6">
-      {/* Header Section */}
       <div className="space-y-1">
         <span className="text-xs font-bold tracking-wider text-emerald-800 uppercase">
           Step 2 of 4
@@ -138,14 +138,12 @@ export function StepOrganization({
         onSubmit={handleSubmit(handleOrganizationSubmit)}
         className="space-y-5 text-left"
       >
-        {/* Error Alert */}
         {slugError && (
           <Alert variant="destructive" className="py-2 text-xs">
             <AlertDescription>{slugError}</AlertDescription>
           </Alert>
         )}
 
-        {/* Organization Name Field */}
         <div className="space-y-1.5">
           <Label
             htmlFor="orgName"
@@ -161,7 +159,6 @@ export function StepOrganization({
             onChange={(e) => {
               const val = e.target.value;
               setValue("orgName", val, { shouldValidate: true });
-              // Auto-generate portal slug while user types
               const generatedSlug = slugify(val, { lower: true, strict: true });
               setValue("portalAddress", generatedSlug, {
                 shouldValidate: true,
@@ -176,7 +173,6 @@ export function StepOrganization({
           )}
         </div>
 
-        {/* Portal Address Slug Field */}
         <div className="space-y-1.5">
           <Label
             htmlFor="portalAddress"
@@ -210,7 +206,6 @@ export function StepOrganization({
           )}
         </div>
 
-        {/* Timezone Selection Field */}
         <div className="space-y-1.5">
           <Label className="text-sm font-semibold text-slate-800">
             Time zone
@@ -246,7 +241,6 @@ export function StepOrganization({
           )}
         </div>
 
-        {/* Submit / Continue Button */}
         <Button
           type="submit"
           disabled={isCheckingSlug}
@@ -262,7 +256,6 @@ export function StepOrganization({
           )}
         </Button>
 
-        {/* Back Button */}
         <div className="text-center pt-2">
           <Button
             type="button"

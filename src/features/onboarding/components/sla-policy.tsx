@@ -64,7 +64,6 @@ export function StepSlaPolicy({
 
   return (
     <div className="w-full space-y-6">
-      {/* Subtitle */}
       <div className="space-y-1 text-left">
         <h3 className="text-base font-bold text-slate-900">
           Set your first SLA targets
@@ -74,7 +73,6 @@ export function StepSlaPolicy({
         </p>
       </div>
 
-      {/* SLA Table */}
       <div className="rounded-2xl border border-slate-200/80 bg-white divide-y divide-slate-100 overflow-hidden shadow-xs text-left">
         {slaTargets.map((sla) => {
           const styles = getPriorityBadgeStyles(sla.priority);
@@ -84,7 +82,6 @@ export function StepSlaPolicy({
               key={sla.priority}
               className="grid grid-cols-12 items-center px-6 py-4 text-xs sm:text-sm hover:bg-slate-50/50 transition-colors gap-4"
             >
-              {/* Badge (3 Cols) */}
               <div className="col-span-3 flex items-center">
                 <span
                   className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${styles.bg}`}
@@ -94,7 +91,6 @@ export function StepSlaPolicy({
                 </span>
               </div>
 
-              {/* First reply (5 Cols) */}
               <div className="col-span-5 text-slate-500 whitespace-nowrap">
                 First reply{" "}
                 <span className="font-bold text-slate-900">
@@ -102,7 +98,6 @@ export function StepSlaPolicy({
                 </span>
               </div>
 
-              {/* Resolve (4 Cols) */}
               <div className="col-span-4 text-slate-500 whitespace-nowrap">
                 Resolve{" "}
                 <span className="font-bold text-slate-900">{sla.resolve}</span>
@@ -112,9 +107,7 @@ export function StepSlaPolicy({
         })}
       </div>
 
-      {/* Footer Button Alignment */}
       <div className="flex items-center justify-between pt-4">
-        {/* Left Action */}
         <Button
           type="button"
           variant="link"
@@ -124,7 +117,6 @@ export function StepSlaPolicy({
           Back
         </Button>
 
-        {/* Right Actions */}
         <div className="flex items-center gap-3">
           <Button
             type="button"

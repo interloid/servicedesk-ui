@@ -29,7 +29,6 @@ function minutesOf(time: string): number {
 
 export const registerSchema = z
   .object({
-    // ── Step 1: account ────────────────────────────────────────────────────────────────
     fullName: z.string().trim().min(1, "Enter your full name"),
     email: emailField("Enter your email address"),
     password: z
@@ -39,10 +38,7 @@ export const registerSchema = z
         `Use at least ${MIN_PASSWORD_LENGTH} characters`,
       ),
 
-    // ── Step 2: organization ───────────────────────────────────────────────────────────
     organizationName: z.string().trim().min(1, "Enter an organization name"),
-    // Optional: the service derives it from the organization name when blank, which is what
-    // the design's own hint implies.
     portalSlug: z
       .string()
       .trim()
@@ -51,10 +47,6 @@ export const registerSchema = z
       .optional()
       .or(z.literal("")),
 
-    // ── Step 3: business hours ─────────────────────────────────────────────────────────
-    // A design id such as "ist", resolved to a `public.timezones` row by the service. Not a
-    // UUID: the Select binds these short ids, and validating a UUID here would reject every
-    // real submission.
     timezoneId: z.string().min(1, "Pick a timezone"),
     workingDays: z
       .array(z.enum(DAY_LABELS))
@@ -62,9 +54,7 @@ export const registerSchema = z
     dayStart: z.string().regex(TIME_PATTERN, "Use 24-hour times, like 09:00"),
     dayEnd: z.string().regex(TIME_PATTERN, "Use 24-hour times, like 09:00"),
 
-    // ── Step 4: invites ────────────────────────────────────────────────────────────────
-    // Accepted and validated, but NOT acted on in this pass — sending them needs the auth
-    // admin invite API. Kept in the payload so the shape doesn't change when that lands.
+  
     inviteUsers: z
       .array(
         z.object({
@@ -74,7 +64,6 @@ export const registerSchema = z
       )
       .default([]),
   })
-  // Reported on `dayEnd`, the field the user can fix without disturbing the start time.
   .refine((values) => minutesOf(values.dayEnd) > minutesOf(values.dayStart), {
     path: ["dayEnd"],
     message: "The day has to end after it starts",

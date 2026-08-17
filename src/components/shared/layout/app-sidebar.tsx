@@ -293,7 +293,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                   text-xs
                   font-bold
                   uppercase
-                  tracking-[0.1em]
+                  tracking-widest
                   text-muted-foreground/80
 
                   group-data-[collapsible=icon]:hidden

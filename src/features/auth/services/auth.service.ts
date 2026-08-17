@@ -8,8 +8,15 @@ import type {
   MembershipRole,
   SessionUser,
 } from "@/features/auth/types";
-import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  getTenantContext,
+  getTenantSlugById,
+} from "@/features/tenancy/services/tenant-resolver";
+import { landingUrlForSlug, tenantLabelFromHost } from "@/lib/tenancy";
+import { createSupabaseAnonClient, createSupabaseServerClient } from "@/lib/supabase/server";
+import { ForgotPasswordValues } from "../schemas/forgot-password";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { updatePasswordSchema, UpdatePasswordValues } from "../schemas/reset-password";
 
 /**
  * Auth service — the only place that talks to the Supabase auth/data SDK.
@@ -116,79 +123,26 @@ export async function login({
   const tenantId =
     (claimsData?.claims?.tenant_id as string | undefined) ?? null;
 
-  // The subdomain is the security boundary: a sign-in that ends up claiming a
-  // DIFFERENT tenant than the one the visitor is stood on is a revoked session,
-  // not a soft warning. See `verifyHostTenancy`.
   await verifyHostTenancy(supabase, tenantId);
 
-  /*
-   * Return only application-safe information.
-   *
-   * Do NOT return:
-   * - access_token
-   * - refresh_token
-   */
 
   return {
     id: data.user.id,
     email: data.user.email ?? email,
-
-    /*
-     * These are application response fields.
-     *
-     * They are NOT the JWT claims.
-     */
     tenantId,
-
     role:
       (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
   };
 }
 
-/**
- * Begin Google sign-in.
- *
- * Server-side `signInWithOAuth` does NOT sign anyone in and does NOT redirect — there is no
- * browser here to send anywhere. It builds the provider's consent URL, and (because
- * `@supabase/ssr` runs the PKCE flow) writes the code verifier into a cookie through the
- * same adapter `login` uses. So this must be called from a Server Action or Route Handler:
- * during a Server Component render the cookie write is swallowed and the callback's
- * exchange then fails with "code verifier missing".
- *
- * The caller is responsible for actually navigating the browser to the returned URL.
- *
- * `next` is where the user lands once the callback has traded the code for a session. It is
- * carried on the callback URL rather than held server-side because the round trip through
- * Google is stateless from our side.
- */
+
 export async function googleLogin({
   next = "/tickets",
 }: { next?: string } = {}) {
   const supabase = await createSupabaseServerClient();
-  const origin = await requestOrigin(); // e.g., "http://demo-rag.localhost:3000"
-
-  // 1. Extract hostname to check for subdomains
-  const urlObj = new URL(origin);
-  const hostname = urlObj.host; // e.g., "demo-rag.localhost:3000"
-  const baseDomain = process.env.NEXT_PUBLIC_APP_DOMAIN || "localhost:3000";
-
-  const isSubdomain = hostname.endsWith(`.${baseDomain}`);
-  const tenantSlug = isSubdomain
-    ? hostname.replace(`.${baseDomain}`, "")
-    : null;
-
-  // 2. Resolve target path
-  let targetNext = safeNext(next);
-  if (tenantSlug && !targetNext.startsWith(`/tenant/`)) {
-    const cleanPath = targetNext.startsWith("/")
-      ? targetNext
-      : `/${targetNext}`;
-    targetNext = `/tenant/${tenantSlug}${cleanPath}`;
-  }
-
-  // 3. Construct OAuth callback URL on the SAME origin
+  const origin = await requestOrigin(); 
   const callback = new URL("/auth/callback", origin);
-  callback.searchParams.set("next", targetNext);
+  callback.searchParams.set("next", safeNext(next));
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -211,12 +165,6 @@ export async function googleLogin({
   return { url: data.url };
 }
 
-/**
- * Finish Google sign-in: trade the `?code=` the provider sent back for a session.
- *
- * Cookie side effect again — this is what actually signs the user in — so it belongs in the
- * callback Route Handler and nowhere else.
- */
 export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
   const supabase = await createSupabaseServerClient();
 
@@ -245,13 +193,36 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
   };
 }
 
-/**
- * Reduce an untrusted `next` to a path on this origin.
- *
- * Anything absolute, protocol-relative (`//evil.example`) or non-`/`-prefixed is discarded
- * rather than sanitised — an open redirect off the login flow is a phishing primitive, and
- * there is no legitimate case for sending a freshly authenticated user off-site.
- */
+
+export async function resolvePostAuthUrl(
+  tenantId: string | null,
+  next?: string | null,
+): Promise<string | null> {
+  if (!tenantId) {
+    return null;
+  }
+
+  const slug = await getTenantSlugById(tenantId);
+
+  if (!slug) {
+    return null;
+  }
+
+  const requestHeaders = await headers();
+  const origin = await requestOrigin();
+
+  const target = safeNext(next).replace(
+    new RegExp(`^/tenant/${slug}(?=/|$)`),
+    "",
+  );
+
+  return landingUrlForSlug(slug, target || "/tickets", {
+    currentSlug: tenantLabelFromHost(requestHeaders.get("host")),
+    protocol: new URL(origin).protocol.replace(":", ""),
+  });
+}
+
+
 export function safeNext(
   next: string | null | undefined,
   fallback = "/tickets",
@@ -263,17 +234,7 @@ export function safeNext(
   return next;
 }
 
-/**
- * The origin this request arrived on, derived from the Host header rather than the
- * baked-in `NEXT_PUBLIC_SITE_URL`.
- *
- * `NEXT_PUBLIC_SITE_URL` describes the product host (the bare base domain), but a
- * login flow started on `jan.servicedesk.pro` must come back to
- * `jan.servicedesk.pro` — the PKCE verifier lives in a host-scoped cookie and the
- * session must end up scoped to that subdomain. The scheme comes from the
- * `x-forwarded-proto` header when a proxy supplies one (always true in
- * production), falling back to https and http-for-local-dev.
- */
+
 async function requestOrigin(): Promise<string> {
   const requestHeaders = await headers();
 
@@ -291,19 +252,7 @@ async function requestOrigin(): Promise<string> {
   return new URL(env.NEXT_PUBLIC_SITE_URL).origin;
 }
 
-/**
- * The subdomain is the tenant boundary, so a freshly issued session must claim the
- * tenant the visitor is stood on.
- *
- * The access-token hook stamps `tenant_id` from the caller's first active
- * membership; when that tenant is not the one this subdomain names, the session is
- * REVOKED on the spot and the sign-in fails with a clear message. Failing open
- * here (letting the session stand) would let one tenant's session be created on
- * another tenant's portal. Host-only cookies make the cross-tenant case rare, but
- * a shared cookie or a stale session is exactly what this check is for.
- *
- * On the bare base host there is no subdomain to verify against — nothing to do.
- */
+
 async function verifyHostTenancy(
   supabase: SupabaseClient,
   tenantId: string | null,
@@ -315,8 +264,7 @@ async function verifyHostTenancy(
   }
 
   if (tenantId !== context.id) {
-    // Revoke BEFORE surfacing the failure: an access token that claims the wrong
-    // tenant must not outlive this request even as a cookie.
+    
     const { error } = await supabase.auth.signOut();
 
     if (error) {
@@ -335,18 +283,7 @@ async function verifyHostTenancy(
   }
 }
 
-/**
- * Sign out: revoke the session server-side and clear its cookies.
- *
- * Same cookie side effect as `login`, in reverse — `signOut` writes the expired cookies
- * through the `cookies()` store, so this too must run from a Server Action or Route Handler
- * and not during a Server Component render, or the browser keeps the old ones.
- *
- * Default `scope: "global"`, which revokes every refresh token the user holds rather than
- * just this browser's. That is the right default for a support desk: "sign out" on a shared
- * or lost machine should end the other sessions too, and the cost is only that a second tab
- * has to sign in again.
- */
+
 export async function logout(): Promise<void> {
   const supabase = await createSupabaseServerClient();
 
@@ -367,14 +304,177 @@ export async function logout(): Promise<void> {
   }
 }
 
-/**
- * Append the `logout` row, best-effort, for whoever is currently signed in.
- *
- * `getUser()` rather than `getSession()`: it revalidates against the auth server instead of
- * trusting the cookie, so a forged or stale one can't attribute a row to somebody else. No
- * user, or no membership, means there is nothing to attribute — signing out still proceeds,
- * since clearing a session that shouldn't exist is exactly what should happen.
- */
+export async function sendPasswordResetLink(payload: ForgotPasswordValues){
+    const { email } = payload;
+    console.log("🚀 ~ sendPasswordResetLink ~ email:", email)
+
+    try {
+    const supabase = await createSupabaseServerClient();
+      // Define redirect URL where user lands to enter their new password
+     const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/reset-password`;
+
+     const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+     });
+
+      if (error) {
+        // Handle Supabase Rate Limits (HTTP status 429)
+        if (error.status === 429 || error.message.toLowerCase().includes("rate limit")) {
+          return {
+            success: false,
+            error: "Too many attempts from this address — try again in 60 seconds, or contact your admin.",
+            isRateLimited: true,
+          };
+        }
+
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+
+      return { success: true };
+    } catch (err) {
+      console.error("[SUPABASE_RESET_PASSWORD_ERROR]:", err);
+      return {
+        success: false,
+        error: "An unexpected error occurred. Please try again later.",
+      };
+    }
+  }
+
+export async function sendTenantPasswordResetLink(
+  payload: ForgotPasswordValues,
+  tenant: string = "tenant",
+  slug: string = "converse"
+) {
+  const { email } = payload;
+
+  try {
+    const supabase = await createSupabaseServerClient();
+
+    const headerList = await headers();
+    const host = headerList.get("host") || "localhost:3000";
+    const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
+
+    const origin = `${protocol}://${host}`;
+
+ 
+    const callbackPath = `/auth/callback`;
+    const destinationPath = `/reset-password`;
+
+    const redirectTo = `${origin}${callbackPath}?next=${encodeURIComponent(destinationPath)}`;
+    console.log("🚀 ~ sendTenantPasswordResetLink ~ redirectTo:", redirectTo)
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    if (error) {
+      if (error.status === 429 || error.message.toLowerCase().includes("rate limit")) {
+        return {
+          success: false,
+          error: "Too many attempts from this address — try again in 60 seconds.",
+          isRateLimited: true,
+        };
+      }
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("[SUPABASE_RESET_PASSWORD_ERROR]:", err);
+    return {
+      success: false,
+      error: "An unexpected error occurred. Please try again later.",
+    };
+  }
+}
+
+  export async function updatePassword(values: UpdatePasswordValues) {
+  const validatedFields = updatePasswordSchema.safeParse(values);
+
+  if (!validatedFields.success) {
+    return {
+      success: false,
+      error: "Invalid password fields.",
+    };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  const { error } = await supabase.auth.updateUser({
+    password: validatedFields.data.password,
+  });
+
+  if (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+
+  return { success: true };
+}
+
+
+export async function updatePasswordForTenant(
+  payload: UpdatePasswordValues,
+  tenantId: string
+) {
+  const { password } = payload;
+
+  try {
+    const supabase = await createSupabaseServerClient();
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return {
+        success: false,
+        error: "Your session has expired. Please request a new password reset link.",
+      };
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from("memberships")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+
+    if (membershipError || !membership) {
+      return {
+        success: false,
+        error: "Unauthorized: You do not belong to this organization workspace.",
+      };
+    }
+
+    const { error: updateError } = await supabase.auth.updateUser({
+      password,
+    });
+
+    if (updateError) {
+      return {
+        success: false,
+        error: updateError.message,
+      };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("[SUPABASE_UPDATE_PASSWORD_ERROR]:", err);
+    return {
+      success: false,
+      error: "An unexpected error occurred while updating your password.",
+    };
+  }
+}
+
+
 async function recordLogoutAttempt(supabase: SupabaseClient) {
   const { data, error } = await supabase.auth.getUser();
 
@@ -396,16 +496,7 @@ async function recordLogoutAttempt(supabase: SupabaseClient) {
   });
 }
 
-/**
- * The caller's single active membership, or null.
- *
- * Runs as the user, so `memberships_select` applies: it matches rows where
- * `tenant_id = public.current_tenant_id()`, and that helper reads the `tenant_id` claim
- * stamped in by `public.custom_access_token_hook` on the token `signInWithPassword` just
- * issued. A user with no membership has a null claim, so they match nothing and get null
- * back — hence `.maybeSingle()`, which returns null for zero rows where `.single()` would
- * raise. That state is legitimate (signed up, no org yet), not a failure.
- */
+
 async function findActiveMembership(
   supabase: SupabaseClient,
   userId: string,
@@ -426,19 +517,7 @@ async function findActiveMembership(
   return data;
 }
 
-/**
- * Append a `login` or `logout` row to `public.audit_logs`, best-effort.
- *
- * Written directly with the user's own token rather than through a `functions.invoke`
- * edge function — one less hop, and it lets the row carry the request IP, which an edge
- * function would only see as this server's address.
- *
- * NOTE: `audit_logs` currently has only an `audit_logs_select` policy
- * (supabase/schemas/policies/19_audit_logs.sql), so with RLS on and no INSERT policy this
- * write is rejected and logged as a warning in dev. Sign-in and sign-out still succeed.
- * Adding an INSERT policy — `tenant_id = public.current_tenant_id() AND actor_id =
- * auth.uid()` — is what turns the audit trail on.
- */
+
 async function recordAuthEvent(
   supabase: SupabaseClient,
   {
@@ -456,7 +535,6 @@ async function recordAuthEvent(
   const { error } = await supabase.from("audit_logs").insert({
     tenant_id: tenantId,
     actor_id: userId,
-    // Both are values of `public.audit_action` (supabase/schemas/types/00_types.sql).
     action,
     entity: "user",
     entity_id: userId,
@@ -469,11 +547,7 @@ async function recordAuthEvent(
   }
 }
 
-/**
- * Best guess at the caller's address for the `inet` column. `x-forwarded-for` is a list
- * appended to by each hop, so the first entry is the client; null when there's no proxy
- * (local dev), which the column accepts.
- */
+
 async function clientIp(): Promise<string | null> {
   const requestHeaders = await headers();
   const forwarded = requestHeaders.get("x-forwarded-for");
@@ -485,9 +559,10 @@ async function clientIp(): Promise<string | null> {
   return requestHeaders.get("x-real-ip");
 }
 
-/** Dev-only breadcrumb for the swallowed, non-fatal failures above. */
 function warn(message: string) {
   if (process.env.NODE_ENV !== "production") {
     console.warn(`[auth] ${message}`);
   }
 }
+
+

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { StepperHeader } from "./stepper-header";
 
 import { OnboardingState } from "../types/onboarding";
@@ -12,6 +12,7 @@ import { StepInviteTeam } from "./invite-team";
 import { registerOnboardingAction } from "../register-actions";
 import { Timezone } from "../services/onboarding.service";
 import { OnboardingLoader } from "./onboarding-loader";
+import { landingUrlForSlug } from "@/lib/tenancy";
 
 interface OnboardingWizardProps {
   timezones: Timezone[];
@@ -114,13 +115,21 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
     const response = await registerOnboardingAction(payload);
 
     if (response.success) {
-      const tenantSlug = response.data!.tenant.slug;
-      const redirectUrl =
-        process.env.NODE_ENV === "development"
-          ? `http://${tenantSlug}.localhost:3000/tickets`
-          : `https://${tenantSlug}.${process.env.NEXT_PUBLIC_ROOT_DOMAIN || "yourdomain.com"}/tickets`;
-
-      window.location.href = redirectUrl;
+      /*
+       * Straight into the workspace that was just provisioned. `landingUrlForSlug`
+       * decides the shape: the new subdomain when the session cookie can reach it,
+       * and the same-origin `/tenant/<slug>` route when it can't (plain
+       * `localhost` — see CAN_SHARE_SUBDOMAIN_COOKIES), which is the difference
+       * between landing signed in and landing back on the login screen.
+       *
+       * `signUp` only leaves a session behind when the project auto-confirms email;
+       * when it doesn't, this lands on a workspace page with no session and the
+       * proxy's guard takes over — and since there is then no cookie to strand, it
+       * forwards to `<slug>.<base>/login` rather than the path form.
+       */
+      window.location.assign(
+        landingUrlForSlug(response.data!.tenant.slug, "/tickets"),
+      );
     } else {
       setIsSubmitting(false);
       setErrorMessage(response.error || "Failed to complete setup.");
@@ -129,7 +138,6 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
 
   return (
     <div className="relative overflow-hidden w-full max-w-2xl mx-auto rounded-3xl bg-white p-8 sm:p-10 shadow-xl border border-slate-100 text-left">
-      {/* Title Block */}
       {currentStep <= 2 ? (
         <div className="mb-6">
           <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
@@ -157,17 +165,14 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         </div>
       )}
 
-      {/* Stepper Header */}
       <StepperHeader currentStep={currentStep} />
 
-      {/* Error Message */}
       {errorMessage && (
         <div className="my-4 rounded-xl bg-red-50 p-4 text-xs text-red-600 border border-red-100">
           {errorMessage}
         </div>
       )}
 
-      {/* Active Step Content */}
       <div className="mt-6">
         {currentStep === 1 && (
           <StepAccount
@@ -214,7 +219,6 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         )}
       </div>
 
-      {/* Card Loader Component */}
       <OnboardingLoader isLoading={isSubmitting} />
     </div>
   );

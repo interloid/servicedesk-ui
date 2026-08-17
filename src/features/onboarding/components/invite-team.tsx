@@ -66,7 +66,6 @@ export function StepInviteTeam({
 
   return (
     <div className="w-full space-y-6 text-left">
-      {/* Title & Subtitle */}
       <div className="space-y-1">
         <h3 className="text-base font-bold text-slate-900">
           Invite your agents
@@ -76,9 +75,7 @@ export function StepInviteTeam({
         </p>
       </div>
 
-      {/* Form Controls */}
       <div className="space-y-4">
-        {/* Email Addresses Field */}
         <div className="space-y-1.5">
           <label className="block text-xs sm:text-sm font-semibold text-slate-900">
             Email addresses
@@ -93,7 +90,6 @@ export function StepInviteTeam({
           <p className="text-xs text-slate-400 pt-0.5">Separate with commas</p>
         </div>
 
-        {/* Role Select Field using Shadcn Select */}
         <div className="space-y-1.5">
           <label className="block text-xs sm:text-sm font-semibold text-slate-900">
             Invite as
@@ -114,9 +110,7 @@ export function StepInviteTeam({
         </div>
       </div>
 
-      {/* Footer Controls */}
       <div className="flex items-center justify-between pt-4">
-        {/* Left Link */}
         <Button
           type="button"
           variant="link"
@@ -126,7 +120,6 @@ export function StepInviteTeam({
           Back
         </Button>
 
-        {/* Right Action Buttons */}
         <div className="flex items-center gap-3">
           <Button
             type="button"

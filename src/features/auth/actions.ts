@@ -1,22 +1,21 @@
 "use server";
 
 import { loginSchema } from "@/features/auth/schemas/login";
-import { registerSchema } from "@/features/auth/schemas/register";
 import {
   AuthError,
   googleLogin,
   login,
   logout,
+  resolvePostAuthUrl,
   safeNext,
+  sendPasswordResetLink,
+  sendTenantPasswordResetLink,
+  updatePassword,
+  updatePasswordForTenant,
 } from "@/features/auth/services/auth.service";
-// import { register } from "@/features/auth/services/register.service";
-import type {
-  ActionResult,
-  RegisteredOrg,
-  SessionUser,
-} from "@/features/auth/types";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
+import type { ActionResult, LoginSuccess } from "@/features/auth/types";
+import { forgotPasswordSchema, ForgotPasswordValues } from "./schemas/forgot-password";
+import { updatePasswordSchema, UpdatePasswordValues } from "./schemas/reset-password";
 
 /**
  * Server Actions for the auth feature. This is the boundary the client is allowed to call;
@@ -36,7 +35,8 @@ import { redirect } from "next/navigation";
  */
 export async function loginAction(
   values: unknown,
-): Promise<ActionResult<SessionUser>> {
+  next?: unknown,
+): Promise<ActionResult<LoginSuccess>> {
   const parsed = loginSchema.safeParse(values);
 
   if (!parsed.success) {
@@ -51,10 +51,7 @@ export async function loginAction(
     };
   }
 
-  let targetUrl: string | null = null;
-
   try {
-    // 1. Authenticate user and extract SessionUser info
     const sessionUser = await login(parsed.data);
 
     if (!sessionUser.tenantId) {
@@ -65,15 +62,20 @@ export async function loginAction(
       };
     }
 
-    // 2. Fetch the tenant slug to build the target subdomain URL
-    const supabase = await createSupabaseServerClient();
-    const { data: tenant, error: tenantError } = await supabase
-      .from("tenants")
-      .select("slug")
-      .eq("id", sessionUser.tenantId)
-      .single();
+    /*
+     * 2. Work out where they land. Returned to the caller rather than handed to
+     *    `redirect()`: the destination is frequently a DIFFERENT origin (the
+     *    workspace's own subdomain), and a Server Action's `redirect` is resolved
+     *    by the client router, which cannot make that navigation — the same
+     *    reason `googleLoginAction` hands back a URL. `useLogin` performs it, and
+     *    picking between a router push and a document navigation is its call.
+     */
+    const redirectTo = await resolvePostAuthUrl(
+      sessionUser.tenantId,
+      typeof next === "string" ? next : null,
+    );
 
-    if (tenantError || !tenant?.slug) {
+    if (!redirectTo) {
       return {
         success: false,
         code: "no_workspace_access",
@@ -81,10 +83,7 @@ export async function loginAction(
       };
     }
 
-    const baseDomain = process.env.NEXT_PUBLIC_APP_DOMAIN || "localhost:3000";
-
-    // Store URL to execute redirect OUTSIDE the try...catch block
-    targetUrl = `http://${tenant.slug}.${baseDomain}/tickets`;
+    return { success: true, data: { ...sessionUser, redirectTo } };
   } catch (error) {
     if (error instanceof AuthError) {
       return { success: false, code: error.code, message: error.message };
@@ -98,18 +97,6 @@ export async function loginAction(
       message: "We couldn't sign you in right now. Try again in a moment.",
     };
   }
-
-  // 3. Execute redirect safely outside the try...catch block
-  if (targetUrl) {
-    redirect(targetUrl);
-  }
-
-  // Fallback return (unreachable when redirect occurs)
-  return {
-    success: false,
-    code: "unknown",
-    message: "Something went wrong during redirect.",
-  };
 }
 
 /**
@@ -182,40 +169,95 @@ export async function logoutAction(): Promise<ActionResult<null>> {
   }
 }
 
-/**
- * Register: create the account and provision its organization, in one call.
- *
- * The wizard collects across three routes and submits here on "Finish setup", so this is the
- * first and only server-side check on any of it. The client assembled the payload out of
- * `sessionStorage`, which the user can edit — `registerSchema` is what makes it trustworthy.
- */
-// export async function registerAction(values: unknown): Promise<ActionResult<RegisteredOrg>> {
-//   const parsed = registerSchema.safeParse(values);
 
-//   if (!parsed.success) {
-//     return {
-//       success: false,
-//       code: "validation",
-//       // The failing field may well belong to an earlier step the user can no longer see, so
-//       // the message has to stand on its own rather than say "check the fields above".
-//       message: "Some of your details are missing or invalid. Go back and check each step.",
-//       fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
-//     };
-//   }
 
-//   try {
-//     // return { success: true, data: await register(parsed.data) };
-//   } catch (error) {
-//     if (error instanceof AuthError) {
-//       return { success: false, code: error.code, message: error.message };
-//     }
+export async function resetPasswordAction(
+  values: ForgotPasswordValues
+) {
+  const validatedFields = forgotPasswordSchema.safeParse(values);
 
-//     console.error("[auth] registerAction failed", error);
+  if (!validatedFields.success) {
+    return {
+      success: false,
+      error: "Invalid email format provided.",
+    };
+  }
 
-//     return {
-//       success: false,
-//       code: "unknown",
-//       message: "We couldn't finish setting up your organization. Try again in a moment.",
-//     };
-//   }
-// }
+  const result = await sendPasswordResetLink(validatedFields.data);
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.error,
+      isRateLimited: result.isRateLimited,
+    };
+  }
+
+  return { success: true };
+}
+
+export async function resetTenantPasswordAction(
+  values: ForgotPasswordValues,
+  tenant: string,
+  slug: string
+) {
+  const validatedFields = forgotPasswordSchema.safeParse(values);
+
+  if (!validatedFields.success) {
+    return {
+      success: false,
+      error: "Invalid email format provided.",
+    };
+  }
+
+  const result = await sendTenantPasswordResetLink(validatedFields.data);
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.error,
+      isRateLimited: result.isRateLimited,
+    };
+  }
+
+  return { success: true };
+}
+
+export async function updatePasswordAction(values: UpdatePasswordValues) {
+  const validatedFields = updatePasswordSchema.safeParse(values);
+
+  if (!validatedFields.success) {
+    return {
+      success: false,
+      error: "Invalid fields provided.",
+    };
+  }
+
+  return await updatePassword(validatedFields.data);
+}
+
+
+
+export async function updateTenantPasswordAction(
+  values: UpdatePasswordValues,
+  tenantId: string
+) {
+  const validatedFields = updatePasswordSchema.safeParse(values);
+
+  if (!validatedFields.success) {
+    return {
+      success: false,
+      error: "Invalid password fields.",
+    };
+  }
+
+  if (!tenantId) {
+    return {
+      success: false,
+      error: "Tenant context is missing.",
+    };
+  }
+
+  return await updatePasswordForTenant(validatedFields.data, tenantId);
+}
+  

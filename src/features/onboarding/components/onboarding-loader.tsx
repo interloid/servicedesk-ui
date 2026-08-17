@@ -15,7 +15,6 @@ export function OnboardingLoader({
   return (
     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white rounded-3xl p-8 text-center animate-in fade-in duration-200">
       <div className="flex flex-col items-center gap-6 max-w-sm">
-        {/* Scaled up SVG illustration */}
         <img
           src="/startup.svg"
           alt="Setting up tenant"

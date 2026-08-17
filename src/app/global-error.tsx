@@ -17,9 +17,7 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    // suppressHydrationWarning: the pre-hydration theme script (below) mutates the
-    // <html> class and color-scheme before React hydrates, so the server and client
-    // markup for this element legitimately differ. Scoped to <html> only.
+   
     <html lang="en" suppressHydrationWarning>
       <body className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 py-24 text-center">
         <h1 className="text-4xl font-semibold">Something went wrong</h1>

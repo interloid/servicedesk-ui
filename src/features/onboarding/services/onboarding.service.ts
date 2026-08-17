@@ -1,18 +1,16 @@
 import slugify from "slugify";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAnonClient, createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { registerSchema, RegisterInput } from "../schemas/onboarding.schema";
 
 export interface Timezone {
   id: string;
-  // Adjust these field names if your table uses 'label', 'timezone', or 'iana_name'
   label?: string;
   name?: string;
   utc_offset?: string;
 }
 
 export async function registerTenant(payload: RegisterInput) {
-  // 1. Validate Payload
   const validated = registerSchema.parse(payload);
 
   const {
@@ -32,7 +30,6 @@ export async function registerTenant(payload: RegisterInput) {
   const supabase = await createSupabaseServerClient();
   const adminSupabase = createSupabaseAdminClient();
 
-  // 2. Check for existing user
   const { data: existingUser } = await supabase
     .from("users")
     .select("id")
@@ -43,7 +40,6 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error("Email address is already registered.");
   }
 
-  // 3. Compute Slug and Check Availability
   const targetSlug =
     portal_slug ||
     slugify(organization_name, {
@@ -61,7 +57,6 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error("Portal address is already taken.");
   }
 
-  // 4. Fetch Default Free Plan
   const { data: freePlan, error: planError } = await supabase
     .from("plans")
     .select("id")
@@ -72,7 +67,6 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error("Free tier plan configuration not found.");
   }
 
-  // 5. Verify Timezone
   const { data: timezone } = await supabase
     .from("timezones")
     .select("id")
@@ -83,7 +77,6 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error("Invalid timezone selected.");
   }
 
-  // 6. Create Supabase Auth User
   const { data: auth, error: authError } = await supabase.auth.signUp({
     email,
     password,
@@ -102,7 +95,6 @@ export async function registerTenant(payload: RegisterInput) {
 
   const userId = auth.user.id;
 
-  // 7. Insert Tenant
   const { data: tenant, error: tenantError } = await adminSupabase
     .from("tenants")
     .insert({
@@ -120,7 +112,6 @@ export async function registerTenant(payload: RegisterInput) {
     );
   }
 
-  // 8. Create Free Subscription
   const { error: subscriptionError } = await adminSupabase
     .from("subscriptions")
     .insert({
@@ -136,7 +127,6 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error(`Subscription setup failed: ${subscriptionError.message}`);
   }
 
-  // 9. Create User Profile
   const { error: userError } = await adminSupabase.from("users").insert({
     id: userId,
     email,
@@ -148,7 +138,6 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error(`User profile creation failed: ${userError.message}`);
   }
 
-  // 10. Add Owner Membership
   const { error: membershipError } = await adminSupabase
     .from("memberships")
     .insert({
@@ -164,7 +153,6 @@ export async function registerTenant(payload: RegisterInput) {
     );
   }
 
-  // 11. Configure Business Hours
   const { data: businessHours, error: businessError } = await adminSupabase
     .from("business_hours")
     .insert({
@@ -186,8 +174,7 @@ export async function registerTenant(payload: RegisterInput) {
     );
   }
 
-  // 12. Create SLA Policies
-  // 1. Create the parent SLA Policy
+ 
   const { data: slaPolicy, error: slaPolicyError } = await adminSupabase
     .from("sla_policies")
     .insert({
@@ -207,7 +194,6 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error(`SLA Policy creation failed: ${slaPolicyError?.message}`);
   }
 
-  // 2. Map targets using the verified schema keys
   const slaTargets = sla.map((rule: any) => ({
     tenant_id: tenant.id,
     policy_id: slaPolicy.id, // Correct foreign key column
@@ -291,10 +277,10 @@ export async function registerTenant(payload: RegisterInput) {
   };
 }
 
+
 export async function getTimezones(): Promise<Timezone[]> {
   try {
-    const supabase = await createSupabaseServerClient();
-
+    const supabase = createSupabaseAnonClient();
     // Querying all columns prevents 'column does not exist' errors
     const { data, error } = await supabase.from("timezones").select("*");
 
@@ -307,5 +293,66 @@ export async function getTimezones(): Promise<Timezone[]> {
   } catch (err) {
     console.error("Unexpected error fetching timezones:", err);
     return [];
+  }
+}
+
+export async function checkEmailTenant(
+  email: string,
+): Promise<{ exists: boolean; tenant?: any }> {
+  const cleanEmail = email.trim().toLowerCase();
+  const supabase = await createSupabaseAdminClient();
+
+  if (!cleanEmail) {
+    return { exists: false };
+  }
+
+  // Exact email check on the tenants table
+  const { data, error } = await supabase
+    .from("users")
+    .select("email")
+    .eq("email", cleanEmail)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { exists: false };
+  }
+
+  return {
+    exists: true,
+    tenant: data,
+  };
+}
+
+export async function checkSlugAvailability(
+  slug: string,
+): Promise<{ available: boolean; error?: string }> {
+  try {
+    const supabase = createSupabaseAdminClient();
+
+    const { data, error } = await supabase
+      .from("tenants")
+      .select("id")
+      .eq("slug", slug.toLowerCase().trim())
+      .maybeSingle();
+
+    if (error) {
+      console.error("Slug check error:", error.message);
+
+      return {
+        available: true,
+        error: error.message,
+      };
+    }
+
+    return {
+      available: !data,
+    };
+  } catch (error: unknown) {
+    console.error("Server slug check failed:", error);
+
+    return {
+      available: true,
+      error: error instanceof Error ? error.message : "Slug check failed",
+    };
   }
 }

@@ -96,7 +96,6 @@ export function StepBusinessHours({
 
   return (
     <div className="w-full space-y-6">
-      {/* Top Header Section */}
       <div className="space-y-1">
         <span className="text-xs font-bold tracking-wider text-emerald-800 uppercase">
           Set up Northwind Support
@@ -116,7 +115,6 @@ export function StepBusinessHours({
           </h3>
 
           <div className="space-y-5">
-            {/* Time Zone Select */}
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold text-slate-800">
                 Time zone
@@ -152,7 +150,6 @@ export function StepBusinessHours({
               )}
             </div>
 
-            {/* Working Days Pill Selector */}
             <div className="space-y-1.5">
               <Label className="text-sm font-semibold text-slate-800">
                 Working days
@@ -183,7 +180,6 @@ export function StepBusinessHours({
               )}
             </div>
 
-            {/* Day Starts / Ends Time Inputs */}
             <div className="grid grid-cols-2 gap-4 pt-1">
               <div className="space-y-1.5">
                 <Label
@@ -228,7 +224,6 @@ export function StepBusinessHours({
           </div>
         </div>
 
-        {/* Footer Actions */}
         <div className="flex items-center justify-between pt-4">
           <Button
             type="button"

@@ -1,16 +1,14 @@
 import { headers } from "next/headers";
 import { PORTAL_BASE_DOMAIN, tenantLabelFromHost } from "@/lib/tenancy";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type TenantContext = {
   id: string;
   name: string;
   slug: string;
   portalUrl: string;
-  /** Null when the tenant has no logo set — the chrome renders initials instead. */
-  logoUrl: string | null;
-  primaryColor: string | null;
+ 
 };
 
 /** The raw shape returned by PostgreSQL queries or RPC */
@@ -18,7 +16,6 @@ type TenantLookupRow = {
   id: string;
   name: string;
   slug: string;
-  primary_color?: string | null;
   logo_url?: string | null;
 };
 
@@ -41,10 +38,9 @@ export async function getTenantContext(
     label = hostLabel;
   }
 
-  const supabase = await createSupabaseAdminClient();
+  const supabase = createSupabaseAdminClient();
 
   try {
-    // 3. Fallback attempt: Direct table query if RPC is missing in PostgreSQL
     const { data: tableData, error: tableError } = await supabase
       .from("tenants")
       .select("id, name, slug")
@@ -73,6 +69,57 @@ export async function getTenantContext(
   }
 }
 
+/**
+ * Verifies if a user belongs to a specific tenant workspace.
+ */
+export async function verifyUserTenantMembership(
+  userId: string,
+  tenantId: string,
+): Promise<boolean> {
+  const supabase = createSupabaseAdminClient();
+
+  const { data: membership, error } = await supabase
+    .from("memberships")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (error) {
+    console.error(
+      `[tenancy] Membership check failed for user ${userId} in tenant ${tenantId}: ${error.message}`,
+    );
+    return false;
+  }
+
+  return Boolean(membership);
+}
+
+/**
+ * The subdomain slug for a tenant id, or null when there is no such tenant.
+ */
+export async function getTenantSlugById(
+  tenantId: string,
+): Promise<string | null> {
+  const supabase = createSupabaseAdminClient();
+
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("slug")
+    .eq("id", tenantId)
+    .maybeSingle<{ slug: string }>();
+
+  if (error) {
+    console.error(
+      `[tenancy] slug lookup for tenant ${tenantId} failed: ${error.message}`,
+    );
+
+    return null;
+  }
+
+  return data?.slug ?? null;
+}
+
 /** Helper to format raw database rows into strongly-typed `TenantContext` */
 function mapTenantContext(row: TenantLookupRow): TenantContext {
   const baseDomain = PORTAL_BASE_DOMAIN || "localhost:3000";
@@ -82,7 +129,5 @@ function mapTenantContext(row: TenantLookupRow): TenantContext {
     name: row.name,
     slug: row.slug,
     portalUrl: `${row.slug}.${baseDomain}`,
-    logoUrl: row.logo_url?.trim() || null,
-    primaryColor: row.primary_color?.trim() || null,
   };
 }

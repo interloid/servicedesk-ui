@@ -12,27 +12,14 @@ import {
 import { NOTIFICATIONS, TONE_TILE } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
-/**
- * Notification tray, from `Update design.dc.html` → `notifPanel` and its `<sc-for>` rows.
- *
- * Popover, not DropdownMenu: the design's panel is a scrollable list of non-actionable
- * rows plus a "Mark all read" control in its own header. Menu semantics would make every
- * row a `menuitem` and leave the header action stranded outside the menu's roving focus.
- *
- * The bell and its unread badge live here because the bell *is* the trigger — keeping the
- * count next to the state that changes it is what makes "Mark all read" work.
- */
+
 export function NotificationMenu() {
-  // Local only. Marking read does not survive a reload until the API exists.
   const [readAll, setReadAll] = React.useState(false);
   const unread = readAll ? 0 : NOTIFICATIONS.filter((n) => n.unread).length;
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        {/* 44×44, 8px radius, transparent border, muted fill while open — `bellStyle`.
-            The open fill comes from the ghost variant's own `aria-expanded` rule, which
-            Radix sets on the trigger, and resolves to --muted (#F1F5F9) as the design does. */}
         <Button
           variant="ghost"
           className="relative size-11 rounded-md"
@@ -42,10 +29,7 @@ export function NotificationMenu() {
           {unread > 0 ? (
             <span
               aria-hidden
-              // 16×17px pill, 12px/700, 5px from the button's outer edge. The inset is
-              // 4px, not 5: Button carries a 1px transparent border, so absolute offsets
-              // resolve against a padding box already inset by 1px.
-              className="absolute top-1 right-1 flex h-[17px] min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs leading-none font-bold text-destructive-foreground ring-2 ring-background"
+              className="absolute top-1 right-1 flex h-4.25 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs leading-none font-bold text-destructive-foreground ring-2 ring-background"
             >
               {unread}
             </span>
@@ -56,8 +40,7 @@ export function NotificationMenu() {
       <PopoverContent
         align="end"
         sideOffset={8}
-        // 380px desktop / 300px mobile, 14px radius, the design's own drop shadow.
-        className="w-[300px] overflow-hidden rounded-xl p-0 shadow-[0_24px_60px_rgba(15,23,42,0.18)] sm:w-[380px]"
+        className="w-75 overflow-hidden rounded-xl p-0 shadow-[0_24px_60px_rgba(15,23,42,0.18)] sm:w-95"
       >
         <div className="flex items-center justify-between gap-2.5 border-b px-4 py-3.5">
           <span className="text-sm font-bold text-foreground">
@@ -72,7 +55,7 @@ export function NotificationMenu() {
           </button>
         </div>
 
-        <div className="max-h-[340px] overflow-y-auto">
+        <div className="max-h-85 overflow-y-auto">
           {NOTIFICATIONS.map((n) => {
             const isUnread = n.unread && !readAll;
             return (
@@ -80,9 +63,6 @@ export function NotificationMenu() {
                 key={n.id}
                 className={cn(
                   "flex items-start gap-3 border-t border-muted px-4 py-3.5 first:border-t-0",
-                  // The design tints unread rows with shade(accent, .965) — a step lighter
-                  // than --accent, which has no token. Half-strength --accent is the
-                  // closest token-only match; see docs/SHELL-DIFF.md.
                   isUnread ? "bg-accent/50" : "bg-popover",
                 )}
               >

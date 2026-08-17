@@ -1,14 +1,13 @@
-// src/app/(app)/tenant/[tenantSlug]/login/page.tsx
 import type { Metadata } from "next";
 
 import { AuthShell } from "@/features/auth/components/auth-card";
-import { LoginForm } from "@/features/auth/components/login-form";
-import { getShellIdentity } from "@/lib/identity";
+import { TenantLoginForm } from "@/features/auth/components/tenant-login-form";
 import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
+import { getShellIdentity } from "@/lib/identity";
 
 export const metadata: Metadata = {
   title: "Log in",
-  description: "Sign in to your ServiceDesk Pro workspace.",
+  description: "Sign in to your organization workspace.",
   alternates: { canonical: "/login" },
   robots: { index: false, follow: false },
 };
@@ -18,26 +17,28 @@ type PageProps = {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
-export default async function LoginPage(props: PageProps) {
+export default async function TenantLoginPage(props: PageProps) {
   const searchParams = await props.searchParams;
   const params = await props.params;
 
-  // Pass tenantSlug from route params to getTenantContext
   const [identity, tenant] = await Promise.all([
     getShellIdentity(),
     getTenantContext(params.tenantSlug),
   ]);
-  console.log("🚀 ~ LoginPage ~ tenantSlug:", params.tenantSlug);
 
   const errorParam = searchParams.error;
   const initialError = Array.isArray(errorParam) ? errorParam[0] : errorParam;
 
+  const nextParam = searchParams.next;
+  const next = Array.isArray(nextParam) ? nextParam[0] : nextParam;
+
   return (
     <AuthShell>
-      <LoginForm
+      <TenantLoginForm
         identity={identity}
         tenant={tenant}
         initialError={initialError}
+        next={next}
       />
     </AuthShell>
   );

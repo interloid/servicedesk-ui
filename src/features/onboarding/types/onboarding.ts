@@ -20,10 +20,10 @@ export interface OnboardingState {
   orgName: string;
   portalAddress: string;
 
-  timezone_id: string; 
+  timezone_id: string;
   workingDays: WorkingDay[];
-  dayStarts: string; 
-  dayEnds: string; 
+  dayStarts: string;
+  dayEnds: string;
 
   slaTargets: SlaTarget[];
 

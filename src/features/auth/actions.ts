@@ -14,8 +14,14 @@ import {
   updatePasswordForTenant,
 } from "@/features/auth/services/auth.service";
 import type { ActionResult, LoginSuccess } from "@/features/auth/types";
-import { forgotPasswordSchema, ForgotPasswordValues } from "./schemas/forgot-password";
-import { updatePasswordSchema, UpdatePasswordValues } from "./schemas/reset-password";
+import {
+  forgotPasswordSchema,
+  ForgotPasswordValues,
+} from "./schemas/forgot-password";
+import {
+  updatePasswordSchema,
+  UpdatePasswordValues,
+} from "./schemas/reset-password";
 
 /**
  * Server Actions for the auth feature. This is the boundary the client is allowed to call;
@@ -169,11 +175,7 @@ export async function logoutAction(): Promise<ActionResult<null>> {
   }
 }
 
-
-
-export async function resetPasswordAction(
-  values: ForgotPasswordValues
-) {
+export async function resetPasswordAction(values: ForgotPasswordValues) {
   const validatedFields = forgotPasswordSchema.safeParse(values);
 
   if (!validatedFields.success) {
@@ -199,7 +201,7 @@ export async function resetPasswordAction(
 export async function resetTenantPasswordAction(
   values: ForgotPasswordValues,
   tenant: string,
-  slug: string
+  slug: string,
 ) {
   const validatedFields = forgotPasswordSchema.safeParse(values);
 
@@ -236,11 +238,9 @@ export async function updatePasswordAction(values: UpdatePasswordValues) {
   return await updatePassword(validatedFields.data);
 }
 
-
-
 export async function updateTenantPasswordAction(
   values: UpdatePasswordValues,
-  tenantId: string
+  tenantId: string,
 ) {
   const validatedFields = updatePasswordSchema.safeParse(values);
 
@@ -260,4 +260,3 @@ export async function updateTenantPasswordAction(
 
   return await updatePasswordForTenant(validatedFields.data, tenantId);
 }
-  

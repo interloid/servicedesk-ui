@@ -12,7 +12,6 @@ import {
 import { NOTIFICATIONS, TONE_TILE } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
-
 export function NotificationMenu() {
   const [readAll, setReadAll] = React.useState(false);
   const unread = readAll ? 0 : NOTIFICATIONS.filter((n) => n.unread).length;

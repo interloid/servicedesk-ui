@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter, useParams } from "next/navigation"; 
+import { useRouter, useParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, CircleAlert, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useForm } from "react-hook-form";
@@ -28,7 +28,7 @@ import { updateTenantPasswordAction } from "@/features/auth/actions";
 
 export default function DirectResetPasswordPage() {
   const router = useRouter();
-  
+
   const params = useParams<{ tenantSlug: string }>();
   const tenantSlug = params.tenantSlug;
 
@@ -116,7 +116,10 @@ export default function DirectResetPasswordPage() {
               </div>
 
               {authError || form.formState.errors.root ? (
-                <Alert variant="destructive" className="rounded-[10px] px-3.5 py-3">
+                <Alert
+                  variant="destructive"
+                  className="rounded-[10px] px-3.5 py-3"
+                >
                   <CircleAlert className="size-4.5" aria-hidden />
                   <AlertDescription className="text-sm">
                     {authError || form.formState.errors.root?.message}

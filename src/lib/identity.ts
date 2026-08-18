@@ -44,7 +44,6 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
     return null;
   }
 
- 
   const tenant = await getTenantContext();
 
   if (tenant && tenant.id !== tenantId) {

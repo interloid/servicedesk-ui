@@ -66,9 +66,7 @@ export const EMPTY_DRAFT: SignupDraft = {
   inviteRole: "Agent",
 };
 
-
 export function readSignupDraft(): SignupDraft {
-  
   if (typeof window === "undefined") {
     return EMPTY_DRAFT;
   }
@@ -88,8 +86,7 @@ export function patchSignupDraft(patch: Partial<SignupDraft>): SignupDraft {
   if (typeof window !== "undefined") {
     try {
       window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    } catch {
-    }
+    } catch {}
   }
 
   return next;
@@ -100,6 +97,5 @@ export function clearSignupDraft(): void {
 
   try {
     window.sessionStorage.removeItem(STORAGE_KEY);
-  } catch {
-  }
+  } catch {}
 }

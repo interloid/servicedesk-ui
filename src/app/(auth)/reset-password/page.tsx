@@ -123,7 +123,10 @@ function ResetPasswordForm() {
               </div>
 
               {authError || form.formState.errors.root ? (
-                <Alert variant="destructive" className="rounded-[10px] px-3.5 py-3">
+                <Alert
+                  variant="destructive"
+                  className="rounded-[10px] px-3.5 py-3"
+                >
                   <CircleAlert className="size-4.5" aria-hidden />
                   <AlertDescription className="text-sm">
                     {authError || form.formState.errors.root?.message}

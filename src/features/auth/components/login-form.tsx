@@ -105,13 +105,11 @@ export function LoginForm({
 
     const result = await signInWithGoogle();
 
-  
     if (!result.success) {
       form.setError("root", { type: result.code, message: result.message });
     }
   }
 
-  
   const formError = form.formState.errors.root;
   const bannerMessage = formError?.message ?? initialError;
   const errorHeadline =
@@ -232,7 +230,6 @@ export function LoginForm({
             <span className="h-px flex-1 bg-border" />
           </div>
 
-          
           <Button
             type="button"
             variant="outline"

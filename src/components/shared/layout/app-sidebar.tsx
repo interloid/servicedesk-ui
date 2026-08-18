@@ -51,11 +51,7 @@ import type { ShellIdentity } from "@/lib/identity";
 import { stripTenantPrefix, tenantPath } from "@/lib/tenancy";
 
 export type MembershipRole =
-  | "tenant_admin"
-  | "manager"
-  | "agent"
-  | "billing_admin"
-  | "customer";
+  "tenant_admin" | "manager" | "agent" | "billing_admin" | "customer";
 
 interface NavItem {
   label: string;
@@ -81,7 +77,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
     stripTenantPrefix(pathname)?.slug ??
     "";
 
-  
   const navSections: NavSection[] = [
     {
       title: null,
@@ -90,7 +85,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           label: "Ticket queue",
           href: "/tickets",
           icon: Ticket,
-          roles: ["tenant_admin", "manager", "agent",],
+          roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Saved views",
@@ -120,7 +115,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           label: "SLA policies",
           href: "/sla",
           icon: Clock,
-          roles: ["tenant_admin", "manager","agent"],
+          roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Reports",
@@ -204,8 +199,8 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
     },
   ];
 
-const hasAccess = (itemRoles: MembershipRole[]) =>
-  itemRoles.includes(userRole);
+  const hasAccess = (itemRoles: MembershipRole[]) =>
+    itemRoles.includes(userRole);
 
   const visibleSections = navSections
     .map((section) => ({
@@ -370,7 +365,8 @@ const hasAccess = (itemRoles: MembershipRole[]) =>
 
                   const isActive =
                     pathname === targetPath ||
-                    (item.href !== "/" && pathname.startsWith(`${targetPath}/`));
+                    (item.href !== "/" &&
+                      pathname.startsWith(`${targetPath}/`));
 
                   return (
                     <SidebarMenuItem

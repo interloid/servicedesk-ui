@@ -22,7 +22,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2 } from "lucide-react";
 import { checkSlugAvailabilityAction } from "../register-actions";
 
-
 const organizationFormSchema = z.object({
   orgName: z
     .string()

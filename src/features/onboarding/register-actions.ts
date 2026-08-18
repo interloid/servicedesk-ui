@@ -8,9 +8,7 @@ import {
   checkSlugAvailability,
 } from "./services/onboarding.service";
 
-export async function registerOnboardingAction(
-  payload: RegisterInput,
-) {
+export async function registerOnboardingAction(payload: RegisterInput) {
   try {
     const result = await registerTenant(payload);
 
@@ -46,9 +44,7 @@ export async function getTimezonesAction() {
       success: false,
       data: [],
       error:
-        error instanceof Error
-          ? error.message
-          : "Failed to load timezones.",
+        error instanceof Error ? error.message : "Failed to load timezones.",
     };
   }
 }

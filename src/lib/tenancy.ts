@@ -44,7 +44,8 @@ const RESERVED_LABELS = new Set([
 ]);
 
 export const IS_LOCAL_HOST = PORTAL_BASE_HOSTNAME === "localhost";
-export const IS_VERCEL_APP_DOMAIN = PORTAL_BASE_HOSTNAME.endsWith(".vercel.app");
+export const IS_VERCEL_APP_DOMAIN =
+  PORTAL_BASE_HOSTNAME.endsWith(".vercel.app");
 
 /**
  * Kept for optional custom-domain deployments. Defaulting to path-based routing on

@@ -1,5 +1,8 @@
 import slugify from "slugify";
-import { createSupabaseAnonClient, createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseAnonClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { registerSchema, RegisterInput } from "../schemas/onboarding.schema";
 
@@ -174,7 +177,6 @@ export async function registerTenant(payload: RegisterInput) {
     );
   }
 
- 
   const { data: slaPolicy, error: slaPolicyError } = await adminSupabase
     .from("sla_policies")
     .insert({
@@ -196,14 +198,13 @@ export async function registerTenant(payload: RegisterInput) {
 
   const slaTargets = sla.map((rule: any) => ({
     tenant_id: tenant.id,
-    policy_id: slaPolicy.id, 
-    priority_scope: rule.priority.toLowerCase(), 
+    policy_id: slaPolicy.id,
+    priority_scope: rule.priority.toLowerCase(),
     first_response_mins: rule.first_response_mins,
     resolution_mins: rule.resolution_mins,
     first_response_business: false,
     resolution_business: false,
   }));
-
 
   const { error: slaTargetsError } = await adminSupabase
     .from("sla_policy_targets")
@@ -274,7 +275,6 @@ export async function registerTenant(payload: RegisterInput) {
   };
 }
 
-
 export async function getTimezones(): Promise<Timezone[]> {
   try {
     const supabase = createSupabaseAnonClient();
@@ -282,7 +282,7 @@ export async function getTimezones(): Promise<Timezone[]> {
 
     if (error) {
       console.error("Error fetching timezones:", error.message);
-      return []; 
+      return [];
     }
 
     return data || [];

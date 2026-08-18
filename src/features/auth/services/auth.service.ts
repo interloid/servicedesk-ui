@@ -12,10 +12,19 @@ import {
   getTenantContext,
   getTenantSlugById,
 } from "@/features/tenancy/services/tenant-resolver";
-import { landingUrlForSlug, stripTenantPrefix, TENANT_HINT_COOKIE, tenantAuthCallbackPath, withTenantPrefix } from "@/lib/tenancy";
+import {
+  landingUrlForSlug,
+  stripTenantPrefix,
+  TENANT_HINT_COOKIE,
+  tenantAuthCallbackPath,
+  withTenantPrefix,
+} from "@/lib/tenancy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { ForgotPasswordValues } from "../schemas/forgot-password";
-import { updatePasswordSchema, type UpdatePasswordValues } from "../schemas/reset-password";
+import {
+  updatePasswordSchema,
+  type UpdatePasswordValues,
+} from "../schemas/reset-password";
 
 export class AuthError extends Error {
   readonly status: number;
@@ -88,7 +97,6 @@ export async function login({
       (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
   };
 }
-
 
 export async function googleLogin({
   next = "/tickets",
@@ -178,7 +186,10 @@ export async function resolvePostAuthUrl(
   const parsed = stripTenantPrefix(rawNext);
   const target = parsed ? parsed.rest : rawNext;
 
-  return landingUrlForSlug(slug, target === "/" ? "/tickets" : target || "/tickets");
+  return landingUrlForSlug(
+    slug,
+    target === "/" ? "/tickets" : target || "/tickets",
+  );
 }
 
 export function safeNext(
@@ -247,41 +258,45 @@ export async function logout(): Promise<void> {
   }
 }
 
-export async function sendPasswordResetLink(payload: ForgotPasswordValues){
-    const { email } = payload;
+export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
+  const { email } = payload;
 
-    try {
+  try {
     const supabase = await createSupabaseServerClient();
-     const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/reset-password`;
+    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/reset-password`;
 
-     const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
-     });
+    });
 
-      if (error) {
-        if (error.status === 429 || error.message.toLowerCase().includes("rate limit")) {
-          return {
-            success: false,
-            error: "Too many attempts from this address — try again in 60 seconds, or contact your admin.",
-            isRateLimited: true,
-          };
-        }
-
+    if (error) {
+      if (
+        error.status === 429 ||
+        error.message.toLowerCase().includes("rate limit")
+      ) {
         return {
           success: false,
-          error: error.message,
+          error:
+            "Too many attempts from this address — try again in 60 seconds, or contact your admin.",
+          isRateLimited: true,
         };
       }
 
-      return { success: true };
-    } catch (err) {
-      console.error("[SUPABASE_RESET_PASSWORD_ERROR]:", err);
       return {
         success: false,
-        error: "An unexpected error occurred. Please try again later.",
+        error: error.message,
       };
     }
+
+    return { success: true };
+  } catch (err) {
+    console.error("[SUPABASE_RESET_PASSWORD_ERROR]:", err);
+    return {
+      success: false,
+      error: "An unexpected error occurred. Please try again later.",
+    };
   }
+}
 
 export async function sendTenantPasswordResetLink(
   payload: ForgotPasswordValues,
@@ -302,10 +317,14 @@ export async function sendTenantPasswordResetLink(
     });
 
     if (error) {
-      if (error.status === 429 || error.message.toLowerCase().includes("rate limit")) {
+      if (
+        error.status === 429 ||
+        error.message.toLowerCase().includes("rate limit")
+      ) {
         return {
           success: false,
-          error: "Too many attempts from this address — try again in 60 seconds.",
+          error:
+            "Too many attempts from this address — try again in 60 seconds.",
           isRateLimited: true,
         };
       }
@@ -348,10 +367,9 @@ export async function updatePassword(values: UpdatePasswordValues) {
   return { success: true };
 }
 
-
 export async function updatePasswordForTenant(
   payload: UpdatePasswordValues,
-  tenantId: string
+  tenantId: string,
 ) {
   const { password } = payload;
 
@@ -366,7 +384,8 @@ export async function updatePasswordForTenant(
     if (userError || !user) {
       return {
         success: false,
-        error: "Your session has expired. Please request a new password reset link.",
+        error:
+          "Your session has expired. Please request a new password reset link.",
       };
     }
 
@@ -380,7 +399,8 @@ export async function updatePasswordForTenant(
     if (membershipError || !membership) {
       return {
         success: false,
-        error: "Unauthorized: You do not belong to this organization workspace.",
+        error:
+          "Unauthorized: You do not belong to this organization workspace.",
       };
     }
 
@@ -405,7 +425,6 @@ export async function updatePasswordForTenant(
   }
 }
 
-
 // async function recordLogoutAttempt(supabase: SupabaseClient) {
 //   const { data, error } = await supabase.auth.getUser();
 
@@ -426,10 +445,6 @@ export async function updatePasswordForTenant(
 //     email: data.user.email ?? "",
 //   });
 // }
-
-
-
-
 
 async function recordAuthEvent(
   supabase: SupabaseClient,
@@ -460,7 +475,6 @@ async function recordAuthEvent(
   }
 }
 
-
 async function clientIp(): Promise<string | null> {
   const requestHeaders = await headers();
   const forwarded = requestHeaders.get("x-forwarded-for");
@@ -477,5 +491,3 @@ function warn(message: string) {
     console.warn(`[auth] ${message}`);
   }
 }
-
-

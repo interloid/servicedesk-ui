@@ -118,7 +118,6 @@ export async function proxy(request: NextRequest) {
 
   const pathTenant = stripTenantPrefix(pathname);
 
-
   if (pathTenant) {
     const { slug, rest } = pathTenant;
 
@@ -161,7 +160,6 @@ export async function proxy(request: NextRequest) {
       );
     }
 
- 
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-tenant-slug", slug);
 
@@ -232,7 +230,6 @@ export async function proxy(request: NextRequest) {
       );
     }
   }
-
 
   if (pathname === ROOT_PATH || isCentralPath(pathname)) {
     return response;

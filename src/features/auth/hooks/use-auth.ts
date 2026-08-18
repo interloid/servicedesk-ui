@@ -89,7 +89,6 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
       const rawTarget =
         redirectTo === undefined ? result.data.redirectTo : redirectTo;
 
-  
       if (rawTarget) {
         if (isAbsoluteUrl(rawTarget)) {
           const targetUrl = new URL(rawTarget);

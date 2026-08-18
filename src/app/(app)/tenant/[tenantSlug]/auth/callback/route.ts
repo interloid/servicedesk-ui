@@ -1,12 +1,16 @@
-import { withTenantPrefix, tenantPath, TENANT_RESET_PASSWORD_PATH, TENANT_LOGIN_PATH } from "@/lib/tenancy";
+import {
+  withTenantPrefix,
+  tenantPath,
+  TENANT_RESET_PASSWORD_PATH,
+  TENANT_LOGIN_PATH,
+} from "@/lib/tenancy";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
-
 export async function GET(
   request: NextRequest,
-  context: { params: Promise<{ tenantSlug: string }> }
+  context: { params: Promise<{ tenantSlug: string }> },
 ) {
   const { tenantSlug } = await context.params;
   const { searchParams, origin } = new URL(request.url);
@@ -42,7 +46,7 @@ export async function GET(
             });
           },
         },
-      }
+      },
     );
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
@@ -53,20 +57,17 @@ export async function GET(
 
     console.error("[SUPABASE_CALLBACK_ERROR]:", error.message);
 
-    const errorUrl = new URL(
-      tenantPath(tenantSlug, TENANT_LOGIN_PATH),
-      origin
-    );
+    const errorUrl = new URL(tenantPath(tenantSlug, TENANT_LOGIN_PATH), origin);
     errorUrl.searchParams.set(
       "error",
-      error.message || "Authentication failed"
+      error.message || "Authentication failed",
     );
     return NextResponse.redirect(errorUrl);
   }
 
   const missingCodeUrl = new URL(
     tenantPath(tenantSlug, TENANT_LOGIN_PATH),
-    origin
+    origin,
   );
   missingCodeUrl.searchParams.set("error", "Missing authentication code");
   return NextResponse.redirect(missingCodeUrl);

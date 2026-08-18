@@ -8,7 +8,6 @@ export type TenantContext = {
   name: string;
   slug: string;
   portalUrl: string;
- 
 };
 
 /** The raw shape returned by PostgreSQL queries or RPC */
@@ -19,7 +18,6 @@ type TenantLookupRow = {
   logo_url?: string | null;
 };
 
-
 export async function getTenantContext(
   slugParam?: string,
 ): Promise<TenantContext | null> {
@@ -28,7 +26,7 @@ export async function getTenantContext(
   if (!label) {
     const requestHeaders = await headers();
     const hostLabel = tenantLabelFromHost(requestHeaders.get("host"));
-    if (!hostLabel) return null; 
+    if (!hostLabel) return null;
     label = hostLabel;
   }
 

@@ -25,12 +25,10 @@ const ROLE_DISPLAY_NAMES: Record<string, string> = {
 
 function formatRole(role?: string): string {
   if (!role) return "Member";
-  
+
   return (
     ROLE_DISPLAY_NAMES[role] ??
-    role
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (char) => char.toUpperCase())
+    role.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
   );
 }
 

@@ -21,11 +21,13 @@ export async function GET(request: NextRequest) {
     const sessionUser = await exchangeOAuthCode(code);
 
     if (rawNext === "/reset-password") {
-      const userTenantSlug = await getTenantSlugById(sessionUser.tenantId || "");
+      const userTenantSlug = await getTenantSlugById(
+        sessionUser.tenantId || "",
+      );
 
       if (userTenantSlug) {
         return NextResponse.redirect(
-          new URL(`/tenant/${userTenantSlug}/reset-password`, origin)
+          new URL(`/tenant/${userTenantSlug}/reset-password`, origin),
         );
       }
 
@@ -36,7 +38,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("[auth] Callback failed:", error);
     return NextResponse.redirect(
-      new URL("/login?error=Authentication+failed", origin)
+      new URL("/login?error=Authentication+failed", origin),
     );
   }
 }

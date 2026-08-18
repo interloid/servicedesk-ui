@@ -49,7 +49,8 @@ export function ForgotPasswordForm() {
           form.setError("email", { message: "Rate limited" });
         } else {
           form.setError("root", {
-            message: response.error || "An error occurred while sending the email.",
+            message:
+              response.error || "An error occurred while sending the email.",
           });
         }
         setSent(false);
@@ -85,7 +86,7 @@ export function ForgotPasswordForm() {
               If that email has an account, a reset link is on its way. It
               expires in 30 minutes — check spam before asking for another.
             </p>
-            
+
             <Button
               type="button"
               variant="outline"
@@ -115,7 +116,10 @@ export function ForgotPasswordForm() {
             </div>
 
             {rateLimited ? (
-              <Alert variant="destructive" className="rounded-[10px] px-3.5 py-3">
+              <Alert
+                variant="destructive"
+                className="rounded-[10px] px-3.5 py-3"
+              >
                 <CircleAlert className="size-4.5" aria-hidden />
                 <AlertDescription className="text-sm leading-[1.55]">
                   <span className="font-bold">

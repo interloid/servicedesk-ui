@@ -54,7 +54,6 @@ export const registerSchema = z
     dayStart: z.string().regex(TIME_PATTERN, "Use 24-hour times, like 09:00"),
     dayEnd: z.string().regex(TIME_PATTERN, "Use 24-hour times, like 09:00"),
 
-  
     inviteUsers: z
       .array(
         z.object({

@@ -15,7 +15,7 @@ import { APP_ROUTES } from "@/lib/routes";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans dark:bg-slate-950 dark:text-slate-100 flex flex-col justify-between">
+    <div className="h-full bg-slate-50 text-slate-900 font-sans dark:bg-slate-950 dark:text-slate-100 flex flex-col justify-between">
       <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link

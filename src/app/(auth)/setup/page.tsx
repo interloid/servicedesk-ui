@@ -6,7 +6,7 @@ export default async function SetupPage() {
   const timezones = await getTimezones();
 
   return (
-    <main className="min-h-screen bg-slate-50/50 flex flex-col items-center justify-center p-4 antialiased">
+    <main className="h-full bg-slate-50/50 flex flex-col items-center justify-center p-4 antialiased">
       <Link
         href="/"
         className="flex items-center space-x-2 mb-6 group cursor-pointer select-none"

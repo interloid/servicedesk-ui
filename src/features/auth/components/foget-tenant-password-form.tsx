@@ -130,7 +130,7 @@ export function ForgotTenantPasswordForm({
               </p>
             </div>
 
-            {rateLimited ? (
+            {rateLimited && (
               <Alert
                 variant="destructive"
                 className="rounded-[10px] px-3.5 py-3"
@@ -143,7 +143,7 @@ export function ForgotTenantPasswordForm({
                   {errorMessage}
                 </AlertDescription>
               </Alert>
-            ) : null}
+            )}
 
             <FormField
               control={form.control}

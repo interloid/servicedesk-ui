@@ -117,7 +117,7 @@ export function ForgotPasswordForm() {
               </p>
             </div>
 
-            {rateLimited ? (
+            {rateLimited && (
               <Alert
                 variant="destructive"
                 className="rounded-[10px] px-3.5 py-3"
@@ -126,11 +126,11 @@ export function ForgotPasswordForm() {
                 <AlertDescription className="text-sm leading-[1.55]">
                   <span className="font-bold">
                     We couldn&apos;t send that link.
-                  </span>{" "}
+                  </span>
                   {errorMessage}
                 </AlertDescription>
               </Alert>
-            ) : null}
+            )}
 
             <FormField
               control={form.control}

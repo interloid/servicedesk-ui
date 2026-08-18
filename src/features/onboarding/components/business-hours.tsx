@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 export interface Timezone {
   id: string;
@@ -160,11 +161,12 @@ export function StepBusinessHours({
                       key={day}
                       type="button"
                       onClick={() => toggleDay(day)}
-                      className={`px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all ${
+                      className={cn(
+                        "px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all",
                         isSelected
                           ? "border-emerald-700 bg-emerald-50/50 text-emerald-800"
-                          : "border-slate-200 bg-white text-slate-400 hover:border-slate-300"
-                      }`}
+                          : "border-slate-200 bg-white text-slate-400 hover:border-slate-300",
+                      )}
                     >
                       {day}
                     </button>

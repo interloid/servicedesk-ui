@@ -49,6 +49,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 import type { ShellIdentity } from "@/lib/identity";
 import { stripTenantPrefix, tenantPath } from "@/lib/tenancy";
+import { cn } from "@/lib/utils";
 
 export type MembershipRole =
   "tenant_admin" | "manager" | "agent" | "billing_admin" | "customer";
@@ -382,32 +383,16 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                             <SidebarMenuButton
                               asChild
                               isActive={isActive}
-                              className={`
-                                h-10
-                                w-full
-                                rounded-md
-                                px-2.5
-
-                                text-sm
-                                font-medium
-                                text-slate-600
-
-                                transition-colors
-
-                                hover:bg-slate-100/80
-                                hover:text-slate-900
-
-                                ${
-                                  isActive
-                                    ? "bg-slate-100/80 font-semibold text-slate-900"
-                                    : ""
-                                }
-
-                                group-data-[collapsible=icon]:h-10
-                                group-data-[collapsible=icon]:w-10
-                                group-data-[collapsible=icon]:justify-center
-                                group-data-[collapsible=icon]:p-0
-                              `}
+                              className={cn(
+                                "h-10 w-full rounded-md px-2.5 text-sm font-medium text-slate-600",
+                                "transition-colors hover:bg-slate-100/80 hover:text-slate-900",
+                                isActive &&
+                                  "bg-slate-100/80 font-semibold text-slate-900",
+                                "group-data-[collapsible=icon]:h-10",
+                                "group-data-[collapsible=icon]:w-10",
+                                "group-data-[collapsible=icon]:justify-center",
+                                "group-data-[collapsible=icon]:p-0",
+                              )}
                             >
                               <Link
                                 href={targetPath}
@@ -416,7 +401,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                                   min-w-0
                                   items-center
                                   gap-2.5
-
                                   group-data-[collapsible=icon]:justify-center
                                 "
                               >

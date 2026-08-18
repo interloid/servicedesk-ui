@@ -90,7 +90,7 @@ function ResetPasswordForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
+    <div className="flex h-full items-center justify-center bg-background px-4 py-12">
       <Form {...form}>
         <AuthCard onSubmit={form.handleSubmit(onSubmit)}>
           {updated ? (
@@ -119,17 +119,18 @@ function ResetPasswordForm() {
                 </p>
               </div>
 
-              {authError || form.formState.errors.root ? (
-                <Alert
-                  variant="destructive"
-                  className="rounded-[10px] px-3.5 py-3"
-                >
-                  <CircleAlert className="size-4.5" aria-hidden />
-                  <AlertDescription className="text-sm">
-                    {authError || form.formState.errors.root?.message}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
+              {authError ||
+                (form.formState.errors.root && (
+                  <Alert
+                    variant="destructive"
+                    className="rounded-[10px] px-3.5 py-3"
+                  >
+                    <CircleAlert className="size-4.5" aria-hidden />
+                    <AlertDescription className="text-sm">
+                      {authError || form.formState.errors.root?.message}
+                    </AlertDescription>
+                  </Alert>
+                ))}
 
               <FormField
                 control={form.control}

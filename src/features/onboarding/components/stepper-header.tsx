@@ -1,6 +1,4 @@
-"use client";
-
-import React from "react";
+import { cn } from "@/lib/utils";
 
 interface StepperHeaderProps {
   currentStep: number;
@@ -29,18 +27,20 @@ export function StepperHeader({ currentStep }: StepperHeaderProps) {
           return (
             <div key={step.id} className="flex items-center space-x-2">
               <div
-                className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition-colors",
                   isActive || isCompleted
                     ? "bg-teal-700 text-white"
-                    : "bg-slate-200 text-slate-600"
-                }`}
+                    : "bg-slate-200 text-slate-600",
+                )}
               >
                 {step.id}
               </div>
               <span
-                className={`text-xs font-semibold ${
-                  isActive ? "text-slate-900" : "text-slate-500"
-                }`}
+                className={cn(
+                  "text-xs font-semibold",
+                  isActive ? "text-slate-900" : "text-slate-500",
+                )}
               >
                 {step.label}
               </span>
@@ -60,18 +60,20 @@ export function StepperHeader({ currentStep }: StepperHeaderProps) {
         return (
           <div key={step.id} className="flex items-center space-x-2">
             <div
-              className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition-colors ${
+              className={cn(
+                "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition-colors",
                 isActive || isCompleted
                   ? "bg-teal-700 text-white"
-                  : "bg-slate-200 text-slate-600"
-              }`}
+                  : "bg-slate-200 text-slate-600",
+              )}
             >
               {step.id - 2}
             </div>
             <span
-              className={`text-xs font-semibold ${
-                isActive ? "text-slate-900" : "text-slate-500"
-              }`}
+              className={cn(
+                "text-xs font-semibold",
+                isActive ? "text-slate-900" : "text-slate-500",
+              )}
             >
               {step.label}
             </span>

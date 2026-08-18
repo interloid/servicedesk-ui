@@ -104,14 +104,14 @@ export function LoginForm({
           </p>
         </div>
 
-        {bannerMessage ? (
+        {bannerMessage && (
           <Alert variant="destructive" className="rounded-[10px] px-3.5 py-3">
             <CircleAlert className="size-4.5" aria-hidden />
             <AlertDescription className="text-sm leading-[1.55]">
               <span className="font-bold">{errorHeadline}</span> {bannerMessage}
             </AlertDescription>
           </Alert>
-        ) : null}
+        )}
 
         <div className="flex flex-col gap-3.5">
           <FormField

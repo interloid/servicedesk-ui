@@ -24,14 +24,14 @@ export function NotificationMenu() {
           aria-label={`Notifications, ${unread} unread`}
         >
           <Bell aria-hidden />
-          {unread > 0 ? (
+          {unread > 0 && (
             <span
               aria-hidden
               className="absolute top-1 right-1 flex h-4.25 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs leading-none font-bold text-destructive-foreground ring-2 ring-background"
             >
               {unread}
             </span>
-          ) : null}
+          )}
         </Button>
       </PopoverTrigger>
 

@@ -16,7 +16,7 @@ export default async function DashboardLayout({
       <div className="flex h-screen w-full overflow-hidden bg-background text-xs text-slate-800 font-sans antialiased">
         <AppSidebar identity={identity} />
 
-        <div className="flex flex-1 flex-col min-w-0 h-screen w-full">
+        <div className="flex flex-1 flex-col min-w-0 h-full w-full">
           <AppHeader identity={identity} />
           <main className="flex-1 overflow-y-auto w-full p-6 md:p-8">
             {children}

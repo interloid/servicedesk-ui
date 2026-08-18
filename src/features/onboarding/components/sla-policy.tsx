@@ -3,6 +3,7 @@
 import React from "react";
 import { OnboardingState, SlaTarget } from "../types/onboarding";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface StepSlaPolicyProps {
   data: OnboardingState;
@@ -84,9 +85,14 @@ export function StepSlaPolicy({
             >
               <div className="col-span-3 flex items-center">
                 <span
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${styles.bg}`}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border",
+                    styles.bg,
+                  )}
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} />
+                  <span
+                    className={cn("h-1.5 w-1.5 rounded-full", styles.dot)}
+                  />
                   {sla.priority}
                 </span>
               </div>

@@ -32,7 +32,7 @@ export default function DirectResetPasswordPage() {
   const params = useParams<{ tenantSlug: string }>();
   const tenantSlug = params.tenantSlug;
 
-  const [isVerifyingSession, setIsVerifyingSession] = useState(true);
+  const [isVerifyingSession, setIsVerifyingSession] = useState<boolean>(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [updated, setUpdated] = useState<boolean>(false);
   const [isPending, startTransition] = useTransition();
@@ -81,7 +81,7 @@ export default function DirectResetPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
+    <div className="flex h-full items-center justify-center bg-background px-4 py-12">
       <Form {...form}>
         <AuthCard onSubmit={form.handleSubmit(onSubmit)}>
           {updated ? (
@@ -110,17 +110,18 @@ export default function DirectResetPasswordPage() {
                 </p>
               </div>
 
-              {authError || form.formState.errors.root ? (
-                <Alert
-                  variant="destructive"
-                  className="rounded-[10px] px-3.5 py-3"
-                >
-                  <CircleAlert className="size-4.5" aria-hidden />
-                  <AlertDescription className="text-sm">
-                    {authError || form.formState.errors.root?.message}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
+              {authError ||
+                (form.formState.errors.root && (
+                  <Alert
+                    variant="destructive"
+                    className="rounded-[10px] px-3.5 py-3"
+                  >
+                    <CircleAlert className="size-4.5" aria-hidden />
+                    <AlertDescription className="text-sm">
+                      {authError || form.formState.errors.root?.message}
+                    </AlertDescription>
+                  </Alert>
+                ))}
 
               <FormField
                 control={form.control}

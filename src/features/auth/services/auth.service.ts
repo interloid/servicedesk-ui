@@ -11,7 +11,7 @@ import type {
 import {
   getTenantContext,
   getTenantSlugById,
-  getTenantIdBySlug
+  getTenantIdBySlug,
 } from "@/features/tenancy/services/tenant-resolver";
 import {
   landingUrlForSlug,
@@ -392,14 +392,15 @@ export async function updatePasswordForTenant(
       };
     }
 
-const tenantId = await getTenantIdBySlug(tenantSlug);
+    const tenantId = await getTenantIdBySlug(tenantSlug);
 
-if (!tenantId) {
-  return {
-    success: false,
-    error: "Tenant not found.",
-  };
-}    const { data: membership, error: membershipError } = await supabase
+    if (!tenantId) {
+      return {
+        success: false,
+        error: "Tenant not found.",
+      };
+    }
+    const { data: membership, error: membershipError } = await supabase
       .from("memberships")
       .select("id")
       .eq("user_id", user.id)

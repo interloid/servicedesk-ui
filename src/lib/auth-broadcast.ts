@@ -2,15 +2,14 @@ const AUTH_CHANNEL_NAME = "auth_logout_channel";
 
 export function broadcastLogout() {
   if (typeof window === "undefined") return;
-    if ("BroadcastChannel" in window) {
+  if ("BroadcastChannel" in window) {
     const channel = new BroadcastChannel(AUTH_CHANNEL_NAME);
     channel.postMessage({ type: "LOGOUT", timestamp: Date.now() });
     channel.close();
   }
   try {
     localStorage.setItem("auth_logout_event", Date.now().toString());
-  } catch (e) {
-  }
+  } catch (e) {}
 }
 
 export function subscribeToLogout(onLogout: () => void) {

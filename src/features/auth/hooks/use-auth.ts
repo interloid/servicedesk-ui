@@ -115,7 +115,7 @@ export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
     try {
       const destinationPath = redirectTo ?? next ?? "/tickets";
       result = await googleLoginAction(destinationPath);
-      } catch (error) {
+    } catch (error) {
       setIsPending(false);
       console.error("[auth] google login request failed", error);
       toast.error("Network error. Check your connection and retry.");
@@ -152,9 +152,7 @@ export function useLogout({ redirectTo }: UseLogoutOptions = {}) {
 
   const handleRedirect = useCallback(() => {
     const target =
-      redirectTo === undefined
-        ? withCurrentTenantPrefix("/login")
-        : redirectTo;
+      redirectTo === undefined ? withCurrentTenantPrefix("/login") : redirectTo;
 
     if (target) {
       window.location.assign(target);

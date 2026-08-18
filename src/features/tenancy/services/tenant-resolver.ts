@@ -87,7 +87,6 @@ export async function verifyUserTenantMembership(
   return Boolean(membership);
 }
 
-
 export async function getTenantSlugById(
   tenantId: string,
 ): Promise<string | null> {

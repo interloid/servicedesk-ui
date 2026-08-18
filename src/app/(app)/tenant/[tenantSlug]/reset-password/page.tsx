@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter, useParams } from "next/navigation"; // 1. Import useParams
+import { useRouter, useParams } from "next/navigation"; 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, CircleAlert, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useForm } from "react-hook-form";
@@ -29,7 +29,6 @@ import { updateTenantPasswordAction } from "@/features/auth/actions";
 export default function DirectResetPasswordPage() {
   const router = useRouter();
   
-  // 2. Read the route parameter (tenantSlug)
   const params = useParams<{ tenantSlug: string }>();
   const tenantSlug = params.tenantSlug;
 
@@ -62,7 +61,6 @@ export default function DirectResetPasswordPage() {
     startTransition(async () => {
       form.clearErrors("root");
 
-      // 3. Pass tenantSlug as the second argument
       const result = await updateTenantPasswordAction(values, tenantSlug);
 
       if (!result.success) {

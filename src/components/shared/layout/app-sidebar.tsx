@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useParams } from "next/navigation";
 import {
   Ticket,
   Bookmark,
@@ -48,11 +48,41 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 import type { ShellIdentity } from "@/lib/identity";
+import { stripTenantPrefix, tenantPath } from "@/lib/tenancy";
+
+export type MembershipRole =
+  | "tenant_admin"
+  | "manager"
+  | "agent"
+  | "billing_admin"
+  | "customer";
+
+interface NavItem {
+  label: string;
+  href: string;
+  icon: React.ElementType;
+  roles: MembershipRole[];
+}
+
+interface NavSection {
+  title: string | null;
+  items: NavItem[];
+}
 
 export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
   const pathname = usePathname();
+  const params = useParams();
 
-  const navSections = [
+  const userRole = (identity?.user.role as MembershipRole) ?? "customer";
+
+  const tenantSlug =
+    (params?.tenantSlug as string | undefined) ??
+    identity?.org.name ??
+    stripTenantPrefix(pathname)?.slug ??
+    "";
+
+  
+  const navSections: NavSection[] = [
     {
       title: null,
       items: [
@@ -60,36 +90,43 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           label: "Ticket queue",
           href: "/tickets",
           icon: Ticket,
+          roles: ["tenant_admin", "manager", "agent",],
         },
         {
           label: "Saved views",
           href: "/views",
           icon: Bookmark,
+          roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Customers",
           href: "/customers",
           icon: Building2,
+          roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Knowledge base",
           href: "/kb",
           icon: BookOpen,
+          roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Macros & templates",
           href: "/macros",
           icon: MessageSquareText,
+          roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "SLA policies",
           href: "/sla",
           icon: Clock,
+          roles: ["tenant_admin", "manager","agent"],
         },
         {
           label: "Reports",
           href: "/reports",
           icon: BarChart2,
+          roles: ["tenant_admin", "manager"],
         },
       ],
     },
@@ -101,41 +138,49 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           label: "Team & roles",
           href: "/settings/team",
           icon: Users,
+          roles: ["tenant_admin", "manager"],
         },
         {
           label: "Branding",
           href: "/settings/branding",
           icon: Droplet,
+          roles: ["tenant_admin", "manager"],
         },
         {
           label: "Channels & email",
           href: "/settings/channels",
           icon: Mail,
+          roles: ["tenant_admin"],
         },
         {
           label: "Integrations & API",
           href: "/settings/integrations",
           icon: Zap,
+          roles: ["tenant_admin"],
         },
         {
           label: "Security & SSO",
           href: "/settings/security",
           icon: Shield,
+          roles: ["tenant_admin"],
         },
         {
           label: "Data & privacy",
           href: "/settings/data",
           icon: Database,
+          roles: ["tenant_admin"],
         },
         {
           label: "Notification center",
           href: "/settings/notifications",
           icon: Bell,
+          roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Audit log",
           href: "/settings/audit",
           icon: FileText,
+          roles: ["tenant_admin", "manager"],
         },
       ],
     },
@@ -147,15 +192,27 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           label: "Billing overview",
           href: "/account/billing",
           icon: CreditCard,
+          roles: ["tenant_admin", "billing_admin"],
         },
         {
           label: "Plans & pricing",
           href: "/account/plans",
           icon: Sparkles,
+          roles: ["tenant_admin", "billing_admin"],
         },
       ],
     },
   ];
+
+const hasAccess = (itemRoles: MembershipRole[]) =>
+  itemRoles.includes(userRole);
+
+  const visibleSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => hasAccess(item.roles)),
+    }))
+    .filter((section) => section.items.length > 0);
 
   return (
     <Sidebar
@@ -202,7 +259,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               text-sidebar-primary-foreground
             "
           >
-            {identity?.org.initial}
+            {identity?.org.initial ?? "T"}
           </div>
 
           <div
@@ -223,7 +280,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                 text-foreground
               "
             >
-              {identity?.org.name}
+              {identity?.org.name ?? "Tenant Workspace"}
             </span>
 
             <span
@@ -233,7 +290,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                 text-muted-foreground
               "
             >
-              {identity?.org.planSummary}
+              {identity?.org.planSummary ?? "Active Plan"}
             </span>
           </div>
 
@@ -274,7 +331,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           group-data-[collapsible=icon]:py-3
         "
       >
-        {navSections.map((group, index) => (
+        {visibleSections.map((group, index) => (
           <SidebarGroup
             key={group.title ?? `group-${index}`}
             className="
@@ -307,7 +364,13 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               <SidebarMenu className="gap-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const isActive = pathname === item.href;
+                  const targetPath = tenantSlug
+                    ? tenantPath(tenantSlug, item.href)
+                    : item.href;
+
+                  const isActive =
+                    pathname === targetPath ||
+                    (item.href !== "/" && pathname.startsWith(`${targetPath}/`));
 
                   return (
                     <SidebarMenuItem
@@ -351,7 +414,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                               `}
                             >
                               <Link
-                                href={item.href}
+                                href={targetPath}
                                 className="
                                   flex
                                   min-w-0
@@ -434,7 +497,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                 text-background
               "
             >
-              {identity?.user.initials}
+              {identity?.user.initials ?? "U"}
             </AvatarFallback>
           </Avatar>
 
@@ -455,17 +518,18 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                 text-foreground
               "
             >
-              {identity?.user.name}
+              {identity?.user.name ?? "User"}
             </span>
 
             <span
               className="
                 truncate
                 text-xs
+                capitalize
                 text-muted-foreground
               "
             >
-              {identity?.user.role}
+              {userRole.replace("_", " ")}
             </span>
           </div>
         </div>

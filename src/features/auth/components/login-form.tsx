@@ -90,7 +90,6 @@ export function LoginForm({
       return;
     }
 
-    
     for (const [field, messages] of Object.entries(result.fieldErrors ?? {})) {
       const message = messages?.[0];
       if (message) {

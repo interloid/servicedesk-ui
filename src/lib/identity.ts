@@ -44,22 +44,13 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
     return null;
   }
 
-  /*
-   * Subdomain is the tenant boundary. A session cookie is host-scoped so it cannot
-   * normally arrive on another tenant's subdomain, but a stale or forged session
-   * that claims a tenant other than the one this host names must not render this
-   * tenant's chrome — return null (the shell draws its signed-out state) rather
-   * than letting the wrong tenant's data surface. This mirrors the hard check in
-   * `auth.service`'s `verifyHostTenancy`; that one prevents the session from ever
-   * being created, this one catches anything that slips past.
-   */
+ 
   const tenant = await getTenantContext();
 
   if (tenant && tenant.id !== tenantId) {
     return null;
   }
 
-  // Get organization (Aliased to tenantData to avoid collision with 'tenant' above)
   const { data: tenantData, error: tenantError } = await supabase
     .from("tenants")
     .select("id, name")
@@ -70,7 +61,6 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
     throw tenantError;
   }
 
-  // Get active subscription + plan
   const { data: subscription, error: subscriptionError } = await supabase
     .from("subscriptions")
     .select(

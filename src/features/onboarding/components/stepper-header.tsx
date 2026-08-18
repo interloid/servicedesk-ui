@@ -19,7 +19,6 @@ const subSteps = [
 ];
 
 export function StepperHeader({ currentStep }: StepperHeaderProps) {
-  // Phase 1: Main account setup (Steps 1 & 2)
   if (currentStep <= 2) {
     return (
       <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3 border border-slate-100 mb-6">
@@ -52,7 +51,6 @@ export function StepperHeader({ currentStep }: StepperHeaderProps) {
     );
   }
 
-  // Phase 2: Detailed desk configuration (Steps 3, 4 & 5)
   return (
     <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3 border border-slate-100 mb-6">
       {subSteps.map((step) => {

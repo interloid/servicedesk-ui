@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { env } from "@/config/env";
@@ -12,24 +12,11 @@ import {
   getTenantContext,
   getTenantSlugById,
 } from "@/features/tenancy/services/tenant-resolver";
-import { landingUrlForSlug, tenantLabelFromHost } from "@/lib/tenancy";
-import { createSupabaseAnonClient, createSupabaseServerClient } from "@/lib/supabase/server";
-import { ForgotPasswordValues } from "../schemas/forgot-password";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { updatePasswordSchema, UpdatePasswordValues } from "../schemas/reset-password";
+import { landingUrlForSlug, stripTenantPrefix, TENANT_HINT_COOKIE, tenantAuthCallbackPath, withTenantPrefix } from "@/lib/tenancy";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { ForgotPasswordValues } from "../schemas/forgot-password";
+import { updatePasswordSchema, type UpdatePasswordValues } from "../schemas/reset-password";
 
-/**
- * Auth service — the only place that talks to the Supabase auth/data SDK.
- *
- * No REST layer, no Express controller: callers are Server Actions (`../actions.ts`), and
- * this module runs server-side only. It never imports React and never returns a Response;
- * it returns domain values or throws `AuthError`, and the action shapes the envelope.
- *
- * Every call uses the anon key plus the caller's own access token, so RLS is in force. See
- * `@/lib/supabase/server` for why there is no service-role client.
- */
-
-/** A failure the user is allowed to see — bad credentials, unconfirmed email, rate limit. */
 export class AuthError extends Error {
   readonly status: number;
   readonly code: AuthFailureCode;
@@ -45,10 +32,6 @@ export class AuthError extends Error {
   }
 }
 
-/**
- * Narrow Supabase's `error.code` to our own set. Anything unrecognised becomes `unknown`
- * rather than leaking through, so a new vendor code can't reach the UI unhandled.
- */
 function toFailureCode(code: string | undefined): AuthFailureCode {
   switch (code) {
     case "invalid_credentials":
@@ -63,39 +46,17 @@ function toFailureCode(code: string | undefined): AuthFailureCode {
   }
 }
 
-type ActiveMembership = { tenant_id: string; role: MembershipRole };
-
-/**
- * Sign in with a password, resolve the caller's active membership, and append a `login`
- * row to the audit trail.
- *
- * Sets the session cookies as a side effect: `createServerClient` writes them through the
- * `cookies()` store, which is why this must be called from a Server Action or Route
- * Handler and not during a Server Component render.
- */
 export async function login({
   email,
   password,
 }: LoginValues): Promise<SessionUser> {
   const supabase = await createSupabaseServerClient();
 
-  /*
-   * Supabase creates the authenticated session.
-   *
-   * @supabase/ssr writes the session into cookies through
-   * the server client cookie adapter.
-   */
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
 
-  /*
-   * `AuthError`, not a bare `Error`. `loginAction` branches on `instanceof AuthError` to
-   * decide whether the user may see the message; a plain Error falls through to its
-   * catch-all and every bad password reads "We couldn't sign you in right now" instead of
-   * "invalid credentials" — which is also what makes `toFailureCode` worth having.
-   */
   if (error || !data.user) {
     throw new AuthError(error?.message ?? "Invalid login credentials", {
       status: error?.status ?? 400,
@@ -103,33 +64,26 @@ export async function login({
     });
   }
 
-  /*
-   * Check the newly issued JWT claims.
-   *
-   * Your custom_access_token_hook should add:
-   *
-   * tenant_id
-   * tenant_role
-   */
   const { data: claimsData, error: claimsError } =
     await supabase.auth.getClaims();
 
   if (claimsError) {
     console.error("JWT claims error:", claimsError);
-
     throw new Error("Unable to verify authentication session");
   }
 
   const tenantId =
     (claimsData?.claims?.tenant_id as string | undefined) ?? null;
+  const tenantSlug =
+    (claimsData?.claims?.tenant_slug as string | undefined) ?? null;
 
   await verifyHostTenancy(supabase, tenantId);
-
 
   return {
     id: data.user.id,
     email: data.user.email ?? email,
     tenantId,
+    tenantSlug,
     role:
       (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
   };
@@ -140,14 +94,26 @@ export async function googleLogin({
   next = "/tickets",
 }: { next?: string } = {}) {
   const supabase = await createSupabaseServerClient();
-  const origin = await requestOrigin(); 
-  const callback = new URL("/auth/callback", origin);
-  callback.searchParams.set("next", safeNext(next));
+  const origin = await requestOrigin();
+
+  const cookieStore = await cookies();
+  const tenantSlug = cookieStore.get(TENANT_HINT_COOKIE)?.value;
+
+  const safePath = safeNext(next);
+  const targetNext = tenantSlug
+    ? withTenantPrefix(tenantSlug, safePath)
+    : safePath;
+
+  const callbackPath = tenantSlug
+    ? tenantAuthCallbackPath(tenantSlug, targetNext)
+    : `/auth/callback?next=${encodeURIComponent(targetNext)}`;
+
+  const redirectTo = new URL(callbackPath, origin).toString();
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: callback.toString(),
+      redirectTo,
       queryParams: {
         access_type: "offline",
         prompt: "consent",
@@ -181,18 +147,19 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
 
   const tenantId =
     (claimsData?.claims?.tenant_id as string | undefined) ?? null;
+  const tenantSlug = tenantId ? await getTenantSlugById(tenantId) : null;
 
   await verifyHostTenancy(supabase, tenantId);
 
   return {
     id: data.user.id,
     email: data.user.email ?? "",
+    tenantSlug,
     tenantId,
     role:
       (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
   };
 }
-
 
 export async function resolvePostAuthUrl(
   tenantId: string | null,
@@ -203,25 +170,16 @@ export async function resolvePostAuthUrl(
   }
 
   const slug = await getTenantSlugById(tenantId);
-
   if (!slug) {
     return null;
   }
 
-  const requestHeaders = await headers();
-  const origin = await requestOrigin();
+  const rawNext = safeNext(next);
+  const parsed = stripTenantPrefix(rawNext);
+  const target = parsed ? parsed.rest : rawNext;
 
-  const target = safeNext(next).replace(
-    new RegExp(`^/tenant/${slug}(?=/|$)`),
-    "",
-  );
-
-  return landingUrlForSlug(slug, target || "/tickets", {
-    currentSlug: tenantLabelFromHost(requestHeaders.get("host")),
-    protocol: new URL(origin).protocol.replace(":", ""),
-  });
+  return landingUrlForSlug(slug, target === "/" ? "/tickets" : target || "/tickets");
 }
-
 
 export function safeNext(
   next: string | null | undefined,
@@ -230,14 +188,11 @@ export function safeNext(
   if (!next || !next.startsWith("/") || next.startsWith("//")) {
     return fallback;
   }
-
   return next;
 }
 
-
 async function requestOrigin(): Promise<string> {
   const requestHeaders = await headers();
-
   const host = requestHeaders.get("host");
   const forwardedProto = requestHeaders.get("x-forwarded-proto");
 
@@ -252,7 +207,6 @@ async function requestOrigin(): Promise<string> {
   return new URL(env.NEXT_PUBLIC_SITE_URL).origin;
 }
 
-
 async function verifyHostTenancy(
   supabase: SupabaseClient,
   tenantId: string | null,
@@ -264,9 +218,7 @@ async function verifyHostTenancy(
   }
 
   if (tenantId !== context.id) {
-    
     const { error } = await supabase.auth.signOut();
-
     if (error) {
       console.error(
         `[auth] failed to revoke cross-tenant session: ${error.message}`,
@@ -283,20 +235,11 @@ async function verifyHostTenancy(
   }
 }
 
-
 export async function logout(): Promise<void> {
   const supabase = await createSupabaseServerClient();
-
-  // Before the token is revoked, not after: this is the last moment the caller is still
-  // authenticated, and the audit insert runs under their own JWT.
-  await recordLogoutAttempt(supabase);
-
   const { error } = await supabase.auth.signOut();
 
   if (error) {
-    // supabase-js already treats 401/403/404 from the revoke endpoint as success and clears
-    // the session anyway, so reaching here means the session may genuinely still be live.
-    // Say so rather than redirect to /login and imply an ending that didn't happen.
     throw new AuthError("We couldn't sign you out. Try again in a moment.", {
       status: error.status ?? 500,
       code: toFailureCode(error.code),
@@ -306,11 +249,9 @@ export async function logout(): Promise<void> {
 
 export async function sendPasswordResetLink(payload: ForgotPasswordValues){
     const { email } = payload;
-    console.log("🚀 ~ sendPasswordResetLink ~ email:", email)
 
     try {
     const supabase = await createSupabaseServerClient();
-      // Define redirect URL where user lands to enter their new password
      const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/reset-password`;
 
      const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -318,7 +259,6 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues){
      });
 
       if (error) {
-        // Handle Supabase Rate Limits (HTTP status 429)
         if (error.status === 429 || error.message.toLowerCase().includes("rate limit")) {
           return {
             success: false,
@@ -346,25 +286,16 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues){
 export async function sendTenantPasswordResetLink(
   payload: ForgotPasswordValues,
   tenant: string = "tenant",
-  slug: string = "converse"
+  slug: string = "converse",
 ) {
   const { email } = payload;
 
   try {
     const supabase = await createSupabaseServerClient();
+    const origin = await requestOrigin();
 
-    const headerList = await headers();
-    const host = headerList.get("host") || "localhost:3000";
-    const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
-
-    const origin = `${protocol}://${host}`;
-
- 
-    const callbackPath = `/auth/callback`;
-    const destinationPath = `/reset-password`;
-
-    const redirectTo = `${origin}${callbackPath}?next=${encodeURIComponent(destinationPath)}`;
-    console.log("🚀 ~ sendTenantPasswordResetLink ~ redirectTo:", redirectTo)
+    const destinationPath = `/tenant/${slug}/reset-password`;
+    const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(destinationPath)}`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
@@ -391,7 +322,7 @@ export async function sendTenantPasswordResetLink(
   }
 }
 
-  export async function updatePassword(values: UpdatePasswordValues) {
+export async function updatePassword(values: UpdatePasswordValues) {
   const validatedFields = updatePasswordSchema.safeParse(values);
 
   if (!validatedFields.success) {
@@ -475,47 +406,29 @@ export async function updatePasswordForTenant(
 }
 
 
-async function recordLogoutAttempt(supabase: SupabaseClient) {
-  const { data, error } = await supabase.auth.getUser();
+// async function recordLogoutAttempt(supabase: SupabaseClient) {
+//   const { data, error } = await supabase.auth.getUser();
 
-  if (error || !data.user) {
-    return;
-  }
+//   if (error || !data.user) {
+//     return;
+//   }
 
-  const membership = await findActiveMembership(supabase, data.user.id);
+//   const membership = await findActiveMembership(supabase, data.user.id);
 
-  if (!membership) {
-    return;
-  }
+//   if (!membership) {
+//     return;
+//   }
 
-  await recordAuthEvent(supabase, {
-    action: "logout",
-    tenantId: membership.tenant_id,
-    userId: data.user.id,
-    email: data.user.email ?? "",
-  });
-}
+//   await recordAuthEvent(supabase, {
+//     action: "logout",
+//     tenantId: membership.tenant_id,
+//     userId: data.user.id,
+//     email: data.user.email ?? "",
+//   });
+// }
 
 
-async function findActiveMembership(
-  supabase: SupabaseClient,
-  userId: string,
-): Promise<ActiveMembership | null> {
-  const { data, error } = await supabase
-    .from("memberships")
-    .select("tenant_id, role")
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .maybeSingle<ActiveMembership>();
 
-  // A failed probe must not fail an otherwise valid sign-in — the credentials were good.
-  if (error) {
-    warn(`membership lookup skipped: ${error.message}`);
-    return null;
-  }
-
-  return data;
-}
 
 
 async function recordAuthEvent(

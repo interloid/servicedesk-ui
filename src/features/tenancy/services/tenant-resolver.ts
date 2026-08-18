@@ -19,22 +19,16 @@ type TenantLookupRow = {
   logo_url?: string | null;
 };
 
-/**
- * Resolves the active tenant context.
- *
- * @param slugParam - Optional slug explicitly passed from route params.
- *                    If omitted, resolves the tenant from the Request Host header.
- */
+
 export async function getTenantContext(
   slugParam?: string,
 ): Promise<TenantContext | null> {
   let label = slugParam;
 
-  // 1. If no explicit slug passed, extract it automatically from the host header
   if (!label) {
     const requestHeaders = await headers();
     const hostLabel = tenantLabelFromHost(requestHeaders.get("host"));
-    if (!hostLabel) return null; // Central / main domain context
+    if (!hostLabel) return null; 
     label = hostLabel;
   }
 

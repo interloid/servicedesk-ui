@@ -196,15 +196,15 @@ export async function registerTenant(payload: RegisterInput) {
 
   const slaTargets = sla.map((rule: any) => ({
     tenant_id: tenant.id,
-    policy_id: slaPolicy.id, // Correct foreign key column
-    priority_scope: rule.priority.toLowerCase(), // e.g. 'urgent', 'high', 'normal', 'low'
+    policy_id: slaPolicy.id, 
+    priority_scope: rule.priority.toLowerCase(), 
     first_response_mins: rule.first_response_mins,
     resolution_mins: rule.resolution_mins,
     first_response_business: false,
     resolution_business: false,
   }));
 
-  // 3. Insert into sla_policy_targets table
+
   const { error: slaTargetsError } = await adminSupabase
     .from("sla_policy_targets")
     .insert(slaTargets);
@@ -213,7 +213,6 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error(`SLA Targets setup failed: ${slaTargetsError.message}`);
   }
 
-  // 13. Process Team Invites (Safe loop with error resilience)
   if (invite_users && invite_users.length > 0) {
     for (const invite of invite_users) {
       if (!invite.email?.trim()) continue;
@@ -236,7 +235,6 @@ export async function registerTenant(payload: RegisterInput) {
 
       const invitedUser = inviteData.user;
 
-      // Upsert user entry
       await adminSupabase.from("users").upsert({
         id: invitedUser.id,
         email: invite.email,
@@ -244,7 +242,6 @@ export async function registerTenant(payload: RegisterInput) {
         avatar_url: null,
       });
 
-      // Create membership record as 'invited'
       await adminSupabase.from("memberships").insert({
         tenant_id: tenant.id,
         user_id: invitedUser.id,
@@ -281,12 +278,11 @@ export async function registerTenant(payload: RegisterInput) {
 export async function getTimezones(): Promise<Timezone[]> {
   try {
     const supabase = createSupabaseAnonClient();
-    // Querying all columns prevents 'column does not exist' errors
     const { data, error } = await supabase.from("timezones").select("*");
 
     if (error) {
       console.error("Error fetching timezones:", error.message);
-      return []; // Return empty array on error to prevent client crashes
+      return []; 
     }
 
     return data || [];
@@ -306,7 +302,6 @@ export async function checkEmailTenant(
     return { exists: false };
   }
 
-  // Exact email check on the tenants table
   const { data, error } = await supabase
     .from("users")
     .select("email")

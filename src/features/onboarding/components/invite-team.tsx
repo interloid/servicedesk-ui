@@ -27,7 +27,6 @@ export function StepInviteTeam({
   onSkip,
   onBack,
 }: StepProps) {
-  // Convert array of invites into a single comma-separated string for input display
   const [emailsInput, setEmailsInput] = useState(() =>
     data.invites
       .map((inv) => inv.email)

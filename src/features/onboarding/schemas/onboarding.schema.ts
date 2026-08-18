@@ -12,12 +12,10 @@ export const slaRuleSchema = z.object({
 });
 
 export const registerSchema = z.object({
-  // Step 1: Account
   email: z.string().email("Invalid work email"),
   password: z.string().min(10, "Password must be at least 10 characters"),
   full_name: z.string().min(2, "Full name is required"),
 
-  // Step 2: Organization
   organization_name: z.string().min(2, "Organization name is required"),
   portal_slug: z
     .string()
@@ -27,7 +25,6 @@ export const registerSchema = z.object({
       "Slug can only contain lowercase letters, numbers, and hyphens",
     ),
 
-  // Step 3: Business Hours
   timezone_id: z.string().uuid("Invalid timezone ID"),
   working_days: z.array(z.string()).min(1, "Select at least one working day"),
   day_start: z
@@ -37,12 +34,10 @@ export const registerSchema = z.object({
     .string()
     .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Invalid end time (HH:MM)"),
 
-  // Step 4: SLA Targets
   sla: z
     .array(slaRuleSchema)
     .min(1, "At least one SLA target rule is required"),
 
-  // Step 5: Invites
   invite_users: z.array(inviteUserSchema).default([]),
 });
 

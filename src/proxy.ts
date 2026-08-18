@@ -4,113 +4,45 @@ import { createServerClient } from "@supabase/ssr";
 
 import {
   AUTH_COOKIE_DOMAIN,
-  PORTAL_BASE_DOMAIN,
+  DEFAULT_TENANT_PATH,
+  TENANT_VIEWS_PATH,
   SUBDOMAIN_ROUTING_AVAILABLE,
-  portalOriginForSlug,
+  TENANT_HINT_COOKIE,
+  TENANT_HINT_MAX_AGE,
+  allowsExistingSession,
+  isCentralPath,
+  isInfrastructurePath,
+  isTenantPublicPath,
+  isValidTenantSlug,
   stripTenantPrefix,
   tenantLabelFromHost,
+  tenantLoginPath,
   tenantPath,
+  withTenantPrefix,
 } from "@/lib/tenancy";
 
-/** Where a signed-in user goes when they ask for nothing in particular. */
-const DEFAULT_AUTHED_PATH = "/tickets";
-
-/** Reachable without a session, in tenant-path (post-rewrite) terms. */
-const PUBLIC_PATHS = new Set(["/login", "/forgot-password", "/reset-password"]);
-
-/** Central, non-tenant routes: they belong to the product, not to a workspace. */
-const CENTRAL_PATHS = new Set(["/setup"]);
-
 /**
- * Paths the tenant rewrite must never touch: the OAuth callback is a real route at
- * `/auth/callback` on every host, and API/static requests carry no tenant chrome.
+ * Path-based tenancy guard.
+ *
+ * Canonical shape for every tenant-scoped route — app pages and auth pages
+ * alike:
+ *
+ *   /tenant/converse/tickets
+ *   /tenant/converse/login
+ *   /tenant/converse/forgot-password
+ *   /tenant/converse/reset-password
+ *
+ * Only workspace-less routes (`/`, `/setup`) stay on the bare root domain; a
+ * bare tenant route is redirected into the prefix as soon as the slug is known,
+ * either from the session claims or from the last-workspace hint cookie.
  */
-function isInfrastructurePath(pathname: string): boolean {
-  return (
-    pathname.startsWith("/auth/") ||
-    pathname.startsWith("/api/") ||
-    pathname.startsWith("/_next/") ||
-    pathname === "/favicon.ico"
-  );
-}
 
-function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.has(pathname);
-}
+/** Marketing/landing route that must stay on the root domain. */
+const ROOT_PATH = "/";
 
 /**
- * Safely extracts the tenant slug from host header, handling both production
- * subdomains and local development (e.g. `converse.localhost:3000`).
- */
-function resolveTenantSlug(host: string | null): string | null {
-  if (!host) return null;
-
-  const slugFromHelper = tenantLabelFromHost(host);
-  if (slugFromHelper) return slugFromHelper;
-
-  const hostname = host.split(":")[0];
-  if (hostname.endsWith(".localhost")) {
-    const parts = hostname.split(".");
-    if (parts.length > 1 && parts[0] !== "www") {
-      return parts[0];
-    }
-  }
-
-  return null;
-}
-
-/**
- * The session guard, written once in terms of the CLEAN path (`/tickets`) and a
- * prefix that puts it back into whichever URL shape this host uses.
- */
-function sessionGuard({
-  authenticated,
-  prefix,
-  loginPrefix = prefix,
-  path,
-  search,
-  requestUrl,
-}: {
-  authenticated: boolean;
-  prefix: string;
-  loginPrefix?: string;
-  path: string;
-  search: string;
-  requestUrl: string;
-}): NextResponse | null {
-  const isPublic = isPublicPath(path);
-
-  if (!authenticated) {
-    if (isPublic && loginPrefix === prefix) {
-      return null;
-    }
-
-    if (isPublic) {
-      return NextResponse.redirect(
-        new URL(`${loginPrefix}${path}${search}`, requestUrl),
-      );
-    }
-
-    const loginUrl = new URL(`${loginPrefix}/login`, requestUrl);
-
-    if (path !== "/") {
-      loginUrl.searchParams.set("next", `${path}${search}`);
-    }
-
-    return NextResponse.redirect(loginUrl);
-  }
-
-  if (isPublic || path === "/") {
-    return NextResponse.redirect(
-      new URL(`${prefix}${DEFAULT_AUTHED_PATH}`, requestUrl),
-    );
-  }
-
-  return null;
-}
-
-/**
- * Carry the refreshed session cookies onto a redirect/rewrite built independently.
+ * Copies mutated session cookies onto newly constructed responses
+ * so refreshed tokens are preserved across redirects and headers rewrites.
  */
 function withSessionCookies(
   target: NextResponse,
@@ -119,12 +51,32 @@ function withSessionCookies(
   for (const cookie of source.cookies.getAll()) {
     target.cookies.set(cookie);
   }
-
   return target;
+}
+
+/** Persists the workspace hint used to rebuild `/tenant/<slug>/login` later. */
+function rememberTenant(response: NextResponse, slug: string): NextResponse {
+  response.cookies.set(TENANT_HINT_COOKIE, slug, {
+    path: "/",
+    sameSite: "lax",
+    maxAge: TENANT_HINT_MAX_AGE,
+    secure: process.env.NODE_ENV === "production",
+    ...(AUTH_COOKIE_DOMAIN ? { domain: AUTH_COOKIE_DOMAIN } : {}),
+  });
+  return response;
 }
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
+
+  const hostHeader = request.headers.get("host") || "";
+  if (!SUBDOMAIN_ROUTING_AVAILABLE && hostHeader.includes(".localhost")) {
+    const cleanUrl = new URL(request.url);
+    cleanUrl.host = hostHeader.split(":")[1]
+      ? `localhost:${hostHeader.split(":")[1]}`
+      : "localhost:3000";
+    return NextResponse.redirect(cleanUrl);
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -164,96 +116,167 @@ export async function proxy(request: NextRequest) {
     return response;
   }
 
-  const hostHeader = request.headers.get("host");
-  const slug = resolveTenantSlug(hostHeader);
+  const pathTenant = stripTenantPrefix(pathname);
 
-  if (!slug) {
-    const pathTenant = stripTenantPrefix(pathname);
 
-    if (pathTenant) {
-      const scheme = url.protocol.replace(":", "");
+  if (pathTenant) {
+    const { slug, rest } = pathTenant;
 
-      
-      if (SUBDOMAIN_ROUTING_AVAILABLE) {
-        const port = hostHeader?.includes(":") ? `:${hostHeader.split(":")[1]}` : "";
-        const baseDomain = PORTAL_BASE_DOMAIN || "localhost";
-        const targetOrigin = `${scheme}://${pathTenant.slug}.${baseDomain}`;
+    if (isInfrastructurePath(rest)) {
+      return rememberTenant(response, slug);
+    }
 
+    if (isCentralPath(rest)) {
+      return withSessionCookies(
+        NextResponse.redirect(new URL(`${rest}${url.search}`, request.url)),
+        response,
+      );
+    }
+
+    const isPublic = isTenantPublicPath(rest);
+
+    if (!user && !isPublic) {
+      const loginUrl = new URL(
+        tenantLoginPath(slug, rest === "/" ? null : `${rest}${url.search}`),
+        request.url,
+      );
+      return rememberTenant(
+        withSessionCookies(NextResponse.redirect(loginUrl), response),
+        slug,
+      );
+    }
+
+    const bounceAuthedVisitor =
+      user && (rest === "/" || (isPublic && !allowsExistingSession(rest)));
+
+    if (bounceAuthedVisitor) {
+      return rememberTenant(
+        withSessionCookies(
+          NextResponse.redirect(
+            new URL(tenantPath(slug, DEFAULT_TENANT_PATH), request.url),
+          ),
+          response,
+        ),
+        slug,
+      );
+    }
+
+ 
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-tenant-slug", slug);
+
+    return rememberTenant(
+      withSessionCookies(
+        NextResponse.next({
+          request: {
+            headers: requestHeaders,
+          },
+        }),
+        response,
+      ),
+      slug,
+    );
+  }
+
+  if (SUBDOMAIN_ROUTING_AVAILABLE) {
+    const slugFromSubdomain = tenantLabelFromHost(hostHeader);
+
+    if (slugFromSubdomain) {
+      if (isCentralPath(pathname)) {
+        const scheme = url.protocol.replace(":", "");
         return withSessionCookies(
           NextResponse.redirect(
-            new URL(`${pathTenant.rest}${url.search}`, targetOrigin),
-            308,
+            new URL(
+              `${pathname}${url.search}`,
+              `${scheme}://${process.env.NEXT_PUBLIC_APP_DOMAIN}`,
+            ),
           ),
           response,
         );
       }
 
-      const guarded = sessionGuard({
-        authenticated: Boolean(user),
-        prefix: `/tenant/${pathTenant.slug}`,
-        loginPrefix: SUBDOMAIN_ROUTING_AVAILABLE
-          ? portalOriginForSlug(pathTenant.slug, scheme)
-          : undefined,
-        path: pathTenant.rest,
-        search: url.search,
-        requestUrl: request.url,
-      });
-
-      if (guarded) {
-        return withSessionCookies(guarded, response);
+      if (!user && !isTenantPublicPath(pathname)) {
+        const loginUrl = new URL("/login", request.url);
+        if (pathname !== ROOT_PATH) {
+          loginUrl.searchParams.set("next", `${pathname}${url.search}`);
+        }
+        return withSessionCookies(NextResponse.redirect(loginUrl), response);
       }
+
+      if (
+        user &&
+        (pathname === ROOT_PATH ||
+          (isTenantPublicPath(pathname) && !allowsExistingSession(pathname)))
+      ) {
+        return withSessionCookies(
+          NextResponse.redirect(new URL(DEFAULT_TENANT_PATH, request.url)),
+          response,
+        );
+      }
+
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set("x-tenant-slug", slugFromSubdomain);
+
+      return withSessionCookies(
+        NextResponse.rewrite(
+          new URL(
+            tenantPath(slugFromSubdomain, `${pathname}${url.search}`),
+            request.url,
+          ),
+          {
+            request: { headers: requestHeaders },
+            headers: response.headers,
+          },
+        ),
+        response,
+      );
+    }
+  }
+
+
+  if (pathname === ROOT_PATH || isCentralPath(pathname)) {
+    return response;
+  }
+
+  if (user) {
+    const { data: claimsData } = await supabase.auth.getClaims();
+    const claimSlug = claimsData?.claims?.tenant_slug as string | undefined;
+
+    if (isValidTenantSlug(claimSlug)) {
+      const target = withTenantPrefix(claimSlug, pathname);
+      return rememberTenant(
+        withSessionCookies(
+          NextResponse.redirect(new URL(`${target}${url.search}`, request.url)),
+          response,
+        ),
+        claimSlug,
+      );
     }
 
     return response;
   }
 
-  const explicitTenant = stripTenantPrefix(pathname);
+  const hintedSlug = request.cookies.get(TENANT_HINT_COOKIE)?.value;
 
-  if (explicitTenant) {
+  if (isValidTenantSlug(hintedSlug)) {
+    const target = isTenantPublicPath(pathname)
+      ? withTenantPrefix(hintedSlug, pathname)
+      : tenantLoginPath(hintedSlug, `${pathname}${url.search}`);
+
     return withSessionCookies(
-      NextResponse.redirect(
-        new URL(`${explicitTenant.rest}${url.search}`, request.url),
-        308,
-      ),
+      NextResponse.redirect(new URL(target, request.url)),
       response,
     );
   }
 
-  if (CENTRAL_PATHS.has(pathname)) {
-    const scheme = url.protocol.replace(":", "");
-
-    return withSessionCookies(
-      NextResponse.redirect(
-        new URL(
-          `${pathname}${url.search}`,
-          `${scheme}://${PORTAL_BASE_DOMAIN}`,
-        ),
-      ),
-      response,
-    );
+  if (isTenantPublicPath(pathname)) {
+    return response;
   }
 
-  if (!user && !isPublicPath(pathname)) {
-    const loginUrl = new URL("/login", request.url);
+  const loginUrl = new URL("/login", request.url);
+  loginUrl.searchParams.set("next", `${pathname}${url.search}`);
 
-    if (pathname !== "/") {
-      loginUrl.searchParams.set("next", `${pathname}${url.search}`);
-    }
-
-    return withSessionCookies(NextResponse.redirect(loginUrl), response);
-  }
-
-  if (user && (isPublicPath(pathname) || pathname === "/")) {
-    return withSessionCookies(
-      NextResponse.redirect(new URL(DEFAULT_AUTHED_PATH, request.url)),
-      response,
-    );
-  }
-
-  return NextResponse.rewrite(
-    new URL(`${tenantPath(slug, pathname)}${url.search}`, request.url),
-    { headers: response.headers },
-  );
+  return withSessionCookies(NextResponse.redirect(loginUrl), response);
 }
 
 export const config = {

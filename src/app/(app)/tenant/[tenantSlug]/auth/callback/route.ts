@@ -1,6 +1,8 @@
+import { withTenantPrefix, tenantPath, TENANT_RESET_PASSWORD_PATH, TENANT_LOGIN_PATH } from "@/lib/tenancy";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+
 
 export async function GET(
   request: NextRequest,
@@ -10,13 +12,16 @@ export async function GET(
   const { searchParams, origin } = new URL(request.url);
 
   const code = searchParams.get("code");
-  const next =
-    searchParams.get("next") ?? `/tenant/${tenantSlug}/reset-password`;
+  const rawNext = searchParams.get("next");
+
+  const targetPath = rawNext
+    ? withTenantPrefix(tenantSlug, rawNext)
+    : tenantPath(tenantSlug, TENANT_RESET_PASSWORD_PATH);
 
   if (code) {
     const cookieStore = await cookies();
 
-    let response = NextResponse.redirect(`${origin}${next}`);
+    let response = NextResponse.redirect(`${origin}${targetPath}`);
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,7 +36,7 @@ export async function GET(
               cookieStore.set(name, value, options);
             });
 
-            response = NextResponse.redirect(`${origin}${next}`);
+            response = NextResponse.redirect(`${origin}${targetPath}`);
             cookiesToSet.forEach(({ name, value, options }) => {
               response.cookies.set(name, value, options);
             });
@@ -48,7 +53,10 @@ export async function GET(
 
     console.error("[SUPABASE_CALLBACK_ERROR]:", error.message);
 
-    const errorUrl = new URL(`/tenant/${tenantSlug}/login`, origin);
+    const errorUrl = new URL(
+      tenantPath(tenantSlug, TENANT_LOGIN_PATH),
+      origin
+    );
     errorUrl.searchParams.set(
       "error",
       error.message || "Authentication failed"
@@ -56,7 +64,10 @@ export async function GET(
     return NextResponse.redirect(errorUrl);
   }
 
-  const missingCodeUrl = new URL(`/tenant/${tenantSlug}/login`, origin);
+  const missingCodeUrl = new URL(
+    tenantPath(tenantSlug, TENANT_LOGIN_PATH),
+    origin
+  );
   missingCodeUrl.searchParams.set("error", "Missing authentication code");
   return NextResponse.redirect(missingCodeUrl);
 }

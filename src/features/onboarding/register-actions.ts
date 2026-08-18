@@ -1,5 +1,3 @@
-// onboarding.actions.ts
-
 "use server";
 
 import type { RegisterInput } from "./schemas/onboarding.schema";

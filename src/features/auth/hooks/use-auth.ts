@@ -15,14 +15,10 @@ import { stripTenantPrefix } from "@/lib/tenancy";
 /**
  * Navigation for the auth flow.
  *
- * The rule these hooks follow: the client never *invents* a tenant URL. On a
- * workspace subdomain the visible URL is already clean (`/tickets`) and
- * `proxy.ts` maps it onto `/tenant/<slug>` internally, so prefixing the slug here
- * — which is what this file used to do — produced
- * `acme.example.com/tenant/acme/tickets`, the slug twice over. Sign-in gets its
- * destination from the server (`resolvePostAuthUrl`), which is the only side that
- * knows which workspace the session claims; sign-out just mirrors the shape of
- * the URL it is standing on.
+ * Rules:
+ * - Path-based URLs rely on `/tenant/<slug>/...`.
+ * - `withCurrentTenantPrefix` extracts the active slug from the URL path to ensure
+ *   relative navigations land in the correct workspace path context.
  */
 
 type UseLoginOptions = {
@@ -32,19 +28,13 @@ type UseLoginOptions = {
   next?: string | null;
 };
 
-/** An absolute URL needs a document navigation; the client router can't cross origins. */
+/** An absolute URL needs document navigation; the client router can't cross origins. */
 function isAbsoluteUrl(target: string): boolean {
   return /^https?:\/\//i.test(target);
 }
 
 /**
- * The `/tenant/<slug>` prefix of the CURRENT url, or "" when there isn't one.
- *
- * Empty on a workspace subdomain — the host carries the tenant there — and
- * `/tenant/acme` on the bare base host, where the path does. Reading it off the
- * live location rather than `useParams()` is deliberate: the route params report
- * the slug in both cases, since the rewrite puts it there either way, so they
- * cannot tell the two URL shapes apart.
+ * Extracts `/tenant/<slug>` prefix from current `window.location.pathname`.
  */
 function currentTenantPrefix(): string {
   if (typeof window === "undefined") {
@@ -56,9 +46,15 @@ function currentTenantPrefix(): string {
   return parsed ? `/tenant/${parsed.slug}` : "";
 }
 
-/** Resolve a bare path against the URL shape this host uses. */
 function withCurrentTenantPrefix(path: string): string {
-  return `${currentTenantPrefix()}${path.startsWith("/") ? path : `/${path}`}`;
+  const prefix = currentTenantPrefix();
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  if (normalizedPath.startsWith("/tenant/")) {
+    return normalizedPath;
+  }
+
+  return prefix ? `${prefix}${normalizedPath}` : normalizedPath;
 }
 
 export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
@@ -90,19 +86,24 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
         return result;
       }
 
-      const target =
+      const rawTarget =
         redirectTo === undefined ? result.data.redirectTo : redirectTo;
 
-      if (target) {
-        if (isAbsoluteUrl(target)) {
-          
-          window.location.assign(target);
+  
+      if (rawTarget) {
+        if (isAbsoluteUrl(rawTarget)) {
+          const targetUrl = new URL(rawTarget);
+
+          if (targetUrl.origin === window.location.origin) {
+            router.replace(`${targetUrl.pathname}${targetUrl.search}`);
+          } else {
+            window.location.assign(rawTarget);
+          }
         } else {
-          
-          router.refresh();
-          router.replace(target);
+          router.replace(withCurrentTenantPrefix(rawTarget));
         }
       }
+
       return result;
     },
     [next, redirectTo, router],
@@ -112,10 +113,7 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
 }
 
 /**
- * Google sign-in.
- *
- * Only the desired path travels to the server. Where that path finally lands is
- * decided on the way back, in `/auth/callback` — see `resolvePostAuthUrl`.
+ * Google sign-in flow.
  */
 export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
   const [isPending, setIsPending] = useState(false);
@@ -128,7 +126,8 @@ export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
     let result: ActionResult<{ url: string }>;
 
     try {
-      result = await googleLoginAction(redirectTo ?? next ?? "/tickets");
+      const destinationPath = redirectTo ?? next ?? "/tickets";
+      result = await googleLoginAction(destinationPath);
     } catch (error) {
       setIsPending(false);
       console.error("[auth] google login request failed", error);
@@ -183,20 +182,30 @@ export function useLogout({ redirectTo }: UseLogoutOptions = {}) {
 
     if (result.success) {
       /*
-       * Sign-out stays on the host it was invoked from — the workspace the user
-       * was just in is where they'd sign back into. Only the path shape has to
-       * match the host: `/login` on a subdomain, `/tenant/acme/login` on the
-       * bare base host.
+       * Sign-out keeps the user within the same tenant path space:
+       * defaults to `/tenant/converse/login`
        */
       const target =
         redirectTo === undefined
           ? withCurrentTenantPrefix("/login")
           : redirectTo;
 
-      router.refresh();
-
+      /*
+       * Same rule as `useLogin`: one navigation, no companion `refresh()`. Clearing the
+       * session cookies in the action already invalidates the client cache, and racing a
+       * refresh against the replace is what aborts the RSC request mid-flight.
+       *
+       * With `redirectTo: null` the caller navigates itself, so refresh the tree instead —
+       * otherwise the shell keeps rendering the signed-in header.
+       */
       if (target) {
-        router.replace(target);
+        if (isAbsoluteUrl(target)) {
+          window.location.assign(target);
+        } else {
+          router.replace(target);
+        }
+      } else {
+        router.refresh();
       }
 
       return result;

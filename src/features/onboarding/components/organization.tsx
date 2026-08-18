@@ -8,7 +8,6 @@ import slugify from "slugify";
 
 import { OnboardingState } from "../types/onboarding";
 
-// shadcn UI Primitives
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -24,7 +23,6 @@ import { Loader2 } from "lucide-react";
 import { checkSlugAvailabilityAction } from "../register-actions";
 
 
-// Step 2 Zod Schema
 const organizationFormSchema = z.object({
   orgName: z
     .string()
@@ -90,7 +88,6 @@ export function StepOrganization({
   const selectedTzId = watch("timezone_id");
   const selectedTz = tzList.find((tz) => tz.id === selectedTzId);
 
-  // Check DB for existing portal slug via Server Action
   const checkSlugAvailability = async (slug: string): Promise<boolean> => {
     setIsCheckingSlug(true);
     setSlugError(null);

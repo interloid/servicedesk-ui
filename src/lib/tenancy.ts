@@ -1,30 +1,16 @@
 /**
- * Tenant subdomain resolution — the pure, client-safe half of tenancy.
+ * Tenant path & domain resolution for path-based tenancy (/tenant/<slug>/...).
  *
- * Every workspace is served on its own subdomain of the portal base domain:
- *   northwind.servicedesk.pro, jan.servicedesk.pro, …
- *
- * This module only does STRING work: it turns a `Host` header into a tenant slug
- * (or null) and derives portal URLs. It must stay dependency-free and side-effect
- * free so the branding page, the login card, the proxy and the portal chrome can
- * all import it — nothing here touches `next/headers`, Supabase or the database.
- * The server-side half (resolving a slug to a tenant row) lives in
- * `features/tenancy/services/tenant-resolver.ts`.
- *
- * The base domain comes from ONE place, `NEXT_PUBLIC_APP_DOMAIN`
- * (`localhost:3000` in dev, `servicedesk.pro` in production). It is read as a
- * static `process.env.NEXT_PUBLIC_*` reference so Next inlines it into the client
- * bundle and the proxy alike; every other module derives from the exports here
- * rather than reading the variable again.
+ * Every tenant-scoped route — `tickets`, `login`, `forgot-password`,
+ * `reset-password`, … — lives under the same prefix, e.g.
+ * `http://localhost:3000/tenant/converse/tickets`. This module is the single
+ * source of truth for building and parsing those paths; the proxy and the auth
+ * flows should never hand-roll a `/tenant/...` string.
  */
 
-/** Strip a scheme, a trailing slash and a leading dot off a configured domain. */
 function normalizeBaseDomain(raw: string | undefined): string | null {
   const trimmed = raw?.trim().toLowerCase();
-
-  if (!trimmed) {
-    return null;
-  }
+  if (!trimmed) return null;
 
   return trimmed
     .replace(/^https?:\/\//, "")
@@ -32,24 +18,19 @@ function normalizeBaseDomain(raw: string | undefined): string | null {
     .replace(/^\./, "");
 }
 
-/**
- * The domain every tenant subdomain hangs off, WITH the port when there is one.
- * `jan.service.com` = jan on `service.com`.
- */
 export const PORTAL_BASE_DOMAIN =
   normalizeBaseDomain(process.env.NEXT_PUBLIC_APP_DOMAIN) ?? "localhost:3000";
 
-/**
- * One DNS subdomain label: lowercase alphanumerics and inner hyphens, 1–63 chars,
- * and it may not start or end with a hyphen. `tenants.slug` is validated against
- * the same shape at registration, so any slug that exists satisfies this.
- */
+function stripPort(host: string): string {
+  if (host.startsWith("[")) return host;
+  return host.split(":")[0] ?? host;
+}
+
+export const PORTAL_BASE_HOSTNAME = stripPort(PORTAL_BASE_DOMAIN);
+
+const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
 const SUBDOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
-/**
- * Labels that name the product itself rather than a workspace. A tenant can never
- * claim one of these, so the proxy must not treat them as a tenant host.
- */
 const RESERVED_LABELS = new Set([
   "www",
   "app",
@@ -62,67 +43,24 @@ const RESERVED_LABELS = new Set([
   "mail",
 ]);
 
-/**
- * Drop the port from a `Host` header (`jan.localhost:3000` → `jan.localhost`).
- * IPv6 literals start with `[` and carry `:port` after the closing bracket, so they
- * are passed through untouched.
- */
-function stripPort(host: string): string {
-  if (host.startsWith("[")) {
-    return host;
-  }
-
-  return host.split(":")[0] ?? host;
-}
-
-/** The base domain without its port — what a cookie `Domain` attribute needs. */
-export const PORTAL_BASE_HOSTNAME = stripPort(PORTAL_BASE_DOMAIN);
-
-/** A bare IPv4 literal — `127.0.0.1` names no subdomain and takes no cookie domain. */
-const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
+export const IS_LOCAL_HOST = PORTAL_BASE_HOSTNAME === "localhost";
+export const IS_VERCEL_APP_DOMAIN = PORTAL_BASE_HOSTNAME.endsWith(".vercel.app");
 
 /**
- * Whether `<slug>.<base>` is a host a browser can actually REACH here.
- *
- * True for any real multi-label domain, and true for plain `localhost`: RFC 6761
- * reserves `*.localhost` for the loopback, and Chrome, Firefox and Safari all
- * resolve it without a `/etc/hosts` entry — so `acme.localhost:3000` hits the dev
- * server exactly like `localhost:3000` does. Only a bare IP has no subdomain space.
- *
- * Deliberately distinct from `CAN_SHARE_SUBDOMAIN_COOKIES` below: being able to
- * reach the subdomain and being able to carry a session there are two different
- * questions, and on `localhost` the answers differ.
+ * Kept for optional custom-domain deployments. Defaulting to path-based routing on
+ * localhost and vercel.app.
  */
 export const SUBDOMAIN_ROUTING_AVAILABLE =
-  !IPV4_LITERAL.test(PORTAL_BASE_HOSTNAME) && !PORTAL_BASE_HOSTNAME.startsWith("[");
-
-/**
- * Whether one cookie can cover the base domain AND every tenant subdomain.
- *
- * Only true for a real multi-label domain. Browsers reject a `Domain` attribute on
- * a single-label host (`localhost`) or a bare IP — verified in Chrome: setting
- * `domain=.localhost` from `acme.localhost:3000` stores nothing at all. So on the
- * default dev domain the session cookie is host-only and CANNOT follow the browser
- * from `localhost:3000` to `acme.localhost:3000`.
- *
- * That is why `landingUrlForSlug` keeps a sign-in that ALREADY HOLDS a session on
- * the same origin, under `/tenant/<slug>`. It is not a reason to serve the signed-
- * OUT screens there: a visitor with no session has no cookie to lose, so they are
- * sent to the workspace subdomain instead and sign in directly on the host that
- * will own their session. Point `NEXT_PUBLIC_APP_DOMAIN` at something like
- * `lvh.me:3000` (resolves to 127.0.0.1) to get production's cross-subdomain
- * behaviour locally for the signed-in hop too.
- */
-export const CAN_SHARE_SUBDOMAIN_COOKIES =
-  PORTAL_BASE_HOSTNAME.includes(".") &&
+  !IS_LOCAL_HOST &&
+  !IS_VERCEL_APP_DOMAIN &&
   !IPV4_LITERAL.test(PORTAL_BASE_HOSTNAME) &&
+  !PORTAL_BASE_HOSTNAME.startsWith("[");
+
+export const CAN_SHARE_SUBDOMAIN_COOKIES =
+  SUBDOMAIN_ROUTING_AVAILABLE &&
+  PORTAL_BASE_HOSTNAME.includes(".") &&
   !PORTAL_BASE_HOSTNAME.endsWith(".localhost");
 
-/**
- * The `Domain` to scope auth cookies to, or undefined for host-only cookies.
- * Used by BOTH cookie writers — `lib/supabase/server.ts` and the refresh inside
- * `proxy.ts` — so a refreshed cookie never shadows the one sign-in wrote.
- */
 export const AUTH_COOKIE_DOMAIN = CAN_SHARE_SUBDOMAIN_COOKIES
   ? `.${PORTAL_BASE_HOSTNAME}`
   : undefined;
@@ -132,153 +70,197 @@ function isValidTenantLabel(label: string): boolean {
 }
 
 /**
- * The tenant slug implied by a `Host` header, or null when the host names no
- * tenant — the bare base domain, a reserved label, `localhost`, an IP, or an
- * unknown shape.
- *
- * Matches `{label}.{PORTAL_BASE_DOMAIN}` in every environment. For local
- * development it also matches `{label}.localhost` (with or without a port) so a
- * `/etc/hosts` entry makes a subdomain reachable without a real DNS name.
+ * Strips any stray subdomain prefix when constructing path-based URLs
+ * (e.g., converts "converse.localhost:3000" back to "localhost:3000").
  */
+function getRootBaseDomain(): string {
+  if (IS_LOCAL_HOST || PORTAL_BASE_HOSTNAME.endsWith(".localhost")) {
+    const parts = PORTAL_BASE_DOMAIN.split(":");
+    const port = parts[1] ? `:${parts[1]}` : "";
+    return `localhost${port}`;
+  }
+  return PORTAL_BASE_DOMAIN;
+}
+
 export function tenantLabelFromHost(
   host: string | null | undefined,
 ): string | null {
-  if (!host) {
+  if (!host || !SUBDOMAIN_ROUTING_AVAILABLE) {
     return null;
   }
 
   const trimmed = stripPort(host.trim().toLowerCase());
-
-  if (!trimmed) {
-    return null;
-  }
+  if (!trimmed) return null;
 
   const base = PORTAL_BASE_HOSTNAME;
-
-  if (trimmed === base || trimmed === `www.${base}`) {
-    return null;
-  }
+  if (trimmed === base || trimmed === `www.${base}`) return null;
 
   if (trimmed.endsWith(`.${base}`)) {
     const label = trimmed.slice(0, trimmed.length - base.length - 1);
-
-    return isValidTenantLabel(label) ? label : null;
-  }
-
-  if (trimmed.endsWith(".localhost")) {
-    const label = trimmed.slice(0, trimmed.length - ".localhost".length);
-
     return isValidTenantLabel(label) ? label : null;
   }
 
   return null;
 }
 
-/** Whether the host is a tenant subdomain at all (as opposed to the bare base host). */
-export function isTenantHost(host: string | null | undefined): boolean {
-  return tenantLabelFromHost(host) !== null;
-}
-
-/** The public portal address for a slug — what branding and the portal display. */
-export function portalUrlForSlug(slug: string): string {
-  return `${slug}.${PORTAL_BASE_DOMAIN}`;
-}
-
-/** Absolute origin for a workspace, e.g. `https://acme.servicedesk.pro`. */
-export function portalOriginForSlug(slug: string, protocol?: string): string {
-  const scheme =
-    protocol ?? (PORTAL_BASE_HOSTNAME === "localhost" ? "http" : "https");
-
-  return `${scheme}://${portalUrlForSlug(slug)}`;
-}
-
-/** A path with a leading slash, so callers can pass `tickets` or `/tickets`. */
 function normalizePath(path: string): string {
-  if (!path) {
-    return "/";
-  }
-
+  if (!path) return "/";
   return path.startsWith("/") ? path : `/${path}`;
 }
 
-/**
- * The INTERNAL route a tenant page lives at: `/tenant/acme/tickets`.
- *
- * On a tenant subdomain this is never what the address bar shows — `proxy.ts`
- * rewrites `/tickets` onto it and redirects the explicit form away. It is the
- * real, visible URL only on the bare base host, where there is no subdomain to
- * carry the tenant.
- */
-export function tenantPath(slug: string, path = "/"): string {
-  return `/tenant/${slug}${normalizePath(path)}`;
-}
+/** URL segment that opens a tenant workspace: `/tenant/<slug>/...` */
+export const TENANT_SEGMENT = "tenant";
+
+/** Landing route for a signed-in member, relative to the tenant prefix. */
+export const DEFAULT_TENANT_PATH = "/tickets";
+export const TENANT_VIEWS_PATH = "/views";
+export const TENANT_LOGIN_PATH = "/login";
+export const TENANT_FORGOT_PASSWORD_PATH = "/forgot-password";
+export const TENANT_RESET_PASSWORD_PATH = "/reset-password";
 
 /**
- * Split `/tenant/<slug>/rest` into its parts, or null when the path names no
- * tenant. `/tenant/acme` (no trailing path) yields a `rest` of `/`.
+ * Tenant-relative routes reachable without a session. They are still tenant
+ * scoped, so `/tenant/converse/login` is the canonical login URL.
  */
+export const TENANT_PUBLIC_PATHS = new Set<string>([
+  TENANT_LOGIN_PATH,
+  TENANT_FORGOT_PASSWORD_PATH,
+  TENANT_RESET_PASSWORD_PATH,
+]);
+
+/**
+ * Public routes that a signed-in member may still open. Password recovery links
+ * sign the user in before landing on `reset-password`, so bouncing authed users
+ * away from it would break the flow.
+ */
+const SESSION_TOLERANT_PATHS = new Set<string>([TENANT_RESET_PASSWORD_PATH]);
+
+/** Routes that only exist on the root domain, never inside a tenant. */
+export const CENTRAL_PATHS = new Set<string>(["/setup"]);
+
+/**
+ * Remembers the last workspace a visitor touched so bare `/login` and
+ * `/forgot-password` can be sent back to `/tenant/<slug>/...` after the session
+ * is gone. Purely a routing hint — never a trust boundary.
+ */
+export const TENANT_HINT_COOKIE = "sd_tenant";
+export const TENANT_HINT_MAX_AGE = 60 * 60 * 24 * 30;
+
+/**
+ * Guards the hint cookie and session claims: only well-formed slugs are ever
+ * echoed into a URL. Unlike subdomain labels, path slugs may use reserved words
+ * (`/tenant/admin/tickets` is unambiguous), so only the shape is checked.
+ */
+export function isValidTenantSlug(
+  slug: string | undefined | null,
+): slug is string {
+  return typeof slug === "string" && SUBDOMAIN_LABEL.test(slug.toLowerCase());
+}
+
+/** Framework/API routes the tenant guard must never redirect. */
+export function isInfrastructurePath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/_next/") ||
+    pathname === "/favicon.ico"
+  );
+}
+
+export function isTenantPublicPath(tenantRelativePath: string): boolean {
+  return TENANT_PUBLIC_PATHS.has(tenantRelativePath);
+}
+
+/** True when an authenticated visitor should be left on this public route. */
+export function allowsExistingSession(tenantRelativePath: string): boolean {
+  return SESSION_TOLERANT_PATHS.has(tenantRelativePath);
+}
+
+export function isCentralPath(pathname: string): boolean {
+  return CENTRAL_PATHS.has(pathname);
+}
+
+/** Returns `/tenant/<slug>/<path>` matching `app/(app)/tenant/[tenantSlug]` */
+export function tenantPath(slug: string, path = "/"): string {
+  return `/${TENANT_SEGMENT}/${encodeURIComponent(slug)}${normalizePath(path)}`;
+}
+
+/** `/tenant/<slug>/login`, carrying the blocked destination as `?next=`. */
+export function tenantLoginPath(slug: string, next?: string | null): string {
+  const base = tenantPath(slug, TENANT_LOGIN_PATH);
+  if (!next || next === "/") return base;
+
+  return `${base}?next=${encodeURIComponent(next)}`;
+}
+
+export function tenantForgotPasswordPath(slug: string): string {
+  return tenantPath(slug, TENANT_FORGOT_PASSWORD_PATH);
+}
+
+export function tenantResetPasswordPath(slug: string): string {
+  return tenantPath(slug, TENANT_RESET_PASSWORD_PATH);
+}
+
+export function tenantAuthCallbackPath(
+  slug: string,
+  next?: string | null,
+): string {
+  const base = tenantPath(slug, "/auth/callback");
+  if (!next) return base;
+
+  return `${base}?next=${encodeURIComponent(next)}`;
+}
+
+const TENANT_PATH_PATTERN = new RegExp(`^/${TENANT_SEGMENT}/([^/]+)(/.*)?$`);
+
 export function stripTenantPrefix(
   pathname: string,
 ): { slug: string; rest: string } | null {
-  const match = /^\/tenant\/([^/]+)(\/.*)?$/.exec(pathname);
+  const match = TENANT_PATH_PATTERN.exec(pathname);
+  if (!match || !match[1]) return null;
 
-  if (!match) {
-    return null;
+  return { slug: decodeURIComponent(match[1]), rest: match[2] || "/" };
+}
+
+/** `/tenant/<slug>` with no trailing slash — the prefix every tenant route shares. */
+export function tenantPrefix(slug: string): string {
+  return `/${TENANT_SEGMENT}/${encodeURIComponent(slug)}`;
+}
+
+export function portalUrlForSlug(slug: string): string {
+  const rootDomain = getRootBaseDomain();
+  if (!SUBDOMAIN_ROUTING_AVAILABLE) {
+    return `${rootDomain}${tenantPrefix(slug)}`;
   }
+  return `${slug}.${rootDomain}`;
+}
 
-  const slug = match[1];
+export function portalOriginForSlug(slug: string, protocol?: string): string {
+  const defaultScheme = IS_LOCAL_HOST ? "http" : "https";
+  const scheme = protocol ? protocol.replace(":", "") : defaultScheme;
+  const rootDomain = getRootBaseDomain();
 
-  if (!slug) {
-    return null;
+  if (!SUBDOMAIN_ROUTING_AVAILABLE) {
+    return `${scheme}://${rootDomain}${tenantPrefix(slug)}`;
   }
+  return `${scheme}://${slug}.${rootDomain}`;
+}
 
-  return { slug: decodeURIComponent(slug), rest: match[2] || "/" };
+export function landingUrlForSlug(
+  slug: string,
+  path: string = DEFAULT_TENANT_PATH,
+): string {
+  return tenantPath(slug, normalizePath(path));
 }
 
 /**
- * Where a user should land in a given workspace, expressed relative to the host
- * they are on right now.
- *
- * The only thing that can go wrong on a hop to the subdomain is losing a session
- * cookie that cannot follow — so that is the single question this branches on.
- * `carriesSession` says whether the caller is holding a live session that has to
- * survive the trip. Pass `false` for a destination that authenticates the visitor
- * on arrival (the sign-in screen): there is nothing to lose, so the workspace
- * subdomain is always the better host — the session gets created directly on the
- * origin that will own it.
- *
- * In order:
- *   - already on that workspace's subdomain → the clean path (`/tickets`);
- *   - subdomain reachable, and either the cookie travels or there is no cookie to
- *     lose → the absolute subdomain URL;
- *   - otherwise → the same-origin `/tenant/<slug>` route, which keeps a live
- *     host-only session intact at the cost of a longer URL.
+ * Rewrites a bare path onto its tenant equivalent, leaving already-prefixed and
+ * central paths untouched — `/login` -> `/tenant/converse/login`.
  */
-export function landingUrlForSlug(
-  slug: string,
-  path = "/tickets",
-  {
-    currentSlug,
-    protocol,
-    carriesSession = true,
-  }: {
-    currentSlug?: string | null;
-    protocol?: string;
-    carriesSession?: boolean;
-  } = {},
-): string {
-  const target = normalizePath(path);
-
-  if (currentSlug === slug) {
-    return target;
+export function withTenantPrefix(slug: string, pathname: string): string {
+  if (stripTenantPrefix(pathname) || isCentralPath(pathname)) {
+    return pathname;
   }
 
-  if (
-    SUBDOMAIN_ROUTING_AVAILABLE &&
-    (CAN_SHARE_SUBDOMAIN_COOKIES || !carriesSession)
-  ) {
-    return `${portalOriginForSlug(slug, protocol)}${target}`;
-  }
-
-  return tenantPath(slug, target);
+  return tenantPath(slug, pathname);
 }

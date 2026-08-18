@@ -24,6 +24,7 @@ export type SessionUser = {
   id: string;
   email: string;
   tenantId: string | null;
+  tenantSlug: string | null;
   role: MembershipRole | null;
 };
 

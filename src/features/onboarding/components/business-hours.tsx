@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import { OnboardingState, WorkingDay } from "../types/onboarding";
 
-// shadcn UI Primitives
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -38,7 +37,6 @@ interface StepProps {
 
 const DAYS: WorkingDay[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-// Zod Schema for Step 3 Validation
 const businessHoursSchema = z.object({
   timezone_id: z.string().min(1, "Please select a time zone."),
   workingDays: z

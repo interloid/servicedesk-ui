@@ -22,9 +22,9 @@ export default function Home() {
             href="/"
             className="flex items-center gap-2.5 font-bold text-lg text-slate-900 dark:text-white"
           >
-            <div className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center font-bold text-sm shadow-xs">
+            <span className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center font-bold text-sm shadow-xs">
               S
-            </div>
+            </span>
             <span>ServiceDeskPro</span>
           </Link>
 
@@ -372,9 +372,9 @@ export default function Home() {
       <footer className="border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 py-8">
         <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-            <div className="w-5 h-5 rounded bg-primary text-white flex items-center justify-center font-bold text-[10px]">
+            <span className="w-5 h-5 rounded bg-primary text-white flex items-center justify-center font-bold text-[10px]">
               S
-            </div>
+            </span>
             <span>ServiceDeskPro Platform</span>
           </div>
           <p>

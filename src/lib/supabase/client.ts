@@ -9,9 +9,7 @@ export function createSupabaseClient() {
   const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Supabase environment variables are not configured");
-  }
+ 
   client = createBrowserClient(supabaseUrl, supabaseAnonKey);
 
   return client;

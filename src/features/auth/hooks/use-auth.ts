@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import {
   googleLoginAction,
@@ -11,6 +12,7 @@ import {
 import type { LoginValues } from "@/features/auth/schemas/login";
 import type { ActionResult, LoginSuccess } from "@/features/auth/types";
 import { stripTenantPrefix } from "@/lib/tenancy";
+import { broadcastLogout, subscribeToLogout } from "@/lib/auth-broadcast";
 
 type UseLoginOptions = {
   redirectTo?: string | null;
@@ -58,6 +60,8 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
         setIsPending(false);
         console.error("[auth] login request failed", error);
 
+        toast.error("Network error. Check your connection and retry.");
+
         return {
           success: false,
           code: "unknown",
@@ -67,9 +71,12 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
 
       if (!result.success) {
         setIsPending(false);
+        toast.error(result.message);
 
         return result;
       }
+
+      toast.success("Logged in successfully");
 
       const rawTarget =
         redirectTo === undefined ? result.data.redirectTo : redirectTo;
@@ -108,9 +115,10 @@ export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
     try {
       const destinationPath = redirectTo ?? next ?? "/tickets";
       result = await googleLoginAction(destinationPath);
-    } catch (error) {
+      } catch (error) {
       setIsPending(false);
       console.error("[auth] google login request failed", error);
+      toast.error("Network error. Check your connection and retry.");
 
       return {
         success: false,
@@ -126,6 +134,7 @@ export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
     }
 
     setIsPending(false);
+    toast.error(result.message);
 
     return result;
   }, [next, redirectTo]);
@@ -140,6 +149,29 @@ type UseLogoutOptions = {
 export function useLogout({ redirectTo }: UseLogoutOptions = {}) {
   const router = useRouter();
   const [isPending, setIsPending] = useState<boolean>(false);
+
+  const handleRedirect = useCallback(() => {
+    const target =
+      redirectTo === undefined
+        ? withCurrentTenantPrefix("/login")
+        : redirectTo;
+
+    if (target) {
+      window.location.assign(target);
+    } else {
+      window.location.reload();
+    }
+  }, [redirectTo]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToLogout(() => {
+      toast.info("You were logged out in another tab");
+      handleRedirect();
+    });
+
+    return unsubscribe;
+  }, [handleRedirect]);
+
   const logout = useCallback(async (): Promise<ActionResult<null>> => {
     setIsPending(true);
 
@@ -150,6 +182,7 @@ export function useLogout({ redirectTo }: UseLogoutOptions = {}) {
     } catch (error) {
       setIsPending(false);
       console.error("[auth] logout request failed", error);
+      toast.error("Network error. Check your connection and retry.");
 
       return {
         success: false,
@@ -159,27 +192,17 @@ export function useLogout({ redirectTo }: UseLogoutOptions = {}) {
     }
 
     if (result.success) {
-      const target =
-        redirectTo === undefined
-          ? withCurrentTenantPrefix("/login")
-          : redirectTo;
-      if (target) {
-        if (isAbsoluteUrl(target)) {
-          window.location.assign(target);
-        } else {
-          router.replace(target);
-        }
-      } else {
-        router.refresh();
-      }
+      broadcastLogout();
+
+      toast.success("Logged out successfully");
+      handleRedirect();
 
       return result;
     }
 
     setIsPending(false);
-
     return result;
-  }, [redirectTo, router]);
+  }, [handleRedirect]);
 
   return { logout, isPending };
 }

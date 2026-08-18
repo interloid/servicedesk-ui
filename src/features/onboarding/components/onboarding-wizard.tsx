@@ -13,6 +13,7 @@ import { registerOnboardingAction } from "../register-actions";
 import { Timezone } from "../services/onboarding.service";
 import { OnboardingLoader } from "./onboarding-loader";
 import { landingUrlForSlug } from "@/lib/tenancy";
+import { toast } from "sonner";
 
 interface OnboardingWizardProps {
   timezones: Timezone[];
@@ -115,12 +116,14 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
     const response = await registerOnboardingAction(payload);
 
     if (response.success) {
+      toast.success("Organization created successfully");
       window.location.assign(
         landingUrlForSlug(response.data!.tenant.slug, "/tickets"),
       );
     } else {
       setIsSubmitting(false);
       setErrorMessage(response.error || "Failed to complete setup.");
+      toast.error(response.error || "Failed to complete setup.");
     }
   };
 

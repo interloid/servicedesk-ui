@@ -28,6 +28,7 @@ import { updatePasswordAction } from "@/features/auth/actions";
 import { PasswordInput } from "@/components/ui/password-input";
 import { PageLoader } from "@/components/shared/page-loader";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
+import { toast } from "sonner";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -75,9 +76,11 @@ function ResetPasswordForm() {
         form.setError("root", {
           message: result.error || "Failed to update password.",
         });
+        toast.error(result.error || "Failed to update password.");
         return;
       }
 
+      toast.success("Password updated successfully");
       setUpdated(true);
       setTimeout(() => {
         router.push("/login");

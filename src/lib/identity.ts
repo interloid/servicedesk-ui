@@ -82,7 +82,6 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
     throw subscriptionError;
   }
 
-  // Count current members
   const { count: memberCount, error: memberError } = await supabase
     .from("memberships")
     .select("id", {

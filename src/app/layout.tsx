@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { siteConfig } from "@/config/site";
+import { Providers } from "./providers";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
@@ -71,7 +72,7 @@ export default function RootLayout({
           }}
         />
 
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

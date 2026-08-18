@@ -1,7 +1,5 @@
 "use client";
 
-import { toast } from "sonner";
-
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -40,11 +38,7 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
   const { logout, isPending } = useLogout();
 
   async function onSignOut() {
-    const result = await logout();
-
-    if (!result.success) {
-      toast.error(result.message);
-    }
+    await logout();
   }
 
   if (!identity) {

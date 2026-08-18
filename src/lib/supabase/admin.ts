@@ -2,12 +2,13 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { env } from "@/config/env";
+import { serverEnv } from "@/config/server-env";
 
 let cached: SupabaseClient | null = null;
 
 export function createSupabaseAdminClient(): SupabaseClient {
   const url = env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = serverEnv.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
     throw new Error(

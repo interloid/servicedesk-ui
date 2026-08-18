@@ -25,6 +25,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { APP_ROUTES } from "@/lib/routes";
 import { PageLoader } from "@/components/shared/page-loader";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
+import { toast } from "sonner";
 
 export default function DirectResetPasswordPage() {
   const router = useRouter();
@@ -66,9 +67,11 @@ export default function DirectResetPasswordPage() {
         form.setError("root", {
           message: result.error || "Failed to update password.",
         });
+        toast.error(result.error || "Failed to update password.");
         return;
       }
 
+      toast.success("Password updated successfully");
       setUpdated(true);
       setTimeout(() => {
         router.push(APP_ROUTES.LOGIN);

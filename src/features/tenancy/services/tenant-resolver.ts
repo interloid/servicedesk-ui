@@ -87,9 +87,7 @@ export async function verifyUserTenantMembership(
   return Boolean(membership);
 }
 
-/**
- * The subdomain slug for a tenant id, or null when there is no such tenant.
- */
+
 export async function getTenantSlugById(
   tenantId: string,
 ): Promise<string | null> {
@@ -112,7 +110,27 @@ export async function getTenantSlugById(
   return data?.slug ?? null;
 }
 
-/** Helper to format raw database rows into strongly-typed `TenantContext` */
+export async function getTenantIdBySlug(
+  tenantSlug: string,
+): Promise<string | null> {
+  const supabase = createSupabaseAdminClient();
+
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("id")
+    .eq("slug", tenantSlug)
+    .maybeSingle<{ id: string }>();
+
+  if (error) {
+    console.error(
+      `[tenancy] tenant ID lookup for slug ${tenantSlug} failed: ${error.message}`,
+    );
+
+    return null;
+  }
+
+  return data?.id ?? null;
+}
 function mapTenantContext(row: TenantLookupRow): TenantContext {
   const baseDomain = PORTAL_BASE_DOMAIN || "localhost:3000";
 

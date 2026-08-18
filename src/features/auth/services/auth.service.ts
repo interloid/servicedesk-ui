@@ -11,6 +11,7 @@ import type {
 import {
   getTenantContext,
   getTenantSlugById,
+  getTenantIdBySlug
 } from "@/features/tenancy/services/tenant-resolver";
 import {
   landingUrlForSlug,
@@ -371,7 +372,7 @@ export async function updatePassword(values: UpdatePasswordValues) {
 
 export async function updatePasswordForTenant(
   payload: UpdatePasswordValues,
-  tenantId: string,
+  tenantSlug: string,
 ) {
   const { password } = payload;
 
@@ -391,7 +392,14 @@ export async function updatePasswordForTenant(
       };
     }
 
-    const { data: membership, error: membershipError } = await supabase
+const tenantId = await getTenantIdBySlug(tenantSlug);
+
+if (!tenantId) {
+  return {
+    success: false,
+    error: "Tenant not found.",
+  };
+}    const { data: membership, error: membershipError } = await supabase
       .from("memberships")
       .select("id")
       .eq("user_id", user.id)

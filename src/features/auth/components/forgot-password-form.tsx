@@ -25,6 +25,7 @@ import { resetPasswordAction } from "../actions";
 import { useState, useTransition } from "react";
 import { APP_ROUTES } from "@/lib/routes";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
+import { toast } from "sonner";
 
 export function ForgotPasswordForm() {
   const form = useForm<ForgotPasswordValues>({
@@ -49,16 +50,19 @@ export function ForgotPasswordForm() {
               "Too many attempts from this address — try again in 60 seconds, or contact your admin.",
           });
           form.setError("email", { message: "Rate limited" });
+          toast.error(response.error || "Too many attempts. Try again later.");
         } else {
           form.setError("root", {
             message:
               response.error || "An error occurred while sending the email.",
           });
+          toast.error(response.error || "Failed to send reset email.");
         }
         setSent(false);
         return;
       }
 
+      toast.success("Reset link sent. Check your inbox.");
       setSent(true);
     });
   }

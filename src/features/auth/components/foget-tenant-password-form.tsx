@@ -1,10 +1,9 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, CircleAlert, Loader2 } from "lucide-react";
+import { Check, CircleAlert } from "lucide-react";
 import { useForm } from "react-hook-form";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -24,6 +23,8 @@ import {
   type ForgotPasswordValues,
 } from "@/features/auth/schemas/forgot-password";
 import { resetTenantPasswordAction } from "../actions";
+import { useState, useTransition } from "react";
+import { LoadingSpinner } from "@/components/shared/loading-spinner";
 
 interface ForgotPasswordFormProps {
   tenant?: string;
@@ -44,8 +45,8 @@ export function ForgotTenantPasswordForm({
     defaultValues: { email: "" },
   });
 
-  const [sent, setSent] = React.useState(false);
-  const [isPending, startTransition] = React.useTransition();
+  const [sent, setSent] = useState<boolean>(false);
+  const [isPending, startTransition] = useTransition();
 
   function onSubmit(values: ForgotPasswordValues) {
     startTransition(async () => {
@@ -110,7 +111,7 @@ export function ForgotTenantPasswordForm({
             >
               {isPending ? (
                 <span className="flex items-center gap-2">
-                  <Loader2 className="size-4 animate-spin" /> Sending...
+                  <LoadingSpinner /> Sending...
                 </span>
               ) : (
                 "Resend link"
@@ -175,7 +176,7 @@ export function ForgotTenantPasswordForm({
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">
-                    <Loader2 className="size-4 animate-spin" /> Sending...
+                    <LoadingSpinner /> Sending...
                   </span>
                 ) : (
                   "Send reset link"

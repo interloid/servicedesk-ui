@@ -8,7 +8,7 @@ export default async function SetupPage() {
   return (
     <main className="min-h-screen bg-slate-50/50 flex flex-col items-center justify-center p-4 antialiased">
       <Link
-        href="http://localhost:3000"
+        href="/"
         className="flex items-center space-x-2 mb-6 group cursor-pointer select-none"
       >
         <div className="h-8 w-8 bg-teal-700 rounded-lg flex items-center justify-center text-white font-bold transition-transform group-hover:scale-105 shadow-sm">

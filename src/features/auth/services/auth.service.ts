@@ -16,7 +16,9 @@ import {
   landingUrlForSlug,
   stripTenantPrefix,
   TENANT_HINT_COOKIE,
+  TENANT_ROUTES,
   tenantAuthCallbackPath,
+  tenantPath,
   withTenantPrefix,
 } from "@/lib/tenancy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -99,7 +101,7 @@ export async function login({
 }
 
 export async function googleLogin({
-  next = "/tickets",
+  next = TENANT_ROUTES.TICKETS,
 }: { next?: string } = {}) {
   const supabase = await createSupabaseServerClient();
   const origin = await requestOrigin();
@@ -309,7 +311,7 @@ export async function sendTenantPasswordResetLink(
     const supabase = await createSupabaseServerClient();
     const origin = await requestOrigin();
 
-    const destinationPath = `/tenant/${slug}/reset-password`;
+    const destinationPath = tenantPath(slug, TENANT_ROUTES.RESET_PASSWORD);
     const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(destinationPath)}`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {

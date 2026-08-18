@@ -3,23 +3,10 @@ import { z } from "zod";
 import { emailField } from "@/features/auth/schemas/email";
 import { MIN_PASSWORD_LENGTH } from "@/features/auth/schemas/signup-account";
 
-/**
- * The whole four-step wizard as one payload, validated server-side before anything is
- * provisioned.
- *
- * The per-step schemas (`signup-account`, `create-org`) guard each screen as the user moves
- * through it; this one guards the single write at the end. It is not a duplicate — it is the
- * only check that runs on data the client assembled from `sessionStorage`, which the user
- * can edit freely.
- */
-
-/** Lowercase alphanumerics and inner hyphens — what a subdomain label allows. */
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/** 24-hour HH:MM, matching the onboarding wizard's own `TIME_PATTERN`. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-/** The design's day labels, from `WORKING_DAYS` in onboarding-data.ts. */
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
 function minutesOf(time: string): number {

@@ -26,23 +26,10 @@ export type NavItem = {
 };
 
 export type NavGroup = {
-  /** `null` renders the group with no SidebarGroupLabel, as the design does. */
   title: string | null;
   items: NavItem[];
 };
 
-/**
- * Transcribed from `Update design.dc.html` → `ROUTES` (every entry with `nav:true`),
- * in source order, split by its `section` field exactly as `navGroups` does there:
- * untitled group first, then "Settings", then "Account".
- *
- * Icons come from that file's `I` map, whose every entry carries a trailing comment
- * naming the lucide-react component the port should use — so these are the design's
- * own choices, not guesses. Hrefs match `react/lib/nav.ts` in the same project.
- *
- * The design gates each route on a role (`roles:` in ROUTES). There is no session
- * yet, so the shell renders every item; role filtering belongs with auth.
- */
 export const NAV_GROUPS: NavGroup[] = [
   {
     title: null,
@@ -67,9 +54,7 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/settings/integrations",
         icon: Zap,
       },
-      // TODO: confirm icon — `I.shield` is commented "// Shield" in the .dc.html and its
-      // path is lucide's plain Shield, but the design's own React port (react/lib/nav.ts)
-      // imports ShieldCheck for this row. Following the .dc.html, which is canonical.
+
       { label: "Security & SSO", href: "/settings/security", icon: Shield },
       { label: "Data & privacy", href: "/settings/data", icon: Database },
       { label: "Notification center", href: "/notifications", icon: Bell },
@@ -85,10 +70,6 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-/**
- * Longest-prefix match, so `/billing/plans` resolves to "Plans & pricing" rather than
- * to "Billing overview", which is also a prefix of it.
- */
 export function findActiveNavItem(
   pathname: string,
 ): { group: NavGroup; item: NavItem } | null {

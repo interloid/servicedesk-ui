@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description: "Manage and track support views",
 };
 
-export default async function ViewsPage() {
+export default function ViewsPage() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-4">
       <h1 className="text-4xl font-semibold">Views</h1>

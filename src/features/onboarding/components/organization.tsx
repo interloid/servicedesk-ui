@@ -19,8 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2 } from "lucide-react";
 import { checkSlugAvailabilityAction } from "../register-actions";
+import { LoadingSpinner } from "@/components/shared/loading-spinner";
 
 const organizationFormSchema = z.object({
   orgName: z
@@ -62,7 +62,7 @@ export function StepOrganization({
   onNext,
   onBack,
 }: StepOrganizationProps) {
-  const [isCheckingSlug, setIsCheckingSlug] = useState(false);
+  const [isCheckingSlug, setIsCheckingSlug] = useState<boolean>(false);
   const [slugError, setSlugError] = useState<string | null>(null);
 
   const tzList = Array.isArray(timezones) ? timezones : [];
@@ -244,7 +244,7 @@ export function StepOrganization({
         >
           {isCheckingSlug ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <LoadingSpinner />
               Checking availability...
             </>
           ) : (

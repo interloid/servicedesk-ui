@@ -15,15 +15,6 @@ export type Timezone = {
   cities: string;
 };
 
-/**
- * Transcribed verbatim from `Update design.dc.html` → `const TIMEZONES`, in source order.
- * Drives the create-org / onboarding Select and its hint line.
- *
- * `iana` is the one field the design did not have — see the type above for why it's needed.
- * All sixteen resolve against the `public.timezones` seed except two: "brt"
- * (America/Sao_Paulo) and "eet" (Europe/Athens) were absent, and were added to
- * supabase/schemas/seeds/02_timezone_seed.sql so every option in the Select is selectable.
- */
 export const TIMEZONES: Timezone[] = [
   {
     id: "pst",

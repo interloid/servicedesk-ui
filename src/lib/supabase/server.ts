@@ -19,9 +19,6 @@ function getSupabaseCredentials() {
   return { url, key };
 }
 
-/**
- * Creates a cookie-aware Supabase client for Server Components, Actions, and Route Handlers.
- */
 export async function createSupabaseServerClient() {
   const { url, key } = getSupabaseCredentials();
   const cookieStore = await cookies();
@@ -42,19 +39,12 @@ export async function createSupabaseServerClient() {
               secure: process.env.NODE_ENV === "production",
             });
           }
-        } catch {
-          // Server Components cannot modify cookies directly.
-          // Handled via proxy / middleware.
-        }
+        } catch {}
       },
     },
   });
 }
 
-/**
- * Creates a stateless Supabase client for public/unauthenticated data queries
- * without invoking `cookies()`, allowing routes to remain static.
- */
 export function createSupabaseAnonClient() {
   const { url, key } = getSupabaseCredentials();
 
@@ -63,9 +53,7 @@ export function createSupabaseAnonClient() {
       getAll() {
         return [];
       },
-      setAll() {
-        // No-op for static queries
-      },
+      setAll() {},
     },
   });
 }

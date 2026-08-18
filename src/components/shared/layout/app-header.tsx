@@ -11,20 +11,6 @@ import { ProfileMenu } from "@/components/shared/layout/profile-menu";
 import type { ShellIdentity } from "@/lib/identity";
 import { findActiveNavItem } from "@/lib/nav";
 
-/**
- * Sticky top bar for every authenticated route.
- *
- * Geometry is measured from `Update design.dc.html`'s own `<header>` and `gqField` —
- * 60px bar, 38px search field, 12px `/` keycap. Where a brief named a different number,
- * the design wins.
- *
- * The search control is a <button>, deliberately: it is the Command palette's trigger,
- * not a text input. It opens nothing yet.
- *
- * `identity` arrives as a prop rather than being fetched here: this is a Client Component
- * (it needs `usePathname`), and `getShellIdentity` reaches `next/headers`. The route-group
- * layout resolves it once and hands it to the sidebar, this bar and the footer.
- */
 export function AppHeader({ identity }: { identity: ShellIdentity | null }) {
   const pathname = usePathname();
   const active = findActiveNavItem(pathname);

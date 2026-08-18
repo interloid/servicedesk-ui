@@ -1,8 +1,7 @@
 "use client";
 
-import * as React from "react";
 import { Search, X } from "lucide-react";
-
+import { useEffect, useRef, useState } from "react";
 import {
   InputGroup,
   InputGroupAddon,
@@ -11,10 +10,10 @@ import {
 } from "@/components/ui/input-group";
 
 export function HeaderSearch({ className }: { className?: string }) {
-  const [query, setQuery] = React.useState("");
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey)
         return;

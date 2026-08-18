@@ -27,7 +27,7 @@ export function StepInviteTeam({
   onSkip,
   onBack,
 }: StepProps) {
-  const [emailsInput, setEmailsInput] = useState(() =>
+  const [emailsInput, setEmailsInput] = useState<string>(() =>
     data.invites
       .map((inv) => inv.email)
       .filter(Boolean)

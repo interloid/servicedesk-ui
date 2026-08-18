@@ -22,29 +22,11 @@ import { useGoogleLogin, useLogin } from "@/features/auth/hooks/use-auth";
 import { loginSchema, type LoginValues } from "@/features/auth/schemas/login";
 import type { AuthFailureCode } from "@/features/auth/types";
 import type { ShellIdentity } from "@/lib/identity";
+import { PasswordInput } from "@/components/ui/password-input";
+import { APP_ROUTES } from "@/lib/routes";
 
-/**
- * Login card, transcribed from `Update design.dc.html` → `authCard` and the `scrLogin`
- * block, and measured against design-reference/log-in--light.png (1:1 at 1440).
- *
- * Measured: card 440px wide, 16px radius, 32px padding, 18px gap between blocks; fields
- * 42px tall with a 6px radius; both buttons 52px. Field metrics override the design
- * system's documented 40px — this screen renders 42px and the screen wins.
- *
- * LIVE. Submit runs `loginSchema` client-side, then calls `loginAction`, which re-validates
- * and signs in against Supabase. On success the session lands in httpOnly cookies and
- * `useLogin` redirects to `/`. The error states below are real server outcomes now, not the
- * hand-set demo copy this screen shipped with.
- */
-
-/** 42px measured on this screen, 44px touch floor below md; 6px radius. */
 const FIELD_CLASS = "h-11 rounded-sm text-sm md:h-10.5";
 
-/**
- * The bold lead-in of the design's error Alert, per failure. The design only drew the
- * credential case; the rest reuse its shape so a rate limit or a misconfigured project
- * doesn't render as a blank headline.
- */
 const ERROR_HEADLINE: Record<AuthFailureCode, string> = {
   invalid_credentials: "That email and password don't match.",
   email_not_confirmed: "Confirm your email first.",
@@ -61,14 +43,8 @@ export function LoginForm({
   next,
 }: {
   identity: ShellIdentity | null;
-  /** The tenant this subdomain belongs to, resolved before sign-in. */
   tenant: { name: string } | null;
-  /** Message from the OAuth callback's `?error=`, shown in the same banner as a failed submit. */
   initialError?: string;
-  /**
-   * Where the user was headed when the proxy's guard sent them here (`?next=`).
-   * Sign-in puts them back there instead of dropping everyone on the queue.
-   */
   next?: string;
 }) {
   const { login, isPending } = useLogin({ next });
@@ -169,8 +145,7 @@ export function LoginForm({
                   Password
                 </FormLabel>
                 <FormControl>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     autoComplete="current-password"
                     placeholder="••••••••••"
                     className={FIELD_CLASS}
@@ -207,7 +182,7 @@ export function LoginForm({
               )}
             />
             <Link
-              href="/forgot-password"
+              href={APP_ROUTES.FORGOT_PASSWORD}
               className="text-sm font-semibold text-brand-accent hover:underline"
             >
               Forgot password?
@@ -244,9 +219,9 @@ export function LoginForm({
         </div>
 
         <p className="text-center text-sm text-muted-foreground">
-          New here?{" "}
+          New here?
           <Link
-            href="/setup"
+            href={APP_ROUTES.SETUP}
             className="font-semibold text-brand-accent hover:underline"
           >
             Create an organization

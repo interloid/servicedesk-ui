@@ -1,11 +1,9 @@
 "use client";
-
-import * as React from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, CircleAlert, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Check, CircleAlert } from "lucide-react";
 import { useForm } from "react-hook-form";
-
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,15 +14,17 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
 import { AuthCard } from "@/features/auth/components/auth-card";
-
 import { createSupabaseClient } from "@/lib/supabase/client";
 import {
   UpdatePasswordValues,
   updatePasswordSchema,
 } from "@/features/auth/schemas/reset-password";
 import { updateTenantPasswordAction } from "@/features/auth/actions";
+import { PasswordInput } from "@/components/ui/password-input";
+import { APP_ROUTES } from "@/lib/routes";
+import { PageLoader } from "@/components/shared/page-loader";
+import { LoadingSpinner } from "@/components/shared/loading-spinner";
 
 export default function DirectResetPasswordPage() {
   const router = useRouter();
@@ -32,18 +32,17 @@ export default function DirectResetPasswordPage() {
   const params = useParams<{ tenantSlug: string }>();
   const tenantSlug = params.tenantSlug;
 
-  const [isVerifyingSession, setIsVerifyingSession] = React.useState(true);
-  const [authError, setAuthError] = React.useState<string | null>(null);
-  const [showPassword, setShowPassword] = React.useState(false);
-  const [updated, setUpdated] = React.useState(false);
-  const [isPending, startTransition] = React.useTransition();
+  const [isVerifyingSession, setIsVerifyingSession] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [updated, setUpdated] = useState<boolean>(false);
+  const [isPending, startTransition] = useTransition();
 
   const form = useForm<UpdatePasswordValues>({
     resolver: zodResolver(updatePasswordSchema),
     defaultValues: { password: "", confirmPassword: "" },
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     async function verifySession() {
       const supabase = createSupabaseClient();
       const { data } = await supabase.auth.getSession();
@@ -72,17 +71,13 @@ export default function DirectResetPasswordPage() {
 
       setUpdated(true);
       setTimeout(() => {
-        router.push("/login");
+        router.push(APP_ROUTES.LOGIN);
       }, 3000);
     });
   }
 
   if (isVerifyingSession) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-brand-accent" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   return (
@@ -136,26 +131,12 @@ export default function DirectResetPasswordPage() {
                       New password
                     </FormLabel>
                     <FormControl>
-                      <div className="relative">
-                        <Input
-                          type={showPassword ? "text" : "password"}
-                          placeholder="••••••••"
-                          disabled={isPending || Boolean(authError)}
-                          className="h-11 rounded-sm text-sm pr-10"
-                          {...field}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                        >
-                          {showPassword ? (
-                            <EyeOff className="size-4" />
-                          ) : (
-                            <Eye className="size-4" />
-                          )}
-                        </button>
-                      </div>
+                      <PasswordInput
+                        placeholder="••••••••"
+                        disabled={isPending || Boolean(authError)}
+                        className="h-11 rounded-sm text-sm pr-10"
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -171,8 +152,7 @@ export default function DirectResetPasswordPage() {
                       Confirm password
                     </FormLabel>
                     <FormControl>
-                      <Input
-                        type="password"
+                      <PasswordInput
                         placeholder="••••••••"
                         disabled={isPending || Boolean(authError)}
                         className="h-11 rounded-sm text-sm"
@@ -191,7 +171,8 @@ export default function DirectResetPasswordPage() {
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">
-                    <Loader2 className="size-4 animate-spin" /> Updating...
+                    <LoadingSpinner />
+                    Updating...
                   </span>
                 ) : (
                   "Update password"

@@ -12,30 +12,15 @@ import type { LoginValues } from "@/features/auth/schemas/login";
 import type { ActionResult, LoginSuccess } from "@/features/auth/types";
 import { stripTenantPrefix } from "@/lib/tenancy";
 
-/**
- * Navigation for the auth flow.
- *
- * Rules:
- * - Path-based URLs rely on `/tenant/<slug>/...`.
- * - `withCurrentTenantPrefix` extracts the active slug from the URL path to ensure
- *   relative navigations land in the correct workspace path context.
- */
-
 type UseLoginOptions = {
-  /** Override the server's destination. Pass `null` to stay put and navigate yourself. */
   redirectTo?: string | null;
-  /** Where the user was headed before the guard bounced them here (`?next=`). */
   next?: string | null;
 };
 
-/** An absolute URL needs document navigation; the client router can't cross origins. */
 function isAbsoluteUrl(target: string): boolean {
   return /^https?:\/\//i.test(target);
 }
 
-/**
- * Extracts `/tenant/<slug>` prefix from current `window.location.pathname`.
- */
 function currentTenantPrefix(): string {
   if (typeof window === "undefined") {
     return "";
@@ -59,7 +44,7 @@ function withCurrentTenantPrefix(path: string): string {
 
 export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
+  const [isPending, setIsPending] = useState<boolean>(false);
 
   const login = useCallback(
     async (values: LoginValues): Promise<ActionResult<LoginSuccess>> => {
@@ -111,12 +96,8 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
   return { login, isPending };
 }
 
-/**
- * Google sign-in flow.
- */
 export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
-  const [isPending, setIsPending] = useState(false);
-
+  const [isPending, setIsPending] = useState<boolean>(false);
   const signInWithGoogle = useCallback(async (): Promise<
     ActionResult<{ url: string }>
   > => {
@@ -153,14 +134,12 @@ export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
 }
 
 type UseLogoutOptions = {
-  /** Where to land once the session is gone. Pass `null` to handle navigation yourself. */
   redirectTo?: string | null;
 };
 
 export function useLogout({ redirectTo }: UseLogoutOptions = {}) {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
-
+  const [isPending, setIsPending] = useState<boolean>(false);
   const logout = useCallback(async (): Promise<ActionResult<null>> => {
     setIsPending(true);
 
@@ -180,23 +159,10 @@ export function useLogout({ redirectTo }: UseLogoutOptions = {}) {
     }
 
     if (result.success) {
-      /*
-       * Sign-out keeps the user within the same tenant path space:
-       * defaults to `/tenant/converse/login`
-       */
       const target =
         redirectTo === undefined
           ? withCurrentTenantPrefix("/login")
           : redirectTo;
-
-      /*
-       * Same rule as `useLogin`: one navigation, no companion `refresh()`. Clearing the
-       * session cookies in the action already invalidates the client cache, and racing a
-       * refresh against the replace is what aborts the RSC request mid-flight.
-       *
-       * With `redirectTo: null` the caller navigates itself, so refresh the tree instead —
-       * otherwise the shell keeps rendering the signed-in header.
-       */
       if (target) {
         if (isAbsoluteUrl(target)) {
           window.location.assign(target);

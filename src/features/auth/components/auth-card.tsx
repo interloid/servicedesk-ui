@@ -1,27 +1,28 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 export function AuthShell({ children }: { children: ReactNode }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-5.5 px-5 py-7 md:px-6 md:py-14">
-      <div className="flex items-center gap-2.5">
+      <Link href="/" className="flex items-center gap-2.5">
         <span
           aria-hidden
           className="flex size-8.5 shrink-0 items-center justify-center rounded-md bg-brand-accent text-base font-extrabold text-brand-accent-foreground"
         >
           {"test".charAt(0).toUpperCase()}
         </span>
+
         <span className="text-lg font-bold tracking-tight text-foreground">
           ServiceDesk Pro
         </span>
-      </div>
+      </Link>
 
       {children}
     </main>
   );
 }
 
-/** `authCard`, rendered as the <form> itself so no wrapper element is added. */
 export function AuthCard({
   className,
   ...props

@@ -12,12 +12,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    /* antialiased — Design System.dc.html: body{-webkit-font-smoothing:antialiased} */
     @apply bg-background text-foreground antialiased;
   }
-  /* Design System.dc.html: a{color:#166534;text-decoration:none} · a:hover{color:#14532D}.
-     The hover rule is new in the 2026-08-07 sync and resolves treatments.md conflict T2
-     in favour of green-900 — which is --brand-pressed, so no new value enters. */
+
   a {
     @apply text-primary no-underline;
   }
@@ -33,12 +30,6 @@
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: var(--font-sans);
-  /* _ds/…/tokens/typography.css declares JetBrains Mono, and the page uses
-     var(--font-mono) on every ID, amount, IP, secret, axis label, timestamp, count
-     pill and keycap. The face is loaded self-hosted by next/font in layout.tsx.
-     Same indirection as --font-sans above: the outer var is set by next/font on
-     <html>, so this must NOT restate a literal stack — a literal here shadows the
-     loaded face and every mono string silently falls back to ui-monospace. */
   --font-mono: var(--font-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -72,7 +63,6 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
 
-  /* Design additions — shadcn has no token for these. See docs/tokens.md §2. */
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-success-strong: var(--success-strong);
@@ -106,53 +96,21 @@
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
-  /* Design pins the plan-card step at 16px and says "rounded-2xl stays Tailwind's"
-     (= 1rem). The starter's calc() derives 18px. Design value wins; see deviations D9. */
   --radius-2xl: 1rem;
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-
-  /* The one added breakpoint. sm/md/lg/xl/2xl keep Tailwind's stock widths. */
   --breakpoint-wide: 1800px;
 }
 
-/* ---------------------------------------------------------------------------
-   Light — transcribed from Design System.dc.html <style> :root, verbatim hexes.
-   The page's own documentation snippet writes these as var(--color-green-800)
-   etc.; the rendered stylesheet writes literals, and the literal is the value.
-   Tailwind v4's palette is oklch-widened, so the two are NOT identical on P3.
-   --------------------------------------------------------------------------- */
 :root {
   --radius: 0.625rem;
-
-  /* Brand ramp. Re-skinning (tenant branding) touches only these three —
-     transcribed from react/app/globals.css, which names them. */
   --brand-base: #166534;
   --brand-hover: #15803d;
   --brand-pressed: #14532d;
-
-  /* Product brand accent. ADDED, not a redefinition — no existing token's value moved.
-     `Update design.dc.html` overrides `--blue-base` at runtime with its `accent` prop, and
-     every prototype screen renders teal-700: the Log in capture measures 5,463px of
-     #0F766E and zero pixels of #166534. `Design System.dc.html` measures the reverse
-     (96,774px of #166534), because it documents the token default rather than the tenant
-     accent. Both stay faithful: product surfaces paint from --brand-accent, the
-     design-system route keeps --primary. Unify them when the brand is settled.
-     See docs/LOGIN-DIFF.md and docs/SHELL-DIFF.md A15. */
   --brand-accent: #0f766e;
   --brand-accent-foreground: #ffffff;
-
-  /* Badge-only brand pair. ADDED — no existing token's value moved. Before the
-     2026-08-07 sync these two literals WERE --accent/--accent-foreground; the sync
-     moved --accent onto the teal selected surface and its own §Custom variables
-     states the reason: "green-100 stays badge-only so a selected control never reads
-     as a brand badge." Splitting the pair out is what makes that sentence true —
-     `lib/badge-tones.ts` brand tone reads from here, everything selected-state still
-     reads from --accent. The ticket-queue capture measures #DCFCE7 (575px) and
-     #166534 on the `New` pill, confirming both. */
   --brand-badge: #dcfce7;
   --brand-badge-foreground: #166534;
-
   --background: #f8fafc;
   --foreground: #0f172a;
   --card: #ffffff;
@@ -165,9 +123,6 @@
   --secondary-foreground: #334155;
   --muted: #f1f5f9;
   --muted-foreground: #64748b;
-  /* Selected-state surface. Reference-exact (like --success), NOT a Tailwind
-     primitive: green-100 is badge-only, so a selected control never reads as a
-     brand badge. Was #dcfce7/#166534 before the 2026-08-07 design sync. */
   --accent: #e7f1f1;
   --accent-foreground: #0f766e;
   --destructive: #dc2626;
@@ -181,16 +136,7 @@
   --chart-4: #4f46e5;
   --chart-5: #d97706;
   --chart-muted: #cbd5e1;
-  /* Chart axis-tick ink. Measured #94A3B8 (slate-400) on the Reports bar chart's W23…W30
-     labels — one step lighter than --muted-foreground (#64748B), which is what
-     ui/chart.tsx paints ticks by default and what every other caption on the screen uses.
-     It is the same slate-400 treatments.md §4 records for the eyebrow role, which has no
-     token either. Declared once here rather than reached for as a palette literal at the
-     call site. Deliberately NOT redeclared under .dark: slate-400 sits at ~7.5:1 on the
-     dark surface, so the single value is correct in both themes and no dark rule is
-     authored for it. See docs/REPORTS-DIFF.md § Token added. */
   --chart-axis: #94a3b8;
-
   --sidebar: #ffffff;
   --sidebar-foreground: #334155;
   --sidebar-primary: var(--brand-base);
@@ -199,15 +145,9 @@
   --sidebar-accent-foreground: #0f766e;
   --sidebar-border: #f1f5f9;
   --sidebar-ring: #16a34a;
-
-  /* The design-system page's §Custom variables names this pair explicitly (41 added
-     names). react/app/globals.css does not declare it — it expresses the same values
-     as --accent/--accent-foreground. Aliased rather than duplicated so the documented
-     names resolve, dark inherits for free, and there is still one source of truth. */
   --brand-soft: var(--accent);
   --brand-ink: var(--accent-foreground);
 
-  /* Semantic triples — base (dot/fill) · soft (surface) · strong (text on soft). */
   --success: #12a150;
   --success-soft: #e4f6ec;
   --success-strong: #0b7a3b;
@@ -222,22 +162,12 @@
   --note: #fef3c7;
   --note-border: #fde68a;
   --note-foreground: #92400e;
-
-  /* Text-on-solid. The page declares only --destructive-foreground (by usage:
-     the unread bell, #DC2626/#fff). The other three complete the quad.
-     ⚠ --success-foreground and --warning-foreground are accessibility
-     completions, NOT design values — see docs/treatments.md §3.2 and D5/D6. */
   --destructive-foreground: #ffffff; /* on #DC2626 — 4.8:1 */
   --info-foreground: #ffffff; /* on #4F46E5 — 6.3:1 */
   --success-foreground: #0f172a; /* on #12A150 — 5.3:1 (design-implied #fff = 3.4:1) */
   --warning-foreground: #0f172a; /* on #D97706 — 5.6:1 (design-implied #fff = 3.2:1) */
 }
 
-/* ---------------------------------------------------------------------------
-   Dark — Design System.dc.html declares NO dark rules at all. Transcribed from
-   react/app/globals.css, the only dark declaration in the design project, in its
-   own var(--color-*) notation. See docs/tokens.md §7 and deviations D2.
-   --------------------------------------------------------------------------- */
 .dark,
 [data-theme="dark"] {
   --brand-hover: #16a34a;
@@ -249,10 +179,6 @@
   --card-foreground: var(--color-slate-50);
   --popover: var(--color-slate-900);
   --popover-foreground: var(--color-slate-50);
-
-  /* ⚠ The design's dark block sets --primary-foreground to slate-900 while
-     leaving --primary at #166534 — 2.5:1, unreadable. Held at #ffffff (7.1:1)
-     pending sign-off. See deviations D7. */
   --primary-foreground: #ffffff;
   --secondary: var(--color-slate-800);
   --secondary-foreground: var(--color-slate-100);
@@ -260,12 +186,6 @@
   --muted-foreground: var(--color-slate-400);
   --accent: var(--color-slate-800);
   --accent-foreground: var(--color-slate-50);
-
-  /* The design declares no dark value for the badge green, and green-100 on a slate-950
-     card is unreadable. Aliased onto the dark --accent pair the design DOES declare, so
-     no dark value is invented — the cost is that `New` reads neutral in dark. Same class
-     of accessibility completion as --success-foreground / --warning-foreground above;
-     flagged in docs/QUEUE-DIFF.md rather than smuggled in. */
   --brand-badge: var(--accent);
   --brand-badge-foreground: var(--accent-foreground);
 
@@ -291,30 +211,6 @@
   --note-foreground: var(--color-amber-300);
 }
 
-/* ---------------------------------------------------------------------------
-   Sheet-drawer sidebar width. `Update design.dc.html` measures 272px for the
-   below-lg overlay (the narrow branch of `sidebarStyle`). `ui/sidebar.tsx` writes
-   `--sidebar-width: 18rem` as an *inline* style on the drawer's SheetContent and
-   drops `className` in that branch, and the sheet portals out of the provider —
-   so an !important custom property here is the only override that does not edit
-   ui/. The permanent 252/288px widths need none of this: they ride on
-   SidebarProvider in src/app/(app)/layout.tsx.
-
-   `width` has to be restated alongside the property: ui/sheet.tsx bakes in
-   `data-[side=left]:w-3/4` (plus `sm:max-w-sm`), and an attribute-qualified selector
-   outranks the plain `w-(--sidebar-width)` that ui/sidebar.tsx layers on top — so the
-   drawer otherwise lands at 75% of the viewport (281px at 375) regardless of the
-   variable. See docs/SHELL-DIFF.md §Deviations.
-   --------------------------------------------------------------------------- */
-[data-slot="sidebar"][data-mobile="true"] {
-  --sidebar-width: 272px !important;
-  width: var(--sidebar-width) !important;
-}
-
-/* 1.3s pulse — matches the prototype; Tailwind's animate-pulse is 2s.
-   Transcribed verbatim from react/app/globals.css. See DIFFERENCE-LIST D-4:
-   the utility now exists, but ui/skeleton.tsx hardcodes `animate-pulse` in its
-   base string, so call sites still cannot deterministically override it. */
 @keyframes sdp-skeleton {
   0%,
   100% {

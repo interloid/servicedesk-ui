@@ -5,7 +5,6 @@ import { createServerClient } from "@supabase/ssr";
 import {
   AUTH_COOKIE_DOMAIN,
   DEFAULT_TENANT_PATH,
-  TENANT_VIEWS_PATH,
   SUBDOMAIN_ROUTING_AVAILABLE,
   TENANT_HINT_COOKIE,
   TENANT_HINT_MAX_AGE,
@@ -20,30 +19,10 @@ import {
   tenantPath,
   withTenantPrefix,
 } from "@/lib/tenancy";
+import { env } from "./config/env";
 
-/**
- * Path-based tenancy guard.
- *
- * Canonical shape for every tenant-scoped route — app pages and auth pages
- * alike:
- *
- *   /tenant/converse/tickets
- *   /tenant/converse/login
- *   /tenant/converse/forgot-password
- *   /tenant/converse/reset-password
- *
- * Only workspace-less routes (`/`, `/setup`) stay on the bare root domain; a
- * bare tenant route is redirected into the prefix as soon as the slug is known,
- * either from the session claims or from the last-workspace hint cookie.
- */
-
-/** Marketing/landing route that must stay on the root domain. */
 const ROOT_PATH = "/";
 
-/**
- * Copies mutated session cookies onto newly constructed responses
- * so refreshed tokens are preserved across redirects and headers rewrites.
- */
 function withSessionCookies(
   target: NextResponse,
   source: NextResponse,
@@ -54,7 +33,6 @@ function withSessionCookies(
   return target;
 }
 
-/** Persists the workspace hint used to rebuild `/tenant/<slug>/login` later. */
 function rememberTenant(response: NextResponse, slug: string): NextResponse {
   response.cookies.set(TENANT_HINT_COOKIE, slug, {
     path: "/",
@@ -79,8 +57,8 @@ export async function proxy(request: NextRequest) {
   }
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {

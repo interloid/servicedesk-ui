@@ -22,6 +22,8 @@ import { useGoogleLogin, useLogin } from "@/features/auth/hooks/use-auth";
 import { loginSchema, type LoginValues } from "@/features/auth/schemas/login";
 import type { AuthFailureCode } from "@/features/auth/types";
 import type { ShellIdentity } from "@/lib/identity";
+import { PasswordInput } from "@/components/ui/password-input";
+import { APP_ROUTES } from "@/lib/routes";
 
 const FIELD_CLASS = "h-11 rounded-sm text-sm md:h-10.5";
 
@@ -41,11 +43,8 @@ export function TenantLoginForm({
   next,
 }: {
   identity: ShellIdentity | null;
-  /** The tenant this subdomain belongs to, resolved before sign-in. */
   tenant: { name: string } | null;
-  /** Message from the OAuth callback's `?error=`. */
   initialError?: string;
-  /** Redirect target path after successful login. */
   next?: string;
 }) {
   const { login, isPending } = useLogin({ redirectTo: next });
@@ -146,10 +145,9 @@ export function TenantLoginForm({
                   Password
                 </FormLabel>
                 <FormControl>
-                  <Input
-                    type="password"
-                    autoComplete="current-password"
-                    placeholder="••••••••••"
+                  <PasswordInput
+                    placeholder="••••••••"
+                    disabled={isPending || Boolean(formError)}
                     className={FIELD_CLASS}
                     {...field}
                   />
@@ -184,7 +182,7 @@ export function TenantLoginForm({
               )}
             />
             <Link
-              href="/forgot-password"
+              href={APP_ROUTES.FORGOT_PASSWORD}
               className="text-sm font-semibold text-brand-accent hover:underline"
             >
               Forgot password?

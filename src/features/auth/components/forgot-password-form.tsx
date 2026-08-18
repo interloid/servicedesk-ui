@@ -1,9 +1,8 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, CircleAlert, Loader2 } from "lucide-react";
+import { Check, CircleAlert } from "lucide-react";
 import { useForm } from "react-hook-form";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -23,6 +22,9 @@ import {
   type ForgotPasswordValues,
 } from "@/features/auth/schemas/forgot-password";
 import { resetPasswordAction } from "../actions";
+import { useState, useTransition } from "react";
+import { APP_ROUTES } from "@/lib/routes";
+import { LoadingSpinner } from "@/components/shared/loading-spinner";
 
 export function ForgotPasswordForm() {
   const form = useForm<ForgotPasswordValues>({
@@ -30,8 +32,8 @@ export function ForgotPasswordForm() {
     defaultValues: { email: "" },
   });
 
-  const [sent, setSent] = React.useState(false);
-  const [isPending, startTransition] = React.useTransition();
+  const [sent, setSent] = useState<boolean>(false);
+  const [isPending, startTransition] = useTransition();
 
   function onSubmit(values: ForgotPasswordValues) {
     startTransition(async () => {
@@ -96,7 +98,7 @@ export function ForgotPasswordForm() {
             >
               {isPending ? (
                 <span className="flex items-center gap-2">
-                  <Loader2 className="size-4 animate-spin" /> Sending...
+                  <LoadingSpinner /> Sending...
                 </span>
               ) : (
                 "Resend link"
@@ -161,7 +163,7 @@ export function ForgotPasswordForm() {
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">
-                    <Loader2 className="size-4 animate-spin" /> Sending...
+                    <LoadingSpinner /> Sending...
                   </span>
                 ) : (
                   "Send reset link"
@@ -173,7 +175,7 @@ export function ForgotPasswordForm() {
 
         <p className="text-center text-sm text-muted-foreground">
           <Link
-            href="/login"
+            href={APP_ROUTES.LOGIN}
             className="font-semibold text-brand-accent hover:underline"
           >
             Back to sign in

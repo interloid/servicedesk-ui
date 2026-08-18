@@ -1,8 +1,6 @@
 "use client";
 
-import * as React from "react";
 import { Bell } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -11,9 +9,10 @@ import {
 } from "@/components/ui/popover";
 import { NOTIFICATIONS, TONE_TILE } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 export function NotificationMenu() {
-  const [readAll, setReadAll] = React.useState(false);
+  const [readAll, setReadAll] = useState<boolean>(false);
   const unread = readAll ? 0 : NOTIFICATIONS.filter((n) => n.unread).length;
 
   return (

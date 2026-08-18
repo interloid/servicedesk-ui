@@ -115,18 +115,6 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
     const response = await registerOnboardingAction(payload);
 
     if (response.success) {
-      /*
-       * Straight into the workspace that was just provisioned. `landingUrlForSlug`
-       * decides the shape: the new subdomain when the session cookie can reach it,
-       * and the same-origin `/tenant/<slug>` route when it can't (plain
-       * `localhost` — see CAN_SHARE_SUBDOMAIN_COOKIES), which is the difference
-       * between landing signed in and landing back on the login screen.
-       *
-       * `signUp` only leaves a session behind when the project auto-confirms email;
-       * when it doesn't, this lands on a workspace page with no session and the
-       * proxy's guard takes over — and since there is then no cookie to strand, it
-       * forwards to `<slug>.<base>/login` rather than the path form.
-       */
       window.location.assign(
         landingUrlForSlug(response.data!.tenant.slug, "/tickets"),
       );

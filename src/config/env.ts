@@ -17,19 +17,13 @@ const clientSchema = z.object({
     z.string().url().optional(),
   ),
 
-  NEXT_PUBLIC_SUPABASE_URL: z.preprocess(
-    emptyToUndefined,
-    z.string().url().optional(),
-  ),
+  NEXT_PUBLIC_SUPABASE_URL: z.preprocess(emptyToUndefined, z.string().url()),
 
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.preprocess(
     emptyToUndefined,
-    z.string().min(1).optional(),
+    z.string().min(1),
   ),
-  SUPABASE_SERVICE_ROLE_KEY: z.preprocess(
-    emptyToUndefined,
-    z.string().min(1).optional(),
-  ),
+  SUPABASE_SERVICE_ROLE_KEY: z.preprocess(emptyToUndefined, z.string().min(1)),
 });
 
 const parsed = clientSchema.safeParse(process.env);

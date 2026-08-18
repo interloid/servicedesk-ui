@@ -1,9 +1,5 @@
-import {
-  withTenantPrefix,
-  tenantPath,
-  TENANT_RESET_PASSWORD_PATH,
-  TENANT_LOGIN_PATH,
-} from "@/lib/tenancy";
+import { env } from "@/config/env";
+import { withTenantPrefix, tenantPath, TENANT_ROUTES } from "@/lib/tenancy";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
@@ -17,10 +13,9 @@ export async function GET(
 
   const code = searchParams.get("code");
   const rawNext = searchParams.get("next");
-
   const targetPath = rawNext
     ? withTenantPrefix(tenantSlug, rawNext)
-    : tenantPath(tenantSlug, TENANT_RESET_PASSWORD_PATH);
+    : tenantPath(tenantSlug, TENANT_ROUTES.RESET_PASSWORD);
 
   if (code) {
     const cookieStore = await cookies();
@@ -28,8 +23,8 @@ export async function GET(
     let response = NextResponse.redirect(`${origin}${targetPath}`);
 
     const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      env.NEXT_PUBLIC_SUPABASE_URL,
+      env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       {
         cookies: {
           getAll() {
@@ -57,7 +52,10 @@ export async function GET(
 
     console.error("[SUPABASE_CALLBACK_ERROR]:", error.message);
 
-    const errorUrl = new URL(tenantPath(tenantSlug, TENANT_LOGIN_PATH), origin);
+    const errorUrl = new URL(
+      tenantPath(tenantSlug, TENANT_ROUTES.LOGIN),
+      origin,
+    );
     errorUrl.searchParams.set(
       "error",
       error.message || "Authentication failed",
@@ -66,7 +64,7 @@ export async function GET(
   }
 
   const missingCodeUrl = new URL(
-    tenantPath(tenantSlug, TENANT_LOGIN_PATH),
+    tenantPath(tenantSlug, tenantPath(tenantSlug, TENANT_ROUTES.LOGIN)),
     origin,
   );
   missingCodeUrl.searchParams.set("error", "Missing authentication code");

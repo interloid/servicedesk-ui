@@ -1,11 +1,10 @@
 "use client";
 
-import * as React from "react";
-
 import { useSidebar } from "@/components/ui/sidebar";
+import { useEffect, useLayoutEffect } from "react";
 
 const useIsomorphicLayoutEffect =
-  typeof window !== "undefined" ? React.useLayoutEffect : React.useEffect;
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export function SidebarViewportSync() {
   const { isMobile, setOpenMobile } = useSidebar();

@@ -13,7 +13,7 @@ export default async function DashboardLayout({
 
   return (
     <SidebarProvider className="w-full">
-      <div className="flex h-screen w-full overflow-hidden bg-[#FAFAFA] text-xs text-slate-800 font-sans antialiased">
+      <div className="flex h-screen w-full overflow-hidden bg-background text-xs text-slate-800 font-sans antialiased">
         <AppSidebar identity={identity} />
 
         <div className="flex flex-1 flex-col min-w-0 h-screen w-full">

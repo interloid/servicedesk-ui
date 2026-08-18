@@ -1,10 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
+
 import {
-  AuthError,
   exchangeOAuthCode,
   safeNext,
 } from "@/features/auth/services/auth.service";
 import { getTenantSlugById } from "@/features/tenancy/services/tenant-resolver";
+import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
+import { APP_ROUTES } from "@/lib/routes";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
@@ -14,31 +16,39 @@ export async function GET(request: NextRequest) {
   const next = safeNext(rawNext);
 
   if (!code) {
-    return NextResponse.redirect(new URL("/login?error=Missing+code", origin));
+    const loginUrl = new URL(APP_ROUTES.LOGIN, origin);
+    loginUrl.searchParams.set("error", "Missing code");
+
+    return NextResponse.redirect(loginUrl);
   }
 
   try {
     const sessionUser = await exchangeOAuthCode(code);
 
-    if (rawNext === "/reset-password") {
+    if (next === TENANT_ROUTES.RESET_PASSWORD) {
       const userTenantSlug = await getTenantSlugById(
-        sessionUser.tenantId || "",
+        sessionUser.tenantId ?? "",
       );
 
       if (userTenantSlug) {
         return NextResponse.redirect(
-          new URL(`/tenant/${userTenantSlug}/reset-password`, origin),
+          new URL(
+            tenantPath(userTenantSlug, TENANT_ROUTES.RESET_PASSWORD),
+            origin,
+          ),
         );
       }
 
-      return NextResponse.redirect(new URL("/reset-password", origin));
+      return NextResponse.redirect(new URL(APP_ROUTES.RESET_PASSWORD, origin));
     }
 
     return NextResponse.redirect(new URL(next, origin));
   } catch (error) {
     console.error("[auth] Callback failed:", error);
-    return NextResponse.redirect(
-      new URL("/login?error=Authentication+failed", origin),
-    );
+
+    const loginUrl = new URL(APP_ROUTES.LOGIN, origin);
+    loginUrl.searchParams.set("error", "Authentication failed");
+
+    return NextResponse.redirect(loginUrl);
   }
 }

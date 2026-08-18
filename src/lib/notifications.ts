@@ -6,7 +6,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-/** Drives the icon tile's surface/ink pair, exactly as the design's `icoStyle` does. */
 export type NotificationTone = "brand" | "error" | "warning" | "info";
 
 export type Notification = {
@@ -19,12 +18,6 @@ export type Notification = {
   icon: LucideIcon;
 };
 
-/**
- * Transcribed verbatim from `Update design.dc.html` → `const NOTIFS`, in source order.
- * Icons come from that file's `I` map, whose entries name the lucide component to use.
- *
- * Seed data, not a fixture: replace with the notifications API when it exists.
- */
 export const NOTIFICATIONS: Notification[] = [
   {
     id: 1,
@@ -73,10 +66,6 @@ export const NOTIFICATIONS: Notification[] = [
   },
 ];
 
-/**
- * The design's `icoStyle` special-cases only error and warning; brand and info share the
- * brand tint. Reproduced here so the mapping stays one lookup rather than nested ternaries.
- */
 export const TONE_TILE: Record<NotificationTone, string> = {
   brand: "bg-accent text-accent-foreground",
   info: "bg-accent text-accent-foreground",

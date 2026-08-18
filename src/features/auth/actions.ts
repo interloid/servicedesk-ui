@@ -23,22 +23,6 @@ import {
   UpdatePasswordValues,
 } from "./schemas/reset-password";
 
-/**
- * Server Actions for the auth feature. This is the boundary the client is allowed to call;
- * `./services/auth.service` stays server-only behind it.
- */
-
-/**
- * Sign in.
- *
- * Re-validates with `loginSchema` even though `login-form.tsx` already resolves against it.
- * That isn't belt-and-braces: a Server Action is a public POST endpoint reachable without
- * the UI (see node_modules/next/dist/docs/01-app/01-getting-started/07-mutating-data.md),
- * so client-side validation is a convenience and this is the real check.
- *
- * Takes `unknown` for the same reason — the argument is untrusted input off the wire, and
- * typing it `LoginValues` would be a claim about the caller we can't enforce.
- */
 export async function loginAction(
   values: unknown,
   next?: unknown,

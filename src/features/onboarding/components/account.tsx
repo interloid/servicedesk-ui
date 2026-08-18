@@ -19,6 +19,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { checkEmailTenantAction } from "../register-actions";
+import { APP_ROUTES } from "@/lib/routes";
 
 const accountFormSchema = z.object({
   fullName: z.string().min(2, "Full name is required."),
@@ -41,7 +42,7 @@ const FIELD_CLASS =
   "h-11 rounded-lg border-slate-300 text-slate-800 placeholder:text-slate-400 focus-visible:ring-emerald-700 aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:ring-destructive";
 
 export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
-  const [isCheckingTenant, setIsCheckingTenant] = useState(false);
+  const [isCheckingTenant, setIsCheckingTenant] = useState<boolean>(false);
 
   const form = useForm<AccountFormValues>({
     resolver: zodResolver(accountFormSchema),
@@ -215,7 +216,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
       <div className="text-center text-xs text-slate-500">
         Already have an account?{" "}
         <a
-          href="/login"
+          href={APP_ROUTES.LOGIN}
           className="font-semibold text-emerald-800 hover:underline"
         >
           Sign in

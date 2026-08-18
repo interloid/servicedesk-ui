@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description: "Manage and track support tickets",
 };
 
-export default async function TicketsPage() {
+export default function TicketsPage() {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-4">
       <h1 className="text-4xl font-semibold">Tickets</h1>

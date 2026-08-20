@@ -196,7 +196,7 @@ export async function resetTenantPasswordAction(
     };
   }
 
-  const result = await sendTenantPasswordResetLink(validatedFields.data);
+  const result = await sendTenantPasswordResetLink(validatedFields.data,tenant,slug);
 
   if (!result.success) {
     return {

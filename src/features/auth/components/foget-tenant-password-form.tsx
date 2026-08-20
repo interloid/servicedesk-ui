@@ -38,8 +38,8 @@ export function ForgotTenantPasswordForm({
 }: ForgotPasswordFormProps) {
   const params = useParams();
 
-  const tenant = tenantProp || (params?.tenant as string) || "tenant";
-  const slug = slugProp || (params?.slug as string) || "converse";
+  const tenant = tenantProp || (params?.tenant as string) || "";
+  const slug = slugProp || (params?.slug as string) || "";
 
   const form = useForm<ForgotPasswordValues>({
     resolver: zodResolver(forgotPasswordSchema),

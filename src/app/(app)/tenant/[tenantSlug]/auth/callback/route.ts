@@ -1,72 +1,48 @@
-import { env } from "@/config/env";
-import { withTenantPrefix, tenantPath, TENANT_ROUTES } from "@/lib/tenancy";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { exchangeOAuthCode, safeNext } from "@/features/auth/services/auth.service";
+import { getTenantSlugById } from "@/features/tenancy/services/tenant-resolver";
+import { TENANT_ROUTES, tenantPath, withTenantPrefix } from "@/lib/tenancy";
+import { APP_ROUTES } from "@/lib/routes";
 
-export async function GET(
-  request: NextRequest,
-  context: { params: Promise<{ tenantSlug: string }> },
-) {
-  const { tenantSlug } = await context.params;
-  const { searchParams, origin } = new URL(request.url);
+export async function GET(request: NextRequest) {
+  const { searchParams, origin } = request.nextUrl;
 
   const code = searchParams.get("code");
   const rawNext = searchParams.get("next");
-  const targetPath = rawNext
-    ? withTenantPrefix(tenantSlug, rawNext)
-    : tenantPath(tenantSlug, TENANT_ROUTES.RESET_PASSWORD);
+  const next = safeNext(rawNext) || "/tickets";
 
-  if (code) {
-    const cookieStore = await cookies();
-
-    let response = NextResponse.redirect(`${origin}${targetPath}`);
-
-    const supabase = createServerClient(
-      env.NEXT_PUBLIC_SUPABASE_URL,
-      env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
-
-            response = NextResponse.redirect(`${origin}${targetPath}`);
-            cookiesToSet.forEach(({ name, value, options }) => {
-              response.cookies.set(name, value, options);
-            });
-          },
-        },
-      },
-    );
-
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (!error) {
-      return response;
-    }
-
-    console.error("[SUPABASE_CALLBACK_ERROR]:", error.message);
-
-    const errorUrl = new URL(
-      tenantPath(tenantSlug, TENANT_ROUTES.LOGIN),
-      origin,
-    );
-    errorUrl.searchParams.set(
-      "error",
-      error.message || "Authentication failed",
-    );
-    return NextResponse.redirect(errorUrl);
+  if (!code) {
+    const loginUrl = new URL(APP_ROUTES.LOGIN, origin);
+    loginUrl.searchParams.set("error", "Missing code");
+    return NextResponse.redirect(loginUrl);
   }
 
-  const missingCodeUrl = new URL(
-    tenantPath(tenantSlug, tenantPath(tenantSlug, TENANT_ROUTES.LOGIN)),
-    origin,
-  );
-  missingCodeUrl.searchParams.set("error", "Missing authentication code");
-  return NextResponse.redirect(missingCodeUrl);
+  try {
+    const sessionUser = await exchangeOAuthCode(code);
+
+    const userTenantSlug = sessionUser?.tenantId
+      ? await getTenantSlugById(sessionUser.tenantId)
+      : null;
+
+    if (next === TENANT_ROUTES.RESET_PASSWORD) {
+      if (userTenantSlug) {
+        return NextResponse.redirect(
+          new URL(tenantPath(userTenantSlug, TENANT_ROUTES.RESET_PASSWORD), origin)
+        );
+      }
+      return NextResponse.redirect(new URL(APP_ROUTES.RESET_PASSWORD, origin));
+    }
+
+    // Ensures /tickets always becomes /tenant/northwind/tickets locally and on Vercel
+    const finalPath = userTenantSlug
+      ? withTenantPrefix(userTenantSlug, next)
+      : next;
+
+    return NextResponse.redirect(new URL(finalPath, origin));
+  } catch (error) {
+    console.error("[auth] Callback failed:", error);
+    const loginUrl = new URL(APP_ROUTES.LOGIN, origin);
+    loginUrl.searchParams.set("error", "Authentication failed");
+    return NextResponse.redirect(loginUrl);
+  }
 }

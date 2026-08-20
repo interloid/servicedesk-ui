@@ -48,13 +48,9 @@ export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const hostHeader = request.headers.get("host") || "";
-  if (!SUBDOMAIN_ROUTING_AVAILABLE && hostHeader.includes(".localhost")) {
-    const cleanUrl = new URL(request.url);
-    cleanUrl.host = hostHeader.split(":")[1]
-      ? `localhost:${hostHeader.split(":")[1]}`
-      : "localhost:3000";
-    return NextResponse.redirect(cleanUrl);
-  }
+  const isDev = process.env.NODE_ENV === "development";
+
+
 
   const supabase = createServerClient(
     env.NEXT_PUBLIC_SUPABASE_URL,

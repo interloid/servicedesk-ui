@@ -11,14 +11,14 @@ function normalizeBaseDomain(raw: string | undefined): string | null {
 }
 
 export const PORTAL_BASE_DOMAIN =
-  normalizeBaseDomain(process.env.NEXT_PUBLIC_APP_DOMAIN) ?? "localhost:3000";
+  normalizeBaseDomain(process.env.NEXT_PUBLIC_APP_DOMAIN);
 
 function stripPort(host: string): string {
   if (host.startsWith("[")) return host;
   return host.split(":")[0] ?? host;
 }
 
-export const PORTAL_BASE_HOSTNAME = stripPort(PORTAL_BASE_DOMAIN);
+export const PORTAL_BASE_HOSTNAME = stripPort(PORTAL_BASE_DOMAIN!);
 
 const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
 const SUBDOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -59,16 +59,7 @@ function isValidTenantLabel(label: string): boolean {
   return !RESERVED_LABELS.has(label) && SUBDOMAIN_LABEL.test(label);
 }
 
-function getRootBaseDomain(): string {
-  if (IS_LOCAL_HOST || PORTAL_BASE_HOSTNAME.endsWith(".localhost")) {
-    const parts = PORTAL_BASE_DOMAIN.split(":");
-    const port = parts[1] ? `:${parts[1]}` : "";
 
-    return `localhost${port}`;
-  }
-
-  return PORTAL_BASE_DOMAIN;
-}
 
 export function tenantLabelFromHost(
   host: string | null | undefined,
@@ -84,6 +75,7 @@ export function tenantLabelFromHost(
   }
 
   const base = PORTAL_BASE_HOSTNAME;
+  console.log("🚀 ~ tenantLabelFromHost ~ base:", base)
 
   if (trimmed === base || trimmed === `www.${base}`) {
     return null;
@@ -239,28 +231,9 @@ export function tenantPrefix(slug: string): string {
   return `/${TENANT_SEGMENT}/${encodeURIComponent(slug)}`;
 }
 
-export function portalUrlForSlug(slug: string): string {
-  const rootDomain = getRootBaseDomain();
 
-  if (!SUBDOMAIN_ROUTING_AVAILABLE) {
-    return `${rootDomain}${tenantPrefix(slug)}`;
-  }
 
-  return `${slug}.${rootDomain}`;
-}
 
-export function portalOriginForSlug(slug: string, protocol?: string): string {
-  const defaultScheme = IS_LOCAL_HOST ? "http" : "https";
-  const scheme = protocol ? protocol.replace(":", "") : defaultScheme;
-
-  const rootDomain = getRootBaseDomain();
-
-  if (!SUBDOMAIN_ROUTING_AVAILABLE) {
-    return `${scheme}://${rootDomain}${tenantPrefix(slug)}`;
-  }
-
-  return `${scheme}://${slug}.${rootDomain}`;
-}
 
 export function landingUrlForSlug(
   slug: string,

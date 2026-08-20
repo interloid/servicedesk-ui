@@ -103,8 +103,6 @@ function ResetPasswordForm() {
               return;
             }
 
-            console.log("Invite session established:", data.session.user.email);
-
             /*
              * Remove access_token and refresh_token
              * from the browser URL.

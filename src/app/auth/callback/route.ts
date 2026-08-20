@@ -25,11 +25,11 @@ export async function GET(request: NextRequest) {
   try {
     const sessionUser = await exchangeOAuthCode(code);
 
-    if (next === TENANT_ROUTES.RESET_PASSWORD) {
-      const userTenantSlug = await getTenantSlugById(
-        sessionUser.tenantId ?? "",
-      );
+    const userTenantSlug = sessionUser.tenantId
+      ? await getTenantSlugById(sessionUser.tenantId)
+      : null;
 
+    if (next === TENANT_ROUTES.RESET_PASSWORD) {
       if (userTenantSlug) {
         return NextResponse.redirect(
           new URL(
@@ -38,11 +38,16 @@ export async function GET(request: NextRequest) {
           ),
         );
       }
-
       return NextResponse.redirect(new URL(APP_ROUTES.RESET_PASSWORD, origin));
     }
 
-    return NextResponse.redirect(new URL(next, origin));
+    let finalRedirectPath = next;
+
+    if (userTenantSlug && !next.startsWith(`/tenant/${userTenantSlug}`)) {
+      finalRedirectPath = tenantPath(userTenantSlug, next);
+    }
+
+    return NextResponse.redirect(new URL(finalRedirectPath, origin));
   } catch (error) {
     console.error("[auth] Callback failed:", error);
 

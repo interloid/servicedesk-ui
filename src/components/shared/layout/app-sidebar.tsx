@@ -45,7 +45,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 import type { ShellIdentity } from "@/lib/identity";
 import { stripTenantPrefix, tenantPath } from "@/lib/tenancy";
@@ -465,17 +465,21 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
         >
           <Avatar
             className="
-              size-8
-              shrink-0
-            "
+            size-8
+            shrink-0
+          "
           >
+            <AvatarImage
+              src={identity?.user.avatarUrl}
+              alt={identity?.user.name ?? "User"}
+            />
             <AvatarFallback
               className="
-                bg-foreground
-                text-xs
-                font-bold
-                text-background
-              "
+      bg-foreground
+      text-xs
+      font-bold
+      text-background
+    "
             >
               {identity?.user.initials ?? "U"}
             </AvatarFallback>

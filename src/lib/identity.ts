@@ -14,6 +14,7 @@ export type ShellIdentity = {
     name: string;
     email: string;
     initials: string;
+    avatarUrl?: string;
     role: string;
   };
 };
@@ -59,6 +60,12 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
   if (tenantError) {
     throw tenantError;
   }
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("full_name, avatar_url")
+    .eq("id", user.id)
+    .maybeSingle();
 
   const { data: subscription, error: subscriptionError } = await supabase
     .from("subscriptions")
@@ -112,7 +119,8 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
       ? `${planName} plan · ${seatsUsed} of ${seatLimit} seats`
       : `${planName} plan · ${seatsUsed} seats`;
 
-  const name = user.user_metadata?.full_name ?? user.email ?? "User";
+  const name =
+    profile?.full_name ?? user.user_metadata?.full_name ?? user.email ?? "User";
 
   const initials = name
     .split(/\s+/)
@@ -134,6 +142,7 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
       name,
       email: user.email ?? "",
       initials,
+      avatarUrl: profile?.avatar_url ?? "",
       role: tenantRole ?? "User",
     },
   };

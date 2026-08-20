@@ -220,6 +220,7 @@ export async function registerTenant(payload: RegisterInput) {
 
       const { data: inviteData, error: inviteError } =
         await adminSupabase.auth.admin.inviteUserByEmail(invite.email, {
+          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
           data: {
             tenant_id: tenant.id,
             role: invite.role,

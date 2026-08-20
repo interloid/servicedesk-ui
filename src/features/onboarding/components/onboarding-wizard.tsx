@@ -37,12 +37,12 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<OnboardingState>({
-    fullName: "Sam Okafor",
-    workEmail: "sam@northwind.io",
+    fullName: "",
+    workEmail: "",
     password: "",
     agreeToTerms: false,
-    orgName: "Northwind Support",
-    portalAddress: "northwind",
+    orgName: "",
+    portalAddress: "",
     timezone_id: timezones[0]?.id || "",
     workingDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
     dayStarts: "09:00",
@@ -61,7 +61,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         resolve: "5 business days",
       },
     ],
-    invites: [{ email: "priya@northwind.io", role: "Agent" }],
+    invites: [{ email: "", role: "Agent" }],
   });
 
   const updateFormData = (partial: Partial<OnboardingState>) => {

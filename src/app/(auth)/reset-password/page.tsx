@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, CircleAlert } from "lucide-react";
@@ -34,36 +33,114 @@ function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [isExchangingToken, setIsExchangingToken] = useState<boolean>(true);
+  const [isExchangingToken, setIsExchangingToken] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [updated, setUpdated] = useState<boolean>(false);
+  const [updated, setUpdated] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const form = useForm<UpdatePasswordValues>({
     resolver: zodResolver(updatePasswordSchema),
-    defaultValues: { password: "", confirmPassword: "" },
+    defaultValues: {
+      password: "",
+      confirmPassword: "",
+    },
   });
 
   useEffect(() => {
-    async function exchangeCode() {
-      const code = searchParams.get("code");
+    async function handleAuthentication() {
       const supabase = createSupabaseClient();
 
-      if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) {
-          setAuthError(error.message);
+      try {
+        /*
+         * ---------------------------------------------------------
+         * 1. PKCE flow
+         * /reset-password?code=xxxxx
+         * ---------------------------------------------------------
+         */
+        const code = searchParams.get("code");
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+          if (error) {
+            console.error("Code exchange failed:", error);
+            setAuthError(error.message);
+          }
+
+          return;
         }
-      } else {
-        const { data } = await supabase.auth.getSession();
-        if (!data.session) {
+
+        /*
+         * ---------------------------------------------------------
+         * 2. Supabase invite flow
+         * /reset-password#access_token=...&
+         * refresh_token=...&type=invite
+         * ---------------------------------------------------------
+         */
+        const hash = window.location.hash;
+
+        if (hash) {
+          const params = new URLSearchParams(hash.substring(1));
+
+          const accessToken = params.get("access_token");
+          const refreshToken = params.get("refresh_token");
+          const type = params.get("type");
+
+          if (accessToken && refreshToken) {
+            const { data, error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+
+            if (error) {
+              console.error("Failed to establish invite session:", error);
+              setAuthError(error.message);
+              return;
+            }
+
+            if (!data.session) {
+              setAuthError("Unable to establish authentication session.");
+              return;
+            }
+
+            console.log("Invite session established:", data.session.user.email);
+
+            /*
+             * Remove access_token and refresh_token
+             * from the browser URL.
+             */
+            window.history.replaceState(null, "", window.location.pathname);
+
+            return;
+          }
+
+          if (type === "invite") {
+            setAuthError("Invalid or expired invitation link.");
+            return;
+          }
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 3. Existing session
+         * ---------------------------------------------------------
+         */
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session) {
           setAuthError("Invalid or expired password reset link.");
         }
+      } catch (error) {
+        console.error("Authentication error:", error);
+        setAuthError("Invalid or expired password reset link.");
+      } finally {
+        setIsExchangingToken(false);
       }
-      setIsExchangingToken(false);
     }
 
-    exchangeCode();
+    handleAuthentication();
   }, [searchParams]);
 
   function onSubmit(values: UpdatePasswordValues) {
@@ -76,12 +153,15 @@ function ResetPasswordForm() {
         form.setError("root", {
           message: result.error || "Failed to update password.",
         });
+
         toast.error(result.error || "Failed to update password.");
         return;
       }
 
       toast.success("Password updated successfully");
+
       setUpdated(true);
+
       setTimeout(() => {
         router.push("/login");
       }, 3000);
@@ -104,9 +184,11 @@ function ResetPasswordForm() {
               >
                 <Check className="size-5.5" strokeWidth={2} />
               </span>
+
               <h1 className="text-2xl font-bold tracking-tight text-foreground">
                 Password reset complete
               </h1>
+
               <p className="text-sm text-muted-foreground">
                 Your password has been updated. Redirecting to sign in...
               </p>
@@ -117,23 +199,24 @@ function ResetPasswordForm() {
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">
                   Set new password
                 </h1>
+
                 <p className="text-sm text-muted-foreground">
                   Enter your new password below.
                 </p>
               </div>
 
-              {authError ||
-                (form.formState.errors.root && (
-                  <Alert
-                    variant="destructive"
-                    className="rounded-[10px] px-3.5 py-3"
-                  >
-                    <CircleAlert className="size-4.5" aria-hidden />
-                    <AlertDescription className="text-sm">
-                      {authError || form.formState.errors.root?.message}
-                    </AlertDescription>
-                  </Alert>
-                ))}
+              {(authError || form.formState.errors.root) && (
+                <Alert
+                  variant="destructive"
+                  className="rounded-[10px] px-3.5 py-3"
+                >
+                  <CircleAlert className="size-4.5" aria-hidden />
+
+                  <AlertDescription className="text-sm">
+                    {authError || form.formState.errors.root?.message}
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <FormField
                 control={form.control}
@@ -143,6 +226,7 @@ function ResetPasswordForm() {
                     <FormLabel className="font-semibold text-foreground">
                       New password
                     </FormLabel>
+
                     <FormControl>
                       <PasswordInput
                         placeholder="••••••••"
@@ -151,6 +235,7 @@ function ResetPasswordForm() {
                         {...field}
                       />
                     </FormControl>
+
                     <FormMessage />
                   </FormItem>
                 )}
@@ -164,6 +249,7 @@ function ResetPasswordForm() {
                     <FormLabel className="font-semibold text-foreground">
                       Confirm password
                     </FormLabel>
+
                     <FormControl>
                       <PasswordInput
                         placeholder="••••••••"
@@ -172,6 +258,7 @@ function ResetPasswordForm() {
                         {...field}
                       />
                     </FormControl>
+
                     <FormMessage />
                   </FormItem>
                 )}
@@ -184,7 +271,8 @@ function ResetPasswordForm() {
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">
-                    <LoadingSpinner /> Updating...
+                    <LoadingSpinner />
+                    Updating...
                   </span>
                 ) : (
                   "Update password"

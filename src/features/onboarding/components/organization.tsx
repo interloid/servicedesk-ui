@@ -1,13 +1,11 @@
 "use client";
-
-import React, { useState } from "react";
+import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import slugify from "slugify";
-
 import { OnboardingState } from "../types/onboarding";
-
+import { useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -71,7 +69,6 @@ export function StepOrganization({
     register,
     handleSubmit,
     setValue,
-    watch,
     control,
     formState: { errors },
   } = useForm<OrganizationFormValues>({
@@ -83,8 +80,15 @@ export function StepOrganization({
     },
   });
 
-  const portalAddressVal = watch("portalAddress");
-  const selectedTzId = watch("timezone_id");
+  const portalAddressVal = useWatch({
+    control,
+    name: "portalAddress",
+  });
+
+  const selectedTzId = useWatch({
+    control,
+    name: "timezone_id",
+  });
   const selectedTz = tzList.find((tz) => tz.id === selectedTzId);
 
   const checkSlugAvailability = async (slug: string): Promise<boolean> => {

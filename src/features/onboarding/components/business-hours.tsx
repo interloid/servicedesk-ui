@@ -1,12 +1,9 @@
 "use client";
-
-import React from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-
 import { OnboardingState, WorkingDay } from "../types/onboarding";
-
+import { useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -63,7 +60,6 @@ export function StepBusinessHours({
     register,
     handleSubmit,
     control,
-    watch,
     setValue,
     formState: { errors },
   } = useForm<BusinessHoursFormValues>({
@@ -76,8 +72,16 @@ export function StepBusinessHours({
     },
   });
 
-  const selectedTzId = watch("timezone_id");
-  const selectedWorkingDays = watch("workingDays");
+  const selectedTzId = useWatch({
+    control,
+    name: "timezone_id",
+  });
+
+  const selectedWorkingDays = useWatch({
+    control,
+    name: "workingDays",
+  });
+
   const selectedTz = tzList.find((tz) => tz.id === selectedTzId);
 
   const toggleDay = (day: WorkingDay) => {
@@ -85,7 +89,9 @@ export function StepBusinessHours({
       ? selectedWorkingDays.filter((d) => d !== day)
       : [...selectedWorkingDays, day];
 
-    setValue("workingDays", updated, { shouldValidate: true });
+    setValue("workingDays", updated, {
+      shouldValidate: true,
+    });
   };
 
   const handleBusinessHoursSubmit = (values: BusinessHoursFormValues) => {

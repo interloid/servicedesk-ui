@@ -9,7 +9,7 @@ export function broadcastLogout() {
   }
   try {
     localStorage.setItem("auth_logout_event", Date.now().toString());
-  } catch (e) {}
+  } catch {}
 }
 
 export function subscribeToLogout(onLogout: () => void) {

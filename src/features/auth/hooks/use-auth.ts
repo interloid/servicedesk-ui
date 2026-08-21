@@ -158,7 +158,6 @@ type UseLogoutOptions = {
 };
 
 export function useLogout({ redirectTo }: UseLogoutOptions = {}) {
-  const router = useRouter();
   const [isPending, setIsPending] = useState<boolean>(false);
 
   const handleRedirect = useCallback(() => {

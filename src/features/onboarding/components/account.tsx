@@ -71,7 +71,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
 
       onChange(values);
       onNext();
-    } catch (error) {
+    } catch {
       form.setError("workEmail", {
         type: "manual",
         message: "Unable to verify email status. Please try again.",

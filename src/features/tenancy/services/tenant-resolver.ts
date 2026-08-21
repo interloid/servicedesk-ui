@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
 import { PORTAL_BASE_DOMAIN, tenantLabelFromHost } from "@/lib/tenancy";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type TenantContext = {
   id: string;

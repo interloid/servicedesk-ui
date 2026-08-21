@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-
 import { AuthShell } from "@/features/auth/components/auth-card";
 import { LoginForm } from "@/features/auth/components/login-form";
-import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
 
 export const metadata: Metadata = {
   title: "Log in",

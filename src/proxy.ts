@@ -48,7 +48,6 @@ export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const hostHeader = request.headers.get("host") || "";
-  const isDev = process.env.NODE_ENV === "development";
 
   const supabase = createServerClient(
     env.NEXT_PUBLIC_SUPABASE_URL,

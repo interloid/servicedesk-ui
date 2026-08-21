@@ -21,7 +21,6 @@ import { AuthCard } from "@/features/auth/components/auth-card";
 import { useGoogleLogin, useLogin } from "@/features/auth/hooks/use-auth";
 import { loginSchema, type LoginValues } from "@/features/auth/schemas/login";
 import type { AuthFailureCode } from "@/features/auth/types";
-import type { ShellIdentity } from "@/lib/identity";
 import { PasswordInput } from "@/components/ui/password-input";
 import { APP_ROUTES } from "@/lib/routes";
 

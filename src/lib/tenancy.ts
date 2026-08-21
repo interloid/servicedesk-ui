@@ -10,8 +10,9 @@ function normalizeBaseDomain(raw: string | undefined): string | null {
     .replace(/^\./, "");
 }
 
-export const PORTAL_BASE_DOMAIN =
-  normalizeBaseDomain(process.env.NEXT_PUBLIC_APP_DOMAIN);
+export const PORTAL_BASE_DOMAIN = normalizeBaseDomain(
+  process.env.NEXT_PUBLIC_APP_DOMAIN,
+);
 
 function stripPort(host: string): string {
   if (host.startsWith("[")) return host;
@@ -59,8 +60,6 @@ function isValidTenantLabel(label: string): boolean {
   return !RESERVED_LABELS.has(label) && SUBDOMAIN_LABEL.test(label);
 }
 
-
-
 export function tenantLabelFromHost(
   host: string | null | undefined,
 ): string | null {
@@ -75,7 +74,6 @@ export function tenantLabelFromHost(
   }
 
   const base = PORTAL_BASE_HOSTNAME;
-  console.log("🚀 ~ tenantLabelFromHost ~ base:", base)
 
   if (trimmed === base || trimmed === `www.${base}`) {
     return null;
@@ -230,10 +228,6 @@ export function stripTenantPrefix(
 export function tenantPrefix(slug: string): string {
   return `/${TENANT_SEGMENT}/${encodeURIComponent(slug)}`;
 }
-
-
-
-
 
 export function landingUrlForSlug(
   slug: string,

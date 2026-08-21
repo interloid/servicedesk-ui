@@ -1,9 +1,10 @@
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { env } from "@/config/env";
 import type { LoginValues } from "@/features/auth/schemas/login";
 import type {
+  ActiveMembership,
   AuthFailureCode,
   MembershipRole,
   SessionUser,
@@ -14,14 +15,13 @@ import {
   getTenantIdBySlug,
 } from "@/features/tenancy/services/tenant-resolver";
 import {
+  isValidTenantSlug,
   landingUrlForSlug,
   stripTenantPrefix,
-  TENANT_HINT_COOKIE,
   TENANT_ROUTES,
-  tenantAuthCallbackPath,
   tenantPath,
-  withTenantPrefix,
 } from "@/lib/tenancy";
+import { APP_ROUTES } from "@/lib/routes";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { ForgotPasswordValues } from "../schemas/forgot-password";
 import {
@@ -61,8 +61,11 @@ function toFailureCode(code: string | undefined): AuthFailureCode {
 export async function login({
   email,
   password,
+  remember,
 }: LoginValues): Promise<SessionUser> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient({
+    remember,
+  });
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
@@ -90,7 +93,14 @@ export async function login({
     (claimsData?.claims?.tenant_slug as string | undefined) ?? null;
 
   await verifyHostTenancy(supabase, tenantId);
-
+  if (tenantId) {
+    await recordAuthEvent(supabase, {
+      action: "login",
+      tenantId,
+      userId: data.user.id,
+      email: data.user.email ?? email,
+    });
+  }
   return {
     id: data.user.id,
     email: data.user.email ?? email,
@@ -103,23 +113,23 @@ export async function login({
 
 export async function googleLogin({
   next = TENANT_ROUTES.TICKETS,
-}: { next?: string } = {}) {
+  tenantSlug,
+}: { next?: string; tenantSlug?: string | null } = {}) {
   const supabase = await createSupabaseServerClient();
   const origin = await requestOrigin();
 
-  const cookieStore = await cookies();
-  const tenantSlug = cookieStore.get(TENANT_HINT_COOKIE)?.value;
+  const slug = isValidTenantSlug(tenantSlug) ? tenantSlug : null;
 
   const safePath = safeNext(next);
-  const targetNext = tenantSlug
-    ? withTenantPrefix(tenantSlug, safePath)
+  const parsed = stripTenantPrefix(safePath);
+  const destination = slug
+    ? tenantPath(slug, parsed ? parsed.rest : safePath)
     : safePath;
 
-  const callbackPath = tenantSlug
-    ? tenantAuthCallbackPath(tenantSlug, targetNext)
-    : `/auth/callback?next=${encodeURIComponent(targetNext)}`;
-
-  const redirectTo = new URL(callbackPath, origin).toString();
+  const redirectTo = new URL(
+    `${APP_ROUTES.AUTH_CALLBACK}?next=${encodeURIComponent(destination)}`,
+    origin,
+  ).toString();
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -148,6 +158,8 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error || !data.user) {
+    console.error(`[auth] code exchange failed: ${error?.message}`);
+
     throw new AuthError("That sign-in link has expired. Try again.", {
       status: error?.status ?? 400,
       code: toFailureCode(error?.code),
@@ -158,10 +170,20 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
 
   const tenantId =
     (claimsData?.claims?.tenant_id as string | undefined) ?? null;
-  const tenantSlug = tenantId ? await getTenantSlugById(tenantId) : null;
+
+  const tenantSlug =
+    (claimsData?.claims?.tenant_slug as string | undefined) ??
+    (tenantId ? await getTenantSlugById(tenantId) : null);
 
   await verifyHostTenancy(supabase, tenantId);
-
+  if (tenantId) {
+    await recordAuthEvent(supabase, {
+      action: "login",
+      tenantId,
+      userId: data.user.id,
+      email: data.user.email ?? "",
+    });
+  }
   return {
     id: data.user.id,
     email: data.user.email ?? "",
@@ -251,6 +273,9 @@ async function verifyHostTenancy(
 
 export async function logout(): Promise<void> {
   const supabase = await createSupabaseServerClient();
+
+  await recordLogoutAttempt(supabase);
+
   const { error } = await supabase.auth.signOut();
 
   if (error) {
@@ -266,7 +291,7 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
 
   try {
     const supabase = await createSupabaseServerClient();
-    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/reset-password`;
+    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || ""}/auth/callback?next=/reset-password`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
@@ -436,26 +461,26 @@ export async function updatePasswordForTenant(
   }
 }
 
-// async function recordLogoutAttempt(supabase: SupabaseClient) {
-//   const { data, error } = await supabase.auth.getUser();
+async function recordLogoutAttempt(supabase: SupabaseClient) {
+  const { data, error } = await supabase.auth.getUser();
 
-//   if (error || !data.user) {
-//     return;
-//   }
+  if (error || !data.user) {
+    return;
+  }
 
-//   const membership = await findActiveMembership(supabase, data.user.id);
+  const membership = await findActiveMembership(supabase, data.user.id);
 
-//   if (!membership) {
-//     return;
-//   }
+  if (!membership) {
+    return;
+  }
 
-//   await recordAuthEvent(supabase, {
-//     action: "logout",
-//     tenantId: membership.tenant_id,
-//     userId: data.user.id,
-//     email: data.user.email ?? "",
-//   });
-// }
+  await recordAuthEvent(supabase, {
+    action: "logout",
+    tenantId: membership.tenant_id,
+    userId: data.user.id,
+    email: data.user.email ?? "",
+  });
+}
 
 async function recordAuthEvent(
   supabase: SupabaseClient,
@@ -501,4 +526,23 @@ function warn(message: string) {
   if (process.env.NODE_ENV !== "production") {
     console.warn(`[auth] ${message}`);
   }
+}
+
+export async function findActiveMembership(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<ActiveMembership | null> {
+  const { data, error } = await supabase
+    .from("memberships")
+    .select("tenant_id, role")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (error) {
+    console.error("Failed to find active membership:", error);
+    return null;
+  }
+
+  return data;
 }

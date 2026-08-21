@@ -115,7 +115,6 @@ export function ProfileModal({
             onSubmit={form.handleSubmit(onSubmit)}
             className="space-y-4 pt-2"
           >
-            {/* Profile Picture Upload Section */}
             <div className="flex items-center gap-4 py-2">
               <div
                 className="relative group cursor-pointer"
@@ -163,7 +162,6 @@ export function ProfileModal({
               />
             </div>
 
-            {/* Full Name */}
             <FormField
               control={form.control}
               name="fullName"
@@ -180,7 +178,6 @@ export function ProfileModal({
               )}
             />
 
-            {/* Work Email */}
             <FormField
               control={form.control}
               name="email"
@@ -197,7 +194,6 @@ export function ProfileModal({
               )}
             />
 
-            {/* Read-Only Company Name */}
             <FormItem>
               <FormLabel className="text-slate-800 font-semibold">
                 Company name
@@ -211,7 +207,6 @@ export function ProfileModal({
               </FormControl>
             </FormItem>
 
-            {/* SLA Notification Toggle */}
             <FormField
               control={form.control}
               name="slaNotification"

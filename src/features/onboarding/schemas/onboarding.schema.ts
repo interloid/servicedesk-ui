@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const inviteUserSchema = z.object({
   email: z.string().email("Invalid email address"),
-  role: z.enum(["agent", "admin", "manager"]).default("agent"),
+  role: z.enum(["agent", "manager", "billing_admin"]).default("agent"),
 });
 
 export const slaRuleSchema = z.object({

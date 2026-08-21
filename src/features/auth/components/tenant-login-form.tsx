@@ -39,17 +39,20 @@ const ERROR_HEADLINE: Record<AuthFailureCode, string> = {
 export function TenantLoginForm({
   identity,
   tenant,
+  tenantSlug,
   initialError,
   next,
 }: {
   identity: ShellIdentity | null;
   tenant: { name: string } | null;
+  tenantSlug: string;
   initialError?: string;
   next?: string;
 }) {
   const { login, isPending } = useLogin({ redirectTo: next });
   const { signInWithGoogle, isPending: isGooglePending } = useGoogleLogin({
     redirectTo: next,
+    tenantSlug,
   });
 
   const form = useForm<LoginValues>({
@@ -147,7 +150,7 @@ export function TenantLoginForm({
                 <FormControl>
                   <PasswordInput
                     placeholder="••••••••"
-                    disabled={isPending || Boolean(formError)}
+                    disabled={isPending}
                     className={FIELD_CLASS}
                     {...field}
                   />

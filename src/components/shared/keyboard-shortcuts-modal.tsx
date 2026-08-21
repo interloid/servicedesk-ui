@@ -32,7 +32,6 @@ export function KeyboardShortcutsModal({
 }: KeyboardShortcutsModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Changed max-w-120 to sm:max-w-[560px] or sm:max-w-xl */}
       <DialogContent className="sm:max-w-140 w-full rounded-2xl p-6 [&>button]:top-6 [&>button]:right-6">
         <DialogHeader className="mb-4">
           <DialogTitle className="text-xl font-bold text-slate-900">

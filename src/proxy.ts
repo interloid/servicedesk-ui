@@ -50,8 +50,6 @@ export async function proxy(request: NextRequest) {
   const hostHeader = request.headers.get("host") || "";
   const isDev = process.env.NODE_ENV === "development";
 
-
-
   const supabase = createServerClient(
     env.NEXT_PUBLIC_SUPABASE_URL,
     env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -95,6 +93,27 @@ export async function proxy(request: NextRequest) {
   if (pathTenant) {
     const { slug, rest } = pathTenant;
 
+    if (user) {
+      const { data: claimsData, error: claimsError } =
+        await supabase.auth.getClaims();
+
+      if (claimsError) {
+        throw claimsError;
+      }
+
+      const sessionTenantSlug = claimsData?.claims?.tenant_slug as
+        string | undefined;
+
+      if (isValidTenantSlug(sessionTenantSlug) && sessionTenantSlug !== slug) {
+        const target = tenantPath(sessionTenantSlug, rest);
+
+        return withSessionCookies(
+          NextResponse.redirect(new URL(`${target}${url.search}`, request.url)),
+          response,
+        );
+      }
+    }
+
     if (isInfrastructurePath(rest)) {
       return rememberTenant(response, slug);
     }
@@ -113,6 +132,7 @@ export async function proxy(request: NextRequest) {
         tenantLoginPath(slug, rest === "/" ? null : `${rest}${url.search}`),
         request.url,
       );
+
       return rememberTenant(
         withSessionCookies(NextResponse.redirect(loginUrl), response),
         slug,
@@ -206,24 +226,6 @@ export async function proxy(request: NextRequest) {
   }
 
   if (pathname === ROOT_PATH || isCentralPath(pathname)) {
-    return response;
-  }
-
-  if (user) {
-    const { data: claimsData } = await supabase.auth.getClaims();
-    const claimSlug = claimsData?.claims?.tenant_slug as string | undefined;
-
-    if (isValidTenantSlug(claimSlug)) {
-      const target = withTenantPrefix(claimSlug, pathname);
-      return rememberTenant(
-        withSessionCookies(
-          NextResponse.redirect(new URL(`${target}${url.search}`, request.url)),
-          response,
-        ),
-        claimSlug,
-      );
-    }
-
     return response;
   }
 

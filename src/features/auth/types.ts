@@ -1,10 +1,3 @@
-/**
- * Shared auth types. Hand-written rather than generated: `supabase gen types` isn't wired
- * up yet, and these three shapes are all the login path needs. Swap for generated types
- * when that lands.
- */
-
-/** Mirrors `public.membership_role` in supabase/schemas/types/00_types.sql. */
 export type MembershipRole =
   | "platform_admin"
   | "tenant_admin"
@@ -13,13 +6,6 @@ export type MembershipRole =
   | "billing_admin"
   | "customer";
 
-/**
- * A signed-in caller, flattened from `auth.users` plus their one active membership.
- *
- * `tenantId`/`role` are nullable because a Supabase account can exist before it belongs to
- * anything — that's the state between /signup and /create-org. A null `tenantId` means
- * "authenticated but not yet provisioned", not "error".
- */
 export type SessionUser = {
   id: string;
   email: string;
@@ -55,3 +41,8 @@ export type ActionResult<TData> =
       code: AuthFailureCode;
       fieldErrors?: Record<string, string[]>;
     };
+
+export type ActiveMembership = {
+  tenant_id: string;
+  role: string;
+};

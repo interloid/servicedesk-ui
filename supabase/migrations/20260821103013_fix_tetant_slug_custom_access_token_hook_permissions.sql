@@ -1,18 +1,19 @@
--- ==========================================================
--- File: 20260821160000_add_tenant_slug_to_access_token_hook.sql
--- Description: Add tenant_slug to JWT claims
--- ==========================================================
+-- ==============================================================================
+-- Migration: Fix Custom Access Token Hook Volatility & Admin Permissions
+-- Description: Sets custom_access_token_hook to VOLATILE (allowing UPDATE statements)
+--              and grants SELECT/UPDATE permissions to supabase_auth_admin.
+-- ==============================================================================
 
 BEGIN;
 
-------------------------------------------------------------
--- Update Access Token Hook
-------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- 1. Redefine Function with VOLATILE Volatility
+--------------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
-STABLE
+VOLATILE -- Replaced STABLE with VOLATILE to permit the UPDATE statement below
 SECURITY DEFINER
 SET search_path = public
 AS $$
@@ -24,18 +25,13 @@ DECLARE
     v_membership_id uuid;
 BEGIN
     --------------------------------------------------------
-    -- Existing JWT claims
+    -- Parse existing claims
     --------------------------------------------------------
-
     claims := COALESCE(event->'claims', '{}'::jsonb);
 
     --------------------------------------------------------
-    -- Pick the caller's membership.
-    --
-    -- Active memberships win.
-    -- Disabled memberships are never selected.
+    -- Retrieve user's active membership and tenant details
     --------------------------------------------------------
-
     SELECT
         m.id,
         m.tenant_id,
@@ -60,9 +56,8 @@ BEGIN
     LIMIT 1;
 
     --------------------------------------------------------
-    -- Activate the invite on first sign-in (idempotent).
+    -- Activate invited membership on first sign-in
     --------------------------------------------------------
-
     IF v_membership_id IS NOT NULL THEN
         UPDATE public.memberships
         SET
@@ -74,67 +69,53 @@ BEGIN
     END IF;
 
     --------------------------------------------------------
-    -- Add tenant_id claim
+    -- Inject custom JWT claims
     --------------------------------------------------------
-
     IF v_tenant_id IS NOT NULL THEN
-        claims := jsonb_set(
-            claims,
-            '{tenant_id}',
-            to_jsonb(v_tenant_id),
-            true
-        );
+        claims := jsonb_set(claims, '{tenant_id}', to_jsonb(v_tenant_id), true);
     END IF;
-
-    --------------------------------------------------------
-    -- Add tenant_role claim
-    --------------------------------------------------------
 
     IF v_tenant_role IS NOT NULL THEN
-        claims := jsonb_set(
-            claims,
-            '{tenant_role}',
-            to_jsonb(v_tenant_role),
-            true
-        );
+        claims := jsonb_set(claims, '{tenant_role}', to_jsonb(v_tenant_role), true);
     END IF;
-
-    --------------------------------------------------------
-    -- Add tenant_slug claim
-    --------------------------------------------------------
 
     IF v_tenant_slug IS NOT NULL THEN
-        claims := jsonb_set(
-            claims,
-            '{tenant_slug}',
-            to_jsonb(v_tenant_slug),
-            true
-        );
+        claims := jsonb_set(claims, '{tenant_slug}', to_jsonb(v_tenant_slug), true);
     END IF;
 
     --------------------------------------------------------
-    -- Update event claims
+    -- Return updated event payload
     --------------------------------------------------------
-
-    event := jsonb_set(
-        event,
-        '{claims}',
-        claims,
-        true
-    );
+    event := jsonb_set(event, '{claims}', claims, true);
 
     RETURN event;
 END;
 $$;
 
-------------------------------------------------------------
--- Permissions
-------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- 2. Update Role Permissions
+--------------------------------------------------------------------------------
 
+-- Grant schema access
+GRANT USAGE
+ON SCHEMA public
+TO supabase_auth_admin;
+
+-- Grant execution permissions
 GRANT EXECUTE
 ON FUNCTION public.custom_access_token_hook(jsonb)
 TO supabase_auth_admin;
 
+-- Grant table access required for SELECT and UPDATE queries in the hook
+GRANT SELECT, UPDATE
+ON TABLE public.memberships
+TO supabase_auth_admin;
+
+GRANT SELECT
+ON TABLE public.tenants
+TO supabase_auth_admin;
+
+-- Revoke public execution for safety
 REVOKE EXECUTE
 ON FUNCTION public.custom_access_token_hook(jsonb)
 FROM authenticated, anon, public;

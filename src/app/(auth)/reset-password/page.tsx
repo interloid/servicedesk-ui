@@ -51,12 +51,6 @@ function ResetPasswordForm() {
       const supabase = createSupabaseClient();
 
       try {
-        /*
-         * ---------------------------------------------------------
-         * 1. PKCE flow
-         * /reset-password?code=xxxxx
-         * ---------------------------------------------------------
-         */
         const code = searchParams.get("code");
 
         if (code) {
@@ -69,14 +63,6 @@ function ResetPasswordForm() {
 
           return;
         }
-
-        /*
-         * ---------------------------------------------------------
-         * 2. Supabase invite flow
-         * /reset-password#access_token=...&
-         * refresh_token=...&type=invite
-         * ---------------------------------------------------------
-         */
         const hash = window.location.hash;
 
         if (hash) {
@@ -103,10 +89,6 @@ function ResetPasswordForm() {
               return;
             }
 
-            /*
-             * Remove access_token and refresh_token
-             * from the browser URL.
-             */
             window.history.replaceState(null, "", window.location.pathname);
 
             return;
@@ -118,11 +100,6 @@ function ResetPasswordForm() {
           }
         }
 
-        /*
-         * ---------------------------------------------------------
-         * 3. Existing session
-         * ---------------------------------------------------------
-         */
         const {
           data: { session },
         } = await supabase.auth.getSession();

@@ -1,4 +1,4 @@
-import { ForgotTenantPasswordForm } from "@/features/auth/components/foget-tenant-password-form";
+import { ForgotTenantPasswordForm } from "@/features/auth/components/forget-tenant-password-form";
 
 export default function ResetPasswordPage() {
   return (

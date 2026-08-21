@@ -6,10 +6,16 @@ import { getShellIdentity } from "@/lib/identity";
 
 export default async function DashboardLayout({
   children,
+  params,
 }: {
   children: React.ReactNode;
+  params: Promise<{
+    tenantSlug: string;
+  }>;
 }) {
-  const identity = await getShellIdentity();
+  const { tenantSlug } = await params;
+
+  const identity = await getShellIdentity(tenantSlug);
 
   return (
     <SidebarProvider className="w-full">

@@ -109,7 +109,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         .filter((inv) => inv.email.trim() !== "")
         .map((inv) => ({
           email: inv.email,
-          role: inv.role.toLowerCase() as "agent" | "admin" | "manager",
+          role: inv.role.toLowerCase() as "agent" | "manager" | "billing_admin",
         })),
     };
 

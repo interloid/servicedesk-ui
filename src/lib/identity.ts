@@ -19,7 +19,9 @@ export type ShellIdentity = {
   };
 };
 
-export async function getShellIdentity(): Promise<ShellIdentity | null> {
+export async function getShellIdentity(
+  tenantSlug: string,
+): Promise<ShellIdentity | null> {
   const supabase = await createSupabaseServerClient();
 
   const {
@@ -40,8 +42,14 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
 
   const tenantId = claimsData?.claims?.tenant_id as string | undefined;
   const tenantRole = claimsData?.claims?.tenant_role as string | undefined;
+  const sessionTenantSlug = claimsData?.claims?.tenant_slug as
+    string | undefined;
 
-  if (!tenantId) {
+  if (!tenantId || !sessionTenantSlug) {
+    return null;
+  }
+
+  if (sessionTenantSlug !== tenantSlug) {
     return null;
   }
 
@@ -61,25 +69,15 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
     throw tenantError;
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("full_name, avatar_url")
-    .eq("id", user.id)
-    .maybeSingle();
-
   const { data: subscription, error: subscriptionError } = await supabase
     .from("subscriptions")
     .select(
       `
-      id,
-      status,
-      plan_id,
-      plans (
         id,
-        name,
-        seat_limit
-      )
-    `,
+        status,
+        plan_id,
+        seats
+      `,
     )
     .eq("tenant_id", tenantId)
     .eq("status", "active")
@@ -89,35 +87,49 @@ export async function getShellIdentity(): Promise<ShellIdentity | null> {
     throw subscriptionError;
   }
 
+  let plan = null;
+
+  if (subscription?.plan_id) {
+    const { data: planData, error: planError } = await supabase
+      .from("plans")
+      .select("id, name, seat_limit")
+      .eq("id", subscription.plan_id)
+      .single();
+
+    if (planError) {
+      throw planError;
+    }
+
+    plan = planData;
+  }
+
   const { count: memberCount, error: memberError } = await supabase
     .from("memberships")
     .select("id", {
       count: "exact",
       head: true,
     })
-    .eq("tenant_id", tenantId);
+    .eq("tenant_id", tenantId)
+    .eq("status", "active");
 
   if (memberError) {
     throw memberError;
   }
 
-  const plan =
-    (
-      subscription?.plans as unknown as {
-        id: string;
-        name: string;
-        seat_limit: number;
-      }[]
-    )?.[0] ?? null;
-
   const planName = plan?.name ?? "Free";
-  const seatLimit = plan?.seat_limit ?? 0;
+  const seatLimit = subscription?.seats ?? 0;
   const seatsUsed = memberCount ?? 0;
 
   const planSummary =
     seatLimit > 0
       ? `${planName} plan · ${seatsUsed} of ${seatLimit} seats`
       : `${planName} plan · ${seatsUsed} seats`;
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("full_name, avatar_url")
+    .eq("id", user.id)
+    .maybeSingle();
 
   const name =
     profile?.full_name ?? user.user_metadata?.full_name ?? user.email ?? "User";

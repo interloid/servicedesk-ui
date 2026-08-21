@@ -17,20 +17,25 @@ import { broadcastLogout, subscribeToLogout } from "@/lib/auth-broadcast";
 type UseLoginOptions = {
   redirectTo?: string | null;
   next?: string | null;
+  tenantSlug?: string | null;
 };
 
 function isAbsoluteUrl(target: string): boolean {
   return /^https?:\/\//i.test(target);
 }
 
-function currentTenantPrefix(): string {
+function currentTenantSlug(): string | null {
   if (typeof window === "undefined") {
-    return "";
+    return null;
   }
 
-  const parsed = stripTenantPrefix(window.location.pathname);
+  return stripTenantPrefix(window.location.pathname)?.slug ?? null;
+}
 
-  return parsed ? `/tenant/${parsed.slug}` : "";
+function currentTenantPrefix(): string {
+  const slug = currentTenantSlug();
+
+  return slug ? `/tenant/${slug}` : "";
 }
 
 function withCurrentTenantPrefix(path: string): string {
@@ -55,7 +60,7 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
       let result: ActionResult<LoginSuccess>;
 
       try {
-        result = await loginAction(values, next ?? null);
+        result = await loginAction(values, next);
       } catch (error) {
         setIsPending(false);
         console.error("[auth] login request failed", error);
@@ -103,7 +108,11 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
   return { login, isPending };
 }
 
-export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
+export function useGoogleLogin({
+  redirectTo,
+  next,
+  tenantSlug,
+}: UseLoginOptions = {}) {
   const [isPending, setIsPending] = useState<boolean>(false);
   const signInWithGoogle = useCallback(async (): Promise<
     ActionResult<{ url: string }>
@@ -114,7 +123,9 @@ export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
 
     try {
       const destinationPath = redirectTo ?? next ?? "/tickets";
-      result = await googleLoginAction(destinationPath);
+      const slug = tenantSlug ?? currentTenantSlug();
+
+      result = await googleLoginAction(destinationPath, slug);
     } catch (error) {
       setIsPending(false);
       console.error("[auth] google login request failed", error);
@@ -137,7 +148,7 @@ export function useGoogleLogin({ redirectTo, next }: UseLoginOptions = {}) {
     toast.error(result.message);
 
     return result;
-  }, [next, redirectTo]);
+  }, [next, redirectTo, tenantSlug]);
 
   return { signInWithGoogle, isPending };
 }

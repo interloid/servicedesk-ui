@@ -1,9 +1,11 @@
 "use client";
+
 import { useState, useTransition, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, CircleAlert } from "lucide-react";
 import { useForm } from "react-hook-form";
+
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,16 +18,20 @@ import {
 } from "@/components/ui/form";
 import { AuthCard } from "@/features/auth/components/auth-card";
 import { createSupabaseClient } from "@/lib/supabase/client";
+
 import {
   UpdatePasswordValues,
   updatePasswordSchema,
 } from "@/features/auth/schemas/reset-password";
-import { updateTenantPasswordAction } from "@/features/auth/actions";
-import { PasswordInput } from "@/components/ui/password-input";
+
 import { APP_ROUTES } from "@/lib/routes";
 import { PageLoader } from "@/components/shared/page-loader";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
+import { PasswordInput } from "@/components/ui/password-input";
 import { toast } from "sonner";
+
+const INVALID_INVITE_MESSAGE =
+  "This invitation link is invalid or has expired.";
 
 export default function DirectResetPasswordPage() {
   const router = useRouter();
@@ -33,49 +39,171 @@ export default function DirectResetPasswordPage() {
   const params = useParams<{ tenantSlug: string }>();
   const tenantSlug = params.tenantSlug;
 
-  const [isVerifyingSession, setIsVerifyingSession] = useState<boolean>(true);
+  const [isVerifyingSession, setIsVerifyingSession] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [updated, setUpdated] = useState<boolean>(false);
+  const [updated, setUpdated] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const form = useForm<UpdatePasswordValues>({
     resolver: zodResolver(updatePasswordSchema),
-    defaultValues: { password: "", confirmPassword: "" },
+    defaultValues: {
+      password: "",
+      confirmPassword: "",
+    },
   });
 
   useEffect(() => {
-    async function verifySession() {
+    let mounted = true;
+
+    const verifyInvitationSession = async () => {
       const supabase = createSupabaseClient();
-      const { data } = await supabase.auth.getSession();
 
-      if (!data.session) {
-        setAuthError("Invalid or expired password reset link.");
+      try {
+        const hash = window.location.hash.substring(1);
+        const hashParams = new URLSearchParams(hash);
+
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+        const type = hashParams.get("type");
+
+        if (type === "invite" && accessToken && refreshToken) {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+
+          if (error || !data.session) {
+            console.error(
+              "[Reset Password] Failed to establish invitation session:",
+              error?.message,
+            );
+
+            if (mounted) {
+              setAuthError(INVALID_INVITE_MESSAGE);
+            }
+
+            return;
+          }
+
+          window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname,
+          );
+        }
+
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError || !session) {
+          console.error(
+            "[Reset Password] No valid session:",
+            sessionError?.message,
+          );
+
+          if (mounted) {
+            setAuthError(INVALID_INVITE_MESSAGE);
+          }
+
+          return;
+        }
+
+        if (mounted) {
+          setAuthError(null);
+        }
+      } catch (error) {
+        console.error(
+          "[Reset Password] Invitation verification failed:",
+          error,
+        );
+
+        if (mounted) {
+          setAuthError(INVALID_INVITE_MESSAGE);
+        }
+      } finally {
+        if (mounted) {
+          setIsVerifyingSession(false);
+        }
       }
-      setIsVerifyingSession(false);
-    }
+    };
 
-    verifySession();
-  }, []);
+    verifyInvitationSession();
+
+    return () => {
+      mounted = false;
+    };
+  }, [tenantSlug]);
 
   function onSubmit(values: UpdatePasswordValues) {
     startTransition(async () => {
       form.clearErrors("root");
 
-      const result = await updateTenantPasswordAction(values, tenantSlug);
+      const supabase = createSupabaseClient();
 
-      if (!result.success) {
-        form.setError("root", {
-          message: result.error || "Failed to update password.",
+      try {
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError || !session) {
+          setAuthError(INVALID_INVITE_MESSAGE);
+
+          form.setError("root", {
+            message: INVALID_INVITE_MESSAGE,
+          });
+
+          toast.error(INVALID_INVITE_MESSAGE);
+
+          return;
+        }
+
+        const { error: updateError } = await supabase.auth.updateUser({
+          password: values.password,
         });
-        toast.error(result.error || "Failed to update password.");
-        return;
-      }
 
-      toast.success("Password updated successfully");
-      setUpdated(true);
-      setTimeout(() => {
-        router.push(APP_ROUTES.LOGIN);
-      }, 3000);
+        if (updateError) {
+          console.error(
+            "[Reset Password] Password update failed:",
+            updateError.message,
+          );
+
+          const message = "Failed to update password. Please try again.";
+
+          form.setError("root", {
+            message,
+          });
+
+          toast.error(message);
+
+          return;
+        }
+
+        setUpdated(true);
+
+        toast.success("Password updated successfully.");
+
+        await supabase.auth.signOut();
+
+        setTimeout(() => {
+          router.push(APP_ROUTES.LOGIN);
+        }, 2000);
+      } catch (error) {
+        console.error(
+          "[Reset Password] Unexpected password update error:",
+          error,
+        );
+
+        const message = "Failed to update password. Please try again.";
+
+        form.setError("root", {
+          message,
+        });
+
+        toast.error(message);
+      }
     });
   }
 
@@ -95,9 +223,11 @@ export default function DirectResetPasswordPage() {
               >
                 <Check className="size-5.5" strokeWidth={2} />
               </span>
+
               <h1 className="text-2xl font-bold tracking-tight text-foreground">
                 Password reset complete
               </h1>
+
               <p className="text-sm text-muted-foreground">
                 Your password has been updated. Redirecting to sign in...
               </p>
@@ -108,23 +238,24 @@ export default function DirectResetPasswordPage() {
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">
                   Set new password
                 </h1>
+
                 <p className="text-sm text-muted-foreground">
                   Enter your new password below.
                 </p>
               </div>
 
-              {authError ||
-                (form.formState.errors.root && (
-                  <Alert
-                    variant="destructive"
-                    className="rounded-[10px] px-3.5 py-3"
-                  >
-                    <CircleAlert className="size-4.5" aria-hidden />
-                    <AlertDescription className="text-sm">
-                      {authError || form.formState.errors.root?.message}
-                    </AlertDescription>
-                  </Alert>
-                ))}
+              {(authError || form.formState.errors.root) && (
+                <Alert
+                  variant="destructive"
+                  className="rounded-[10px] px-3.5 py-3"
+                >
+                  <CircleAlert className="size-4.5" aria-hidden />
+
+                  <AlertDescription className="text-sm">
+                    {authError || form.formState.errors.root?.message}
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <FormField
                 control={form.control}
@@ -134,14 +265,16 @@ export default function DirectResetPasswordPage() {
                     <FormLabel className="font-semibold text-foreground">
                       New password
                     </FormLabel>
+
                     <FormControl>
                       <PasswordInput
                         placeholder="••••••••"
                         disabled={isPending || Boolean(authError)}
-                        className="h-11 rounded-sm text-sm pr-10"
+                        className="h-11 rounded-sm pr-10 text-sm"
                         {...field}
                       />
                     </FormControl>
+
                     <FormMessage />
                   </FormItem>
                 )}
@@ -155,6 +288,7 @@ export default function DirectResetPasswordPage() {
                     <FormLabel className="font-semibold text-foreground">
                       Confirm password
                     </FormLabel>
+
                     <FormControl>
                       <PasswordInput
                         placeholder="••••••••"
@@ -163,6 +297,7 @@ export default function DirectResetPasswordPage() {
                         {...field}
                       />
                     </FormControl>
+
                     <FormMessage />
                   </FormItem>
                 )}
@@ -171,7 +306,7 @@ export default function DirectResetPasswordPage() {
               <Button
                 type="submit"
                 disabled={isPending || Boolean(authError)}
-                className="h-13 bg-brand-accent text-brand-accent-foreground font-semibold"
+                className="h-13 bg-brand-accent font-semibold text-brand-accent-foreground"
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">

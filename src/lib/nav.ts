@@ -18,6 +18,7 @@ import {
   type LucideIcon,
   Zap,
 } from "lucide-react";
+import { stripTenantPrefix } from "./tenancy";
 
 export type NavItem = {
   label: string;
@@ -73,12 +74,16 @@ export const NAV_GROUPS: NavGroup[] = [
 export function findActiveNavItem(
   pathname: string,
 ): { group: NavGroup; item: NavItem } | null {
+  const normalizedPathname = stripTenantPrefix(pathname)?.rest ?? pathname;
+
   let best: { group: NavGroup; item: NavItem } | null = null;
 
   for (const group of NAV_GROUPS) {
     for (const item of group.items) {
       const matches =
-        pathname === item.href || pathname.startsWith(`${item.href}/`);
+        normalizedPathname === item.href ||
+        normalizedPathname.startsWith(`${item.href}/`);
+
       if (matches && (!best || item.href.length > best.item.href.length)) {
         best = { group, item };
       }

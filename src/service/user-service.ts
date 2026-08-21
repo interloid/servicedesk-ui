@@ -6,6 +6,16 @@ export async function uploadAvatarToSupabase(
   tenantId: string,
   file: File,
 ): Promise<string> {
+  const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
+
+  if (file.size > MAX_AVATAR_SIZE) {
+    throw new Error("Avatar image must be 5 MB or smaller.");
+  }
+
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Please upload a valid image file.");
+  }
+
   const supabase = await createSupabaseServerClient();
 
   const fileExt = file.name.split(".").pop();

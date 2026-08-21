@@ -37,13 +37,9 @@ const ERROR_HEADLINE: Record<AuthFailureCode, string> = {
 };
 
 export function LoginForm({
-  identity,
-  tenant,
   initialError,
   next,
 }: {
-  identity: ShellIdentity | null;
-  tenant: { name: string } | null;
   initialError?: string;
   next?: string;
 }) {
@@ -97,7 +93,7 @@ export function LoginForm({
       <AuthCard onSubmit={form.handleSubmit(onSubmit)}>
         <div className="flex flex-col gap-1.5">
           <h1 className="text-2xl font-bold tracking-[-0.02.5em] text-balance text-foreground">
-            Sign in to {tenant?.name ?? identity?.org.name ?? "your workspace"}
+            Sign in to your workspace
           </h1>
           <p className="text-sm leading-[1.6] text-muted-foreground">
             Work your queue against live SLA targets.
@@ -219,10 +215,10 @@ export function LoginForm({
         </div>
 
         <p className="text-center text-sm text-muted-foreground">
-          New here?
+          New here?{" "}
           <Link
             href={APP_ROUTES.SETUP}
-            className="font-semibold text-brand-accent hover:underline"
+            className="ml-1 font-semibold text-brand-accent hover:underline"
           >
             Create an organization
           </Link>

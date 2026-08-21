@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 type PageProps = {
-  params: Promise<{ tenantSlug?: string }>;
+  params: Promise<{ tenantSlug: string }>;
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
@@ -22,7 +22,7 @@ export default async function TenantLoginPage(props: PageProps) {
   const params = await props.params;
 
   const [identity, tenant] = await Promise.all([
-    getShellIdentity(),
+    getShellIdentity(params.tenantSlug),
     getTenantContext(params.tenantSlug),
   ]);
 
@@ -36,7 +36,8 @@ export default async function TenantLoginPage(props: PageProps) {
     <AuthShell>
       <TenantLoginForm
         identity={identity}
-        tenant={tenant}
+        tenant={tenant ?? null}
+        tenantSlug={params.tenantSlug}
         initialError={initialError}
         next={next}
       />

@@ -19,24 +19,50 @@ function getSupabaseCredentials() {
   return { url, key };
 }
 
-export async function createSupabaseServerClient() {
+type SupabaseServerClientOptions = {
+  remember?: boolean;
+};
+
+export async function createSupabaseServerClient(
+  options: SupabaseServerClientOptions = {},
+) {
   const { url, key } = getSupabaseCredentials();
   const cookieStore = await cookies();
+  const remember = options.remember ?? true;
+
+  const isProduction = process.env.NODE_ENV === "production";
+
+  const REMEMBER_ME_MAX_AGE = 60 * 60 * 24 * 30;
 
   return createServerClient(url, key, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
       },
+
       setAll(cookiesToSet) {
         try {
-          for (const { name, value, options } of cookiesToSet) {
+          for (const { name, value, options: cookieOptions } of cookiesToSet) {
             cookieStore.set(name, value, {
-              ...options,
-              ...(AUTH_COOKIE_DOMAIN ? { domain: AUTH_COOKIE_DOMAIN } : {}),
+              ...cookieOptions,
+
+              ...(isProduction && AUTH_COOKIE_DOMAIN
+                ? { domain: AUTH_COOKIE_DOMAIN }
+                : {}),
+
               path: "/",
               sameSite: "lax",
-              secure: process.env.NODE_ENV === "production",
+              secure: isProduction,
+
+              ...(remember
+                ? {
+                    maxAge: REMEMBER_ME_MAX_AGE,
+                    expires: new Date(Date.now() + REMEMBER_ME_MAX_AGE * 1000),
+                  }
+                : {
+                    maxAge: undefined,
+                    expires: undefined,
+                  }),
             });
           }
         } catch {}

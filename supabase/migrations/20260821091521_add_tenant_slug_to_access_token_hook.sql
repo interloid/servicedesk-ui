@@ -5,10 +5,6 @@
 
 BEGIN;
 
-------------------------------------------------------------
--- Update Access Token Hook
-------------------------------------------------------------
-
 CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -30,10 +26,7 @@ BEGIN
     claims := COALESCE(event->'claims', '{}'::jsonb);
 
     --------------------------------------------------------
-    -- Pick the caller's membership.
-    --
-    -- Active memberships win.
-    -- Disabled memberships are never selected.
+    -- Get user's active membership and tenant
     --------------------------------------------------------
 
     SELECT
@@ -60,7 +53,7 @@ BEGIN
     LIMIT 1;
 
     --------------------------------------------------------
-    -- Activate the invite on first sign-in (idempotent).
+    -- Activate invited membership on first sign-in
     --------------------------------------------------------
 
     IF v_membership_id IS NOT NULL THEN

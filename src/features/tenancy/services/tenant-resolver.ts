@@ -10,7 +10,6 @@ export type TenantContext = {
   portalUrl: string;
 };
 
-/** The raw shape returned by PostgreSQL queries or RPC */
 type TenantLookupRow = {
   id: string;
   name: string;
@@ -61,9 +60,6 @@ export async function getTenantContext(
   }
 }
 
-/**
- * Verifies if a user belongs to a specific tenant workspace.
- */
 export async function verifyUserTenantMembership(
   userId: string,
   tenantId: string,
@@ -131,7 +127,7 @@ export async function getTenantIdBySlug(
   return data?.id ?? null;
 }
 function mapTenantContext(row: TenantLookupRow): TenantContext {
-  const baseDomain = PORTAL_BASE_DOMAIN || "localhost:3000";
+  const baseDomain = PORTAL_BASE_DOMAIN || "";
 
   return {
     id: row.id,

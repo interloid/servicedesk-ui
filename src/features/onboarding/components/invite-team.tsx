@@ -101,9 +101,9 @@ export function StepInviteTeam({
               <SelectValue placeholder="Select role" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="Agent">Agent</SelectItem>
-              <SelectItem value="Admin">Admin</SelectItem>
-              <SelectItem value="Manager">Manager</SelectItem>
+              <SelectItem value="agent">Agent</SelectItem>
+              <SelectItem value="billing_admin">Billing Admin</SelectItem>
+              <SelectItem value="manager">Manager</SelectItem>
             </SelectContent>
           </Select>
         </div>

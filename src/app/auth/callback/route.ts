@@ -1,59 +1,98 @@
 import { NextResponse, type NextRequest } from "next/server";
-
 import {
   exchangeOAuthCode,
+  logout,
   safeNext,
 } from "@/features/auth/services/auth.service";
-import { getTenantSlugById } from "@/features/tenancy/services/tenant-resolver";
-import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
+import {
+  isValidTenantSlug,
+  stripTenantPrefix,
+  tenantLoginPath,
+  tenantPath,
+  TENANT_ROUTES,
+} from "@/lib/tenancy";
 import { APP_ROUTES } from "@/lib/routes";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
 
-  const code = searchParams.get("code");
-  const rawNext = searchParams.get("next");
-  const next = safeNext(rawNext);
+  const next = safeNext(searchParams.get("next"));
+  const parsedNext = stripTenantPrefix(next);
 
-  if (!code) {
-    const loginUrl = new URL(APP_ROUTES.LOGIN, origin);
-    loginUrl.searchParams.set("error", "Missing code");
+  const requestedSlug = isValidTenantSlug(parsedNext?.slug)
+    ? parsedNext.slug
+    : null;
+  const destination = parsedNext ? parsedNext.rest : next;
+
+  const loginPath = requestedSlug
+    ? tenantLoginPath(requestedSlug)
+    : APP_ROUTES.LOGIN;
+
+  function failure(message: string) {
+    const loginUrl = new URL(loginPath, origin);
+    loginUrl.searchParams.set("error", message);
 
     return NextResponse.redirect(loginUrl);
   }
 
+  async function rejectSession(message: string) {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("[app-auth] failed to revoke rejected session:", error);
+    }
+
+    return failure(message);
+  }
+
+  const providerError =
+    searchParams.get("error_description") ?? searchParams.get("error");
+
+  if (providerError) {
+    console.error("[app-auth] provider returned an error:", providerError);
+
+    return failure(providerError);
+  }
+
+  const code = searchParams.get("code");
+
+  if (!code) {
+    return failure("That sign-in link is incomplete. Start again.");
+  }
+
   try {
-    const sessionUser = await exchangeOAuthCode(code);
-
-    const userTenantSlug = sessionUser.tenantId
-      ? await getTenantSlugById(sessionUser.tenantId)
-      : null;
-
-    if (next === TENANT_ROUTES.RESET_PASSWORD) {
-      if (userTenantSlug) {
-        return NextResponse.redirect(
-          new URL(
-            tenantPath(userTenantSlug, TENANT_ROUTES.RESET_PASSWORD),
-            origin,
-          ),
-        );
-      }
-      return NextResponse.redirect(new URL(APP_ROUTES.RESET_PASSWORD, origin));
+    const { tenantSlug } = await exchangeOAuthCode(code);
+    if (destination === TENANT_ROUTES.RESET_PASSWORD) {
+      return NextResponse.redirect(
+        new URL(
+          tenantSlug
+            ? tenantPath(tenantSlug, TENANT_ROUTES.RESET_PASSWORD)
+            : APP_ROUTES.RESET_PASSWORD,
+          origin,
+        ),
+      );
     }
 
-    let finalRedirectPath = next;
-
-    if (userTenantSlug && !next.startsWith(`/tenant/${userTenantSlug}`)) {
-      finalRedirectPath = tenantPath(userTenantSlug, next);
+    if (!tenantSlug) {
+      return rejectSession(
+        "That Google account isn't a member of any workspace yet. Ask your admin for an invite.",
+      );
     }
 
-    return NextResponse.redirect(new URL(finalRedirectPath, origin));
+    if (requestedSlug && requestedSlug !== tenantSlug) {
+      return rejectSession(
+        "You are not registered as a member of this workspace. Contact your admin.",
+      );
+    }
+
+    return NextResponse.redirect(
+      new URL(tenantPath(tenantSlug, destination), origin),
+    );
   } catch (error) {
-    console.error("[auth] Callback failed:", error);
+    console.error("[app-auth] Callback failed:", error);
 
-    const loginUrl = new URL(APP_ROUTES.LOGIN, origin);
-    loginUrl.searchParams.set("error", "Authentication failed");
-
-    return NextResponse.redirect(loginUrl);
+    return failure(
+      error instanceof Error ? error.message : "Authentication failed",
+    );
   }
 }

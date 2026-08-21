@@ -6,4 +6,5 @@ export const APP_ROUTES = {
   FORGOT_PASSWORD: "/forgot-password",
   RESET_PASSWORD: "/reset-password",
   SETUP: "/setup",
+  AUTH_CALLBACK: "/auth/callback",
 } as const;

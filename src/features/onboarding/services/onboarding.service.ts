@@ -12,6 +12,11 @@ export interface Timezone {
   name?: string;
   utc_offset?: string;
 }
+const invitationResults: {
+  email: string;
+  status: "added" | "invited" | "already_exists" | "failed";
+  message: string;
+}[] = [];
 
 export async function registerTenant(payload: RegisterInput) {
   const validated = registerSchema.parse(payload);
@@ -33,32 +38,12 @@ export async function registerTenant(payload: RegisterInput) {
   const supabase = await createSupabaseServerClient();
   const adminSupabase = createSupabaseAdminClient();
 
-  const { data: existingUser } = await supabase
-    .from("users")
-    .select("id")
-    .eq("email", email)
-    .maybeSingle();
-
-  if (existingUser) {
-    throw new Error("Email address is already registered.");
-  }
-
   const targetSlug =
     portal_slug ||
     slugify(organization_name, {
       lower: true,
       strict: true,
     });
-
-  const { data: existingTenant } = await adminSupabase
-    .from("tenants")
-    .select("id")
-    .eq("slug", targetSlug)
-    .maybeSingle();
-
-  if (existingTenant) {
-    throw new Error("Portal address is already taken.");
-  }
 
   const { data: freePlan, error: planError } = await supabase
     .from("plans")
@@ -98,182 +83,252 @@ export async function registerTenant(payload: RegisterInput) {
 
   const userId = auth.user.id;
 
-  const { data: tenant, error: tenantError } = await adminSupabase
-    .from("tenants")
-    .insert({
-      name: organization_name,
-      slug: targetSlug,
-      status: "active",
-      plan_id: freePlan.id,
-    })
-    .select()
-    .single();
-
-  if (tenantError || !tenant) {
-    throw new Error(
-      tenantError?.message || "Failed to create organization record.",
-    );
-  }
-
-  const { error: subscriptionError } = await adminSupabase
-    .from("subscriptions")
-    .insert({
-      tenant_id: tenant.id,
-      plan_id: freePlan.id,
-      paypal_subscription_id: `FREE-${tenant.id}`,
-      status: "active",
-      current_period_end: "9999-12-31T23:59:59Z",
-      seats: 2,
+  try {
+    const { data, error } = await adminSupabase.rpc("provision_tenant", {
+      p_user_id: userId,
+      p_email: email,
+      p_full_name: full_name,
+      p_organization_name: organization_name,
+      p_portal_slug: targetSlug,
+      p_plan_id: freePlan.id,
+      p_timezone_id: timezone_id,
+      p_working_days: working_days,
+      p_day_start: day_start,
+      p_day_end: day_end,
+      p_sla: sla,
     });
 
-  if (subscriptionError) {
-    throw new Error(`Subscription setup failed: ${subscriptionError.message}`);
-  }
-
-  const { error: userError } = await adminSupabase.from("users").insert({
-    id: userId,
-    email,
-    full_name,
-    avatar_url: null,
-  });
-
-  if (userError) {
-    throw new Error(`User profile creation failed: ${userError.message}`);
-  }
-
-  const { error: membershipError } = await adminSupabase
-    .from("memberships")
-    .insert({
-      tenant_id: tenant.id,
-      user_id: userId,
-      role: "tenant_admin",
-      status: "active",
-    });
-
-  if (membershipError) {
-    throw new Error(
-      `Membership provisioning failed: ${membershipError.message}`,
-    );
-  }
-
-  const { data: businessHours, error: businessError } = await adminSupabase
-    .from("business_hours")
-    .insert({
-      tenant_id: tenant.id,
-      name: "Default Business Hours",
-      timezone_id,
-      schedule_json: {
-        working_days,
-        day_start,
-        day_end,
-      },
-    })
-    .select()
-    .single();
-
-  if (businessError || !businessHours) {
-    throw new Error(
-      businessError?.message || "Business hours configuration failed.",
-    );
-  }
-
-  const { data: slaPolicy, error: slaPolicyError } = await adminSupabase
-    .from("sla_policies")
-    .insert({
-      tenant_id: tenant.id,
-      business_hours_id: businessHours.id,
-      name: "Default SLA",
-      is_default: true,
-      status: "active",
-      applies_to: "All customers",
-      notify_before_breach: true,
-      escalate_on_breach: false,
-    })
-    .select()
-    .single();
-
-  if (slaPolicyError || !slaPolicy) {
-    throw new Error(`SLA Policy creation failed: ${slaPolicyError?.message}`);
-  }
-
-  const slaTargets = sla.map((rule: any) => ({
-    tenant_id: tenant.id,
-    policy_id: slaPolicy.id,
-    priority_scope: rule.priority.toLowerCase(),
-    first_response_mins: rule.first_response_mins,
-    resolution_mins: rule.resolution_mins,
-    first_response_business: false,
-    resolution_business: false,
-  }));
-
-  const { error: slaTargetsError } = await adminSupabase
-    .from("sla_policy_targets")
-    .insert(slaTargets);
-
-  if (slaTargetsError) {
-    throw new Error(`SLA Targets setup failed: ${slaTargetsError.message}`);
-  }
-
-  if (invite_users && invite_users.length > 0) {
-    for (const invite of invite_users) {
-      if (!invite.email?.trim()) continue;
-
-      const { data: inviteData, error: inviteError } =
-        await adminSupabase.auth.admin.inviteUserByEmail(invite.email, {
-          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
-          data: {
-            tenant_id: tenant.id,
-            role: invite.role,
-          },
-        });
-
-      if (inviteError || !inviteData.user) {
-        console.error(
-          `[Onboarding] Failed to invite ${invite.email}:`,
-          inviteError?.message,
-        );
-        continue;
-      }
-
-      const invitedUser = inviteData.user;
-
-      await adminSupabase.from("users").upsert({
-        id: invitedUser.id,
-        email: invite.email,
-        full_name: "",
-        avatar_url: null,
-      });
-
-      await adminSupabase.from("memberships").insert({
-        tenant_id: tenant.id,
-        user_id: invitedUser.id,
-        role: invite.role,
-        status: "invited",
-        invited_by: userId,
-      });
+    if (error || !data?.[0]) {
+      throw new Error(error?.message || "Tenant provisioning failed.");
     }
-  }
 
-  return {
-    success: true,
-    message: "Registration completed successfully.",
-    data: {
-      user: {
-        id: userId,
-        email,
-        full_name,
+    const provisioned = data[0];
+
+    if (invite_users?.length) {
+      for (const invite of invite_users) {
+        const inviteEmail = invite.email?.trim().toLowerCase();
+
+        if (!inviteEmail) continue;
+
+        try {
+          const { data: existingUser, error: userLookupError } =
+            await adminSupabase
+              .from("users")
+              .select("id")
+              .eq("email", inviteEmail)
+              .maybeSingle();
+
+          if (userLookupError) {
+            console.error(
+              `[Onboarding] Failed to find user ${inviteEmail}:`,
+              userLookupError.message,
+            );
+
+            invitationResults.push({
+              email: inviteEmail,
+              status: "failed",
+              message: "Unable to check the user.",
+            });
+
+            continue;
+          }
+
+          if (existingUser) {
+            const { data: existingMembership, error: membershipLookupError } =
+              await adminSupabase
+                .from("memberships")
+                .select("id")
+                .eq("tenant_id", provisioned.tenant_id)
+                .eq("user_id", existingUser.id)
+                .maybeSingle();
+
+            if (membershipLookupError) {
+              console.error(
+                `[Onboarding] Failed to check membership for ${inviteEmail}:`,
+                membershipLookupError.message,
+              );
+
+              invitationResults.push({
+                email: inviteEmail,
+                status: "failed",
+                message: "Unable to check organization membership.",
+              });
+
+              continue;
+            }
+
+            if (existingMembership) {
+              invitationResults.push({
+                email: inviteEmail,
+                status: "already_exists",
+                message: "User is already a member of this organization.",
+              });
+
+              continue;
+            }
+
+            const { error: membershipError } = await adminSupabase
+              .from("memberships")
+              .insert({
+                tenant_id: provisioned.tenant_id,
+                user_id: existingUser.id,
+                role: invite.role,
+                status: "active",
+                invited_by: userId,
+              });
+
+            if (membershipError) {
+              console.error(
+                `[Onboarding] Failed to add ${inviteEmail} to tenant:`,
+                membershipError.message,
+              );
+
+              invitationResults.push({
+                email: inviteEmail,
+                status: "failed",
+                message: "Unable to add user to the organization.",
+              });
+
+              continue;
+            }
+
+            invitationResults.push({
+              email: inviteEmail,
+              status: "added",
+              message: "Existing user added to the organization successfully.",
+            });
+
+            continue;
+          }
+
+          const { data: inviteData, error: inviteError } =
+            await adminSupabase.auth.admin.inviteUserByEmail(inviteEmail, {
+              redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
+              data: {
+                tenant_id: provisioned.tenant_id,
+                role: invite.role,
+              },
+            });
+
+          if (inviteError || !inviteData.user) {
+            console.error(
+              `[Onboarding] Failed to invite ${inviteEmail}:`,
+              inviteError?.message,
+            );
+
+            invitationResults.push({
+              email: inviteEmail,
+              status: "failed",
+              message: "Unable to send the invitation.",
+            });
+
+            continue;
+          }
+
+          const invitedUser = inviteData.user;
+
+          const { error: userError } = await adminSupabase.from("users").upsert(
+            {
+              id: invitedUser.id,
+              email: inviteEmail,
+              full_name: "",
+              avatar_url: null,
+            },
+            {
+              onConflict: "id",
+            },
+          );
+
+          if (userError) {
+            console.error(
+              `[Onboarding] Failed to create user ${inviteEmail}:`,
+              userError.message,
+            );
+
+            await adminSupabase.auth.admin.deleteUser(invitedUser.id);
+
+            invitationResults.push({
+              email: inviteEmail,
+              status: "failed",
+              message: "Unable to create the invited user.",
+            });
+
+            continue;
+          }
+
+          const { error: membershipError } = await adminSupabase
+            .from("memberships")
+            .insert({
+              tenant_id: provisioned.tenant_id,
+              user_id: invitedUser.id,
+              role: invite.role,
+              status: "invited",
+              invited_by: userId,
+            });
+
+          if (membershipError) {
+            console.error(
+              `[Onboarding] Failed to create membership for ${inviteEmail}:`,
+              membershipError.message,
+            );
+
+            await adminSupabase.from("users").delete().eq("id", invitedUser.id);
+
+            await adminSupabase.auth.admin.deleteUser(invitedUser.id);
+
+            invitationResults.push({
+              email: inviteEmail,
+              status: "failed",
+              message: "Unable to add the invited user to the organization.",
+            });
+
+            continue;
+          }
+
+          invitationResults.push({
+            email: inviteEmail,
+            status: "invited",
+            message: "Invitation sent successfully.",
+          });
+        } catch (error) {
+          console.error(
+            `[Onboarding] Unexpected invitation error for ${inviteEmail}:`,
+            error,
+          );
+
+          invitationResults.push({
+            email: inviteEmail,
+            status: "failed",
+            message: "Unable to process this invitation.",
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: "Registration completed successfully.",
+      data: {
+        user: {
+          id: userId,
+          email,
+          full_name,
+        },
+        tenant: {
+          id: provisioned.tenant_id,
+          name: provisioned.tenant_name,
+          slug: provisioned.tenant_slug,
+        },
+        business_hours: {
+          id: provisioned.business_hours_id,
+        },
+        plan: "Free",
       },
-      tenant: {
-        id: tenant.id,
-        name: tenant.name,
-        slug: tenant.slug,
-      },
-      business_hours: {
-        id: businessHours.id,
-      },
-      plan: "Free",
-    },
-  };
+    };
+  } catch (error) {
+    await adminSupabase.auth.admin.deleteUser(userId);
+    throw error;
+  }
 }
 
 export async function getTimezones(): Promise<Timezone[]> {
@@ -295,27 +350,29 @@ export async function getTimezones(): Promise<Timezone[]> {
 
 export async function checkEmailTenant(
   email: string,
-): Promise<{ exists: boolean; tenant?: any }> {
+): Promise<{ exists: boolean }> {
   const cleanEmail = email.trim().toLowerCase();
-  const supabase = await createSupabaseAdminClient();
 
   if (!cleanEmail) {
     return { exists: false };
   }
 
-  const { data, error } = await supabase
+  const adminSupabase = createSupabaseAdminClient();
+
+  const { data, error } = await adminSupabase
     .from("users")
-    .select("email")
+    .select("id")
     .eq("email", cleanEmail)
     .maybeSingle();
 
-  if (error || !data) {
-    return { exists: false };
+  if (error) {
+    console.error("[Onboarding] Email check failed:", error.message);
+
+    throw new Error("Unable to verify email. Please try again.");
   }
 
   return {
-    exists: true,
-    tenant: data,
+    exists: Boolean(data),
   };
 }
 

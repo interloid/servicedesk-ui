@@ -1,6 +1,6 @@
 "use server";
 
-import { loginSchema } from "@/features/auth/schemas/login";
+import { loginSchema, LoginValues } from "@/features/auth/schemas/login";
 import {
   AuthError,
   googleLogin,
@@ -24,8 +24,8 @@ import {
 } from "./schemas/reset-password";
 
 export async function loginAction(
-  values: unknown,
-  next?: unknown,
+  values: LoginValues,
+  next?: string | null,
 ): Promise<ActionResult<LoginSuccess>> {
   const parsed = loginSchema.safeParse(values);
 
@@ -52,14 +52,6 @@ export async function loginAction(
       };
     }
 
-    /*
-     * 2. Work out where they land. Returned to the caller rather than handed to
-     *    `redirect()`: the destination is frequently a DIFFERENT origin (the
-     *    workspace's own subdomain), and a Server Action's `redirect` is resolved
-     *    by the client router, which cannot make that navigation — the same
-     *    reason `googleLoginAction` hands back a URL. `useLogin` performs it, and
-     *    picking between a router push and a document navigation is its call.
-     */
     const redirectTo = await resolvePostAuthUrl(
       sessionUser.tenantId,
       typeof next === "string" ? next : null,
@@ -89,26 +81,14 @@ export async function loginAction(
   }
 }
 
-/**
- * Start Google sign-in and hand back the URL to send the browser to.
- *
- * It returns a URL instead of calling `redirect()` because the destination is a third-party
- * origin: a Server Action's `redirect` is resolved by the client router, and pointing that
- * at accounts.google.com is not a navigation it can make. The caller does
- * `window.location.assign(url)` — see `useGoogleLogin`.
- *
- * Nothing is signed in at this point. The session is created on the way back, in
- * `src/app/auth/callback/route.ts`.
- *
- * `next` is untrusted (it comes off the query string) and is reduced to a same-origin path
- * by `safeNext` before it is ever put on a redirect URL.
- */
 export async function googleLoginAction(
-  next?: unknown,
+  next?: string,
+  tenantSlug?: string | null,
 ): Promise<ActionResult<{ url: string }>> {
   try {
     const url = await googleLogin({
       next: safeNext(typeof next === "string" ? next : null),
+      tenantSlug: typeof tenantSlug === "string" ? tenantSlug : null,
     });
 
     return { success: true, data: url };
@@ -127,18 +107,6 @@ export async function googleLoginAction(
   }
 }
 
-/**
- * Sign out.
- *
- * No argument and so no schema: the only input is the session cookie the browser already
- * sends, and the identity comes from the token, never from the caller. That also makes the
- * action safe as a public POST — the worst an unauthenticated hit can do is clear cookies
- * that carry no session.
- *
- * Deliberately does NOT call `redirect()`. The design's Sign out sits in a dropdown that has
- * to survive a failed attempt and show why (see `profile-menu.tsx`); a redirect throws past
- * the caller and would leave a user with a live session looking at the login screen.
- */
 export async function logoutAction(): Promise<ActionResult<null>> {
   try {
     await logout();

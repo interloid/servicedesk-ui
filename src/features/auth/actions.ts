@@ -152,7 +152,6 @@ export async function resetPasswordAction(values: ForgotPasswordValues) {
 
 export async function resetTenantPasswordAction(
   values: ForgotPasswordValues,
-  tenant: string,
   slug: string,
 ) {
   const validatedFields = forgotPasswordSchema.safeParse(values);
@@ -164,11 +163,7 @@ export async function resetTenantPasswordAction(
     };
   }
 
-  const result = await sendTenantPasswordResetLink(
-    validatedFields.data,
-    tenant,
-    slug,
-  );
+  const result = await sendTenantPasswordResetLink(validatedFields.data, slug);
 
   if (!result.success) {
     return {

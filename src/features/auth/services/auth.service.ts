@@ -328,7 +328,6 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
 
 export async function sendTenantPasswordResetLink(
   payload: ForgotPasswordValues,
-  tenant: string,
   slug: string,
 ) {
   const { email } = payload;

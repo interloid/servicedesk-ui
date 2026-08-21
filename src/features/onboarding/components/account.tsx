@@ -20,11 +20,13 @@ import {
 } from "@/components/ui/form";
 import { checkEmailTenantAction } from "../register-actions";
 import { APP_ROUTES } from "@/lib/routes";
+import Link from "next/link";
+import { PasswordInput } from "@/components/ui/password-input";
 
 const accountFormSchema = z.object({
   fullName: z.string().min(2, "Full name is required."),
   workEmail: z.string().email("Please enter a valid work email address."),
-  password: z.string().min(10, "Password must be at least 10 characters long."),
+  password: z.string().min(8, "Password must be at least 8 characters long."),
   agreeToTerms: z.boolean().refine((val) => val === true, {
     message: "You must accept the terms to proceed.",
   }),
@@ -154,8 +156,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
                   Password
                 </FormLabel>
                 <FormControl>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     placeholder="••••••••••••"
                     className={FIELD_CLASS}
                     {...field}
@@ -215,12 +216,12 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
 
       <div className="text-center text-xs text-slate-500">
         Already have an account?{" "}
-        <a
+        <Link
           href={APP_ROUTES.LOGIN}
           className="font-semibold text-emerald-800 hover:underline"
         >
           Sign in
-        </a>
+        </Link>
       </div>
     </div>
   );

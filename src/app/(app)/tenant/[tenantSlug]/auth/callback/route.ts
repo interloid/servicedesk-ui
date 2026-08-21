@@ -5,6 +5,7 @@ import {
   safeNext,
 } from "@/features/auth/services/auth.service";
 import { TENANT_ROUTES, tenantPath, withTenantPrefix } from "@/lib/tenancy";
+import { APP_ROUTES } from "@/lib/routes";
 
 export async function GET(
   request: NextRequest,
@@ -60,7 +61,7 @@ export async function GET(
 
     if (next === TENANT_ROUTES.RESET_PASSWORD) {
       return NextResponse.redirect(
-        new URL(tenantPath(tenantSlug, TENANT_ROUTES.RESET_PASSWORD), origin),
+        new URL(tenantPath(tenantSlug, APP_ROUTES.RESET_PASSWORD), origin),
       );
     }
 

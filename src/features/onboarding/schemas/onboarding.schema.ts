@@ -13,7 +13,7 @@ export const slaRuleSchema = z.object({
 
 export const registerSchema = z.object({
   email: z.string().email("Invalid work email"),
-  password: z.string().min(10, "Password must be at least 10 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   full_name: z.string().min(2, "Full name is required"),
 
   organization_name: z.string().min(2, "Organization name is required"),

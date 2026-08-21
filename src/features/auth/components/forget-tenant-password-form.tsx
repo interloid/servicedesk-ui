@@ -28,18 +28,14 @@ import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { toast } from "sonner";
 
 interface ForgotPasswordFormProps {
-  tenant?: string;
   slug?: string;
 }
 
 export function ForgotTenantPasswordForm({
-  tenant: tenantProp,
   slug: slugProp,
 }: ForgotPasswordFormProps) {
   const params = useParams();
-
-  const tenant = tenantProp || (params?.tenant as string) || "";
-  const slug = slugProp || (params?.slug as string) || "";
+  const slug = slugProp || (params.tenantSlug as string) || "";
 
   const form = useForm<ForgotPasswordValues>({
     resolver: zodResolver(forgotPasswordSchema),
@@ -53,7 +49,7 @@ export function ForgotTenantPasswordForm({
     startTransition(async () => {
       form.clearErrors("root");
 
-      const response = await resetTenantPasswordAction(values, tenant, slug);
+      const response = await resetTenantPasswordAction(values, slug);
 
       if (!response.success) {
         if (response.isRateLimited) {
@@ -192,7 +188,7 @@ export function ForgotTenantPasswordForm({
 
         <p className="text-center text-sm text-muted-foreground">
           <Link
-            href={`/${tenant}/${slug}/login`}
+            href={`/tenant/${slug}/login`}
             className="font-semibold text-brand-accent hover:underline"
           >
             Back to sign in

@@ -70,12 +70,11 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
               </AvatarFallback>
             </Avatar>
 
-            <div className="flex min-w-0 flex-col items-start">
-              <span className="max-w-40 truncate text-sm font-semibold text-foreground">
+            <div className="hidden sm:flex min-w-0 flex-col items-start">
+              <span className="max-w-32 lg:max-w-40 truncate text-sm font-semibold text-foreground">
                 {identity.user.name}
               </span>
-
-              <span className="max-w-40 truncate text-xs text-muted-foreground">
+              <span className="max-w-32 lg:max-w-40 truncate text-xs text-muted-foreground">
                 {displayRole}
               </span>
             </div>

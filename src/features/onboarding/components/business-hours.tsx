@@ -126,7 +126,7 @@ export function StepBusinessHours({
                       side="bottom"
                       align="start"
                       position="popper"
-                      className="w-(--radix-select-trigger-width)"
+                      className="w-(--radix-select-trigger-width) max-h-[60vh]"
                     >
                       {tzList.map((tz) => (
                         <SelectItem key={tz.id} value={tz.id}>
@@ -163,7 +163,7 @@ export function StepBusinessHours({
                       type="button"
                       onClick={() => toggleDay(day)}
                       className={cn(
-                        "px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all",
+                        "px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all grow sm:grow-0",
                         isSelected
                           ? "border-emerald-700 bg-emerald-50/50 text-emerald-800"
                           : "border-slate-200 bg-white text-slate-400 hover:border-slate-300",
@@ -181,8 +181,8 @@ export function StepBusinessHours({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4 pt-1">
-              <div className="space-y-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              <div className="space-y-1.5 w-full">
                 <Label
                   htmlFor="dayStarts"
                   className="text-sm font-semibold text-slate-800"
@@ -207,7 +207,7 @@ export function StepBusinessHours({
                 )}
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 w-full">
                 <Label
                   htmlFor="dayEnds"
                   className="text-sm font-semibold text-slate-800"
@@ -235,28 +235,28 @@ export function StepBusinessHours({
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-4">
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-4 pt-4">
           <Button
             type="button"
             variant="ghost"
             onClick={onBack}
-            className="h-10 rounded-xl  px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
+            className="w-full sm:w-auto h-10 rounded-xl px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
           >
             Back
           </Button>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
             <Button
               type="button"
               variant="outline"
               onClick={onSkip}
-              className="h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50"
+              className="w-full sm:w-auto h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50"
             >
               Skip for now
             </Button>
             <Button
               type="submit"
-              className="h-11 px-6 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors"
+              className="w-full sm:w-auto h-11 px-6 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors"
             >
               Continue
             </Button>

@@ -74,7 +74,6 @@ export async function registerTenant(payload: RegisterInput) {
       },
     },
   });
-  console.log("🚀 ~ registerTenant ~ auth:", auth);
 
   if (authError || !auth.user) {
     throw new Error(

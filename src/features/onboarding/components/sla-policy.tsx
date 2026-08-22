@@ -81,9 +81,9 @@ export function StepSlaPolicy({
           return (
             <div
               key={sla.priority}
-              className="grid grid-cols-12 items-center px-6 py-4 text-xs sm:text-sm hover:bg-slate-50/50 transition-colors gap-4"
+              className="flex flex-col sm:grid sm:grid-cols-12 sm:items-center px-4 sm:px-6 py-3.5 sm:py-4 text-xs sm:text-sm hover:bg-slate-50/50 transition-colors gap-2 sm:gap-4"
             >
-              <div className="col-span-3 flex items-center">
+              <div className="sm:col-span-3 flex items-center">
                 <span
                   className={cn(
                     "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border",
@@ -91,44 +91,51 @@ export function StepSlaPolicy({
                   )}
                 >
                   <span
-                    className={cn("h-1.5 w-1.5 rounded-full", styles.dot)}
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full shrink-0",
+                      styles.dot,
+                    )}
                   />
                   {sla.priority}
                 </span>
               </div>
 
-              <div className="col-span-5 text-slate-500 whitespace-nowrap">
-                First reply{" "}
-                <span className="font-bold text-slate-900">
-                  {sla.firstReply}
-                </span>
-              </div>
+              <div className="sm:col-span-9 flex flex-col xs:flex-row xs:items-center sm:grid sm:grid-cols-9 gap-1.5 xs:gap-4 sm:gap-2 text-slate-500">
+                <div className="sm:col-span-5 whitespace-nowrap">
+                  First reply{" "}
+                  <span className="font-bold text-slate-900">
+                    {sla.firstReply}
+                  </span>
+                </div>
 
-              <div className="col-span-4 text-slate-500 whitespace-nowrap">
-                Resolve{" "}
-                <span className="font-bold text-slate-900">{sla.resolve}</span>
+                <div className="sm:col-span-4 whitespace-nowrap">
+                  Resolve{" "}
+                  <span className="font-bold text-slate-900">
+                    {sla.resolve}
+                  </span>
+                </div>
               </div>
             </div>
           );
         })}
       </div>
 
-      <div className="flex items-center justify-between pt-4">
+      <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pt-2 sm:pt-4">
         <Button
           type="button"
           variant="ghost"
           onClick={onBack}
-          className="h-10 rounded-xl px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
+          className="w-full sm:w-auto h-10 rounded-xl px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
         >
           Back
         </Button>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
           <Button
             type="button"
             variant="outline"
             onClick={onSkip}
-            className="h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50 text-sm"
+            className="w-full sm:w-auto h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50 text-sm"
           >
             Skip for now
           </Button>
@@ -136,7 +143,7 @@ export function StepSlaPolicy({
           <Button
             type="button"
             onClick={onNext}
-            className="h-11 px-6 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors text-sm"
+            className="w-full sm:w-auto h-11 px-6 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors text-sm"
           >
             Continue
           </Button>

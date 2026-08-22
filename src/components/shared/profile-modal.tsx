@@ -100,12 +100,12 @@ export function ProfileModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-120 p-6 rounded-2xl">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md p-4 sm:p-6 rounded-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="space-y-1 text-left">
-          <DialogTitle className="text-xl font-bold text-slate-900">
+          <DialogTitle className="text-lg sm:text-xl font-bold text-slate-900">
             Profile settings
           </DialogTitle>
-          <DialogDescription className="text-sm font-medium text-slate-500">
+          <DialogDescription className="text-xs sm:text-sm font-medium text-slate-500">
             Agent · {companyName}
           </DialogDescription>
         </DialogHeader>
@@ -115,12 +115,13 @@ export function ProfileModal({
             onSubmit={form.handleSubmit(onSubmit)}
             className="space-y-4 pt-2"
           >
-            <div className="flex items-center gap-4 py-2">
+            {/* Avatar Section */}
+            <div className="flex items-center gap-3 sm:gap-4 py-2">
               <div
-                className="relative group cursor-pointer"
+                className="relative group cursor-pointer shrink-0"
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Avatar className="h-16 w-16 border">
+                <Avatar className="h-14 w-14 sm:h-16 sm:w-16 border">
                   {previewUrl && (
                     <AvatarImage
                       src={previewUrl}
@@ -128,7 +129,7 @@ export function ProfileModal({
                       className="object-cover"
                     />
                   )}
-                  <AvatarFallback className="bg-slate-200 text-slate-700 text-lg font-bold">
+                  <AvatarFallback className="bg-slate-200 text-slate-700 text-base sm:text-lg font-bold">
                     {initialValues?.initials || "SO"}
                   </AvatarFallback>
                 </Avatar>
@@ -137,7 +138,7 @@ export function ProfileModal({
                 </div>
               </div>
 
-              <div>
+              <div className="min-w-0 flex-1">
                 <Button
                   type="button"
                   variant="outline"
@@ -162,18 +163,23 @@ export function ProfileModal({
               />
             </div>
 
+            {/* Inputs */}
             <FormField
               control={form.control}
               name="fullName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-slate-800 font-semibold">
+                  <FormLabel className="text-slate-800 font-semibold text-xs sm:text-sm">
                     Full name
                   </FormLabel>
                   <FormControl>
-                    <Input disabled={isSubmitting} {...field} />
+                    <Input
+                      disabled={isSubmitting}
+                      className="h-10 sm:h-11 text-xs sm:text-sm"
+                      {...field}
+                    />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
@@ -183,30 +189,36 @@ export function ProfileModal({
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-slate-800 font-semibold">
+                  <FormLabel className="text-slate-800 font-semibold text-xs sm:text-sm">
                     Work email
                   </FormLabel>
                   <FormControl>
-                    <Input type="email" disabled={isSubmitting} {...field} />
+                    <Input
+                      type="email"
+                      disabled={isSubmitting}
+                      className="h-10 sm:h-11 text-xs sm:text-sm"
+                      {...field}
+                    />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
 
             <FormItem>
-              <FormLabel className="text-slate-800 font-semibold">
+              <FormLabel className="text-slate-800 font-semibold text-xs sm:text-sm">
                 Company name
               </FormLabel>
               <FormControl>
                 <Input
                   value={companyName}
                   disabled
-                  className="bg-slate-100 text-slate-500"
+                  className="bg-slate-100 text-slate-500 h-10 sm:h-11 text-xs sm:text-sm"
                 />
               </FormControl>
             </FormItem>
 
+            {/* SLA Switch */}
             <FormField
               control={form.control}
               name="slaNotification"
@@ -217,30 +229,31 @@ export function ProfileModal({
                       disabled={isSubmitting}
                       checked={field.value}
                       onCheckedChange={field.onChange}
-                      className="data-[state=checked]:bg-emerald-800"
+                      className="data-[state=checked]:bg-emerald-800 shrink-0"
                     />
                   </FormControl>
-                  <FormLabel className="text-sm font-medium text-slate-800 cursor-pointer">
+                  <FormLabel className="text-xs sm:text-sm font-medium text-slate-800 cursor-pointer leading-tight">
                     Email me when a ticket breaches SLA
                   </FormLabel>
                 </FormItem>
               )}
             />
 
-            <div className="flex justify-end gap-3 pt-4">
+            {/* Responsive Buttons */}
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 pt-4">
               <Button
                 type="button"
                 variant="outline"
                 disabled={isSubmitting}
                 onClick={() => onOpenChange(false)}
-                className="border-slate-300 text-emerald-800 hover:bg-slate-50 font-semibold"
+                className="w-full sm:w-auto h-10 sm:h-11 border-slate-300 text-emerald-800 hover:bg-slate-50 font-semibold text-xs sm:text-sm"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="bg-emerald-800 hover:bg-emerald-900 text-white font-semibold"
+                className="w-full sm:w-auto h-10 sm:h-11 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold text-xs sm:text-sm"
               >
                 {isSubmitting ? "Saving..." : "Save changes"}
               </Button>

@@ -128,7 +128,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
   };
 
   return (
-    <div className="relative overflow-hidden w-full max-w-2xl mx-auto rounded-3xl bg-white p-8 sm:p-10 shadow-xl border border-slate-100 text-left">
+    <div className="relative overflow-y-auto w-full max-w-2xl mx-auto rounded-3xl bg-white p-8 sm:p-10 shadow-xl border border-slate-100 text-left">
       {currentStep <= 2 ? (
         <div className="mb-6">
           <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">

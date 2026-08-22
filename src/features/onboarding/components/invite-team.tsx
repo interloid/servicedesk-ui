@@ -121,7 +121,7 @@ export function StepInviteTeam({
             }`}
           />
           {emailError ? (
-            <p className="text-xs font-medium text-destructive pt-0.5">
+            <p className="text-xs font-medium text-destructive pt-0.5 wrap-break-word">
               {emailError}
             </p>
           ) : (
@@ -142,7 +142,12 @@ export function StepInviteTeam({
             <SelectTrigger className="min-h-11 w-full rounded-xl border-slate-200 bg-white text-xs sm:text-sm focus:ring-emerald-700 shadow-xs">
               <SelectValue placeholder="Select role" />
             </SelectTrigger>
-            <SelectContent side="bottom" align="start" position="popper">
+            <SelectContent
+              side="bottom"
+              align="start"
+              position="popper"
+              className="w-(--radix-select-trigger-width)"
+            >
               <SelectItem value="agent">Agent</SelectItem>
               <SelectItem value="billing_admin">Billing Admin</SelectItem>
               <SelectItem value="manager">Manager</SelectItem>
@@ -151,22 +156,22 @@ export function StepInviteTeam({
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-4">
+      <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pt-2 sm:pt-4">
         <Button
           type="button"
           variant="ghost"
           onClick={onBack}
-          className="h-10 rounded-xl  px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
+          className="w-full sm:w-auto h-10 rounded-xl px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
         >
           Back
         </Button>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
           <Button
             type="button"
             variant="outline"
             onClick={onSkip}
-            className="h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50 text-sm"
+            className="w-full sm:w-auto h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50 text-sm"
           >
             Skip for now
           </Button>
@@ -175,7 +180,7 @@ export function StepInviteTeam({
             type="button"
             onClick={handleFinish}
             disabled={!!emailError}
-            className="h-11 px-6 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors text-sm shadow-xs"
+            className="w-full sm:w-auto h-11 px-6 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors text-sm shadow-xs"
           >
             Finish setup
           </Button>

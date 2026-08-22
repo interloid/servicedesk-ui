@@ -122,18 +122,6 @@ export function StepOrganization({
 
   return (
     <div className="w-full space-y-6">
-      <div className="space-y-1">
-        <span className="text-xs font-bold tracking-wider text-emerald-800 uppercase">
-          Step 2 of 4
-        </span>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-          Create your organization
-        </h2>
-        <p className="text-sm text-slate-500">
-          This is what your customers see on the portal and in every reply.
-        </p>
-      </div>
-
       <form
         onSubmit={handleSubmit(handleOrganizationSubmit)}
         className="space-y-5 text-left"
@@ -215,10 +203,10 @@ export function StepOrganization({
             control={control}
             render={({ field }) => (
               <Select value={field.value} onValueChange={field.onChange}>
-                <SelectTrigger className="w-full h-11 rounded-lg border-slate-300 text-slate-800 focus:ring-emerald-700">
+                <SelectTrigger className="w-full min-h-11 rounded-lg border-slate-300 text-slate-800 focus:ring-emerald-700">
                   <SelectValue placeholder="Select a timezone" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent side="bottom" align="start" position="popper">
                   {tzList.map((tz) => (
                     <SelectItem key={tz.id} value={tz.id}>
                       {tz.display_name || tz.name || tz.label || tz.id}

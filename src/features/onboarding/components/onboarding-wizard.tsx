@@ -148,7 +148,9 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
       ) : (
         <div className="mb-6">
           <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-            SET UP NORTHWIND SUPPORT
+            SET UP{" "}
+            {formData.orgName ? formData.orgName.toUpperCase() : "NORTHWIND"}{" "}
+            SUPPORT
           </span>
           <h1 className="text-2xl font-bold text-slate-900 mt-1">
             Three steps and your queue is live.

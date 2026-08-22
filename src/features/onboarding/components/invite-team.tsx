@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { OnboardingState, TeamInvite } from "../types/onboarding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,8 @@ interface StepProps {
   onBack: () => void;
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export function StepInviteTeam({
   data,
   onChange,
@@ -35,32 +37,60 @@ export function StepInviteTeam({
   );
 
   const [selectedRole, setSelectedRole] = useState<TeamInvite["role"]>(
-    () => data.invites[0]?.role || "Agent",
+    () => data.invites[0]?.role || "agent",
   );
+  const normalizedRole = (
+    selectedRole || "agent"
+  ).toLowerCase() as TeamInvite["role"];
+
+  const [emailError, setEmailError] = useState<string>("");
+
+  const validateAndSyncEmails = (
+    rawInput: string,
+    role: TeamInvite["role"],
+  ) => {
+    if (!rawInput.trim()) {
+      setEmailError("");
+      onChange({ invites: [] });
+      return true;
+    }
+
+    const emailList = rawInput
+      .split(",")
+      .map((e) => e.trim())
+      .filter(Boolean);
+
+    const invalidEmails = emailList.filter((e) => !EMAIL_REGEX.test(e));
+
+    if (invalidEmails.length > 0) {
+      setEmailError(`Invalid email format: ${invalidEmails.join(", ")}`);
+      return false;
+    }
+
+    setEmailError("");
+    const parsedInvites: TeamInvite[] = emailList.map((email) => ({
+      email,
+      role,
+    }));
+    onChange({ invites: parsedInvites });
+    return true;
+  };
 
   const handleEmailChange = (val: string) => {
     setEmailsInput(val);
-
-    const parsedInvites: TeamInvite[] = val
-      .split(",")
-      .map((e) => e.trim())
-      .map((email) => ({
-        email,
-        role: selectedRole,
-      }));
-
-    onChange({ invites: parsedInvites });
+    validateAndSyncEmails(val, selectedRole);
   };
 
   const handleRoleChange = (role: TeamInvite["role"]) => {
     setSelectedRole(role);
+    validateAndSyncEmails(emailsInput, role);
+  };
 
-    const updatedInvites: TeamInvite[] = data.invites.map((inv) => ({
-      ...inv,
-      role,
-    }));
-
-    onChange({ invites: updatedInvites });
+  const handleFinish = () => {
+    const isValid = validateAndSyncEmails(emailsInput, selectedRole);
+    if (isValid) {
+      onFinish();
+    }
   };
 
   return (
@@ -84,9 +114,21 @@ export function StepInviteTeam({
             placeholder="priya@northwind.io, sam@northwind.io"
             value={emailsInput}
             onChange={(e) => handleEmailChange(e.target.value)}
-            className="h-11 rounded-xl border-slate-200 focus-visible:ring-emerald-700 text-xs sm:text-sm shadow-xs"
+            className={`h-11 rounded-xl border-slate-200 focus-visible:ring-emerald-700 text-xs sm:text-sm shadow-xs ${
+              emailError
+                ? "border-destructive focus-visible:ring-destructive"
+                : ""
+            }`}
           />
-          <p className="text-xs text-slate-400 pt-0.5">Separate with commas</p>
+          {emailError ? (
+            <p className="text-xs font-medium text-destructive pt-0.5">
+              {emailError}
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400 pt-0.5">
+              Separate with commas
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -94,13 +136,13 @@ export function StepInviteTeam({
             Invite as
           </label>
           <Select
-            value={selectedRole}
+            value={normalizedRole}
             onValueChange={(val) => handleRoleChange(val as TeamInvite["role"])}
           >
-            <SelectTrigger className="h-11 w-full rounded-xl border-slate-200 bg-white text-xs sm:text-sm focus:ring-emerald-700 shadow-xs">
+            <SelectTrigger className="min-h-11 w-full rounded-xl border-slate-200 bg-white text-xs sm:text-sm focus:ring-emerald-700 shadow-xs">
               <SelectValue placeholder="Select role" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent side="bottom" align="start" position="popper">
               <SelectItem value="agent">Agent</SelectItem>
               <SelectItem value="billing_admin">Billing Admin</SelectItem>
               <SelectItem value="manager">Manager</SelectItem>
@@ -112,9 +154,9 @@ export function StepInviteTeam({
       <div className="flex items-center justify-between pt-4">
         <Button
           type="button"
-          variant="link"
+          variant="ghost"
           onClick={onBack}
-          className="text-sm font-semibold text-emerald-800 hover:underline p-0 h-auto"
+          className="h-10 rounded-xl  px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
         >
           Back
         </Button>
@@ -131,8 +173,9 @@ export function StepInviteTeam({
 
           <Button
             type="button"
-            onClick={onFinish}
-            className="h-11 px-6 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors text-sm shadow-xs"
+            onClick={handleFinish}
+            disabled={!!emailError}
+            className="h-11 px-6 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors text-sm shadow-xs"
           >
             Finish setup
           </Button>

@@ -85,19 +85,6 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
 
   return (
     <div className="w-full space-y-6">
-      <div className="space-y-1">
-        <span className="text-xs font-bold tracking-wider text-emerald-800 uppercase">
-          Step 1 of 4
-        </span>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-          Create your account
-        </h2>
-        <p className="text-sm text-slate-500">
-          You&apos;ll be the first admin. Invite the rest of your team in a
-          minute.
-        </p>
-      </div>
-
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit(handleAccountSubmit)}
@@ -206,15 +193,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
         <div className="relative bg-white px-3 text-xs text-slate-400">or</div>
       </div>
 
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full h-11 border-slate-200 text-emerald-800 hover:bg-slate-50 font-semibold rounded-lg"
-      >
-        Sign up with Google
-      </Button>
-
-      <div className="text-center text-xs text-slate-500">
+      <div className="text-center text-sm text-slate-500">
         Already have an account?{" "}
         <Link
           href={APP_ROUTES.LOGIN}

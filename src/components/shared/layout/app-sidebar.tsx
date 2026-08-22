@@ -38,13 +38,6 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 import type { ShellIdentity } from "@/lib/identity";
@@ -226,7 +219,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           border-b
           border-sidebar-border
           p-3.5
-
           group-data-[collapsible=icon]:px-2
           group-data-[collapsible=icon]:py-3
         "
@@ -236,7 +228,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
             flex
             items-center
             gap-2.5
-
             group-data-[collapsible=icon]:flex-col
             group-data-[collapsible=icon]:gap-2
           "
@@ -264,7 +255,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               min-w-0
               flex-1
               flex-col
-
               group-data-[collapsible=icon]:hidden
             "
           >
@@ -296,7 +286,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               size-4
               shrink-0
               text-muted-foreground
-
               group-data-[collapsible=icon]:hidden
             "
           />
@@ -310,7 +299,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               bg-card
               text-muted-foreground
               hover:bg-muted
-
               group-data-[collapsible=icon]:mt-0
             "
           />
@@ -322,7 +310,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           gap-3.5
           px-2.5
           py-3
-
           group-data-[collapsible=icon]:px-2
           group-data-[collapsible=icon]:py-3
         "
@@ -330,10 +317,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
         {visibleSections.map((group, index) => (
           <SidebarGroup
             key={group.title ?? `group-${index}`}
-            className="
-              gap-1
-              p-0
-            "
+            className="gap-1 p-0"
           >
             {group.title && (
               <SidebarGroupLabel
@@ -342,13 +326,11 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                   px-3
                   pt-1.5
                   pb-1
-
                   text-xs
                   font-bold
                   uppercase
                   tracking-widest
                   text-muted-foreground/80
-
                   group-data-[collapsible=icon]:hidden
                 "
               >
@@ -360,6 +342,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               <SidebarMenu className="gap-0.5">
                 {group.items.map((item) => {
                   const Icon = item.icon;
+
                   const targetPath = tenantSlug
                     ? tenantPath(tenantSlug, item.href)
                     : item.href;
@@ -377,64 +360,49 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                         group-data-[collapsible=icon]:justify-center
                       "
                     >
-                      <TooltipProvider delayDuration={0}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <SidebarMenuButton
-                              asChild
-                              isActive={isActive}
-                              className={cn(
-                                "h-10 w-full rounded-md px-2.5 text-sm font-medium text-slate-600",
-                                "transition-colors hover:bg-slate-100/80 hover:text-slate-900",
-                                isActive &&
-                                  "bg-slate-100/80 font-semibold text-slate-900",
-                                "group-data-[collapsible=icon]:h-10",
-                                "group-data-[collapsible=icon]:w-10",
-                                "group-data-[collapsible=icon]:justify-center",
-                                "group-data-[collapsible=icon]:p-0",
-                              )}
-                            >
-                              <Link
-                                href={targetPath}
-                                className="
-                                  flex
-                                  min-w-0
-                                  items-center
-                                  gap-2.5
-                                  group-data-[collapsible=icon]:justify-center
-                                "
-                              >
-                                <Icon
-                                  className="
-                                    size-4
-                                    shrink-0
-                                    text-slate-600
-                                  "
-                                />
-
-                                <span
-                                  className="
-                                    truncate
-
-                                    group-data-[collapsible=icon]:hidden
-                                  "
-                                >
-                                  {item.label}
-                                </span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            side="right"
+                      <SidebarMenuButton
+                        asChild
+                        isActive={isActive}
+                        tooltip={item.label}
+                        className={cn(
+                          "h-10 w-full rounded-md px-2.5 text-sm font-medium text-slate-600",
+                          "transition-colors hover:bg-slate-100/80 hover:text-slate-900",
+                          isActive &&
+                            "bg-slate-100/80 font-semibold text-slate-900",
+                          "group-data-[collapsible=icon]:h-10",
+                          "group-data-[collapsible=icon]:w-10",
+                          "group-data-[collapsible=icon]:justify-center",
+                          "group-data-[collapsible=icon]:p-0",
+                        )}
+                      >
+                        <Link
+                          href={targetPath}
+                          className="
+                            flex
+                            min-w-0
+                            items-center
+                            gap-2.5
+                            group-data-[collapsible=icon]:justify-center
+                          "
+                        >
+                          <Icon
                             className="
-                              text-xs
-                              font-medium
+                              size-4
+                              shrink-0
+                              text-slate-600
+                            "
+                          />
+
+                          <span
+                            className="
+                              truncate
+                              group-data-[collapsible=icon]:hidden
                             "
                           >
                             {item.label}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                          </span>
+                        </Link>
+                      </SidebarMenuButton>
                     </SidebarMenuItem>
                   );
                 })}
@@ -449,7 +417,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           border-t
           border-sidebar-border
           p-3
-
           group-data-[collapsible=icon]:px-2
           group-data-[collapsible=icon]:py-3
         "
@@ -459,27 +426,27 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
             flex
             items-center
             gap-2.5
-
             group-data-[collapsible=icon]:justify-center
           "
         >
           <Avatar
             className="
-            size-8
-            shrink-0
-          "
+              size-8
+              shrink-0
+            "
           >
             <AvatarImage
               src={identity?.user.avatarUrl}
               alt={identity?.user.name ?? "User"}
             />
+
             <AvatarFallback
               className="
-      bg-foreground
-      text-xs
-      font-bold
-      text-background
-    "
+                bg-foreground
+                text-xs
+                font-bold
+                text-background
+              "
             >
               {identity?.user.initials ?? "U"}
             </AvatarFallback>
@@ -490,7 +457,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               flex
               min-w-0
               flex-col
-
               group-data-[collapsible=icon]:hidden
             "
           >

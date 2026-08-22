@@ -74,6 +74,7 @@ export async function registerTenant(payload: RegisterInput) {
       },
     },
   });
+  console.log("🚀 ~ registerTenant ~ auth:", auth);
 
   if (authError || !auth.user) {
     throw new Error(
@@ -114,7 +115,7 @@ export async function registerTenant(payload: RegisterInput) {
           const { data: existingUser, error: userLookupError } =
             await adminSupabase
               .from("users")
-              .select("id")
+              .select("id, email")
               .eq("email", inviteEmail)
               .maybeSingle();
 
@@ -191,11 +192,31 @@ export async function registerTenant(payload: RegisterInput) {
 
               continue;
             }
+            const { error: emailError } =
+              await adminSupabase.auth.resetPasswordForEmail(inviteEmail, {
+                redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
+              });
+
+            if (emailError) {
+              console.error(
+                `[Onboarding] Failed to send notification email to ${inviteEmail}:`,
+                emailError.message,
+              );
+
+              invitationResults.push({
+                email: inviteEmail,
+                status: "added",
+                message:
+                  "User was added to the organization, but the email could not be sent.",
+              });
+
+              continue;
+            }
 
             invitationResults.push({
               email: inviteEmail,
               status: "added",
-              message: "Existing user added to the organization successfully.",
+              message: "User was added successfully and an email was sent.",
             });
 
             continue;
@@ -219,7 +240,7 @@ export async function registerTenant(payload: RegisterInput) {
             invitationResults.push({
               email: inviteEmail,
               status: "failed",
-              message: "Unable to send the invitation.",
+              message: inviteError?.message || "Unable to send the invitation.",
             });
 
             continue;

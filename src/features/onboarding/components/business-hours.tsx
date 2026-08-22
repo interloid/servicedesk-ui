@@ -4,7 +4,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { OnboardingState, WorkingDay } from "../types/onboarding";
 import { useWatch } from "react-hook-form";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { TimePickerPopover } from "./time-picker-popover";
 
 export interface Timezone {
   id: string;
@@ -57,7 +57,6 @@ export function StepBusinessHours({
   const tzList = Array.isArray(timezones) ? timezones : [];
 
   const {
-    register,
     handleSubmit,
     control,
     setValue,
@@ -101,15 +100,6 @@ export function StepBusinessHours({
 
   return (
     <div className="w-full space-y-6">
-      <div className="space-y-1">
-        <span className="text-xs font-bold tracking-wider text-emerald-800 uppercase">
-          Set up Northwind Support
-        </span>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-          Three steps and your queue is live.
-        </h2>
-      </div>
-
       <form
         onSubmit={handleSubmit(handleBusinessHoursSubmit)}
         className="space-y-6 text-left"
@@ -129,10 +119,15 @@ export function StepBusinessHours({
                 control={control}
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full h-11 rounded-lg border-slate-300 text-slate-800 focus:ring-emerald-700">
+                    <SelectTrigger className="w-full min-h-11 rounded-lg border-slate-300 text-slate-800 focus:ring-emerald-700">
                       <SelectValue placeholder="Select a timezone" />
                     </SelectTrigger>
-                    <SelectContent className="w-(--radix-select-trigger-width)">
+                    <SelectContent
+                      side="bottom"
+                      align="start"
+                      position="popper"
+                      className="w-(--radix-select-trigger-width)"
+                    >
                       {tzList.map((tz) => (
                         <SelectItem key={tz.id} value={tz.id}>
                           {tz.display_name || tz.label || tz.id}
@@ -194,11 +189,16 @@ export function StepBusinessHours({
                 >
                   Day starts
                 </Label>
-                <Input
-                  id="dayStarts"
-                  type="time"
-                  className="h-11 rounded-lg border-slate-300 text-slate-800 focus-visible:ring-emerald-700"
-                  {...register("dayStarts")}
+                <Controller
+                  name="dayStarts"
+                  control={control}
+                  defaultValue="09:00"
+                  render={({ field }) => (
+                    <TimePickerPopover
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                  )}
                 />
                 {errors.dayStarts && (
                   <p className="text-xs font-medium text-destructive">
@@ -214,11 +214,16 @@ export function StepBusinessHours({
                 >
                   Day ends
                 </Label>
-                <Input
-                  id="dayEnds"
-                  type="time"
-                  className="h-11 rounded-lg border-slate-300 text-slate-800 focus-visible:ring-emerald-700"
-                  {...register("dayEnds")}
+                <Controller
+                  name="dayEnds"
+                  control={control}
+                  defaultValue="18:30"
+                  render={({ field }) => (
+                    <TimePickerPopover
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                  )}
                 />
                 {errors.dayEnds && (
                   <p className="text-xs font-medium text-destructive">
@@ -233,9 +238,9 @@ export function StepBusinessHours({
         <div className="flex items-center justify-between pt-4">
           <Button
             type="button"
-            variant="link"
+            variant="ghost"
             onClick={onBack}
-            className="text-sm font-semibold text-emerald-800 hover:underline p-0 h-auto"
+            className="h-10 rounded-xl  px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
           >
             Back
           </Button>

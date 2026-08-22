@@ -116,9 +116,9 @@ export function StepSlaPolicy({
       <div className="flex items-center justify-between pt-4">
         <Button
           type="button"
-          variant="link"
+          variant="ghost"
           onClick={onBack}
-          className="text-sm font-semibold text-emerald-800 hover:underline p-0 h-auto"
+          className="h-10 rounded-xl px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
         >
           Back
         </Button>

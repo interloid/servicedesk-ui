@@ -171,7 +171,7 @@ export function StepInviteTeam({
             type="button"
             variant="outline"
             onClick={onSkip}
-            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
+            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold text-brand-accent"
           >
             Skip for now
           </Button>

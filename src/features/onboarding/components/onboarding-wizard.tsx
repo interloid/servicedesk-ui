@@ -149,13 +149,22 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         ) : (
           <div>
             <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-brand-accent">
-              SET UP{" "}
-              {formData.orgName ? formData.orgName.toUpperCase() : "NORTHWIND"}{" "}
+              SET UP
+              {formData.orgName ? formData.orgName.toUpperCase() : "NORTHWIND"}
               SUPPORT
             </span>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">
               Three steps and your queue is live.
             </h1>
+
+            <div className="flex items-center gap-2 mt-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-teal-700 text-primary-foreground  text-[10px] font-bold">
+                3
+              </span>
+              <span className="text-xs font-extrabold tracking-wider text-slate-900 uppercase">
+                SET UP
+              </span>
+            </div>
           </div>
         )}
 

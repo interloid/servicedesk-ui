@@ -225,8 +225,27 @@
   animation: sdp-skeleton 1.3s ease-in-out infinite;
 }
 
-html,
-body,
-body > div {
-  height: 100%;
+* {
+  @apply border-border outline-ring/50;
+  scrollbar-width: thin;
+  scrollbar-color: var(--muted-foreground) transparent;
+}
+
+/* WebKit fallback (Chrome, Safari, Edge) */
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--muted-foreground);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--foreground);
 }

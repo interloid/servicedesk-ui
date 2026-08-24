@@ -21,60 +21,62 @@ import { APP_ROUTES } from "@/lib/routes";
 export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const closeMobileMenu = () => setMobileMenuOpen(false);
+
   return (
-    <div className="min-h-dvh bg-slate-50 text-slate-900 font-sans dark:bg-slate-950 dark:text-slate-100 flex flex-col justify-between">
-      <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <div className="min-h-dvh bg-background text-foreground font-sans flex flex-col justify-between selection:bg-brand-accent/20 selection:text-brand-accent">
+      <header className="sticky top-0 z-50 w-full border-b border-border/80 bg-background/80 backdrop-blur-md transition-all">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
           <Link
             href="/"
-            className="flex items-center gap-2.5 font-bold text-lg text-slate-900 dark:text-white"
+            className="flex items-center gap-2.5 font-bold text-base sm:text-lg text-foreground hover:opacity-90 transition-opacity shrink-0"
           >
-            <span className="w-8 h-8 rounded-lg bg-brand-accent text-white flex items-center justify-center font-bold text-sm shadow-xs">
+            <span className="w-8 h-8 rounded-lg bg-brand-accent text-primary-foreground flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
               S
             </span>
-            <span>ServiceDeskPro</span>
+            <span className="tracking-tight">ServiceDeskPro</span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-6 lg:gap-8 text-sm font-medium text-slate-600 dark:text-slate-300">
+          <nav className="hidden lg:flex items-center gap-6 xl:gap-8 text-sm font-medium text-muted-foreground">
             <a
               href="#features"
-              className="hover:text-brand-hover dark:hover:text-emerald-400 transition-colors"
+              className="hover:text-foreground text-foreground transition-colors py-1"
             >
               Features
             </a>
             <a
               href="#trending-2026"
-              className="hover:text-brand-hover dark:hover:text-emerald-400 transition-colors flex items-center gap-1.5"
+              className="hover:text-foreground text-foreground transition-colors py-1 flex items-center gap-1.5"
             >
               <span>2026 Trends</span>
-              <span className="rounded-full bg-emerald-100 dark:bg-emerald-950 text-primary dark:text-emerald-300 text-[10px] font-bold px-2 py-0.5 border border-emerald-200 dark:border-emerald-800">
+              <span className="rounded-full bg-brand-accent/10 text-brand-accent text-[10px] font-bold px-2 py-0.5 border border-brand-accent/20">
                 NEW
               </span>
             </a>
             <a
               href="#pricing"
-              className="hover:text-brand-hover dark:hover:text-emerald-400 transition-colors"
+              className="hover:text-foreground text-foreground transition-colors py-1"
             >
               Pricing
             </a>
             <a
               href="#docs"
-              className="hover:text-brand-hover dark:hover:text-emerald-400 transition-colors"
+              className="hover:text-foreground text-foreground transition-colors py-1"
             >
               Documentation
             </a>
           </nav>
 
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-3 shrink-0">
             <Link
               href={APP_ROUTES.LOGIN}
-              className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-primary dark:text-slate-300 dark:hover:text-white transition-colors"
+              className="px-3.5 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               Log in
             </Link>
             <Link
               href={APP_ROUTES.SETUP}
-              className="px-4 py-2 text-sm font-medium text-white bg-brand-accent hover:bg-brand-hover rounded-lg transition-colors shadow-xs"
+              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-brand-accent hover:bg-brand-accent/90 rounded-lg transition-all shadow-xs hover:shadow whitespace-nowrap"
             >
               Get Started
             </Link>
@@ -83,8 +85,9 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="lg:hidden p-2 -mr-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors focus:outline-hidden focus:ring-2 focus:ring-brand-accent/50"
             aria-label="Toggle Navigation Menu"
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? (
               <X className="w-6 h-6" />
@@ -95,52 +98,53 @@ export default function Home() {
         </div>
 
         {mobileMenuOpen && (
-          <div className="md:hidden border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-4 pt-2 pb-6 space-y-4">
-            <nav className="flex flex-col space-y-3 text-sm font-medium text-slate-600 dark:text-slate-300">
+          <div className="lg:hidden border-b border-border bg-background/95 backdrop-blur-lg px-4 sm:px-6 pt-3 pb-6 space-y-4 shadow-lg animate-in slide-in-from-top-2 duration-200">
+            <nav className="flex flex-col space-y-1 text-sm font-medium text-muted-foreground">
               <a
                 href="#features"
-                onClick={() => setMobileMenuOpen(false)}
-                className="hover:text-brand-hover dark:hover:text-emerald-400 transition-colors py-1"
+                onClick={closeMobileMenu}
+                className="px-3 py-2.5 text-foreground rounded-lg hover:text-foreground hover:bg-muted transition-colors"
               >
                 Features
               </a>
               <a
                 href="#trending-2026"
-                onClick={() => setMobileMenuOpen(false)}
-                className="hover:text-brand-hover dark:hover:text-emerald-400 transition-colors py-1 flex items-center justify-between"
+                onClick={closeMobileMenu}
+                className="px-3 py-2.5 rounded-lg text-foreground hover:text-foreground hover:bg-muted transition-colors flex items-center justify-between"
               >
                 <span>2026 Trends</span>
-                <span className="rounded-full bg-emerald-100 dark:bg-emerald-950 text-primary dark:text-emerald-300 text-[10px] font-bold px-2 py-0.5 border border-emerald-200 dark:border-emerald-800">
+                <span className="rounded-full bg-brand-accent/10 text-brand-accent text-[10px] font-bold px-2 py-0.5 border border-brand-accent/20">
                   NEW
                 </span>
               </a>
               <a
                 href="#pricing"
-                onClick={() => setMobileMenuOpen(false)}
-                className="hover:text-brand-hover dark:hover:text-emerald-400 transition-colors py-1"
+                onClick={closeMobileMenu}
+                className="px-3 py-2.5 rounded-lg text-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 Pricing
               </a>
               <a
                 href="#docs"
-                onClick={() => setMobileMenuOpen(false)}
-                className="hover:text-brand-hover dark:hover:text-emerald-400 transition-colors py-1"
+                onClick={closeMobileMenu}
+                className="px-3 py-2.5 rounded-lg text-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 Documentation
               </a>
             </nav>
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+
+            <div className="pt-3 border-t border-border flex flex-col gap-2.5">
               <Link
                 href={APP_ROUTES.LOGIN}
-                onClick={() => setMobileMenuOpen(false)}
-                className="w-full text-center px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 rounded-lg"
+                onClick={closeMobileMenu}
+                className="w-full text-center px-4 py-2.5 text-sm font-medium text-foreground bg-muted/50 hover:bg-muted border border-border/80 rounded-lg transition-colors"
               >
                 Log in
               </Link>
               <Link
                 href={APP_ROUTES.SETUP}
-                onClick={() => setMobileMenuOpen(false)}
-                className="w-full text-center px-4 py-2.5 text-sm font-medium text-white bg-brand-accent hover:bg-brand-hover rounded-lg shadow-xs"
+                onClick={closeMobileMenu}
+                className="w-full text-center px-4 py-2.5 text-sm font-medium text-primary-foreground bg-brand-accent hover:bg-brand-accent/90 rounded-lg shadow-xs transition-colors"
               >
                 Get Started
               </Link>
@@ -150,37 +154,38 @@ export default function Home() {
       </header>
 
       <main className="flex-1">
-        <section className="relative px-4 sm:px-6 pt-12 sm:pt-20 md:pt-24 pb-12 sm:pb-16 max-w-5xl mx-auto text-center flex flex-col items-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-50 text-primary text-xs font-semibold border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 mb-6 max-w-full text-center">
-            <Sparkles className="w-3.5 h-3.5 text-(brand-base) shrink-0" />
+        <section className="relative px-4 sm:px-6 lg:px-8 pt-10 sm:pt-16 md:pt-24 pb-12 sm:pb-20 max-w-5xl mx-auto text-center flex flex-col items-center">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-accent/10 text-brand-accent text-xs font-semibold border border-brand-accent/20 mb-6 max-w-full">
+            <Sparkles className="w-3.5 h-3.5 text-brand-accent shrink-0" />
             <span className="truncate">
               Next-Gen AI-Powered Support Infrastructure
             </span>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white max-w-4xl leading-[1.15]">
-            Supercharge your support with{" "}
-            <span className="text-(brand-base) dark:text-emerald-400 block sm:inline">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-foreground max-w-4xl leading-[1.12]">
+            Supercharge your support with
+            <span className="text-brand-accent inline-block">
               ServiceDeskPro
             </span>
           </h1>
 
-          <p className="mt-4 sm:mt-6 text-base sm:text-lg text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
+          <p className="mt-4 sm:mt-6 text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl leading-relaxed">
             The all-in-one multi-tenant helpdesk platform equipped with 2026 AI
             copilots, automated ticket routing, and dedicated organization
             workspaces.
           </p>
 
-          <div className="mt-8 flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className="mt-8 sm:mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 w-full sm:w-auto">
             <Link
               href={APP_ROUTES.SETUP}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-brand-accent hover:bg-brand-hover text-white font-medium text-sm transition-all shadow-md hover:shadow-lg w-full sm:w-auto"
+              className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-primary-foreground font-medium text-sm sm:text-base transition-all shadow-md hover:shadow-lg w-full sm:w-auto shrink-0"
             >
-              Create Your Workspace <ArrowRight className="w-4 h-4" />
+              <span>Create Your Workspace</span>
+              <ArrowRight className="w-4 h-4" />
             </Link>
             <a
               href="#pricing"
-              className="inline-flex items-center justify-center px-6 py-3 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 font-medium text-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors w-full sm:w-auto"
+              className="inline-flex items-center justify-center px-6 py-3.5 rounded-xl border border-border bg-card text-card-foreground hover:bg-muted font-medium text-sm sm:text-base transition-colors w-full sm:w-auto shrink-0"
             >
               View Plans & Pricing
             </a>
@@ -189,63 +194,70 @@ export default function Home() {
 
         <section
           id="trending-2026"
-          className="py-12 sm:py-20 bg-white dark:bg-slate-900 border-y border-slate-200/80 dark:border-slate-800"
+          className="py-12 sm:py-20 lg:py-24 bg-card border-y border-border"
         >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col items-center text-center max-w-2xl mx-auto mb-10 sm:mb-16">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-primary text-xs font-semibold border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 mb-3">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-accent/10 text-brand-accent text-xs font-semibold border border-brand-accent/20 mb-3">
                 <TrendingUp className="w-3.5 h-3.5 shrink-0" /> 2026 Industry
                 Standards
               </div>
-              <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white">
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-foreground tracking-tight">
                 Stay Ahead with 2026 Helpdesk Trends
               </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-3">
+              <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-3">
                 ServiceDeskPro comes pre-configured with modern AI and proactive
                 ticket resolution standards.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
-              <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 hover:border-emerald-500/50 transition-all">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
-                  <Bot className="w-5 h-5" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-8">
+              <div className="p-6 sm:p-8 rounded-2xl border border-border bg-muted/40 hover:border-brand-accent/50 transition-all flex flex-col justify-between">
+                <div>
+                  <div className="w-10 h-10 rounded-xl bg-brand-accent/10 text-brand-accent flex items-center justify-center mb-5">
+                    <Bot className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-base sm:text-lg text-foreground mb-2">
+                    Autonomous Agent Copilots
+                  </h3>
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                    AI agents pre-draft response options, summarize multi-page
+                    customer histories in seconds, and resolve standard Level-1
+                    tickets autonomously.
+                  </p>
                 </div>
-                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
-                  Autonomous Agent Copilots
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  AI agents pre-draft response options, summarize multi-page
-                  customer histories in seconds, and resolve standard Level-1
-                  tickets autonomously.
-                </p>
               </div>
 
-              <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 hover:border-emerald-500/50 transition-all">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
-                  <Cpu className="w-5 h-5" />
+              <div className="p-6 sm:p-8 rounded-2xl border border-border bg-muted/40 hover:border-brand-accent/50 transition-all flex flex-col justify-between">
+                <div>
+                  <div className="w-10 h-10 rounded-xl bg-brand-accent/10 text-brand-accent flex items-center justify-center mb-5">
+                    <Cpu className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-base sm:text-lg text-foreground mb-2">
+                    Predictive SLA Breach Alerts
+                  </h3>
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                    Real-time machine learning models analyze agent queue
+                    velocity and alert supervisors before SLA breaches happen,
+                    not after.
+                  </p>
                 </div>
-                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
-                  Predictive SLA Breach Alerts
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Real-time machine learning models analyze agent queue velocity
-                  and alert supervisors before SLA breaches happen, not after.
-                </p>
               </div>
 
-              <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 hover:border-emerald-500/50 transition-all">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
-                  <Globe className="w-5 h-5" />
+              <div className="p-6 sm:p-8 rounded-2xl border border-border bg-muted/40 hover:border-brand-accent/50 transition-all sm:col-span-2 lg:col-span-1 flex flex-col justify-between">
+                <div>
+                  <div className="w-10 h-10 rounded-xl bg-brand-accent/10 text-brand-accent flex items-center justify-center mb-5">
+                    <Globe className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-base sm:text-lg text-foreground mb-2">
+                    Zero-Trust Multi-Tenancy
+                  </h3>
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                    Complete dynamic subdomain isolation, database row-level
+                    tenant security, and real-time compliance tracking out of
+                    the box.
+                  </p>
                 </div>
-                <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
-                  Zero-Trust Multi-Tenancy
-                </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Complete dynamic subdomain isolation, database row-level
-                  tenant security, and real-time compliance tracking out of the
-                  box.
-                </p>
               </div>
             </div>
           </div>
@@ -253,57 +265,57 @@ export default function Home() {
 
         <section
           id="features"
-          className="py-12 sm:py-20 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800"
+          className="py-12 sm:py-20 lg:py-24 bg-card border-b border-border"
         >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center max-w-xl mx-auto mb-10 sm:mb-16">
-              <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-foreground tracking-tight">
                 Built for modern customer operations
               </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+              <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-3">
                 Everything your support team needs to handle issues faster and
                 smarter.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
-              <div className="p-6 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-8">
+              <div className="p-6 sm:p-8 rounded-xl border border-border bg-muted/40 hover:bg-muted/60 transition-colors">
+                <div className="w-10 h-10 rounded-xl bg-brand-accent/10 text-brand-accent flex items-center justify-center mb-5">
                   <Ticket className="w-5 h-5" />
                 </div>
-                <h3 className="font-semibold text-slate-800 dark:text-white mb-1">
+                <h3 className="font-semibold text-base sm:text-lg text-foreground mb-2">
                   Omnichannel Ticketing
                 </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                   Consolidate requests from email, web portals, and API
                   integrations into a unified, prioritizeable queue.
                 </p>
               </div>
 
-              <div className="p-6 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
+              <div className="p-6 sm:p-8 rounded-xl border border-border bg-muted/40 hover:bg-muted/60 transition-colors">
+                <div className="w-10 h-10 rounded-xl bg-brand-accent/10 text-brand-accent flex items-center justify-center mb-5">
                   <Globe className="w-5 h-5" />
                 </div>
-                <h3 className="font-semibold text-slate-800 dark:text-white mb-1">
+                <h3 className="font-semibold text-base sm:text-lg text-foreground mb-2">
                   Dedicated Tenant Domains
                 </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Give your organization its own branded subdomain (e.g.,{" "}
-                  <code className="break-all">
+                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                  Give your organization its own branded subdomain (e.g.,
+                  <code className="break-all bg-background px-1.5 py-0.5 rounded border border-border/60 font-mono text-[11px] sm:text-xs">
                     yourcompany.servicedeskpro.com
                   </code>
                   ).
                 </p>
               </div>
 
-              <div className="p-6 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
+              <div className="p-6 sm:p-8 rounded-xl border border-border bg-muted/40 hover:bg-muted/60 transition-colors sm:col-span-2 lg:col-span-1">
+                <div className="w-10 h-10 rounded-xl bg-brand-accent/10 text-brand-accent flex items-center justify-center mb-5">
                   <Lock className="w-5 h-5" />
                 </div>
-                <h3 className="font-semibold text-slate-800 dark:text-white mb-1">
+                <h3 className="font-semibold text-base sm:text-lg text-foreground mb-2">
                   Security & Role Control
                 </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                   Keep client data isolated with strict multi-tenant security
                   policies, SSO integration, and full audit logging.
                 </p>
@@ -314,139 +326,139 @@ export default function Home() {
 
         <section
           id="pricing"
-          className="py-12 sm:py-20 max-w-7xl mx-auto px-4 sm:px-6 w-full"
+          className="py-12 sm:py-20 lg:py-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full"
         >
           <div className="text-center max-w-xl mx-auto mb-10 sm:mb-16">
-            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
+            <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-foreground tracking-tight">
               Transparent plans for teams of any size
             </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+            <p className="text-xs sm:text-sm md:text-base text-muted-foreground mt-3">
               Start free, scale with Pro, or power large enterprise operations
               with our Business plan.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 max-w-6xl mx-auto items-stretch">
-            <div className="p-6 sm:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 max-w-6xl mx-auto items-stretch">
+            <div className="p-6 sm:p-8 rounded-2xl border border-border bg-card text-card-foreground flex flex-col justify-between shadow-xs hover:border-brand-accent/30 transition-all">
               <div>
-                <h3 className="text-lg font-bold text-slate-800 dark:text-white">
+                <h3 className="text-base sm:text-lg font-bold text-foreground">
                   Starter Workspace
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1">
                   Ideal for startups & small support teams.
                 </p>
-                <div className="mt-6 text-3xl font-extrabold text-slate-900 dark:text-white">
-                  $0{" "}
-                  <span className="text-xs font-normal text-slate-400">
+                <div className="mt-6 text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+                  $0
+                  <span className="text-xs sm:text-sm font-normal text-muted-foreground">
                     / workspace / mo
                   </span>
                 </div>
-                <ul className="mt-6 space-y-3 text-xs text-slate-600 dark:text-slate-400">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                <ul className="mt-6 space-y-3 text-xs sm:text-sm text-muted-foreground">
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>Custom Subdomain Included</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>Up to 3 Agent Seats</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>Standard Ticket Queue & Views</span>
                   </li>
                 </ul>
               </div>
               <Link
                 href={APP_ROUTES.SETUP}
-                className="mt-8 w-full py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-semibold text-center text-slate-800 dark:text-white transition-colors block"
+                className="mt-8 w-full py-3 rounded-xl border border-border bg-muted/60 hover:bg-muted text-xs sm:text-sm font-semibold text-center text-foreground transition-colors block"
               >
                 Start Free Today
               </Link>
             </div>
 
-            <div className="p-6 sm:p-8 rounded-2xl border-2 border-brand-accent bg-white dark:bg-slate-900 flex flex-col justify-between relative shadow-lg">
-              <div className="absolute -top-3 right-6 bg-brand-accent text-white text-[10px] font-bold tracking-widest px-2.5 py-0.5 rounded-full uppercase">
+            <div className="p-6 sm:p-8 rounded-2xl border-2 border-brand-accent bg-card text-card-foreground flex flex-col justify-between relative shadow-lg lg:-translate-y-2">
+              <div className="absolute -top-3.5 right-6 bg-brand-accent text-primary-foreground text-[10px] font-bold tracking-wider px-3 py-0.5 rounded-full uppercase shadow-xs">
                 Most Popular
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-800 dark:text-white">
+                <h3 className="text-base sm:text-lg font-bold text-foreground">
                   Pro Operations
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1">
                   For growing businesses needing automation & SLAs.
                 </p>
-                <div className="mt-6 text-3xl font-extrabold text-slate-900 dark:text-white">
-                  $29{" "}
-                  <span className="text-xs font-normal text-slate-400">
+                <div className="mt-6 text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+                  $29
+                  <span className="text-xs sm:text-sm font-normal text-muted-foreground">
                     / agent / mo
                   </span>
                 </div>
-                <ul className="mt-6 space-y-3 text-xs text-slate-600 dark:text-slate-400">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                <ul className="mt-6 space-y-3 text-xs sm:text-sm text-muted-foreground">
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>Unlimited Agent Seats</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>Automated SLA Rules & Escalations</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>AI Copilot & Smart Ticket Triage</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>REST API & Webhook Access</span>
                   </li>
                 </ul>
               </div>
               <Link
                 href={APP_ROUTES.SETUP}
-                className="mt-8 w-full py-2.5 rounded-lg bg-brand-accent hover:bg-brand-hover text-xs font-semibold text-center text-white transition-colors shadow-xs block"
+                className="mt-8 w-full py-3 rounded-xl bg-brand-accent hover:bg-brand-accent/90 text-xs sm:text-sm font-semibold text-center text-primary-foreground transition-colors shadow-xs block"
               >
                 Start 14-Day Free Trial
               </Link>
             </div>
 
-            <div className="p-6 sm:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between">
+            <div className="p-6 sm:p-8 rounded-2xl border border-border bg-card text-card-foreground flex flex-col justify-between shadow-xs hover:border-brand-accent/30 transition-all">
               <div>
                 <div className="flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-primary shrink-0" />
-                  <h3 className="text-lg font-bold text-slate-800 dark:text-white">
+                  <Building2 className="w-4 h-4 text-brand-accent shrink-0" />
+                  <h3 className="text-base sm:text-lg font-bold text-foreground">
                     Business Plan
                   </h3>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1">
                   Custom infrastructure for high-scale organizations.
                 </p>
-                <div className="mt-6 text-3xl font-extrabold text-slate-900 dark:text-white">
-                  $59{" "}
-                  <span className="text-xs font-normal text-slate-400">
+                <div className="mt-6 text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+                  $59
+                  <span className="text-xs sm:text-sm font-normal text-muted-foreground">
                     / agent / mo
                   </span>
                 </div>
-                <ul className="mt-6 space-y-3 text-xs text-slate-600 dark:text-slate-400">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                <ul className="mt-6 space-y-3 text-xs sm:text-sm text-muted-foreground">
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>Custom Domain Mapping (SSL)</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>SAML SSO & Okta/Azure AD</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>Dedicated DB Isolation & Backup</span>
                   </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                  <li className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-brand-accent shrink-0" />
                     <span>24/7 Priority SLA & Account Manager</span>
                   </li>
                 </ul>
               </div>
               <Link
                 href={APP_ROUTES.LOGIN}
-                className="mt-8 w-full py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-semibold text-center text-slate-800 dark:text-white transition-colors block"
+                className="mt-8 w-full py-3 rounded-xl border border-border bg-muted/60 hover:bg-muted text-xs sm:text-sm font-semibold text-center text-foreground transition-colors block"
               >
                 Contact Sales
               </Link>
@@ -455,13 +467,13 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 text-center sm:text-left">
-          <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-            <span className="w-5 h-5 rounded bg-brand-accent text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+      <footer className="border-t border-border bg-background py-8 sm:py-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground text-center sm:text-left">
+          <div className="flex items-center gap-2 font-medium text-foreground">
+            <span className="w-5 h-5 rounded bg-brand-accent text-primary-foreground flex items-center justify-center font-bold text-[10px] shrink-0">
               S
             </span>
-            <span>ServiceDeskPro Platform</span>
+            <span className="tracking-tight">ServiceDeskPro Platform</span>
           </div>
           <p>
             © {new Date().getFullYear()} ServiceDeskPro. All rights reserved.

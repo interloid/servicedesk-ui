@@ -36,6 +36,7 @@ interface ProfileModalProps {
   onOpenChange: (open: boolean) => void;
   companyName?: string;
   tenantId: string;
+  role: string;
   initialValues?: Partial<ProfileFormValues> & { initials?: string };
 }
 
@@ -43,6 +44,7 @@ export function ProfileModal({
   open,
   onOpenChange,
   companyName = "Northwind Support",
+  role,
   tenantId,
   initialValues,
 }: ProfileModalProps) {
@@ -106,7 +108,7 @@ export function ProfileModal({
             Profile settings
           </DialogTitle>
           <DialogDescription className="text-xs sm:text-sm font-medium text-slate-500">
-            Agent · {companyName}
+            {role} · {companyName}
           </DialogDescription>
         </DialogHeader>
 
@@ -133,7 +135,7 @@ export function ProfileModal({
                   </AvatarFallback>
                 </Avatar>
                 <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <Camera className="h-5 w-5 text-white" />
+                  <Camera className="h-5 w-5 text-primary-foreground " />
                 </div>
               </div>
 

@@ -165,7 +165,7 @@ export function StepBusinessHours({
                       className={cn(
                         "px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all grow sm:grow-0",
                         isSelected
-                          ? "border-primary bg-brand-badge text-brand-badge-foreground"
+                          ? "border border-brand-accent bg-brand-badge text-brand-badge-foreground"
                           : "border-border bg-background text-slate-400 hover:border-slate-300",
                       )}
                     >
@@ -250,7 +250,7 @@ export function StepBusinessHours({
               type="button"
               variant="outline"
               onClick={onSkip}
-              className="w-full sm:w-auto h-11 px-5 font-semibold"
+              className="w-full sm:w-auto h-11 px-5 font-semibold text-brand-accent"
             >
               Skip for now
             </Button>

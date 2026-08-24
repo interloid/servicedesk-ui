@@ -1,14 +1,12 @@
 "use client";
 import { useState } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import slugify from "slugify";
 import { OnboardingState } from "../types/onboarding";
-import { useWatch } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -19,6 +17,15 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { checkSlugAvailabilityAction } from "../register-actions";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 
 const organizationFormSchema = z.object({
   orgName: z
@@ -65,13 +72,7 @@ export function StepOrganization({
 
   const tzList = Array.isArray(timezones) ? timezones : [];
 
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    control,
-    formState: { errors },
-  } = useForm<OrganizationFormValues>({
+  const form = useForm<OrganizationFormValues>({
     resolver: zodResolver(organizationFormSchema),
     defaultValues: {
       orgName: data.orgName || "",
@@ -79,6 +80,8 @@ export function StepOrganization({
       timezone_id: data.timezone_id || "",
     },
   });
+
+  const { handleSubmit, setValue, control } = form;
 
   const portalAddressVal = useWatch({
     control,
@@ -122,139 +125,147 @@ export function StepOrganization({
 
   return (
     <div className="w-full space-y-6">
-      <form
-        onSubmit={handleSubmit(handleOrganizationSubmit)}
-        className="space-y-5 text-left"
-      >
-        {slugError && (
-          <Alert variant="destructive" className="py-2 text-xs">
-            <AlertDescription>{slugError}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="orgName"
-            className="text-sm font-semibold text-slate-800"
-          >
-            Organization name
-          </Label>
-          <Input
-            id="orgName"
-            placeholder="Northwind Support"
-            className="h-11 text-slate-800 placeholder:text-slate-400"
-            {...register("orgName")}
-            onChange={(e) => {
-              const val = e.target.value;
-              setValue("orgName", val, { shouldValidate: true });
-              const generatedSlug = slugify(val, { lower: true, strict: true });
-              setValue("portalAddress", generatedSlug, {
-                shouldValidate: true,
-              });
-              setSlugError(null);
-            }}
-          />
-          {errors.orgName && (
-            <p className="text-xs font-medium text-destructive">
-              {errors.orgName.message}
-            </p>
+      <Form {...form}>
+        <form
+          onSubmit={handleSubmit(handleOrganizationSubmit)}
+          className="space-y-5 text-left"
+        >
+          {slugError && (
+            <Alert variant="destructive" className="py-2 text-xs">
+              <AlertDescription>{slugError}</AlertDescription>
+            </Alert>
           )}
-        </div>
 
-        <div className="space-y-1.5">
-          <Label
-            htmlFor="portalAddress"
-            className="text-sm font-semibold text-slate-800"
-          >
-            Portal address
-          </Label>
-          <Input
-            id="portalAddress"
-            placeholder="northwind"
-            className="h-11 text-slate-800 placeholder:text-slate-400"
-            {...register("portalAddress")}
-            onChange={(e) => {
-              const formattedSlug = e.target.value
-                .toLowerCase()
-                .replace(/\s+/g, "-");
-              setValue("portalAddress", formattedSlug, {
-                shouldValidate: true,
-              });
-              setSlugError(null);
-            }}
-          />
-          <p className="text-xs text-slate-500">
-            {portalAddressVal ? portalAddressVal : "your-domain"}
-            .servicedesk.pro
-          </p>
-          {errors.portalAddress && (
-            <p className="text-xs font-medium text-destructive">
-              {errors.portalAddress.message}
-            </p>
-          )}
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-sm font-semibold text-slate-800">
-            Time zone
-          </Label>
-          <Controller
-            name="timezone_id"
+          <FormField
             control={control}
+            name="orgName"
             render={({ field }) => (
-              <Select value={field.value} onValueChange={field.onChange}>
-                <SelectTrigger className="w-full min-h-11 text-slate-800">
-                  <SelectValue placeholder="Select a timezone" />
-                </SelectTrigger>
-                <SelectContent side="bottom" align="start" position="popper">
-                  {tzList.map((tz) => (
-                    <SelectItem key={tz.id} value={tz.id}>
-                      {tz.display_name || tz.name || tz.label || tz.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FormItem className="space-y-1.5">
+                <FormLabel
+                  htmlFor="orgName"
+                  className="text-sm font-semibold text-slate-800"
+                >
+                  Organization name
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    id="orgName"
+                    placeholder="Northwind Support"
+                    className="h-11 text-slate-800 placeholder:text-slate-400"
+                    onChange={(e) => {
+                      field.onChange(e);
+                      const val = e.target.value;
+                      setValue("orgName", val, { shouldValidate: true });
+                      const generatedSlug = slugify(val, {
+                        lower: true,
+                        strict: true,
+                      });
+                      setValue("portalAddress", generatedSlug, {
+                        shouldValidate: true,
+                      });
+                      setSlugError(null);
+                    }}
+                  />
+                </FormControl>
+                <FormMessage className="text-xs font-medium text-destructive" />
+              </FormItem>
             )}
           />
-          {selectedTz && (
-            <p className="text-xs text-slate-500">
-              {selectedTz.utc_offset && `${selectedTz.utc_offset} · `}
-              {selectedTz.cities || selectedTz.display_name}
-            </p>
-          )}
-          {errors.timezone_id && (
-            <p className="text-xs font-medium text-destructive">
-              {errors.timezone_id.message}
-            </p>
-          )}
-        </div>
 
-        <Button
-          type="submit"
-          disabled={isCheckingSlug}
-          className="h-11 w-full font-semibold"
-        >
-          {isCheckingSlug ? (
-            <>
-              <LoadingSpinner />
-              Checking availability...
-            </>
-          ) : (
-            "Continue"
-          )}
-        </Button>
+          <FormField
+            control={control}
+            name="portalAddress"
+            render={({ field }) => (
+              <FormItem className="space-y-1.5">
+                <FormLabel
+                  htmlFor="portalAddress"
+                  className="text-sm font-semibold text-slate-800"
+                >
+                  Portal address
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    id="portalAddress"
+                    placeholder="northwind"
+                    className="h-11 text-slate-800 placeholder:text-slate-400"
+                    onChange={(e) => {
+                      field.onChange(e);
+                      const formattedSlug = e.target.value
+                        .toLowerCase()
+                        .replace(/\s+/g, "-");
+                      setValue("portalAddress", formattedSlug, {
+                        shouldValidate: true,
+                      });
+                      setSlugError(null);
+                    }}
+                  />
+                </FormControl>
+                <FormDescription className="text-xs text-slate-500">
+                  {portalAddressVal ? portalAddressVal : "your-domain"}
+                  .servicedesk.pro
+                </FormDescription>
+                <FormMessage className="text-xs font-medium text-destructive" />
+              </FormItem>
+            )}
+          />
 
-        <div className="text-center pt-2">
+          <FormField
+            control={control}
+            name="timezone_id"
+            render={({ field }) => (
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-sm font-semibold text-slate-800">
+                  Time zone
+                </FormLabel>
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <FormControl>
+                    <SelectTrigger className="w-full min-h-11 text-slate-800">
+                      <SelectValue placeholder="Select a timezone" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent side="bottom" align="start" position="popper">
+                    {tzList.map((tz) => (
+                      <SelectItem key={tz.id} value={tz.id}>
+                        {tz.display_name || tz.name || tz.label || tz.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedTz && (
+                  <FormDescription className="text-xs text-slate-500">
+                    {selectedTz.utc_offset && `${selectedTz.utc_offset} · `}
+                    {selectedTz.cities || selectedTz.display_name}
+                  </FormDescription>
+                )}
+                <FormMessage className="text-xs font-medium text-destructive" />
+              </FormItem>
+            )}
+          />
+
           <Button
-            type="button"
-            variant="link"
-            onClick={onBack}
-            className="p-0 h-auto text-sm font-semibold"
+            type="submit"
+            disabled={isCheckingSlug}
+            className="h-11 w-full font-semibold"
           >
-            Back
+            {isCheckingSlug ? (
+              <>
+                <LoadingSpinner />
+                Checking availability...
+              </>
+            ) : (
+              "Continue"
+            )}
           </Button>
-        </div>
-      </form>
+
+          <div className="text-center pt-2">
+            <Button type="button" variant="link" onClick={onBack}>
+              Back
+            </Button>
+          </div>
+        </form>
+      </Form>
     </div>
   );
 }

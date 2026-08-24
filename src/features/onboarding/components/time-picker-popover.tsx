@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/popover";
 
 interface TimePickerPopoverProps {
-  value?: string; // Form format: "09:00" (24h)
+  value?: string;
   onChange?: (val: string) => void;
   className?: string;
 }

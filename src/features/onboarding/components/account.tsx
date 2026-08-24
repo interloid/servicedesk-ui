@@ -163,7 +163,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
                     <Checkbox
                       checked={field.value}
                       onCheckedChange={field.onChange}
-                      className="h-5 w-5 rounded border-slate-300 data-[state=checked]:bg-emerald-700 data-[state=checked]:text-white"
+                      className="h-5 w-5 rounded border-slate-300 data-[state=checked]:bg-emerald-700 data-[state=checked]:text-primary-foreground "
                     />
                   </FormControl>
                   <FormLabel className="text-sm font-normal text-slate-700 cursor-pointer select-none">
@@ -193,7 +193,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
       </div>
 
       <div className="text-center text-sm text-slate-500">
-        Already have an account?{" "}
+        Already have an account?
         <Link
           href={APP_ROUTES.LOGIN}
           className="font-semibold text-primary hover:underline"

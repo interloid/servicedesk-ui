@@ -133,6 +133,7 @@ export async function registerTenant(payload: RegisterInput) {
             continue;
           }
 
+          console.log("🚀 ~ registerTenant ~ existingUser:", existingUser);
           if (existingUser) {
             const { data: existingMembership, error: membershipLookupError } =
               await adminSupabase
@@ -229,6 +230,8 @@ export async function registerTenant(payload: RegisterInput) {
                 role: invite.role,
               },
             });
+          console.log("🚀 ~ registerTenant ~ inviteData:", inviteData);
+          console.log("🚀 ~ registerTenant ~ inviteError:", inviteError);
 
           if (inviteError || !inviteData.user) {
             console.error(

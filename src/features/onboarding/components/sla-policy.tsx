@@ -13,14 +13,26 @@ interface StepSlaPolicyProps {
 }
 
 const DEFAULT_SLA_TARGETS: SlaTarget[] = [
-  { priority: "Urgent", firstReply: "15 minutes", resolve: "4 hours" },
-  { priority: "High", firstReply: "1 hour", resolve: "8 business hours" },
+  {
+    priority: "Urgent",
+    firstReply: "15 minutes",
+    resolve: "4 hours",
+  },
+  {
+    priority: "High",
+    firstReply: "1 hour",
+    resolve: "8 business hours",
+  },
   {
     priority: "Normal",
     firstReply: "4 business hours",
     resolve: "2 business days",
   },
-  { priority: "Low", firstReply: "1 business day", resolve: "5 business days" },
+  {
+    priority: "Low",
+    firstReply: "1 business day",
+    resolve: "5 business days",
+  },
 ];
 
 export function StepSlaPolicy({
@@ -40,21 +52,25 @@ export function StepSlaPolicy({
           bg: "bg-red-50 text-red-700 border-red-100",
           dot: "bg-red-500",
         };
+
       case "high":
         return {
           bg: "bg-amber-50 text-amber-800 border-amber-100",
           dot: "bg-amber-500",
         };
+
       case "normal":
         return {
           bg: "bg-sky-50 text-sky-800 border-sky-100",
           dot: "bg-sky-500",
         };
+
       case "low":
         return {
           bg: "bg-slate-100 text-slate-700 border-slate-200",
           dot: "bg-slate-500",
         };
+
       default:
         return {
           bg: "bg-slate-100 text-slate-700 border-slate-200",
@@ -64,29 +80,47 @@ export function StepSlaPolicy({
   };
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full max-w-2xl mx-auto space-y-6">
       <div className="space-y-1 text-left">
-        <h3 className="text-base font-bold text-slate-900">
+        <h3 className="text-base sm:text-lg font-bold text-slate-900">
           Set your first SLA targets
         </h3>
+
         <p className="text-xs sm:text-sm text-slate-500">
           Targets run on business hours. You can add more policies later.
         </p>
       </div>
 
-      <div className="rounded-2xl border border-slate-200/80 bg-white divide-y divide-slate-100 overflow-hidden shadow-xs text-left">
+      <div className="w-full overflow-hidden rounded-xl sm:rounded-2xl border border-slate-200/80 bg-white shadow-xs">
         {slaTargets.map((sla) => {
           const styles = getPriorityBadgeStyles(sla.priority);
 
           return (
             <div
               key={sla.priority}
-              className="flex flex-col sm:grid sm:grid-cols-12 sm:items-center px-4 sm:px-6 py-3.5 sm:py-4 text-xs sm:text-sm hover:bg-slate-50/50 transition-colors gap-2 sm:gap-4"
+              className={cn(
+                "grid items-center",
+                "grid-cols-1",
+                "sm:grid-cols-[80px_minmax(0,1fr)_minmax(0,1fr)]",
+                "gap-3 sm:gap-5",
+                "px-3 sm:px-4",
+                "py-4",
+                "text-xs sm:text-sm",
+                "border-b border-slate-100",
+                "last:border-b-0",
+                "hover:bg-slate-50/50",
+                "transition-colors",
+              )}
             >
-              <div className="sm:col-span-3 flex items-center">
+              <div className="flex items-center">
                 <span
                   className={cn(
-                    "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border",
+                    "inline-flex items-center gap-1.5",
+                    "px-3 py-1",
+                    "rounded-full",
+                    "text-xs font-bold",
+                    "border",
+                    "whitespace-nowrap",
                     styles.bg,
                   )}
                 >
@@ -100,42 +134,56 @@ export function StepSlaPolicy({
                 </span>
               </div>
 
-              <div className="sm:col-span-9 flex flex-col xs:flex-row xs:items-center sm:grid sm:grid-cols-9 gap-1.5 xs:gap-4 sm:gap-2 text-slate-500">
-                <div className="sm:col-span-5 whitespace-nowrap">
-                  First reply{" "}
-                  <span className="font-bold text-slate-900">
-                    {sla.firstReply}
-                  </span>
-                </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-slate-500 shrink-0">First reply</span>
 
-                <div className="sm:col-span-4 whitespace-nowrap">
-                  Resolve{" "}
-                  <span className="font-bold text-slate-900">
-                    {sla.resolve}
-                  </span>
-                </div>
+                <span className="font-bold text-slate-900 min-w-0">
+                  {sla.firstReply}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-slate-500 shrink-0">Resolve</span>
+
+                <span className="font-bold text-slate-900 min-w-0">
+                  {sla.resolve}
+                </span>
               </div>
             </div>
           );
         })}
       </div>
 
-      <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pt-2 sm:pt-4">
+      <div
+        className={cn(
+          "flex flex-col-reverse",
+          "sm:flex-row sm:items-center sm:justify-between",
+          "gap-3 sm:gap-4",
+          "pt-2 sm:pt-4",
+        )}
+      >
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           onClick={onBack}
           className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
         >
           Back
         </Button>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
+        <div
+          className={cn(
+            "flex flex-col",
+            "sm:flex-row sm:items-center",
+            "gap-2.5 sm:gap-3",
+            "w-full sm:w-auto",
+          )}
+        >
           <Button
             type="button"
             variant="outline"
             onClick={onSkip}
-            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
+            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold text-brand-accent"
           >
             Skip for now
           </Button>

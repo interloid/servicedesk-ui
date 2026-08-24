@@ -25,10 +25,10 @@ export function AppHeader({ identity }: { identity: ShellIdentity | null }) {
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <Button
-          variant="outline"
+          variant="ghost"
           size="icon-lg"
           aria-label="Search"
-          className="lg:hidden"
+          className="relative size-10 sm:size-11 rounded-md lg:hidden"
         >
           <Search aria-hidden />
         </Button>

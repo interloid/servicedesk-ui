@@ -214,7 +214,7 @@ export function LoginForm({
         </div>
 
         <p className="text-center text-sm text-muted-foreground">
-          New here?{" "}
+          New here?
           <Link
             href={APP_ROUTES.SETUP}
             className="ml-1 font-semibold text-brand-accent hover:underline"

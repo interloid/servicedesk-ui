@@ -133,6 +133,7 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
         onOpenChange={setIsProfileOpen}
         tenantId={identity.org.id}
         companyName={identity.org.name}
+        role={displayRole}
         initialValues={{
           fullName: identity.user.name,
           email: identity.user.email,

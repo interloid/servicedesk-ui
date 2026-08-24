@@ -115,7 +115,6 @@ export function ProfileModal({
             onSubmit={form.handleSubmit(onSubmit)}
             className="space-y-4 pt-2"
           >
-            {/* Avatar Section */}
             <div className="flex items-center gap-3 sm:gap-4 py-2">
               <div
                 className="relative group cursor-pointer shrink-0"
@@ -163,7 +162,6 @@ export function ProfileModal({
               />
             </div>
 
-            {/* Inputs */}
             <FormField
               control={form.control}
               name="fullName"
@@ -175,7 +173,7 @@ export function ProfileModal({
                   <FormControl>
                     <Input
                       disabled={isSubmitting}
-                      className="h-10 sm:h-11 text-xs sm:text-sm"
+                      className="h-11 text-xs sm:text-sm"
                       {...field}
                     />
                   </FormControl>
@@ -196,7 +194,7 @@ export function ProfileModal({
                     <Input
                       type="email"
                       disabled={isSubmitting}
-                      className="h-10 sm:h-11 text-xs sm:text-sm"
+                      className="h-11 text-xs sm:text-sm"
                       {...field}
                     />
                   </FormControl>
@@ -213,12 +211,11 @@ export function ProfileModal({
                 <Input
                   value={companyName}
                   disabled
-                  className="bg-slate-100 text-slate-500 h-10 sm:h-11 text-xs sm:text-sm"
+                  className="bg-slate-100 text-slate-500 h-11 text-xs sm:text-sm"
                 />
               </FormControl>
             </FormItem>
 
-            {/* SLA Switch */}
             <FormField
               control={form.control}
               name="slaNotification"
@@ -229,7 +226,7 @@ export function ProfileModal({
                       disabled={isSubmitting}
                       checked={field.value}
                       onCheckedChange={field.onChange}
-                      className="data-[state=checked]:bg-emerald-800 shrink-0"
+                      className="shrink-0"
                     />
                   </FormControl>
                   <FormLabel className="text-xs sm:text-sm font-medium text-slate-800 cursor-pointer leading-tight">
@@ -239,21 +236,20 @@ export function ProfileModal({
               )}
             />
 
-            {/* Responsive Buttons */}
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 pt-4">
               <Button
                 type="button"
                 variant="outline"
                 disabled={isSubmitting}
                 onClick={() => onOpenChange(false)}
-                className="w-full sm:w-auto h-10 sm:h-11 border-slate-300 text-emerald-800 hover:bg-slate-50 font-semibold text-xs sm:text-sm"
+                className="w-full sm:w-auto h-11 font-semibold text-xs sm:text-sm"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full sm:w-auto h-10 sm:h-11 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold text-xs sm:text-sm"
+                className="w-full sm:w-auto h-11 font-semibold text-xs sm:text-sm"
               >
                 {isSubmitting ? "Saving..." : "Save changes"}
               </Button>

@@ -142,7 +142,7 @@ export function StepOrganization({
           <Input
             id="orgName"
             placeholder="Northwind Support"
-            className="h-11 rounded-lg border-slate-300 text-slate-800 placeholder:text-slate-400 focus-visible:ring-emerald-700"
+            className="h-11 text-slate-800 placeholder:text-slate-400"
             {...register("orgName")}
             onChange={(e) => {
               const val = e.target.value;
@@ -171,7 +171,7 @@ export function StepOrganization({
           <Input
             id="portalAddress"
             placeholder="northwind"
-            className="h-11 rounded-lg border-slate-300 text-slate-800 placeholder:text-slate-400 focus-visible:ring-emerald-700"
+            className="h-11 text-slate-800 placeholder:text-slate-400"
             {...register("portalAddress")}
             onChange={(e) => {
               const formattedSlug = e.target.value
@@ -203,7 +203,7 @@ export function StepOrganization({
             control={control}
             render={({ field }) => (
               <Select value={field.value} onValueChange={field.onChange}>
-                <SelectTrigger className="w-full min-h-11 rounded-lg border-slate-300 text-slate-800 focus:ring-emerald-700">
+                <SelectTrigger className="w-full min-h-11 text-slate-800">
                   <SelectValue placeholder="Select a timezone" />
                 </SelectTrigger>
                 <SelectContent side="bottom" align="start" position="popper">
@@ -232,7 +232,7 @@ export function StepOrganization({
         <Button
           type="submit"
           disabled={isCheckingSlug}
-          className="w-full h-11 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors"
+          className="h-11 w-full font-semibold"
         >
           {isCheckingSlug ? (
             <>
@@ -249,7 +249,7 @@ export function StepOrganization({
             type="button"
             variant="link"
             onClick={onBack}
-            className="text-sm font-semibold text-emerald-800 hover:underline p-0 h-auto"
+            className="p-0 h-auto text-sm font-semibold"
           >
             Back
           </Button>

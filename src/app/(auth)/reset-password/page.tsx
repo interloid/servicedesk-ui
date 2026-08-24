@@ -206,7 +206,7 @@ function ResetPasswordForm() {
                       <PasswordInput
                         placeholder="••••••••"
                         disabled={isPending || Boolean(authError)}
-                        className="h-11 rounded-sm text-sm"
+                        className="h-11 rounded-lg text-sm"
                         {...field}
                       />
                     </FormControl>
@@ -229,7 +229,7 @@ function ResetPasswordForm() {
                       <PasswordInput
                         placeholder="••••••••"
                         disabled={isPending || Boolean(authError)}
-                        className="h-11 rounded-sm text-sm"
+                        className="h-11 rounded-lg text-sm"
                         {...field}
                       />
                     </FormControl>
@@ -242,7 +242,7 @@ function ResetPasswordForm() {
               <Button
                 type="submit"
                 disabled={isPending || Boolean(authError)}
-                className="h-13 bg-brand-accent text-brand-accent-foreground font-semibold"
+                className="h-11 font-semibold"
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">

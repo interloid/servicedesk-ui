@@ -83,7 +83,7 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
 
         <DropdownMenuContent
           align="end"
-          sideOffset={8}
+          sideOffset={13}
           className="w-60 rounded-xl p-0"
         >
           <DropdownMenuLabel className="flex flex-col gap-0.5 border-b px-3.5 py-3 font-normal">

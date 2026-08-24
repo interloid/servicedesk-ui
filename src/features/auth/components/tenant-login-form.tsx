@@ -25,7 +25,7 @@ import type { ShellIdentity } from "@/lib/identity";
 import { PasswordInput } from "@/components/ui/password-input";
 import { APP_ROUTES } from "@/lib/routes";
 
-const FIELD_CLASS = "h-11 rounded-sm text-sm md:h-10.5";
+const FIELD_CLASS = "h-11 rounded-lg text-sm";
 
 const ERROR_HEADLINE: Record<AuthFailureCode, string> = {
   invalid_credentials: "That email and password don't match.",
@@ -197,7 +197,7 @@ export function TenantLoginForm({
           <Button
             type="submit"
             disabled={busy}
-            className="h-13 w-full bg-brand-accent text-base font-semibold text-brand-accent-foreground hover:bg-brand-accent/90"
+            className="h-11 w-full text-base font-semibold"
           >
             {isPending ? "Signing in…" : "Sign in"}
           </Button>
@@ -213,7 +213,7 @@ export function TenantLoginForm({
             variant="outline"
             disabled={busy}
             onClick={onGoogleSignIn}
-            className="h-13 w-full border-input text-base text-brand-accent"
+            className="h-11 w-full border-input text-base text-brand-accent"
           >
             {isGooglePending
               ? "Redirecting to Google…"

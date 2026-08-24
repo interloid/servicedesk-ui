@@ -128,91 +128,96 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
   };
 
   return (
-    <div className="relative overflow-y-auto w-full max-w-2xl mx-auto rounded-3xl bg-white p-8 sm:p-10 shadow-xl border border-slate-100 text-left">
-      {currentStep <= 2 ? (
-        <div className="mb-6">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-            STEP {currentStep} OF 4
-          </span>
-          <h1 className="text-2xl font-bold text-slate-900 mt-1">
-            {currentStep === 1
-              ? "Create your account"
-              : "Create your organization"}
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {currentStep === 1
-              ? "You'll be the first admin. Invite the rest of your team in a minute."
-              : "This is what your customers see on the portal and in every reply."}
-          </p>
-        </div>
-      ) : (
-        <div className="mb-6">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-            SET UP{" "}
-            {formData.orgName ? formData.orgName.toUpperCase() : "NORTHWIND"}{" "}
-            SUPPORT
-          </span>
-          <h1 className="text-2xl font-bold text-slate-900 mt-1">
-            Three steps and your queue is live.
-          </h1>
-        </div>
-      )}
+    <div className="w-full max-w-xl mx-auto rounded-3xl bg-white p-6 sm:p-8 shadow-xl border border-slate-100 flex flex-col max-h-[calc(100dvh-9rem)] overflow-hidden text-left">
+      <div className="shrink-0 pb-4 border-b border-slate-100">
+        {currentStep <= 2 ? (
+          <div>
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-brand-accent">
+              STEP {currentStep} OF 4
+            </span>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">
+              {currentStep === 1
+                ? "Create your account"
+                : "Create your organization"}
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              {currentStep === 1
+                ? "You'll be the first admin. Invite the rest of your team in a minute."
+                : "This is what your customers see on the portal and in every reply."}
+            </p>
+          </div>
+        ) : (
+          <div>
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-brand-accent">
+              SET UP{" "}
+              {formData.orgName ? formData.orgName.toUpperCase() : "NORTHWIND"}{" "}
+              SUPPORT
+            </span>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">
+              Three steps and your queue is live.
+            </h1>
+          </div>
+        )}
 
-      <StepperHeader currentStep={currentStep} />
-
-      {errorMessage && (
-        <div className="my-4 rounded-xl bg-red-50 p-4 text-xs text-red-600 border border-red-100">
-          {errorMessage}
+        <div className="mt-4">
+          <StepperHeader currentStep={currentStep} />
         </div>
-      )}
-
-      <div className="mt-6">
-        {currentStep === 1 && (
-          <StepAccount
-            data={formData}
-            onChange={updateFormData}
-            onNext={handleNext}
-          />
-        )}
-        {currentStep === 2 && (
-          <StepOrganization
-            timezones={timezones}
-            data={formData}
-            onChange={updateFormData}
-            onNext={handleNext}
-            onBack={handleBack}
-          />
-        )}
-        {currentStep === 3 && (
-          <StepBusinessHours
-            timezones={timezones}
-            data={formData}
-            onChange={updateFormData}
-            onNext={handleNext}
-            onSkip={handleSkip}
-            onBack={handleBack}
-          />
-        )}
-        {currentStep === 4 && (
-          <StepSlaPolicy
-            data={formData}
-            onNext={handleNext}
-            onSkip={handleSkip}
-            onBack={handleBack}
-          />
-        )}
-        {currentStep === 5 && (
-          <StepInviteTeam
-            data={formData}
-            onChange={updateFormData}
-            onFinish={handleFinish}
-            onSkip={handleSkip}
-            onBack={handleBack}
-          />
-        )}
       </div>
 
-      <OnboardingLoader isLoading={isSubmitting} />
+      <div className="flex-1 overflow-y-auto pt-6 px-1 pr-4">
+        {errorMessage && (
+          <div className="mb-4 rounded-xl bg-red-50 p-3 sm:p-4 text-xs text-red-600 border border-red-100">
+            {errorMessage}
+          </div>
+        )}
+
+        <div className="pb-4">
+          {currentStep === 1 && (
+            <StepAccount
+              data={formData}
+              onChange={updateFormData}
+              onNext={handleNext}
+            />
+          )}
+          {currentStep === 2 && (
+            <StepOrganization
+              timezones={timezones}
+              data={formData}
+              onChange={updateFormData}
+              onNext={handleNext}
+              onBack={handleBack}
+            />
+          )}
+          {currentStep === 3 && (
+            <StepBusinessHours
+              timezones={timezones}
+              data={formData}
+              onChange={updateFormData}
+              onNext={handleNext}
+              onSkip={handleSkip}
+              onBack={handleBack}
+            />
+          )}
+          {currentStep === 4 && (
+            <StepSlaPolicy
+              data={formData}
+              onNext={handleNext}
+              onSkip={handleSkip}
+              onBack={handleBack}
+            />
+          )}
+          {currentStep === 5 && (
+            <StepInviteTeam
+              data={formData}
+              onChange={updateFormData}
+              onFinish={handleFinish}
+              onSkip={handleSkip}
+              onBack={handleBack}
+            />
+          )}
+          <OnboardingLoader isLoading={isSubmitting} />
+        </div>
+      </div>
     </div>
   );
 }

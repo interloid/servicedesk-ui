@@ -40,8 +40,7 @@ interface AccountStepProps {
   onNext: () => void;
 }
 
-const FIELD_CLASS =
-  "h-11 rounded-lg border-slate-300 text-slate-800 placeholder:text-slate-400 focus-visible:ring-emerald-700 aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:ring-destructive";
+const FIELD_CLASS = "h-11 text-slate-800 placeholder:text-slate-400";
 
 export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
   const [isCheckingTenant, setIsCheckingTenant] = useState<boolean>(false);
@@ -179,7 +178,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
           <Button
             type="submit"
             disabled={isCheckingTenant}
-            className="w-full h-11 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors"
+            className="h-11 w-full font-semibold"
           >
             {isCheckingTenant ? "Checking..." : "Continue"}
           </Button>
@@ -197,7 +196,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
         Already have an account?{" "}
         <Link
           href={APP_ROUTES.LOGIN}
-          className="font-semibold text-emerald-800 hover:underline"
+          className="font-semibold text-primary hover:underline"
         >
           Sign in
         </Link>

@@ -95,7 +95,7 @@ export function TimePickerPopover({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "h-11 w-full justify-between rounded-lg border-slate-300 bg-white px-3 text-left font-normal text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-emerald-700",
+            "h-11 w-full justify-between px-3 text-left font-normal text-slate-800 shadow-sm",
             className,
           )}
         >
@@ -121,8 +121,8 @@ export function TimePickerPopover({
                 className={cn(
                   "py-1.5 text-center text-sm rounded-sm my-0.5 transition-colors font-medium",
                   hour === h
-                    ? "bg-emerald-700 text-white font-bold"
-                    : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800",
+                    ? "bg-brand-accent text-primary-foreground font-bold"
+                    : "text-slate-700 hover:bg-accent hover:text-accent-foreground",
                 )}
               >
                 {h}
@@ -143,8 +143,8 @@ export function TimePickerPopover({
                 className={cn(
                   "py-1.5 text-center text-sm rounded-sm my-0.5 transition-colors font-medium",
                   minute === m
-                    ? "bg-emerald-700 text-white font-bold"
-                    : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800",
+                    ? "bg-brand-accent text-primary-foreground font-bold"
+                    : "text-slate-700 hover:bg-accent hover:text-accent-foreground",
                 )}
               >
                 {m}
@@ -161,8 +161,8 @@ export function TimePickerPopover({
                 className={cn(
                   "py-1.5 text-center text-sm rounded-sm my-0.5 transition-colors font-medium",
                   period === p
-                    ? "bg-emerald-700 text-white font-bold"
-                    : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-800",
+                    ? "bg-brand-accent text-primary-foreground font-bold"
+                    : "text-slate-700 hover:bg-accent hover:text-accent-foreground",
                 )}
               >
                 {p}

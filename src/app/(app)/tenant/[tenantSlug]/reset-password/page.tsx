@@ -293,7 +293,7 @@ export default function DirectResetPasswordPage() {
                       <PasswordInput
                         placeholder="••••••••"
                         disabled={isPending || Boolean(authError)}
-                        className="h-11 rounded-sm text-sm"
+                        className="h-11 rounded-lg text-sm"
                         {...field}
                       />
                     </FormControl>
@@ -306,7 +306,7 @@ export default function DirectResetPasswordPage() {
               <Button
                 type="submit"
                 disabled={isPending || Boolean(authError)}
-                className="h-13 bg-brand-accent font-semibold text-brand-accent-foreground"
+                className="h-11 font-semibold"
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">

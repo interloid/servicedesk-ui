@@ -37,7 +37,7 @@ export function NotificationMenu() {
 
       <PopoverContent
         align="end"
-        sideOffset={8}
+        sideOffset={13}
         className="w-[calc(100vw-2rem)] sm:w-96 max-w-sm overflow-hidden rounded-xl p-0 shadow-[0_24px_60px_rgba(15,23,42,0.18)]"
       >
         <div className="flex items-center justify-between gap-2.5 border-b px-4 py-3.5">
@@ -47,7 +47,7 @@ export function NotificationMenu() {
           <button
             type="button"
             onClick={() => setReadAll(true)}
-            className="rounded-sm p-1 text-xs font-semibold text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="rounded-sm p-1 text-xs font-semibold text-brand-accent hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             Mark all read
           </button>
@@ -87,7 +87,7 @@ export function NotificationMenu() {
                   aria-hidden
                   className={cn(
                     "mt-1.5 size-2 shrink-0 rounded-full",
-                    isUnread ? "bg-primary" : "bg-transparent",
+                    isUnread ? "bg-brand-accent" : "bg-transparent",
                   )}
                 />
               </div>

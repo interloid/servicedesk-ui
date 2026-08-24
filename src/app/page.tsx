@@ -22,14 +22,14 @@ export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans dark:bg-slate-950 dark:text-slate-100 flex flex-col justify-between">
+    <div className="min-h-dvh bg-slate-50 text-slate-900 font-sans dark:bg-slate-950 dark:text-slate-100 flex flex-col justify-between">
       <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link
             href="/"
             className="flex items-center gap-2.5 font-bold text-lg text-slate-900 dark:text-white"
           >
-            <span className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center font-bold text-sm shadow-xs">
+            <span className="w-8 h-8 rounded-lg bg-brand-accent text-white flex items-center justify-center font-bold text-sm shadow-xs">
               S
             </span>
             <span>ServiceDeskPro</span>
@@ -74,7 +74,7 @@ export default function Home() {
             </Link>
             <Link
               href={APP_ROUTES.SETUP}
-              className="px-4 py-2 text-sm font-medium text-white bg-primary hover:bg-brand-hover rounded-lg transition-colors shadow-xs"
+              className="px-4 py-2 text-sm font-medium text-white bg-brand-accent hover:bg-brand-hover rounded-lg transition-colors shadow-xs"
             >
               Get Started
             </Link>
@@ -140,7 +140,7 @@ export default function Home() {
               <Link
                 href={APP_ROUTES.SETUP}
                 onClick={() => setMobileMenuOpen(false)}
-                className="w-full text-center px-4 py-2.5 text-sm font-medium text-white bg-primary hover:bg-brand-hover rounded-lg shadow-xs"
+                className="w-full text-center px-4 py-2.5 text-sm font-medium text-white bg-brand-accent hover:bg-brand-hover rounded-lg shadow-xs"
               >
                 Get Started
               </Link>
@@ -151,7 +151,7 @@ export default function Home() {
 
       <main className="flex-1">
         <section className="relative px-4 sm:px-6 pt-12 sm:pt-20 md:pt-24 pb-12 sm:pb-16 max-w-5xl mx-auto text-center flex flex-col items-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 mb-6 max-w-full text-center">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-50 text-primary text-xs font-semibold border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50 mb-6 max-w-full text-center">
             <Sparkles className="w-3.5 h-3.5 text-(brand-base) shrink-0" />
             <span className="truncate">
               Next-Gen AI-Powered Support Infrastructure
@@ -174,7 +174,7 @@ export default function Home() {
           <div className="mt-8 flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
             <Link
               href={APP_ROUTES.SETUP}
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-primary hover:bg-brand-hover text-white font-medium text-sm transition-all shadow-md hover:shadow-lg w-full sm:w-auto"
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-brand-accent hover:bg-brand-hover text-white font-medium text-sm transition-all shadow-md hover:shadow-lg w-full sm:w-auto"
             >
               Create Your Workspace <ArrowRight className="w-4 h-4" />
             </Link>
@@ -208,7 +208,7 @@ export default function Home() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
               <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 hover:border-emerald-500/50 transition-all">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
+                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                   <Bot className="w-5 h-5" />
                 </div>
                 <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
@@ -222,7 +222,7 @@ export default function Home() {
               </div>
 
               <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 hover:border-emerald-500/50 transition-all">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
+                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                   <Cpu className="w-5 h-5" />
                 </div>
                 <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
@@ -235,7 +235,7 @@ export default function Home() {
               </div>
 
               <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 hover:border-emerald-500/50 transition-all">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
+                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-primary flex items-center justify-center mb-4 dark:bg-emerald-950 dark:text-emerald-300">
                   <Globe className="w-5 h-5" />
                 </div>
                 <h3 className="font-bold text-lg text-slate-900 dark:text-white mb-2">
@@ -326,7 +326,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-8 max-w-6xl mx-auto items-stretch">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 max-w-6xl mx-auto items-stretch">
             <div className="p-6 sm:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between">
               <div>
                 <h3 className="text-lg font-bold text-slate-800 dark:text-white">
@@ -365,7 +365,7 @@ export default function Home() {
             </div>
 
             <div className="p-6 sm:p-8 rounded-2xl border-2 border-brand-accent bg-white dark:bg-slate-900 flex flex-col justify-between relative shadow-lg">
-              <div className="absolute -top-3 right-6 bg-primary text-white text-[10px] font-bold tracking-widest px-2.5 py-0.5 rounded-full uppercase">
+              <div className="absolute -top-3 right-6 bg-brand-accent text-white text-[10px] font-bold tracking-widest px-2.5 py-0.5 rounded-full uppercase">
                 Most Popular
               </div>
               <div>
@@ -402,7 +402,7 @@ export default function Home() {
               </div>
               <Link
                 href={APP_ROUTES.SETUP}
-                className="mt-8 w-full py-2.5 rounded-lg bg-primary hover:bg-brand-hover text-xs font-semibold text-center text-white transition-colors shadow-xs block"
+                className="mt-8 w-full py-2.5 rounded-lg bg-brand-accent hover:bg-brand-hover text-xs font-semibold text-center text-white transition-colors shadow-xs block"
               >
                 Start 14-Day Free Trial
               </Link>
@@ -458,7 +458,7 @@ export default function Home() {
       <footer className="border-t border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 text-center sm:text-left">
           <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-            <span className="w-5 h-5 rounded bg-primary text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+            <span className="w-5 h-5 rounded bg-brand-accent text-white flex items-center justify-center font-bold text-[10px] shrink-0">
               S
             </span>
             <span>ServiceDeskPro Platform</span>

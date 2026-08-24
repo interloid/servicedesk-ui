@@ -114,7 +114,7 @@ export function StepInviteTeam({
             placeholder="priya@northwind.io, sam@northwind.io"
             value={emailsInput}
             onChange={(e) => handleEmailChange(e.target.value)}
-            className={`h-11 rounded-xl border-slate-200 focus-visible:ring-emerald-700 text-xs sm:text-sm shadow-xs ${
+            className={`h-11 text-xs sm:text-sm shadow-xs ${
               emailError
                 ? "border-destructive focus-visible:ring-destructive"
                 : ""
@@ -139,7 +139,7 @@ export function StepInviteTeam({
             value={normalizedRole}
             onValueChange={(val) => handleRoleChange(val as TeamInvite["role"])}
           >
-            <SelectTrigger className="min-h-11 w-full rounded-xl border-slate-200 bg-white text-xs sm:text-sm focus:ring-emerald-700 shadow-xs">
+            <SelectTrigger className="min-h-11 w-full text-xs sm:text-sm shadow-xs">
               <SelectValue placeholder="Select role" />
             </SelectTrigger>
             <SelectContent
@@ -161,7 +161,7 @@ export function StepInviteTeam({
           type="button"
           variant="ghost"
           onClick={onBack}
-          className="w-full sm:w-auto h-10 rounded-xl px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
+          className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
         >
           Back
         </Button>
@@ -171,7 +171,7 @@ export function StepInviteTeam({
             type="button"
             variant="outline"
             onClick={onSkip}
-            className="w-full sm:w-auto h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50 text-sm"
+            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
           >
             Skip for now
           </Button>
@@ -180,7 +180,7 @@ export function StepInviteTeam({
             type="button"
             onClick={handleFinish}
             disabled={!!emailError}
-            className="w-full sm:w-auto h-11 px-6 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors text-sm shadow-xs"
+            className="w-full sm:w-auto h-11 px-6 text-sm font-semibold shadow-xs"
           >
             Finish setup
           </Button>

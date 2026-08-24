@@ -22,6 +22,7 @@ import {
   CreditCard,
   Sparkles,
   ChevronDown,
+  PanelLeft,
 } from "lucide-react";
 
 import {
@@ -43,6 +44,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { ShellIdentity } from "@/lib/identity";
 import { stripTenantPrefix, tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export type MembershipRole =
   "tenant_admin" | "manager" | "agent" | "billing_admin" | "customer";
@@ -249,36 +256,48 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
             {identity?.org.initial ?? "T"}
           </div>
 
-          <div
-            className="
-              flex
-              min-w-0
-              flex-1
-              flex-col
-              group-data-[collapsible=icon]:hidden
-            "
-          >
-            <span
+          <TooltipProvider>
+            <div
               className="
-                truncate
-                text-sm
-                font-bold
-                text-foreground
-              "
+      flex
+      min-w-0
+      flex-1
+      flex-col
+      group-data-[collapsible=icon]:hidden
+    "
             >
-              {identity?.org.name ?? "Tenant Workspace"}
-            </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="
+            block
+            min-w-0
+            truncate
+            text-sm
+            font-bold
+            text-foreground
+          "
+                  >
+                    {identity?.org.name ?? "Tenant Workspace"}
+                  </span>
+                </TooltipTrigger>
 
-            <span
-              className="
-                truncate
-                text-xs
-                text-muted-foreground
-              "
-            >
-              {identity?.org.planSummary ?? "Active Plan"}
-            </span>
-          </div>
+                <TooltipContent>
+                  {identity?.org.name ?? "Tenant Workspace"}
+                </TooltipContent>
+              </Tooltip>
+
+              <span
+                className="
+        truncate
+        text-xs
+        text-muted-foreground
+      "
+              >
+                {identity?.org.planSummary ?? "Active Plan"}
+              </span>
+            </div>
+          </TooltipProvider>
 
           <ChevronDown
             aria-hidden
@@ -291,16 +310,18 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           />
 
           <SidebarTrigger
+            icon={<PanelLeft />}
             className="
-              size-8
-              shrink-0
-              border
-              border-border
-              bg-card
-              text-muted-foreground
-              hover:bg-muted
-              group-data-[collapsible=icon]:mt-0
-            "
+          hidden
+          size-8
+          shrink-0
+          border
+          border-border
+          bg-card
+          text-muted-foreground
+          hover:bg-muted
+          md:flex
+        "
           />
         </div>
       </SidebarHeader>

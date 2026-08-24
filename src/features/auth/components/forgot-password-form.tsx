@@ -98,7 +98,7 @@ export function ForgotPasswordForm() {
               variant="outline"
               onClick={handleResend}
               disabled={isPending}
-              className="h-10.5 border-input text-brand-accent"
+              className="h-11 border-input text-brand-accent"
             >
               {isPending ? (
                 <span className="flex items-center gap-2">
@@ -112,7 +112,7 @@ export function ForgotPasswordForm() {
         ) : (
           <>
             <div className="flex flex-col gap-1.5">
-              <h1 className="text-2xl font-bold tracking-tight text-balance text-foreground">
+              <h1 className="text-2xl font-bold tracking-[-0.02.5em] text-balance text-foreground">
                 Reset your password
               </h1>
               <p className="text-sm leading-[1.6] text-muted-foreground">
@@ -150,7 +150,7 @@ export function ForgotPasswordForm() {
                       autoComplete="email"
                       placeholder="you@northwind.io"
                       disabled={isPending}
-                      className="h-11 rounded-sm text-sm md:h-10.5"
+                      className="h-11 rounded-lg text-sm"
                       {...field}
                     />
                   </FormControl>
@@ -163,7 +163,7 @@ export function ForgotPasswordForm() {
               <Button
                 type="submit"
                 disabled={isPending}
-                className="h-13 bg-brand-accent px-5 text-base font-semibold text-brand-accent-foreground hover:bg-brand-accent/90"
+                className="h-11 px-5 text-base font-semibold"
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">

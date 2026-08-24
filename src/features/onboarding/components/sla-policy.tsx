@@ -125,7 +125,7 @@ export function StepSlaPolicy({
           type="button"
           variant="ghost"
           onClick={onBack}
-          className="w-full sm:w-auto h-10 rounded-xl px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
+          className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
         >
           Back
         </Button>
@@ -135,7 +135,7 @@ export function StepSlaPolicy({
             type="button"
             variant="outline"
             onClick={onSkip}
-            className="w-full sm:w-auto h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50 text-sm"
+            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
           >
             Skip for now
           </Button>
@@ -143,7 +143,7 @@ export function StepSlaPolicy({
           <Button
             type="button"
             onClick={onNext}
-            className="w-full sm:w-auto h-11 px-6 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors text-sm"
+            className="w-full sm:w-auto h-11 px-6 text-sm font-semibold"
           >
             Continue
           </Button>

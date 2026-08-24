@@ -119,7 +119,7 @@ export function StepBusinessHours({
                 control={control}
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full min-h-11 rounded-lg border-slate-300 text-slate-800 focus:ring-emerald-700">
+                    <SelectTrigger className="w-full min-h-11 text-slate-800">
                       <SelectValue placeholder="Select a timezone" />
                     </SelectTrigger>
                     <SelectContent
@@ -165,8 +165,8 @@ export function StepBusinessHours({
                       className={cn(
                         "px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all grow sm:grow-0",
                         isSelected
-                          ? "border-emerald-700 bg-emerald-50/50 text-emerald-800"
-                          : "border-slate-200 bg-white text-slate-400 hover:border-slate-300",
+                          ? "border-primary bg-brand-badge text-brand-badge-foreground"
+                          : "border-border bg-background text-slate-400 hover:border-slate-300",
                       )}
                     >
                       {day}
@@ -240,7 +240,7 @@ export function StepBusinessHours({
             type="button"
             variant="ghost"
             onClick={onBack}
-            className="w-full sm:w-auto h-10 rounded-xl px-5 text-sm font-semibold text-emerald-800 bg-emerald-50/50"
+            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
           >
             Back
           </Button>
@@ -250,13 +250,13 @@ export function StepBusinessHours({
               type="button"
               variant="outline"
               onClick={onSkip}
-              className="w-full sm:w-auto h-11 px-5 border-slate-300 text-emerald-800 font-semibold rounded-lg hover:bg-slate-50"
+              className="w-full sm:w-auto h-11 px-5 font-semibold"
             >
               Skip for now
             </Button>
             <Button
               type="submit"
-              className="w-full sm:w-auto h-11 px-6 bg-emerald-800 hover:bg-emerald-900 text-white font-semibold rounded-lg transition-colors"
+              className="w-full sm:w-auto h-11 px-6 font-semibold"
             >
               Continue
             </Button>

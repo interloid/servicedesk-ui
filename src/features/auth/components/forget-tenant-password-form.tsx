@@ -159,7 +159,7 @@ export function ForgotTenantPasswordForm({
                       autoComplete="email"
                       placeholder="you@northwind.io"
                       disabled={isPending}
-                      className="h-11 rounded-sm text-sm md:h-10.5"
+                      className="h-11 rounded-lg text-sm"
                       {...field}
                     />
                   </FormControl>
@@ -172,7 +172,7 @@ export function ForgotTenantPasswordForm({
               <Button
                 type="submit"
                 disabled={isPending}
-                className="h-13 bg-brand-accent px-5 text-base font-semibold text-brand-accent-foreground hover:bg-brand-accent/90"
+                className="h-11 px-5 text-base font-semibold"
               >
                 {isPending ? (
                   <span className="flex items-center gap-2">

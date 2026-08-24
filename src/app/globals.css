@@ -105,8 +105,8 @@
 :root {
   --radius: 0.625rem;
   --brand-base: #166534;
-  --brand-hover: #15803d;
-  --brand-pressed: #14532d;
+  --brand-hover: #0d9488;
+  --brand-pressed: #115e59;
   --brand-accent: #0f766e;
   --brand-accent-foreground: #ffffff;
   --brand-badge: #dcfce7;
@@ -223,4 +223,10 @@
 
 @utility skeleton-pulse {
   animation: sdp-skeleton 1.3s ease-in-out infinite;
+}
+
+html,
+body,
+body > div {
+  height: 100%;
 }

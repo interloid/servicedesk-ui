@@ -16,7 +16,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { AuthCard } from "@/features/auth/components/auth-card";
+import { AuthCard, AuthShell } from "@/features/auth/components/auth-card";
 import { createSupabaseClient } from "@/lib/supabase/client";
 
 import {
@@ -212,115 +212,117 @@ export default function DirectResetPasswordPage() {
   }
 
   return (
-    <div className="flex h-full items-center justify-center bg-background px-4 py-12">
-      <Form {...form}>
-        <AuthCard onSubmit={form.handleSubmit(onSubmit)}>
-          {updated ? (
-            <div className="flex flex-col items-start gap-3">
-              <span
-                aria-hidden
-                className="flex size-11 items-center justify-center rounded-xl bg-success-soft text-success-strong"
-              >
-                <Check className="size-5.5" strokeWidth={2} />
-              </span>
+    <AuthShell>
+      <div className="flex h-full items-center justify-center bg-background px-4 py-12">
+        <Form {...form}>
+          <AuthCard onSubmit={form.handleSubmit(onSubmit)}>
+            {updated ? (
+              <div className="flex flex-col items-start gap-3">
+                <span
+                  aria-hidden
+                  className="flex size-11 items-center justify-center rounded-xl bg-success-soft text-success-strong"
+                >
+                  <Check className="size-5.5" strokeWidth={2} />
+                </span>
 
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                Password reset complete
-              </h1>
-
-              <p className="text-sm text-muted-foreground">
-                Your password has been updated. Redirecting to sign in...
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-col gap-1.5">
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                  Set new password
+                  Password reset complete
                 </h1>
 
                 <p className="text-sm text-muted-foreground">
-                  Enter your new password below.
+                  Your password has been updated. Redirecting to sign in...
                 </p>
               </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                    Set new password
+                  </h1>
 
-              {(authError || form.formState.errors.root) && (
-                <Alert
-                  variant="destructive"
-                  className="rounded-[10px] px-3.5 py-3"
+                  <p className="text-sm text-muted-foreground">
+                    Enter your new password below.
+                  </p>
+                </div>
+
+                {(authError || form.formState.errors.root) && (
+                  <Alert
+                    variant="destructive"
+                    className="rounded-[10px] px-3.5 py-3"
+                  >
+                    <CircleAlert className="size-4.5" aria-hidden />
+
+                    <AlertDescription className="text-sm">
+                      {authError || form.formState.errors.root?.message}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col gap-1.5">
+                      <FormLabel className="font-semibold text-foreground">
+                        New password
+                      </FormLabel>
+
+                      <FormControl>
+                        <PasswordInput
+                          placeholder="••••••••"
+                          disabled={isPending || Boolean(authError)}
+                          className="h-11 rounded-sm pr-10 text-sm"
+                          {...field}
+                        />
+                      </FormControl>
+
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="confirmPassword"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col gap-1.5">
+                      <FormLabel className="font-semibold text-foreground">
+                        Confirm password
+                      </FormLabel>
+
+                      <FormControl>
+                        <PasswordInput
+                          placeholder="••••••••"
+                          disabled={isPending || Boolean(authError)}
+                          className="h-11 rounded-lg text-sm"
+                          {...field}
+                        />
+                      </FormControl>
+
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <Button
+                  type="submit"
+                  disabled={isPending || Boolean(authError)}
+                  className="h-11 font-semibold"
                 >
-                  <CircleAlert className="size-4.5" aria-hidden />
-
-                  <AlertDescription className="text-sm">
-                    {authError || form.formState.errors.root?.message}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col gap-1.5">
-                    <FormLabel className="font-semibold text-foreground">
-                      New password
-                    </FormLabel>
-
-                    <FormControl>
-                      <PasswordInput
-                        placeholder="••••••••"
-                        disabled={isPending || Boolean(authError)}
-                        className="h-11 rounded-sm pr-10 text-sm"
-                        {...field}
-                      />
-                    </FormControl>
-
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="confirmPassword"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col gap-1.5">
-                    <FormLabel className="font-semibold text-foreground">
-                      Confirm password
-                    </FormLabel>
-
-                    <FormControl>
-                      <PasswordInput
-                        placeholder="••••••••"
-                        disabled={isPending || Boolean(authError)}
-                        className="h-11 rounded-lg text-sm"
-                        {...field}
-                      />
-                    </FormControl>
-
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <Button
-                type="submit"
-                disabled={isPending || Boolean(authError)}
-                className="h-11 font-semibold"
-              >
-                {isPending ? (
-                  <span className="flex items-center gap-2">
-                    <LoadingSpinner />
-                    Updating...
-                  </span>
-                ) : (
-                  "Update password"
-                )}
-              </Button>
-            </>
-          )}
-        </AuthCard>
-      </Form>
-    </div>
+                  {isPending ? (
+                    <span className="flex items-center gap-2">
+                      <LoadingSpinner />
+                      Updating...
+                    </span>
+                  ) : (
+                    "Update password"
+                  )}
+                </Button>
+              </>
+            )}
+          </AuthCard>
+        </Form>
+      </div>
+    </AuthShell>
   );
 }

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/popover";
 
 interface TimePickerPopoverProps {
+  id?: string;
   value?: string;
   onChange?: (val: string) => void;
   className?: string;

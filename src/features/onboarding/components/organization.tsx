@@ -1,4 +1,5 @@
 "use client";
+
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,7 +16,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { checkSlugAvailabilityAction } from "../register-actions";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import {
   Form,
@@ -26,11 +26,13 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { checkSlugAvailabilityAction } from "../actions/register-actions";
 
 const organizationFormSchema = z.object({
   orgName: z
     .string()
     .min(2, "Organization name must be at least 2 characters."),
+
   portalAddress: z
     .string()
     .min(2, "Portal address must be at least 2 characters.")
@@ -38,6 +40,7 @@ const organizationFormSchema = z.object({
       /^[a-z0-9-]+$/,
       "Slug can only contain lowercase letters, numbers, and hyphens.",
     ),
+
   timezone_id: z.string().min(1, "Please select a valid timezone."),
 });
 
@@ -67,7 +70,7 @@ export function StepOrganization({
   onNext,
   onBack,
 }: StepOrganizationProps) {
-  const [isCheckingSlug, setIsCheckingSlug] = useState<boolean>(false);
+  const [isCheckingSlug, setIsCheckingSlug] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
 
   const tzList = Array.isArray(timezones) ? timezones : [];
@@ -92,24 +95,49 @@ export function StepOrganization({
     control,
     name: "timezone_id",
   });
+
   const selectedTz = tzList.find((tz) => tz.id === selectedTzId);
 
   const checkSlugAvailability = async (slug: string): Promise<boolean> => {
     setIsCheckingSlug(true);
     setSlugError(null);
+    form.clearErrors("portalAddress");
+
     try {
       const { available } = await checkSlugAvailabilityAction(slug);
 
       if (!available) {
-        setSlugError(
-          "This portal address is already taken. Please choose another.",
-        );
+        const message =
+          "This portal address is already taken. Please choose another.";
+
+        setSlugError(message);
+
+        form.setError("portalAddress", {
+          type: "manual",
+          message,
+        });
+
         return false;
       }
+
+      form.clearErrors("portalAddress");
+      setSlugError(null);
+
       return true;
     } catch (err) {
-      console.error("Slug check failed:", err);
-      return true;
+      console.error("Slug availability check failed:", err);
+
+      const message =
+        "Unable to verify portal address availability. Please try again.";
+
+      setSlugError(message);
+
+      form.setError("portalAddress", {
+        type: "manual",
+        message,
+      });
+
+      return false;
     } finally {
       setIsCheckingSlug(false);
     }
@@ -117,7 +145,10 @@ export function StepOrganization({
 
   const handleOrganizationSubmit = async (values: OrganizationFormValues) => {
     const isAvailable = await checkSlugAvailability(values.portalAddress);
-    if (!isAvailable) return;
+
+    if (!isAvailable) {
+      return;
+    }
 
     onChange(values);
     onNext();
@@ -147,6 +178,7 @@ export function StepOrganization({
                 >
                   Organization name
                 </FormLabel>
+
                 <FormControl>
                   <Input
                     {...field}
@@ -155,19 +187,28 @@ export function StepOrganization({
                     className="h-11 text-slate-800 placeholder:text-slate-400"
                     onChange={(e) => {
                       field.onChange(e);
-                      const val = e.target.value;
-                      setValue("orgName", val, { shouldValidate: true });
-                      const generatedSlug = slugify(val, {
+
+                      const value = e.target.value;
+
+                      setValue("orgName", value, {
+                        shouldValidate: true,
+                      });
+
+                      const generatedSlug = slugify(value, {
                         lower: true,
                         strict: true,
                       });
+
                       setValue("portalAddress", generatedSlug, {
                         shouldValidate: true,
                       });
+
                       setSlugError(null);
+                      form.clearErrors("portalAddress");
                     }}
                   />
                 </FormControl>
+
                 <FormMessage className="text-xs font-medium text-destructive" />
               </FormItem>
             )}
@@ -184,6 +225,7 @@ export function StepOrganization({
                 >
                   Portal address
                 </FormLabel>
+
                 <FormControl>
                   <Input
                     {...field}
@@ -191,21 +233,28 @@ export function StepOrganization({
                     placeholder="northwind"
                     className="h-11 text-slate-800 placeholder:text-slate-400"
                     onChange={(e) => {
-                      field.onChange(e);
                       const formattedSlug = e.target.value
                         .toLowerCase()
                         .replace(/\s+/g, "-");
+
+                      field.onChange(formattedSlug);
+
                       setValue("portalAddress", formattedSlug, {
                         shouldValidate: true,
                       });
+
                       setSlugError(null);
+                      form.clearErrors("portalAddress");
                     }}
                   />
                 </FormControl>
-                <FormDescription className="text-xs text-slate-500">
-                  {portalAddressVal ? portalAddressVal : "your-domain"}
-                  .servicedesk.pro
+
+                <FormDescription className="break-all text-xs text-slate-500">
+                  {`https://servicedesk-ui.vercel.app/tenant/${
+                    portalAddressVal
+                  }`}
                 </FormDescription>
+
                 <FormMessage className="text-xs font-medium text-destructive" />
               </FormItem>
             )}
@@ -219,12 +268,19 @@ export function StepOrganization({
                 <FormLabel className="text-sm font-semibold text-slate-800">
                   Time zone
                 </FormLabel>
-                <Select value={field.value} onValueChange={field.onChange}>
+
+                <Select
+                  value={field.value}
+                  onValueChange={(value) => {
+                    field.onChange(value);
+                  }}
+                >
                   <FormControl>
                     <SelectTrigger className="w-full min-h-11 text-slate-800">
                       <SelectValue placeholder="Select a timezone" />
                     </SelectTrigger>
                   </FormControl>
+
                   <SelectContent side="bottom" align="start" position="popper">
                     {tzList.map((tz) => (
                       <SelectItem key={tz.id} value={tz.id}>
@@ -233,35 +289,42 @@ export function StepOrganization({
                     ))}
                   </SelectContent>
                 </Select>
+
                 {selectedTz && (
                   <FormDescription className="text-xs text-slate-500">
                     {selectedTz.utc_offset && `${selectedTz.utc_offset} · `}
                     {selectedTz.cities || selectedTz.display_name}
                   </FormDescription>
                 )}
+
                 <FormMessage className="text-xs font-medium text-destructive" />
               </FormItem>
             )}
           />
 
-          <Button
-            type="submit"
-            disabled={isCheckingSlug}
-            className="h-11 w-full font-semibold"
-          >
-            {isCheckingSlug ? (
-              <>
-                <LoadingSpinner />
-                Checking availability...
-              </>
-            ) : (
-              "Continue"
-            )}
-          </Button>
-
-          <div className="text-center pt-2">
-            <Button type="button" variant="link" onClick={onBack}>
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onBack}
+              className="h-11 w-full px-5 text-sm font-semibold sm:w-auto"
+            >
               Back
+            </Button>
+
+            <Button
+              type="submit"
+              disabled={isCheckingSlug}
+              className="h-11 w-full px-6 font-semibold sm:w-auto"
+            >
+              {isCheckingSlug ? (
+                <>
+                  <LoadingSpinner />
+                  Checking availability...
+                </>
+              ) : (
+                "Continue"
+              )}
             </Button>
           </div>
         </form>

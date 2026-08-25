@@ -21,9 +21,9 @@ import { AuthCard } from "@/features/auth/components/auth-card";
 import { useGoogleLogin, useLogin } from "@/features/auth/hooks/use-auth";
 import { loginSchema, type LoginValues } from "@/features/auth/schemas/login";
 import type { AuthFailureCode } from "@/features/auth/types";
-import type { ShellIdentity } from "@/lib/identity";
 import { PasswordInput } from "@/components/ui/password-input";
 import { APP_ROUTES } from "@/lib/routes";
+import { ShellIdentity } from "@/types/shell-identity";
 
 const FIELD_CLASS = "h-11 rounded-lg text-sm";
 
@@ -123,7 +123,7 @@ export function TenantLoginForm({
             render={({ field }) => (
               <FormItem id="login-email" className="flex flex-col gap-1.5">
                 <FormLabel className="font-semibold text-foreground">
-                  Work email
+                  Email
                 </FormLabel>
                 <FormControl>
                   <Input
@@ -134,7 +134,9 @@ export function TenantLoginForm({
                     {...field}
                   />
                 </FormControl>
-                <FormMessage />
+                <div className="min-h-5">
+                  <FormMessage />
+                </div>
               </FormItem>
             )}
           />
@@ -178,7 +180,7 @@ export function TenantLoginForm({
                       className="size-4.5 rounded-[5px]"
                     />
                   </FormControl>
-                  <FormLabel className="text-sm font-normal text-foreground">
+                  <FormLabel className="text-sm font-normal text-foreground cursor-pointer">
                     Keep me signed in
                   </FormLabel>
                 </FormItem>

@@ -18,10 +18,10 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { checkEmailTenantAction } from "../register-actions";
 import { APP_ROUTES } from "@/lib/routes";
 import Link from "next/link";
 import { PasswordInput } from "@/components/ui/password-input";
+import { checkEmailTenantAction } from "../actions/register-actions";
 
 const accountFormSchema = z.object({
   fullName: z.string().min(2, "Full name is required."),
@@ -163,7 +163,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
                     <Checkbox
                       checked={field.value}
                       onCheckedChange={field.onChange}
-                      className="h-5 w-5 rounded border-slate-300 data-[state=checked]:bg-emerald-700 data-[state=checked]:text-primary-foreground "
+                      className="h-5 w-5 rounded border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-primary-foreground "
                     />
                   </FormControl>
                   <FormLabel className="text-sm font-normal text-slate-700 cursor-pointer select-none">
@@ -196,7 +196,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
         Already have an account?
         <Link
           href={APP_ROUTES.LOGIN}
-          className="font-semibold text-primary hover:underline"
+          className="ml-1 font-semibold text-brand-accent hover:underline"
         >
           Sign in
         </Link>

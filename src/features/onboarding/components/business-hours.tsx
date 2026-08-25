@@ -238,7 +238,7 @@ export function StepBusinessHours({
         <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-4 pt-4">
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             onClick={onBack}
             className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
           >

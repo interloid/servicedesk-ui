@@ -1,12 +1,12 @@
 "use server";
 
-import type { RegisterInput } from "./schemas/onboarding.schema";
+import { RegisterInput } from "../schemas/onboarding.schema";
 import {
   registerTenant,
   getTimezones,
   checkEmailTenant,
   checkSlugAvailability,
-} from "./services/onboarding.service";
+} from "../services/onboarding.service";
 
 export async function registerOnboardingAction(payload: RegisterInput) {
   try {

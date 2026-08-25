@@ -41,7 +41,6 @@ import {
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-import type { ShellIdentity } from "@/lib/identity";
 import { stripTenantPrefix, tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
 import {
@@ -50,9 +49,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-export type MembershipRole =
-  "tenant_admin" | "manager" | "agent" | "billing_admin" | "customer";
+import { MembershipRole } from "@/types/team-members";
+import { ShellIdentity } from "@/types/shell-identity";
 
 interface NavItem {
   label: string;

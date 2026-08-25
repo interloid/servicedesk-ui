@@ -115,7 +115,7 @@ export function LoginForm({
             render={({ field }) => (
               <FormItem id="login-email" className="flex flex-col gap-1.5">
                 <FormLabel className="font-semibold text-foreground">
-                  Work email
+                  Email
                 </FormLabel>
                 <FormControl>
                   <Input
@@ -126,7 +126,9 @@ export function LoginForm({
                     {...field}
                   />
                 </FormControl>
-                <FormMessage />
+                <div className="min-h-5">
+                  <FormMessage />
+                </div>
               </FormItem>
             )}
           />
@@ -170,7 +172,7 @@ export function LoginForm({
                       className="size-4.5 rounded-[5px]"
                     />
                   </FormControl>
-                  <FormLabel className="text-sm font-normal text-foreground">
+                  <FormLabel className="text-sm font-normal text-foreground cursor-pointer">
                     Keep me signed in
                   </FormLabel>
                 </FormItem>

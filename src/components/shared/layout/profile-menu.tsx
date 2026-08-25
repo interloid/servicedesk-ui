@@ -12,9 +12,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { useLogout } from "@/features/auth/hooks/use-auth";
-import type { ShellIdentity } from "@/lib/identity";
 import { ProfileModal } from "../profile-modal";
 import { KeyboardShortcutsModal } from "../keyboard-shortcuts-modal";
+import { ShellIdentity } from "@/types/shell-identity";
 
 const ROLE_DISPLAY_NAMES: Record<string, string> = {
   platform_admin: "Platform Admin",

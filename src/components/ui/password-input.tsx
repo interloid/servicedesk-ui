@@ -3,7 +3,6 @@
 import * as React from "react";
 import { EyeIcon, EyeOffIcon } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +10,7 @@ type PasswordInputProps = React.ComponentProps<"input">;
 
 const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
   ({ className, disabled, ...props }, ref) => {
-    const [showPassword, setShowPassword] = React.useState<boolean>(false);
+    const [showPassword, setShowPassword] = React.useState(false);
 
     return (
       <div className="relative">
@@ -19,17 +18,15 @@ const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
           ref={ref}
           type={showPassword ? "text" : "password"}
           disabled={disabled}
-          className={cn("hide-password-toggle pr-10", className)}
+          className={cn("pr-10", className)}
           {...props}
         />
 
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="sm"
           disabled={disabled}
           aria-label={showPassword ? "Hide password" : "Show password"}
-          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+          className="absolute right-3 top-1/2 -translate-y-1/2 border-0 bg-transparent p-0 text-muted-foreground outline-none hover:bg-transparent"
           onClick={() => setShowPassword((prev) => !prev)}
         >
           {showPassword ? (
@@ -41,16 +38,7 @@ const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
           <span className="sr-only">
             {showPassword ? "Hide password" : "Show password"}
           </span>
-        </Button>
-
-        <style>{`
-          .hide-password-toggle::-ms-reveal,
-          .hide-password-toggle::-ms-clear {
-            visibility: hidden;
-            pointer-events: none;
-            display: none;
-          }
-        `}</style>
+        </button>
       </div>
     );
   },

@@ -195,7 +195,7 @@ export function ProfileModal({
                   <FormControl>
                     <Input
                       type="email"
-                      disabled={isSubmitting}
+                      disabled
                       className="h-11 text-xs sm:text-sm"
                       {...field}
                     />

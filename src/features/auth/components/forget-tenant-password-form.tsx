@@ -22,10 +22,10 @@ import {
   forgotPasswordSchema,
   type ForgotPasswordValues,
 } from "@/features/auth/schemas/forgot-password";
-import { resetTenantPasswordAction } from "../actions";
 import { useState, useTransition } from "react";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { toast } from "sonner";
+import { resetTenantPasswordAction } from "../actions/actions";
 
 interface ForgotPasswordFormProps {
   slug?: string;

@@ -21,11 +21,11 @@ import {
   forgotPasswordSchema,
   type ForgotPasswordValues,
 } from "@/features/auth/schemas/forgot-password";
-import { resetPasswordAction } from "../actions";
 import { useState, useTransition } from "react";
 import { APP_ROUTES } from "@/lib/routes";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { toast } from "sonner";
+import { resetPasswordAction } from "../actions/actions";
 
 export function ForgotPasswordForm() {
   const form = useForm<ForgotPasswordValues>({

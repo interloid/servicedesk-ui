@@ -1,25 +1,25 @@
 import * as React from "react";
 
+const TABLET_BREAKPOINT = "(max-width: 1023.98px)";
+
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState(() =>
-    typeof window !== "undefined"
-      ? window.matchMedia("(max-width: 768px)").matches
-      : false,
-  );
+  const subscribe = React.useCallback((callback: () => void) => {
+    const mql = window.matchMedia(TABLET_BREAKPOINT);
 
-  React.useEffect(() => {
-    const mql = window.matchMedia("(max-width: 768px)");
-
-    const onChange = () => {
-      setIsMobile(mql.matches);
-    };
-
-    mql.addEventListener("change", onChange);
+    mql.addEventListener("change", callback);
 
     return () => {
-      mql.removeEventListener("change", onChange);
+      mql.removeEventListener("change", callback);
     };
   }, []);
 
-  return isMobile;
+  const getSnapshot = React.useCallback(() => {
+    return window.matchMedia(TABLET_BREAKPOINT).matches;
+  }, []);
+
+  const getServerSnapshot = React.useCallback(() => {
+    return false;
+  }, []);
+
+  return React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }

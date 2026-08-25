@@ -15,13 +15,13 @@ import {
 } from "@/features/auth/services/auth.service";
 import type { ActionResult, LoginSuccess } from "@/features/auth/types";
 import {
-  forgotPasswordSchema,
   ForgotPasswordValues,
-} from "./schemas/forgot-password";
+  forgotPasswordSchema,
+} from "../schemas/forgot-password";
 import {
-  updatePasswordSchema,
   UpdatePasswordValues,
-} from "./schemas/reset-password";
+  updatePasswordSchema,
+} from "../schemas/reset-password";
 
 export async function loginAction(
   values: LoginValues,

@@ -16,18 +16,18 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { AuthCard } from "@/features/auth/components/auth-card";
+import { AuthCard, AuthShell } from "@/features/auth/components/auth-card";
 
 import { createSupabaseClient } from "@/lib/supabase/client";
 import {
   UpdatePasswordValues,
   updatePasswordSchema,
 } from "@/features/auth/schemas/reset-password";
-import { updatePasswordAction } from "@/features/auth/actions";
 import { PasswordInput } from "@/components/ui/password-input";
 import { PageLoader } from "@/components/shared/page-loader";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { toast } from "sonner";
+import { updatePasswordAction } from "@/features/auth/actions/actions";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -264,7 +264,9 @@ function ResetPasswordForm() {
 export default function DirectResetPasswordPage() {
   return (
     <Suspense fallback={<PageLoader />}>
-      <ResetPasswordForm />
+      <AuthShell>
+        <ResetPasswordForm />
+      </AuthShell>
     </Suspense>
   );
 }

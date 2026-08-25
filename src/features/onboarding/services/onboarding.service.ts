@@ -229,7 +229,6 @@ export async function registerTenant(payload: RegisterInput) {
                 role: invite.role,
               },
             });
-  
 
           if (inviteError || !inviteData.user) {
             console.error(

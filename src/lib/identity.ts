@@ -1,23 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
-
-export type ShellIdentity = {
-  org: {
-    id: string;
-    name: string;
-    initial: string;
-    planSummary: string;
-  };
-
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    initials: string;
-    avatarUrl?: string;
-    role: string;
-  };
-};
+import { ShellIdentity } from "@/types/shell-identity";
 
 export async function getShellIdentity(
   tenantSlug: string,

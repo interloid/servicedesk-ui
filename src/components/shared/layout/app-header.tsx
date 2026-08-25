@@ -5,15 +5,14 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { HeaderSearch } from "@/components/shared/layout/header-search";
 import { NotificationMenu } from "@/components/shared/layout/notification-menu";
 import { ProfileMenu } from "@/components/shared/layout/profile-menu";
-import type { ShellIdentity } from "@/lib/identity";
+import { ShellIdentity } from "@/types/shell-identity";
 
 export function AppHeader({ identity }: { identity: ShellIdentity | null }) {
   return (
     <header className="sticky top-0 z-10 flex h-15 shrink-0 items-center gap-2.5 border-b bg-background/95 px-4 backdrop-blur md:px-6 lg:px-8">
       <SidebarTrigger
         icon={<Menu />}
-        className="size-9 shrink-0 md:hidden 
-              
+        className="size-9 shrink-0 lg:hidden 
               border
               border-border
               bg-card

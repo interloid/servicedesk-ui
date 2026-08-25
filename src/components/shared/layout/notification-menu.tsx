@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { Bell } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Popover,
   PopoverContent,
@@ -17,23 +22,34 @@ export function NotificationMenu() {
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          className="relative size-10 sm:size-11 rounded-md"
-          aria-label={`Notifications, ${unread} unread`}
-        >
-          <Bell className="size-5" aria-hidden />
-          {unread > 0 && (
-            <span
-              aria-hidden
-              className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-bold text-destructive-foreground ring-2 ring-background"
-            >
-              {unread}
-            </span>
-          )}
-        </Button>
-      </PopoverTrigger>
+      <TooltipProvider>
+        <Tooltip>
+          <PopoverTrigger asChild>
+            <TooltipTrigger asChild>
+              <div
+                className="relative flex size-10 sm:size-11 cursor-pointer items-center justify-center rounded-md"
+                role="button"
+                tabIndex={0}
+                aria-label={`Notifications, ${unread} unread`}
+              >
+                <Bell className="size-5" aria-hidden />
+
+                {unread > 0 && (
+                  <span
+                    aria-hidden
+                    className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-bold text-destructive-foreground ring-2 ring-background"
+                  >
+                    {unread}
+                  </span>
+                )}
+              </div>
+            </TooltipTrigger>
+          </PopoverTrigger>
+          <TooltipContent side="bottom">
+            <p>Notifications</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
       <PopoverContent
         align="end"

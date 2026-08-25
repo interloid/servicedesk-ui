@@ -15,7 +15,7 @@ const cspHeader = `
   default-src 'self';
   script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""};
   style-src 'self' 'unsafe-inline';
-  img-src 'self' data: blob:;
+  img-src 'self' data: blob:${supabaseOrigin ? ` ${supabaseOrigin}` : ""};
   font-src 'self';
   connect-src 'self'${supabaseOrigin ? ` ${supabaseOrigin}` : ""}${
     sentryIngestHost ? ` https://${sentryIngestHost}` : ""

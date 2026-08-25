@@ -3,29 +3,23 @@ import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV === "development";
 
-// Sentry's ingest host has 3 subdomain labels (o<id>.ingest.<region>.sentry.io).
-// CSP host-wildcard matching across labels is inconsistent enough not to trust
-// blindly (a `*.sentry.io` wildcard silently breaking Sentry reporting in
-// production would undo everything verified in docs/SENTRY.md), so the exact
-// host is derived from the DSN instead of guessed.
 const sentryIngestHost = process.env.NEXT_PUBLIC_SENTRY_DSN
   ? new URL(process.env.NEXT_PUBLIC_SENTRY_DSN).host
   : null;
 
-// Static (no-nonce) CSP — see docs/CONVENTIONS.md and Next.js's CSP guide for why:
-// nonce-based CSP requires every page to render dynamically via proxy.ts (this
-// fork's renamed middleware.ts), which would take the homepage and every other
-// static route off static generation. 'unsafe-inline' is required for script-src
-// because Next.js's App Router injects inline bootstrap/streaming scripts
-// (the `__next_f.push(...)` payload) by design — this is Next's own documented
-// "without nonces" pattern, not a shortcut taken here.
+const supabaseOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
+  : null;
+
 const cspHeader = `
   default-src 'self';
   script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""};
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob:;
   font-src 'self';
-  connect-src 'self'${sentryIngestHost ? ` https://${sentryIngestHost}` : ""};
+  connect-src 'self'${supabaseOrigin ? ` ${supabaseOrigin}` : ""}${
+    sentryIngestHost ? ` https://${sentryIngestHost}` : ""
+  };
   object-src 'none';
   base-uri 'self';
   form-action 'self';

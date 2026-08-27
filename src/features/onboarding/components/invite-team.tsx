@@ -159,13 +159,12 @@ export function StepInviteTeam({
       <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 pt-2 sm:pt-4">
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           onClick={onBack}
           className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
         >
           Back
         </Button>
-
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
           <Button
             type="button"

@@ -25,7 +25,7 @@ import { checkEmailTenantAction } from "../actions/register-actions";
 
 const accountFormSchema = z.object({
   fullName: z.string().min(2, "Full name is required."),
-  workEmail: z.string().email("Please enter a valid work email address."),
+  workEmail: z.string().email("Please enter a valid email address."),
   password: z.string().min(8, "Password must be at least 8 characters long."),
   agreeToTerms: z.boolean().refine((val) => val === true, {
     message: "You must accept the terms to proceed.",
@@ -115,7 +115,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
             render={({ field }) => (
               <FormItem className="space-y-1.5">
                 <FormLabel className="text-sm font-semibold text-slate-800">
-                  Work email
+                  Email
                 </FormLabel>
                 <FormControl>
                   <Input

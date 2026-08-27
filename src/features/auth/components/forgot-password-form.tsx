@@ -142,7 +142,7 @@ export function ForgotPasswordForm() {
               render={({ field }) => (
                 <FormItem id="forgot-email" className="flex flex-col gap-1.5">
                   <FormLabel className="font-semibold text-foreground">
-                    Work email
+                    Email
                   </FormLabel>
                   <FormControl>
                     <Input

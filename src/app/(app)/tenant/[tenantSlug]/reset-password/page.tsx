@@ -55,7 +55,7 @@ export default function DirectResetPasswordPage() {
   useEffect(() => {
     let mounted = true;
 
-    const verifyInvitationSession = async () => {
+    const verifyAuthSession = async () => {
       const supabase = createSupabaseClient();
 
       try {
@@ -66,7 +66,11 @@ export default function DirectResetPasswordPage() {
         const refreshToken = hashParams.get("refresh_token");
         const type = hashParams.get("type");
 
-        if (type === "invite" && accessToken && refreshToken) {
+        if (
+          (type === "invite" || type === "recovery") &&
+          accessToken &&
+          refreshToken
+        ) {
           const { data, error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
@@ -74,12 +78,14 @@ export default function DirectResetPasswordPage() {
 
           if (error || !data.session) {
             console.error(
-              "[Reset Password] Failed to establish invitation session:",
+              "[Reset Password] Failed to establish session:",
               error?.message,
             );
 
             if (mounted) {
-              setAuthError(INVALID_INVITE_MESSAGE);
+              setAuthError(
+                "This password reset link is invalid or has expired.",
+              );
             }
 
             return;
@@ -104,7 +110,7 @@ export default function DirectResetPasswordPage() {
           );
 
           if (mounted) {
-            setAuthError(INVALID_INVITE_MESSAGE);
+            setAuthError("This password reset link is invalid or has expired.");
           }
 
           return;
@@ -114,13 +120,10 @@ export default function DirectResetPasswordPage() {
           setAuthError(null);
         }
       } catch (error) {
-        console.error(
-          "[Reset Password] Invitation verification failed:",
-          error,
-        );
+        console.error("[Reset Password] Session verification failed:", error);
 
         if (mounted) {
-          setAuthError(INVALID_INVITE_MESSAGE);
+          setAuthError("This password reset link is invalid or has expired.");
         }
       } finally {
         if (mounted) {
@@ -129,7 +132,7 @@ export default function DirectResetPasswordPage() {
       }
     };
 
-    verifyInvitationSession();
+    verifyAuthSession();
 
     return () => {
       mounted = false;

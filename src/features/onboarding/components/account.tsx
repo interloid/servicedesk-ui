@@ -126,7 +126,7 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
                   />
                 </FormControl>
                 <FormDescription className="text-xs text-slate-500">
-                  Use your work address — it becomes the admin login.
+                  Use your address — it becomes the admin login.
                 </FormDescription>
                 <FormMessage />
               </FormItem>

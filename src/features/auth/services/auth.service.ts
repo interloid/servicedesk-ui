@@ -28,6 +28,7 @@ import {
   updatePasswordSchema,
   type UpdatePasswordValues,
 } from "../schemas/reset-password";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export class AuthError extends Error {
   readonly status: number;
@@ -290,7 +291,7 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
   const { email } = payload;
 
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseAdminClient();
     const { data: user } = await supabase
       .from("users")
       .select("id")
@@ -345,7 +346,7 @@ export async function sendTenantPasswordResetLink(
   const { email } = payload;
 
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = await createSupabaseAdminClient();
     const origin = await requestOrigin();
     const { data: user } = await supabase
       .from("users")

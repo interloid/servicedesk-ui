@@ -304,7 +304,9 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
         error: "No account found with this email address",
       };
     }
-    const redirectTo = `${process.env.NEXT_PUBLIC_SITE_URL || ""}/auth/callback?next=/reset-password`;
+    const redirectTo = `${
+      process.env.NEXT_PUBLIC_SITE_URL || ""
+    }/reset-password`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
@@ -361,7 +363,8 @@ export async function sendTenantPasswordResetLink(
       };
     }
     const destinationPath = tenantPath(slug, TENANT_ROUTES.RESET_PASSWORD);
-    const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(destinationPath)}`;
+
+    const redirectTo = `${origin}${destinationPath}`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,

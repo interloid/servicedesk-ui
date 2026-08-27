@@ -230,7 +230,7 @@ export default function DirectResetPasswordPage() {
                 </h1>
 
                 <p className="text-sm text-muted-foreground">
-                  Your password has been updated. Redirecting to sign in...
+                  Password updated successfully. Redirecting to sign in...
                 </p>
               </div>
             ) : (

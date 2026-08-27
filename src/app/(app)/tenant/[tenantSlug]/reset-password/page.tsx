@@ -213,7 +213,7 @@ export default function DirectResetPasswordPage() {
 
   return (
     <AuthShell>
-      <div className="flex h-full items-center justify-center bg-background px-4 py-12">
+      <div className="flex h-full w-full items-center justify-center bg-background px-4 py-12">
         <Form {...form}>
           <AuthCard onSubmit={form.handleSubmit(onSubmit)}>
             {updated ? (
@@ -262,7 +262,7 @@ export default function DirectResetPasswordPage() {
                   control={form.control}
                   name="password"
                   render={({ field }) => (
-                    <FormItem className="flex flex-col gap-1.5">
+                    <FormItem className="flex flex-col gap-2">
                       <FormLabel className="font-semibold text-foreground">
                         New password
                       </FormLabel>
@@ -285,7 +285,7 @@ export default function DirectResetPasswordPage() {
                   control={form.control}
                   name="confirmPassword"
                   render={({ field }) => (
-                    <FormItem className="flex flex-col gap-1.5">
+                    <FormItem className="flex flex-col gap-2">
                       <FormLabel className="font-semibold text-foreground">
                         Confirm password
                       </FormLabel>

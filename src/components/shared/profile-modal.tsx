@@ -190,7 +190,7 @@ export function ProfileModal({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-slate-800 font-semibold text-xs sm:text-sm">
-                    Work email
+                    Email
                   </FormLabel>
                   <FormControl>
                     <Input

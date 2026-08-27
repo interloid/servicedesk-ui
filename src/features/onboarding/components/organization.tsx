@@ -71,8 +71,6 @@ export function StepOrganization({
   onBack,
 }: StepOrganizationProps) {
   const [isCheckingSlug, setIsCheckingSlug] = useState(false);
-  const [slugError, setSlugError] = useState<string | null>(null);
-
   const tzList = Array.isArray(timezones) ? timezones : [];
 
   const form = useForm<OrganizationFormValues>({
@@ -100,7 +98,6 @@ export function StepOrganization({
 
   const checkSlugAvailability = async (slug: string): Promise<boolean> => {
     setIsCheckingSlug(true);
-    setSlugError(null);
     form.clearErrors("portalAddress");
 
     try {
@@ -109,8 +106,6 @@ export function StepOrganization({
       if (!available) {
         const message =
           "This portal address is already taken. Please choose another.";
-
-        setSlugError(message);
 
         form.setError("portalAddress", {
           type: "manual",
@@ -121,7 +116,6 @@ export function StepOrganization({
       }
 
       form.clearErrors("portalAddress");
-      setSlugError(null);
 
       return true;
     } catch (err) {
@@ -129,8 +123,6 @@ export function StepOrganization({
 
       const message =
         "Unable to verify portal address availability. Please try again.";
-
-      setSlugError(message);
 
       form.setError("portalAddress", {
         type: "manual",
@@ -161,12 +153,6 @@ export function StepOrganization({
           onSubmit={handleSubmit(handleOrganizationSubmit)}
           className="space-y-5 text-left"
         >
-          {slugError && (
-            <Alert variant="destructive" className="py-2 text-xs">
-              <AlertDescription>{slugError}</AlertDescription>
-            </Alert>
-          )}
-
           <FormField
             control={control}
             name="orgName"
@@ -203,7 +189,6 @@ export function StepOrganization({
                         shouldValidate: true,
                       });
 
-                      setSlugError(null);
                       form.clearErrors("portalAddress");
                     }}
                   />
@@ -243,7 +228,6 @@ export function StepOrganization({
                         shouldValidate: true,
                       });
 
-                      setSlugError(null);
                       form.clearErrors("portalAddress");
                     }}
                   />

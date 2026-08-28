@@ -209,6 +209,7 @@ export function ProfileModal({
               <FormLabel className="text-slate-800 font-semibold text-xs sm:text-sm">
                 Company name
               </FormLabel>
+
               <FormControl>
                 <Input
                   value={companyName}
@@ -216,8 +217,11 @@ export function ProfileModal({
                   className="bg-slate-100 text-slate-500 h-11 text-xs sm:text-sm"
                 />
               </FormControl>
-            </FormItem>
 
+              <p className="text-xs text-slate-500 mt-1">
+                Contact support to update your company name.
+              </p>
+            </FormItem>
             <FormField
               control={form.control}
               name="slaNotification"

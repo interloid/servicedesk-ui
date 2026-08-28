@@ -9,7 +9,11 @@ export function createSupabaseClient() {
   const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  client = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  client = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      detectSessionInUrl: false,
+    },
+  });
 
   return client;
 }

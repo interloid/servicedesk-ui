@@ -4,7 +4,12 @@ import {
   logout,
   safeNext,
 } from "@/features/auth/services/auth.service";
-import { TENANT_ROUTES, tenantPath, withTenantPrefix } from "@/lib/tenancy";
+import {
+  TENANT_ROUTES,
+  tenantPath,
+  tenantLoginPath,
+  withTenantPrefix,
+} from "@/lib/tenancy";
 import { APP_ROUTES } from "@/lib/routes";
 
 export async function GET(
@@ -17,7 +22,7 @@ export async function GET(
 
   const next = safeNext(searchParams.get("next"));
 
-  const tenantLoginUrl = new URL(`/tenant/${targetTenantSlug}/login`, origin);
+  const tenantLoginUrl = new URL(tenantLoginPath(targetTenantSlug), origin);
 
   function failure(message: string) {
     tenantLoginUrl.searchParams.set("error", message);

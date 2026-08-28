@@ -35,14 +35,14 @@ function currentTenantSlug(): string | null {
 function currentTenantPrefix(): string {
   const slug = currentTenantSlug();
 
-  return slug ? `/tenant/${slug}` : "";
+  return slug ? `/${slug}` : "";
 }
 
 function withCurrentTenantPrefix(path: string): string {
   const prefix = currentTenantPrefix();
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
-  if (normalizedPath.startsWith("/tenant/")) {
+  if (stripTenantPrefix(normalizedPath)) {
     return normalizedPath;
   }
 

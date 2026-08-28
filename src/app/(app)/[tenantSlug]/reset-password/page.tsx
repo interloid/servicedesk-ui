@@ -59,6 +59,33 @@ export default function DirectResetPasswordPage() {
       const supabase = createSupabaseClient();
 
       try {
+        const code = new URLSearchParams(window.location.search).get("code");
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+          if (error) {
+            console.error(
+              "[Reset Password] Code exchange failed:",
+              error.message,
+            );
+
+            if (mounted) {
+              setAuthError(
+                "This password reset link is invalid or has expired.",
+              );
+            }
+
+            return;
+          }
+
+          window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname,
+          );
+        }
+
         const hash = window.location.hash.substring(1);
         const hashParams = new URLSearchParams(hash);
 

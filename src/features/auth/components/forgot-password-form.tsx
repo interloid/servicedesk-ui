@@ -159,7 +159,16 @@ export function ForgotPasswordForm() {
               )}
             />
 
-            <div className="flex gap-2.5">
+            <div className="flex items-center justify-between gap-2.5">
+              <Button
+                asChild
+                type="button"
+                variant="outline"
+                className="h-11 px-5"
+              >
+                <Link href={APP_ROUTES.LOGIN}>Back</Link>
+              </Button>
+
               <Button
                 type="submit"
                 disabled={isPending}
@@ -176,15 +185,6 @@ export function ForgotPasswordForm() {
             </div>
           </>
         )}
-
-        <p className="text-center text-sm text-muted-foreground">
-          <Link
-            href={APP_ROUTES.LOGIN}
-            className="font-semibold text-brand-accent hover:underline"
-          >
-            Back to sign in
-          </Link>
-        </p>
       </AuthCard>
     </Form>
   );

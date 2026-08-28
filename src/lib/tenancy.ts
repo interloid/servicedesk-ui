@@ -19,9 +19,12 @@ function stripPort(host: string): string {
   return host.split(":")[0] ?? host;
 }
 
-export const PORTAL_BASE_HOSTNAME = stripPort(PORTAL_BASE_DOMAIN!);
+export const PORTAL_BASE_HOSTNAME = stripPort(
+  PORTAL_BASE_DOMAIN ?? "localhost",
+);
 
 const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
+
 const SUBDOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 const RESERVED_LABELS = new Set([
@@ -37,7 +40,6 @@ const RESERVED_LABELS = new Set([
 ]);
 
 export const IS_LOCAL_HOST = PORTAL_BASE_HOSTNAME === "localhost";
-
 export const IS_VERCEL_APP_DOMAIN =
   PORTAL_BASE_HOSTNAME.endsWith(".vercel.app");
 
@@ -123,8 +125,6 @@ export const TENANT_ROUTES = {
   },
 } as const;
 
-export const TENANT_SEGMENT = "tenant";
-
 export const DEFAULT_TENANT_PATH = TENANT_ROUTES.TICKETS;
 
 export const TENANT_PUBLIC_PATHS = new Set<string>([
@@ -135,15 +135,32 @@ export const TENANT_PUBLIC_PATHS = new Set<string>([
 
 const SESSION_TOLERANT_PATHS = new Set<string>([TENANT_ROUTES.RESET_PASSWORD]);
 
-export const CENTRAL_PATHS = new Set<string>([APP_ROUTES.SETUP]);
+export const CENTRAL_PATHS = new Set<string>([
+  APP_ROUTES.SETUP,
+  APP_ROUTES.LOGIN,
+]);
+
+const CENTRAL_APP_FORM_PATHS = new Set<string>([
+  APP_ROUTES.FORGOT_PASSWORD,
+  APP_ROUTES.RESET_PASSWORD,
+]);
+
+export function isCentralAppPath(pathname: string): boolean {
+  return isCentralPath(pathname) || CENTRAL_APP_FORM_PATHS.has(pathname);
+}
 
 export const TENANT_HINT_COOKIE = "sd_tenant";
+
 export const TENANT_HINT_MAX_AGE = 60 * 60 * 24 * 30;
 
 export function isValidTenantSlug(
   slug: string | undefined | null,
 ): slug is string {
-  return typeof slug === "string" && SUBDOMAIN_LABEL.test(slug.toLowerCase());
+  return (
+    typeof slug === "string" &&
+    SUBDOMAIN_LABEL.test(slug.toLowerCase()) &&
+    !RESERVED_LABELS.has(slug.toLowerCase())
+  );
 }
 
 export function isInfrastructurePath(pathname: string): boolean {
@@ -173,8 +190,19 @@ export function isSafeInternalPath(
   return Boolean(path && path.startsWith("/") && !path.startsWith("//"));
 }
 
+export function sessionTenantDestination(
+  sessionSlug: string,
+  tenantRelativeRest?: string,
+): string {
+  const rest = normalizePath(tenantRelativeRest ?? "/");
+
+  const target = rest === "/" ? DEFAULT_TENANT_PATH : rest;
+
+  return tenantPath(sessionSlug, target);
+}
+
 export function tenantPath(slug: string, path = "/"): string {
-  return `/${TENANT_SEGMENT}/${encodeURIComponent(slug)}${normalizePath(path)}`;
+  return `/${encodeURIComponent(slug)}${normalizePath(path)}`;
 }
 
 export function tenantLoginPath(slug: string, next?: string | null): string {
@@ -208,25 +236,35 @@ export function tenantAuthCallbackPath(
   return `${base}?next=${encodeURIComponent(next)}`;
 }
 
-const TENANT_PATH_PATTERN = new RegExp(`^/${TENANT_SEGMENT}/([^/]+)(/.*)?$`);
+const TENANT_PATH_PATTERN = new RegExp("^/([^/]+)(/.*)?$");
 
 export function stripTenantPrefix(
   pathname: string,
 ): { slug: string; rest: string } | null {
+  if (isCentralAppPath(pathname) || isInfrastructurePath(pathname)) {
+    return null;
+  }
+
   const match = TENANT_PATH_PATTERN.exec(pathname);
 
   if (!match || !match[1]) {
     return null;
   }
 
+  const slug = decodeURIComponent(match[1]);
+
+  if (!isValidTenantSlug(slug)) {
+    return null;
+  }
+
   return {
-    slug: decodeURIComponent(match[1]),
+    slug,
     rest: match[2] || "/",
   };
 }
 
 export function tenantPrefix(slug: string): string {
-  return `/${TENANT_SEGMENT}/${encodeURIComponent(slug)}`;
+  return `/${encodeURIComponent(slug)}`;
 }
 
 export function landingUrlForSlug(

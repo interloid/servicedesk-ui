@@ -231,7 +231,6 @@
   scrollbar-color: var(--muted-foreground) transparent;
 }
 
-/* WebKit fallback (Chrome, Safari, Edge) */
 *::-webkit-scrollbar {
   width: 4px;
   height: 4px;

@@ -26,6 +26,7 @@ import { useState, useTransition } from "react";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { toast } from "sonner";
 import { resetTenantPasswordAction } from "../actions/actions";
+import { tenantLoginPath } from "@/lib/tenancy";
 
 interface ForgotPasswordFormProps {
   slug?: string;
@@ -168,7 +169,16 @@ export function ForgotTenantPasswordForm({
               )}
             />
 
-            <div className="flex gap-2.5">
+            <div className="flex items-center justify-between gap-2.5">
+              <Button
+                asChild
+                type="button"
+                variant="outline"
+                className="h-11 px-5"
+              >
+                <Link href={tenantLoginPath(slug)}>Back</Link>
+              </Button>
+
               <Button
                 type="submit"
                 disabled={isPending}
@@ -185,15 +195,6 @@ export function ForgotTenantPasswordForm({
             </div>
           </>
         )}
-
-        <p className="text-center text-sm text-muted-foreground">
-          <Link
-            href={`/tenant/${slug}/login`}
-            className="font-semibold text-brand-accent hover:underline"
-          >
-            Back to sign in
-          </Link>
-        </p>
       </AuthCard>
     </Form>
   );

@@ -1,5 +1,9 @@
 import { headers } from "next/headers";
-import { PORTAL_BASE_DOMAIN, tenantLabelFromHost } from "@/lib/tenancy";
+import {
+  PORTAL_BASE_DOMAIN,
+  isValidTenantSlug,
+  tenantLabelFromHost,
+} from "@/lib/tenancy";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export type TenantContext = {
@@ -23,9 +27,19 @@ export async function getTenantContext(
 
   if (!label) {
     const requestHeaders = await headers();
+
     const hostLabel = tenantLabelFromHost(requestHeaders.get("host"));
-    if (!hostLabel) return null;
-    label = hostLabel;
+
+    if (hostLabel) {
+      label = hostLabel;
+    } else {
+      const headerLabel = requestHeaders.get("x-tenant-slug");
+      if (headerLabel && isValidTenantSlug(headerLabel)) {
+        label = headerLabel;
+      }
+    }
+
+    if (!label) return null;
   }
 
   const supabase = createSupabaseAdminClient();
@@ -125,6 +139,7 @@ export async function getTenantIdBySlug(
 
   return data?.id ?? null;
 }
+
 function mapTenantContext(row: TenantLookupRow): TenantContext {
   const baseDomain = PORTAL_BASE_DOMAIN || "";
 

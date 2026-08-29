@@ -72,6 +72,7 @@ export async function registerTenant(payload: RegisterInput) {
       data: {
         full_name,
       },
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/`,
     },
   });
 
@@ -193,7 +194,7 @@ export async function registerTenant(payload: RegisterInput) {
             }
             const { error: emailError } =
               await adminSupabase.auth.resetPasswordForEmail(inviteEmail, {
-                redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
+                redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password`,
               });
 
             if (emailError) {
@@ -223,7 +224,7 @@ export async function registerTenant(payload: RegisterInput) {
 
           const { data: inviteData, error: inviteError } =
             await adminSupabase.auth.admin.inviteUserByEmail(inviteEmail, {
-              redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
+              redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password`,
               data: {
                 tenant_id: provisioned.tenant_id,
                 role: invite.role,

@@ -19,6 +19,7 @@ import {
   landingUrlForSlug,
   stripTenantPrefix,
   TENANT_ROUTES,
+  tenantAuthCallbackPath,
   tenantPath,
 } from "@/lib/tenancy";
 import { APP_ROUTES } from "@/lib/routes";
@@ -306,7 +307,7 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
     }
     const redirectTo = `${
       process.env.NEXT_PUBLIC_SITE_URL || ""
-    }/reset-password`;
+    }/auth/callback?next=/reset-password`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
@@ -362,9 +363,10 @@ export async function sendTenantPasswordResetLink(
         error: "No account found with this email address",
       };
     }
-    const destinationPath = tenantPath(slug, TENANT_ROUTES.RESET_PASSWORD);
-
-    const redirectTo = `${origin}${destinationPath}`;
+    const redirectTo = `${origin}${tenantAuthCallbackPath(
+      slug,
+      "/reset-password",
+    )}`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,

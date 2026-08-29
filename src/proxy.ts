@@ -25,6 +25,11 @@ import { env } from "./config/env";
 
 const ROOT_PATH = "/";
 
+const IS_HTTPS =
+  process.env.NODE_ENV === "production" &&
+  !env.NEXT_PUBLIC_SITE_URL.startsWith("http://localhost") &&
+  !env.NEXT_PUBLIC_SITE_URL.startsWith("http://127.0.0.1");
+
 function withSessionCookies(
   target: NextResponse,
   source: NextResponse,
@@ -54,7 +59,7 @@ function rememberTenant(response: NextResponse, slug: string): NextResponse {
     path: "/",
     sameSite: "lax",
     maxAge: TENANT_HINT_MAX_AGE,
-    secure: process.env.NODE_ENV === "production",
+    secure: IS_HTTPS,
     ...(AUTH_COOKIE_DOMAIN ? { domain: AUTH_COOKIE_DOMAIN } : {}),
   });
 
@@ -96,7 +101,7 @@ export async function proxy(request: NextRequest) {
                 : {}),
               path: "/",
               sameSite: "lax",
-              secure: process.env.NODE_ENV === "production",
+              secure: IS_HTTPS,
             });
           });
         },

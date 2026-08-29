@@ -32,6 +32,11 @@ export async function createSupabaseServerClient(
 
   const isProduction = process.env.NODE_ENV === "production";
 
+  const isHttps =
+    isProduction &&
+    !env.NEXT_PUBLIC_SITE_URL.startsWith("http://localhost") &&
+    !env.NEXT_PUBLIC_SITE_URL.startsWith("http://127.0.0.1");
+
   const REMEMBER_ME_MAX_AGE = 60 * 60 * 24 * 30;
 
   return createServerClient(url, key, {
@@ -41,31 +46,29 @@ export async function createSupabaseServerClient(
       },
 
       setAll(cookiesToSet) {
-        try {
-          for (const { name, value, options: cookieOptions } of cookiesToSet) {
-            cookieStore.set(name, value, {
-              ...cookieOptions,
+        for (const { name, value, options: cookieOptions } of cookiesToSet) {
+          cookieStore.set(name, value, {
+            ...cookieOptions,
 
-              ...(isProduction && AUTH_COOKIE_DOMAIN
-                ? { domain: AUTH_COOKIE_DOMAIN }
-                : {}),
+            ...(isProduction && AUTH_COOKIE_DOMAIN
+              ? { domain: AUTH_COOKIE_DOMAIN }
+              : {}),
 
-              path: "/",
-              sameSite: "lax",
-              secure: isProduction,
+            path: "/",
+            sameSite: cookieOptions?.sameSite ?? "lax",
+            secure: cookieOptions?.secure ?? isHttps,
 
-              ...(remember
-                ? {
-                    maxAge: REMEMBER_ME_MAX_AGE,
-                    expires: new Date(Date.now() + REMEMBER_ME_MAX_AGE * 1000),
-                  }
-                : {
-                    maxAge: undefined,
-                    expires: undefined,
-                  }),
-            });
-          }
-        } catch {}
+            ...(remember
+              ? {
+                  maxAge: REMEMBER_ME_MAX_AGE,
+                  expires: new Date(Date.now() + REMEMBER_ME_MAX_AGE * 1000),
+                }
+              : {
+                  maxAge: cookieOptions?.maxAge,
+                  expires: cookieOptions?.expires,
+                }),
+          });
+        }
       },
     },
   });

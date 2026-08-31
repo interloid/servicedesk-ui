@@ -1,5 +1,8 @@
 import slugify from "slugify";
-import { createSupabaseAnonClient, createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseAnonClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { signUpWithPkce } from "@/lib/supabase/pkce";
 import { registerSchema, RegisterInput } from "../schemas/onboarding.schema";

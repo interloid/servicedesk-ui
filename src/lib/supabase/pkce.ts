@@ -42,30 +42,39 @@ export async function signUpWithPkce({
 }: SignUpWithPkceParams) {
   const { url, key } = getCredentials();
   const { verifier, challenge } = createPkcePair();
-  const redirectTo = appendQueryParam(emailRedirectTo, "code_verifier", verifier);
+  const redirectTo = appendQueryParam(
+    emailRedirectTo,
+    "code_verifier",
+    verifier,
+  );
 
-  const response = await fetch(`${url}/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`, {
-    method: "POST",
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
+  const response = await fetch(
+    `${url}/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        data: userData ?? {},
+        code_challenge: challenge,
+        code_challenge_method: "s256",
+      }),
     },
-    body: JSON.stringify({
-      email,
-      password,
-      data: userData ?? {},
-      code_challenge: challenge,
-      code_challenge_method: "s256",
-    }),
-  });
+  );
 
   const json = await response.json().catch(() => ({}));
   const userId = json?.user?.id ?? json?.id;
 
   if (!response.ok || typeof userId !== "string") {
     throw new Error(
-      json?.msg || json?.error_description || "Failed to create authentication user.",
+      json?.msg ||
+        json?.error_description ||
+        "Failed to create authentication user.",
     );
   }
 

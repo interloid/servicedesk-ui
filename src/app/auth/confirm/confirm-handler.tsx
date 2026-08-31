@@ -33,7 +33,8 @@ export function AuthConfirmHandler() {
     const type = search.get("type") || hash.get("type");
     const tokenHash = search.get("token_hash") || hash.get("token_hash");
     const code = search.get("code") || hash.get("code");
-    const codeVerifier = search.get("code_verifier") || hash.get("code_verifier");
+    const codeVerifier =
+      search.get("code_verifier") || hash.get("code_verifier");
 
     const fail = (errorMessage: string) => {
       setStatus("error");
@@ -54,9 +55,7 @@ export function AuthConfirmHandler() {
 
     void (async () => {
       if (providerError) {
-        fail(
-          "This email link is invalid or has expired. Request a new one.",
-        );
+        fail("This email link is invalid or has expired. Request a new one.");
         return;
       }
 
@@ -99,9 +98,7 @@ export function AuthConfirmHandler() {
         {status === "redirecting" && (
           <div className="flex flex-col items-center gap-4">
             <MailCheck className="size-10 text-brand-accent" aria-hidden />
-            <h1 className="text-xl font-bold text-slate-900">
-              Email verified
-            </h1>
+            <h1 className="text-xl font-bold text-slate-900">Email verified</h1>
             <p className="text-sm text-slate-500">
               Taking you to your workspace…
             </p>

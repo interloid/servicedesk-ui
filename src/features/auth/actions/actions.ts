@@ -234,9 +234,7 @@ export async function confirmEmailAction(
 
     const { data, error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
-      type: (type && CONFIRM_OTP_TYPES.has(type)
-        ? type
-        : "signup") as
+      type: (type && CONFIRM_OTP_TYPES.has(type) ? type : "signup") as
         | "signup"
         | "email"
         | "magiclink"

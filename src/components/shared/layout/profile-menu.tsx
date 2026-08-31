@@ -1,0 +1,150 @@
+"use client";
+
+import { useState } from "react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+import { useLogout } from "@/features/auth/hooks/use-auth";
+import { ProfileModal } from "../profile-modal";
+import { KeyboardShortcutsModal } from "../keyboard-shortcuts-modal";
+import { ShellIdentity } from "@/types/shell-identity";
+
+const ROLE_DISPLAY_NAMES: Record<string, string> = {
+  platform_admin: "Platform Admin",
+  tenant_admin: "Tenant Admin",
+  manager: "Manager",
+  agent: "Agent",
+  billing_admin: "Billing Admin",
+};
+
+function formatRole(role?: string): string {
+  if (!role) return "Member";
+
+  return (
+    ROLE_DISPLAY_NAMES[role] ??
+    role.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
+  );
+}
+
+type ProfileMenuProps = {
+  identity: ShellIdentity | null;
+};
+
+export function ProfileMenu({ identity }: ProfileMenuProps) {
+  const { logout, isPending } = useLogout();
+  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState<boolean>(false);
+
+  async function onSignOut() {
+    await logout();
+  }
+
+  if (!identity) {
+    return null;
+  }
+
+  const displayRole = formatRole(identity.user.role);
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="flex h-11 items-center gap-2 rounded-lg px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Avatar className="size-8">
+              <AvatarImage
+                src={identity?.user.avatarUrl}
+                alt={identity?.user.name ?? "User"}
+              />
+              <AvatarFallback className="bg-foreground text-xs font-bold text-background">
+                {identity?.user.initials ?? "U"}
+              </AvatarFallback>
+            </Avatar>
+
+            <div className="hidden sm:flex min-w-0 flex-col items-start">
+              <span className="max-w-32 lg:max-w-40 truncate text-sm font-semibold text-foreground">
+                {identity.user.name}
+              </span>
+              <span className="max-w-32 lg:max-w-40 truncate text-xs text-muted-foreground">
+                {displayRole}
+              </span>
+            </div>
+          </button>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent
+          align="end"
+          sideOffset={13}
+          className="w-60 rounded-xl p-0"
+        >
+          <DropdownMenuLabel className="flex flex-col gap-0.5 border-b px-3.5 py-3 font-normal">
+            <span className="text-sm font-semibold text-foreground">
+              {identity.user.name}
+            </span>
+
+            <span className="text-xs text-muted-foreground">
+              {displayRole} · {identity.org.name}
+            </span>
+          </DropdownMenuLabel>
+
+          <DropdownMenuSeparator className="hidden" />
+
+          <div className="p-1.5">
+            <DropdownMenuItem
+              onSelect={() => setIsProfileOpen(true)}
+              className="h-9 px-3 text-sm font-medium cursor-pointer"
+            >
+              Profile settings
+            </DropdownMenuItem>
+
+            <DropdownMenuItem
+              onSelect={() => setIsKeyboardOpen(true)}
+              className="h-9 px-3 text-sm font-medium cursor-pointer"
+            >
+              Keyboard shortcuts
+            </DropdownMenuItem>
+
+            <DropdownMenuItem
+              variant="destructive"
+              className="h-9 px-3 text-sm font-medium cursor-pointer"
+              disabled={isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                void onSignOut();
+              }}
+            >
+              {isPending ? "Signing out…" : "Sign out"}
+            </DropdownMenuItem>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <ProfileModal
+        open={isProfileOpen}
+        onOpenChange={setIsProfileOpen}
+        tenantId={identity.org.id}
+        companyName={identity.org.name}
+        role={displayRole}
+        initialValues={{
+          fullName: identity.user.name,
+          email: identity.user.email,
+          avatarUrl: identity.user.avatarUrl,
+          initials: identity.user.initials,
+        }}
+      />
+      <KeyboardShortcutsModal
+        open={isKeyboardOpen}
+        onOpenChange={setIsKeyboardOpen}
+      />
+    </>
+  );
+}

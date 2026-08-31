@@ -1,9 +1,7 @@
 import slugify from "slugify";
-import {
-  createSupabaseAnonClient,
-  createSupabaseServerClient,
-} from "@/lib/supabase/server";
+import { createSupabaseAnonClient, createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { signUpWithPkce } from "@/lib/supabase/pkce";
 import { registerSchema, RegisterInput } from "../schemas/onboarding.schema";
 
 export interface Timezone {
@@ -65,24 +63,14 @@ export async function registerTenant(payload: RegisterInput) {
     throw new Error("Invalid timezone selected.");
   }
 
-  const { data: auth, error: authError } = await supabase.auth.signUp({
+  const { userId, requiresEmailConfirmation } = await signUpWithPkce({
     email,
     password,
-    options: {
-      data: {
-        full_name,
-      },
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/`,
+    userData: {
+      full_name,
     },
+    emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/confirm`,
   });
-
-  if (authError || !auth.user) {
-    throw new Error(
-      authError?.message || "Failed to create authentication user.",
-    );
-  }
-
-  const userId = auth.user.id;
 
   try {
     const { data, error } = await adminSupabase.rpc("provision_tenant", {
@@ -328,7 +316,10 @@ export async function registerTenant(payload: RegisterInput) {
 
     return {
       success: true,
-      message: "Registration completed successfully.",
+      requiresEmailConfirmation,
+      message: requiresEmailConfirmation
+        ? "Registration pending email confirmation."
+        : "Registration completed successfully.",
       data: {
         user: {
           id: userId,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { MailCheck } from "lucide-react";
 import { StepperHeader } from "./stepper-header";
 
 import { OnboardingState } from "../types/onboarding";
@@ -9,9 +10,11 @@ import { StepOrganization } from "./organization";
 import { StepBusinessHours } from "./business-hours";
 import { StepSlaPolicy } from "./sla-policy";
 import { StepInviteTeam } from "./invite-team";
+import { Button } from "@/components/ui/button";
 import { Timezone } from "../services/onboarding.service";
 import { OnboardingLoader } from "./onboarding-loader";
 import { landingUrlForSlug } from "@/lib/tenancy";
+import { APP_ROUTES } from "@/lib/routes";
 import { toast } from "sonner";
 import { registerOnboardingAction } from "../actions/register-actions";
 
@@ -35,6 +38,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<OnboardingState>({
     fullName: "",
@@ -116,6 +120,15 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
     const response = await registerOnboardingAction(payload);
 
     if (response.success) {
+      if (response.requiresEmailConfirmation) {
+        setPendingEmail(formData.workEmail);
+        setIsSubmitting(false);
+        toast.success(
+          "Almost there — verify your email to activate your workspace",
+        );
+        return;
+      }
+
       toast.success("Organization created successfully");
       window.location.assign(
         landingUrlForSlug(response.data!.tenant.slug, "/tickets"),
@@ -126,6 +139,37 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
       toast.error(response.error || "Failed to complete setup.");
     }
   };
+
+  if (pendingEmail) {
+    return (
+      <div className="w-full max-w-xl mx-auto rounded-3xl bg-white p-6 sm:p-8 shadow-xl border border-slate-100 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-accent/10">
+          <MailCheck className="h-7 w-7 text-brand-accent" aria-hidden />
+        </div>
+        <h1 className="mt-5 text-xl sm:text-2xl font-bold text-slate-900">
+          Check your email
+        </h1>
+        <p className="mt-2 text-sm leading-[1.6] text-slate-500">
+          We sent a confirmation link to{" "}
+          <span className="font-semibold text-slate-800">{pendingEmail}</span>.
+          Click it to verify your email — you&apos;ll be signed in and taken
+          straight to your workspace.
+        </p>
+        <p className="mt-4 text-xs text-slate-400">
+          Haven&apos;t received it? Check your spam folder, or start the signup
+          again.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => window.location.assign(APP_ROUTES.LOGIN)}
+          className="mt-6 h-11 w-full font-semibold"
+        >
+          Back to sign in
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-xl mx-auto rounded-3xl bg-white p-6 sm:p-8 shadow-xl border border-slate-100 flex flex-col max-h-[calc(100dvh-9rem)] overflow-hidden text-left">

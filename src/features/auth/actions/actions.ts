@@ -14,6 +14,8 @@ import {
   updatePasswordForTenant,
 } from "@/features/auth/services/auth.service";
 import type { ActionResult, LoginSuccess } from "@/features/auth/types";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { exchangePkceAuthCode } from "@/lib/supabase/pkce";
 import {
   ForgotPasswordValues,
   forgotPasswordSchema,
@@ -22,6 +24,17 @@ import {
   UpdatePasswordValues,
   updatePasswordSchema,
 } from "../schemas/reset-password";
+
+const CONFIRM_OTP_TYPES = new Set([
+  "signup",
+  "email",
+  "magiclink",
+  "invite",
+  "recovery",
+  "email_change",
+]);
+
+type EmailConfirmationResult = { tenantSlug: string | null };
 
 export async function loginAction(
   values: LoginValues,
@@ -210,4 +223,116 @@ export async function updateTenantPasswordAction(
   }
 
   return await updatePasswordForTenant(validatedFields.data, tenantId);
+}
+
+export async function confirmEmailAction(
+  tokenHash: string,
+  type?: string | null,
+): Promise<ActionResult<EmailConfirmationResult>> {
+  try {
+    const supabase = await createSupabaseServerClient();
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: (type && CONFIRM_OTP_TYPES.has(type)
+        ? type
+        : "signup") as
+        | "signup"
+        | "email"
+        | "magiclink"
+        | "invite"
+        | "recovery"
+        | "email_change",
+    });
+
+    if (error || !data.session) {
+      throw new AuthError(
+        "This email link is invalid or has expired. Request a new one.",
+        { status: error?.status ?? 400, code: "unknown" },
+      );
+    }
+
+    const { data: claimsData } = await supabase.auth.getClaims();
+    const tenantSlug =
+      (claimsData?.claims?.tenant_slug as string | undefined) ?? null;
+
+    return { success: true, data: { tenantSlug } };
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, code: error.code, message: error.message };
+    }
+
+    console.error("[auth] confirmEmailAction failed", error);
+
+    return {
+      success: false,
+      code: "unknown",
+      message: "Something went wrong verifying your email. Try again.",
+    };
+  }
+}
+
+export async function exchangeConfirmationCodeAction(
+  code: string,
+  codeVerifier?: string | null,
+): Promise<ActionResult<EmailConfirmationResult>> {
+  try {
+    const supabase = await createSupabaseServerClient();
+
+    if (codeVerifier) {
+      try {
+        const { accessToken, refreshToken } = await exchangePkceAuthCode(
+          code,
+          codeVerifier,
+        );
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+        if (error) {
+          throw new AuthError(error.message, {
+            status: error.status ?? 400,
+            code: "unknown",
+          });
+        }
+      } catch (error) {
+        if (error instanceof AuthError) throw error;
+
+        throw new AuthError(
+          error instanceof Error
+            ? error.message
+            : "This email link is invalid or has expired. Request a new one.",
+          { status: 400, code: "unknown" },
+        );
+      }
+    } else {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+      if (error || !data.session) {
+        throw new AuthError(
+          "This email link is invalid or has expired. Request a new one.",
+          { status: error?.status ?? 400, code: "unknown" },
+        );
+      }
+    }
+
+    const { data: claimsData } = await supabase.auth.getClaims();
+    const tenantSlug =
+      (claimsData?.claims?.tenant_slug as string | undefined) ?? null;
+
+    return { success: true, data: { tenantSlug } };
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, code: error.code, message: error.message };
+    }
+
+    console.error("[auth] exchangeConfirmationCodeAction failed", error);
+
+    return {
+      success: false,
+      code: "unknown",
+      message: "Something went wrong verifying your email. Try again.",
+    };
+  }
 }

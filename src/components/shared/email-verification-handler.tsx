@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { createSupabaseClient } from "@/lib/supabase/client";
 
 const SKIP_TYPES = new Set(["recovery", "invite"]);
-const OWNED_PATHS = /\/(reset-password|auth\/callback)$/;
+const OWNED_PATHS = /\/(reset-password|auth\/callback|auth\/confirm)$/;
 
 export function EmailVerificationHandler() {
   const handledRef = useRef(false);

@@ -14,6 +14,7 @@ export async function registerOnboardingAction(payload: RegisterInput) {
 
     return {
       success: true,
+      requiresEmailConfirmation: result.requiresEmailConfirmation,
       data: result.data,
     };
   } catch (error: unknown) {

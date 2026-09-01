@@ -1,3 +1,4 @@
+-- Start new tenants on a 15-day trial (trialing status) instead of immediately active.
 CREATE OR REPLACE FUNCTION public.provision_tenant(
     p_user_id uuid,
     p_email text,
@@ -36,6 +37,7 @@ BEGIN
         RAISE EXCEPTION 'Portal address is already taken.';
     END IF;
 
+
     IF EXISTS (
         SELECT 1
         FROM public.users
@@ -51,7 +53,6 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Invalid timezone selected.';
     END IF;
-
 
     IF NOT EXISTS (
         SELECT 1
@@ -76,6 +77,8 @@ BEGIN
     RETURNING id
     INTO v_tenant_id;
 
+
+
     INSERT INTO public.subscriptions (
         tenant_id,
         plan_id,
@@ -92,6 +95,7 @@ BEGIN
         now() + interval '15 days',
         2
     );
+
 
     INSERT INTO public.users (
         id,
@@ -120,6 +124,7 @@ BEGIN
         'active'
     );
 
+
     INSERT INTO public.business_hours (
         tenant_id,
         name,
@@ -138,6 +143,8 @@ BEGIN
     )
     RETURNING id
     INTO v_business_hours_id;
+
+
 
     INSERT INTO public.sla_policies (
         tenant_id,
@@ -162,6 +169,7 @@ BEGIN
     RETURNING id
     INTO v_sla_policy_id;
 
+
     INSERT INTO public.sla_policy_targets (
         tenant_id,
         policy_id,
@@ -180,6 +188,7 @@ BEGIN
         false,
         false
     FROM jsonb_array_elements(p_sla) AS rule;
+
 
     RETURN QUERY
     SELECT

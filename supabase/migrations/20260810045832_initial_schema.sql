@@ -495,7 +495,8 @@ CREATE TABLE public.invoices (
   storage_path  text,
   period_start  date                     NOT NULL,
   period_end    date                     NOT NULL,
-  created_at    timestamp with time zone DEFAULT now()
+  created_at    timestamp with time zone DEFAULT now(),
+  updated_at    timestamp with time zone DEFAULT now()
 );
 
 ALTER TABLE public.invoices
@@ -896,7 +897,7 @@ CREATE TABLE public.subscriptions (
   paypal_subscription_id text                       NOT NULL,
   plan_id                uuid                       NOT NULL,
   status                 public.subscription_status NOT NULL,
-  current_period_end     timestamp with time zone   NOT NULL,
+  current_period_end     timestamp with time zone,
   seats                  integer                    DEFAULT 1 NOT NULL,
   created_at             timestamp with time zone   DEFAULT now(),
   updated_at             timestamp with time zone   DEFAULT now()

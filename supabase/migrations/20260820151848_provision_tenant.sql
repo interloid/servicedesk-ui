@@ -84,8 +84,8 @@ BEGIN
         v_tenant_id,
         p_plan_id,
         'FREE-' || v_tenant_id,
-        'active',
-        '9999-12-31T23:59:59Z',
+        'trialing',
+        now() + interval '15 days',
         2
     );
 

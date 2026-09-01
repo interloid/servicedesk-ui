@@ -32,6 +32,9 @@ create table if not exists public.invoices
     created_at timestamptz
         default now(),
 
+    updated_at timestamptz
+        default now(),
+
     constraint chk_invoice_amount
         check(amount>=0)
 );

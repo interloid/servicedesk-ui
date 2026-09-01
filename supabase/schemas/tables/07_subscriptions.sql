@@ -14,7 +14,6 @@ create table if not exists public.subscriptions
         on delete cascade,
 
     paypal_subscription_id text
-        not null
         unique,
 
     plan_id uuid
@@ -24,8 +23,7 @@ create table if not exists public.subscriptions
     status subscription_status
         not null,
 
-    current_period_end timestamptz
-        not null,
+    current_period_end timestamptz,
 
     seats integer
         not null

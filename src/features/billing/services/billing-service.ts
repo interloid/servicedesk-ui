@@ -1,9 +1,10 @@
-import { createSupabaseClient } from "@/lib/supabase/client";
+import "server-only";
+
 import { DbPlan, FormattedFeature, FormattedPlan } from "../types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
+  canManageTenantBilling,
   getTenantIdBySlug,
-  getTenantSlugById,
 } from "@/features/tenancy/services/tenant-resolver";
 
 function formatFeatureLabel(key: string): string {
@@ -74,7 +75,9 @@ export function formatPlan(plan: DbPlan): FormattedPlan {
 }
 
 export async function getPlans(): Promise<FormattedPlan[]> {
-  const supabase = await createSupabaseClient();
+  // Was the browser client (cookie storage, memoised at module scope), which on
+  // the server reused the first request's client for every later request.
+  const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
     .from("plans")
@@ -125,7 +128,7 @@ export async function updateTenantPlan(
     throw new Error("Unauthorized");
   }
 
-  const payload: Record<string, any> = {
+  const payload: Record<string, string> = {
     plan_id: newPlanCode,
     updated_at: new Date().toISOString(),
   };
@@ -148,11 +151,18 @@ export async function updateTenantPlan(
   return data;
 }
 
+export type PlanChangeResult = {
+  success: boolean;
+  error?: string;
+  subscriptionId?: string | null;
+  approvalUrl?: string | null;
+};
+
 export async function changeTenantPlan(
   tenantSlug: string,
   newPlanCode: string,
   newPlanId?: string,
-) {
+): Promise<PlanChangeResult> {
   try {
     const supabase = await createSupabaseServerClient();
 
@@ -168,6 +178,22 @@ export async function changeTenantPlan(
       };
     }
 
+    const tenantId = await getTenantIdBySlug(tenantSlug);
+
+    if (!tenantId) {
+      return { success: false, error: "Tenant not found" };
+    }
+
+    const canManage = await canManageTenantBilling(user.id, tenantId);
+
+    if (!canManage) {
+      return {
+        success: false,
+        error:
+          "Forbidden: you do not have billing permissions for this tenant.",
+      };
+    }
+
     const { data, error } = await supabase.functions.invoke("subscription", {
       body: {
         tenantSlug,
@@ -178,10 +204,13 @@ export async function changeTenantPlan(
     if (error) {
       console.error("Create subscription error:", error);
 
-      let errorBody: any = null;
+      let errorBody: { message?: string; error?: string } | null = null;
 
       try {
-        errorBody = await error.context?.json();
+        errorBody = (await error.context?.json()) as {
+          message?: string;
+          error?: string;
+        } | null;
       } catch {
         // Ignore response parsing error
       }
@@ -207,8 +236,8 @@ export async function changeTenantPlan(
 
     return {
       success: true,
-      subscriptionId: data.subscriptionId,
-      approvalUrl: data.approvalUrl,
+      subscriptionId: data.subscriptionId ?? null,
+      approvalUrl: data.approvalUrl ?? null,
     };
   } catch (error) {
     console.error("changeTenantPlan error:", error);
@@ -220,7 +249,97 @@ export async function changeTenantPlan(
   }
 }
 
-export async function activateTenantSubscription(tenantSlug: string): Promise<{
+export async function abortPlanSwitch(tenantSlug: string): Promise<{
+  success: boolean;
+  restored?: boolean;
+  planName?: string;
+  error?: string;
+}> {
+  try {
+    const supabase = await createSupabaseServerClient();
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const tenantId = await getTenantIdBySlug(tenantSlug);
+
+    if (!tenantId) {
+      return { success: false, error: "Tenant not found" };
+    }
+
+    const canManage = await canManageTenantBilling(user.id, tenantId);
+
+    if (!canManage) {
+      return {
+        success: false,
+        error:
+          "Forbidden: you do not have billing permissions for this tenant.",
+      };
+    }
+
+    const { data, error } = await supabase.functions.invoke("subscription", {
+      body: {
+        action: "abort",
+        tenantSlug,
+      },
+    });
+
+    if (error) {
+      console.error("Abort subscription error:", error);
+
+      let errorBody: { message?: string; error?: string } | null = null;
+
+      try {
+        errorBody = (await error.context?.json()) as {
+          message?: string;
+          error?: string;
+        } | null;
+      } catch {
+        // Ignore response parsing error
+      }
+
+      return {
+        success: false,
+        error:
+          errorBody?.message ??
+          errorBody?.error ??
+          error.message ??
+          "Failed to restore your plan.",
+      };
+    }
+
+    if (!data?.success) {
+      return {
+        success: false,
+        error: data?.message ?? "Failed to restore your plan.",
+      };
+    }
+
+    return {
+      success: true,
+      restored: data?.restored ?? false,
+      planName: data?.planName ?? undefined,
+    };
+  } catch (error) {
+    console.error("abortPlanSwitch error:", error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Something went wrong.",
+    };
+  }
+}
+
+export async function activateTenantSubscription(
+  tenantSlug: string,
+  subscriptionId: string,
+): Promise<{
   success: boolean;
   error?: string;
   planName?: string;
@@ -236,48 +355,60 @@ export async function activateTenantSubscription(tenantSlug: string): Promise<{
     return { success: false, error: "Unauthorized" };
   }
 
-  const { data: tenant, error: tenantError } = await supabase
-    .from("tenants")
-    .select("id, plan_id")
-    .eq("slug", tenantSlug)
-    .single();
-
-  if (tenantError || !tenant) {
-    return { success: false, error: "Tenant not found" };
+  if (!subscriptionId) {
+    return { success: false, error: "Subscription ID is required." };
   }
 
-  const { data: sub, error: subError } = await supabase
-    .from("subscriptions")
-    .select("id, plan_id, status, plans(name)")
-    .eq("tenant_id", tenant.id)
-    .in("status", ["trialing", "active"])
-    .order("created_at", { ascending: false })
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase.functions.invoke("subscription", {
+      body: {
+        action: "activate",
+        tenantSlug,
+        subscriptionId,
+      },
+    });
 
-  if (subError || !sub) {
-    return { success: false, error: "No active subscription found" };
-  }
+    if (error) {
+      console.error("Subscription activation error:", error);
 
-  if (!sub.plan_id) {
-    return { success: false, error: "Subscription has no plan assigned" };
-  }
+      let errorBody: { message?: string; error?: string } | null = null;
 
-  if (sub.plan_id !== tenant.plan_id) {
-    const { error: updateError } = await supabase
-      .from("tenants")
-      .update({ plan_id: sub.plan_id, updated_at: new Date().toISOString() })
-      .eq("id", tenant.id);
+      try {
+        errorBody = (await error.context?.json()) as {
+          message?: string;
+          error?: string;
+        } | null;
+      } catch {
+        // Ignore response parsing error
+      }
 
-    if (updateError) {
       return {
         success: false,
-        error: `Failed to update plan: ${updateError.message}`,
+        error:
+          errorBody?.message ??
+          errorBody?.error ??
+          error.message ??
+          "Failed to activate subscription.",
       };
     }
-  }
 
-  return {
-    success: true,
-    planName: (sub.plans as any)?.name ?? undefined,
-  };
+    if (!data?.success) {
+      return {
+        success: false,
+        error: data?.message ?? "Failed to activate subscription.",
+      };
+    }
+
+    return {
+      success: true,
+      planName: data?.planName ?? undefined,
+    };
+  } catch (error) {
+    console.error("activateTenantSubscription error:", error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Something went wrong.",
+    };
+  }
 }

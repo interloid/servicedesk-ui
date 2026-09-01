@@ -1,15 +1,101 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { createInvoice } from "./invoice.ts";
 import { generateInvoicePdf } from "./pdf.ts";
 import { uploadInvoicePdf } from "./storage.ts";
 import { updateInvoiceStorage } from "./invoice.ts";
+import { cancelSubscription } from "./paypal.ts";
+
+interface WebhookEvent {
+  resource: {
+    id?: string;
+    billing_info?: { next_billing_time?: string };
+    billing_agreement_id?: string;
+    seller_receivable_breakdown?: unknown;
+    amount?: { total?: string };
+    sale_id?: string;
+  };
+}
+
+interface SubscriptionSwitch {
+  id?: string;
+  tenant_id?: string;
+  plan_id?: string;
+  paypal_subscription_id?: string;
+  old_paypal_subscription_id?: string | null;
+  old_plan_id?: string | null;
+  old_status?: string | null;
+  old_seats?: number | null;
+  old_current_period_end?: string | null;
+  status?: string;
+}
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-export async function handleSubscriptionActivated(event: any) {
+function isRealAgreement(id?: string | null): boolean {
+  return Boolean(id && !id.startsWith("FREE-"));
+}
+
+async function restoreSubscriptionFromSwitch(
+  pendingSwitch: SubscriptionSwitch,
+) {
+  const now = new Date().toISOString();
+
+  const { data: tenant, error: tenantLookupError } = await admin
+    .from("tenants")
+    .select("plan_id")
+    .eq("id", pendingSwitch.tenant_id)
+    .single();
+
+  if (tenantLookupError) {
+    throw tenantLookupError;
+  }
+
+  const restorePlanId = pendingSwitch.old_plan_id ?? tenant?.plan_id;
+
+  if (!restorePlanId) {
+    throw new Error("Cannot restore subscription: missing plan.");
+  }
+
+  const { error: subError } = await admin
+    .from("subscriptions")
+    .update({
+      plan_id: restorePlanId,
+      paypal_subscription_id:
+        pendingSwitch.old_paypal_subscription_id ??
+        `FREE-${pendingSwitch.tenant_id}`,
+      status: pendingSwitch.old_status ?? "active",
+      seats: pendingSwitch.old_seats ?? 1,
+      current_period_end: pendingSwitch.old_current_period_end ?? null,
+      updated_at: now,
+    })
+    .eq("tenant_id", pendingSwitch.tenant_id);
+
+  if (subError) {
+    throw subError;
+  }
+
+  const { error: tenantError } = await admin
+    .from("tenants")
+    .update({ plan_id: restorePlanId, updated_at: now })
+    .eq("id", pendingSwitch.tenant_id);
+
+  if (tenantError) {
+    throw tenantError;
+  }
+
+  const { error: switchError } = await admin
+    .from("subscription_switches")
+    .update({ status: "cancelled", updated_at: now })
+    .eq("id", pendingSwitch.id);
+
+  if (switchError) {
+    throw switchError;
+  }
+}
+
+export async function handleSubscriptionActivated(event: WebhookEvent) {
   const subscription = event.resource;
   const nextBilling = subscription.billing_info?.next_billing_time;
 
@@ -45,24 +131,100 @@ export async function handleSubscriptionActivated(event: any) {
       throw tenantError;
     }
   }
+
+  const { data: pendingSwitch, error: switchError } = await admin
+    .from("subscription_switches")
+    .select("*")
+    .eq("paypal_subscription_id", subscription.id)
+    .in("status", ["pending", "approved"])
+    .maybeSingle();
+
+  if (switchError) {
+    throw switchError;
+  }
+
+  if (pendingSwitch) {
+    if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
+      try {
+        await cancelSubscription(pendingSwitch.old_paypal_subscription_id!);
+      } catch (cancelError) {
+        console.error(
+          "Failed to cancel previous agreement on activation:",
+          cancelError,
+        );
+      }
+    }
+
+    const { error: applyError } = await admin
+      .from("subscription_switches")
+      .update({
+        status: "applied",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", pendingSwitch.id);
+
+    if (applyError) {
+      throw applyError;
+    }
+  }
 }
 
-export async function handleSubscriptionCancelled(event: any) {
+export async function handleSubscriptionCancelled(event: WebhookEvent) {
   const subscription = event.resource;
 
-  await admin
+  const { data: rows } = await admin
     .from("subscriptions")
-    .update({
-      status: "cancelled",
-
-      cancelled_at: new Date().toISOString(),
-
-      updated_at: new Date().toISOString(),
-    })
+    .select("id")
     .eq("paypal_subscription_id", subscription.id);
+
+  if (rows && rows.length > 0) {
+    const { error: updateError } = await admin
+      .from("subscriptions")
+      .update({
+        status: "cancelled",
+
+        cancelled_at: new Date().toISOString(),
+
+        updated_at: new Date().toISOString(),
+      })
+      .eq("paypal_subscription_id", subscription.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    const { data: pendingSwitch, error: switchError } = await admin
+      .from("subscription_switches")
+      .select("*")
+      .eq("paypal_subscription_id", subscription.id)
+      .in("status", ["pending", "approved"])
+      .maybeSingle();
+
+    if (switchError) {
+      throw switchError;
+    }
+
+    if (pendingSwitch) {
+      await restoreSubscriptionFromSwitch(pendingSwitch);
+    }
+
+    return;
+  }
+
+  const { data: supersededSwitch } = await admin
+    .from("subscription_switches")
+    .select("id, status")
+    .eq("old_paypal_subscription_id", subscription.id)
+    .maybeSingle();
+
+  if (supersededSwitch) {
+    console.log(
+      `Ignoring cancellation of superseded agreement ${subscription.id} (switch ${supersededSwitch.status}).`,
+    );
+  }
 }
 
-export async function handleSubscriptionSuspended(event: any) {
+export async function handleSubscriptionSuspended(event: WebhookEvent) {
   const subscription = event.resource;
 
   await admin
@@ -75,7 +237,7 @@ export async function handleSubscriptionSuspended(event: any) {
     .eq("paypal_subscription_id", subscription.id);
 }
 
-export async function handlePaymentCompleted(event: any) {
+export async function handlePaymentCompleted(event: WebhookEvent) {
   const payment = event.resource;
 
   const subscriptionId = payment.billing_agreement_id;
@@ -140,7 +302,7 @@ export async function handlePaymentCompleted(event: any) {
   await updateInvoiceStorage(invoice.id, storagePath);
 }
 
-export async function handlePaymentDenied(event: any) {
+export async function handlePaymentDenied(event: WebhookEvent) {
   const payment = event.resource;
 
   await admin
@@ -153,7 +315,7 @@ export async function handlePaymentDenied(event: any) {
     .eq("paypal_subscription_id", payment.billing_agreement_id);
 }
 
-export async function handlePaymentRefunded(event: any) {
+export async function handlePaymentRefunded(event: WebhookEvent) {
   const payment = event.resource;
 
   await admin

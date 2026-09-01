@@ -60,14 +60,27 @@ export function NotificationMenu() {
           <span className="text-sm font-bold text-foreground">
             Notifications
           </span>
-          <button
-            type="button"
-            onClick={() => setReadAll(true)}
-            className="rounded-sm p-1 text-xs font-semibold text-brand-accent hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            Mark all read
-          </button>
+          {NOTIFICATIONS.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setReadAll(true)}
+              className="rounded-sm p-1 text-xs font-semibold text-brand-accent hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              Mark all read
+            </button>
+          )}
         </div>
+
+        {NOTIFICATIONS.length === 0 && (
+          <div className="px-4 py-8 text-center">
+            <p className="text-sm font-medium text-foreground">
+              You&apos;re all caught up
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Ticket assignments and SLA alerts will show up here.
+            </p>
+          </div>
+        )}
 
         <div className="max-h-[60vh] sm:max-h-80 overflow-y-auto">
           {NOTIFICATIONS.map((n) => {

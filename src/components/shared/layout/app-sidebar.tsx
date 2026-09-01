@@ -64,6 +64,18 @@ interface NavSection {
   items: NavItem[];
 }
 
+/**
+ * Routes that actually exist under `app/(app)/[tenantSlug]/(base-layout)`.
+ * Everything else in `navSections` is planned but unbuilt, and rendering those
+ * as live links sent users to the 404 page. Add a path here when its page ships.
+ */
+const SHIPPED_ROUTES = new Set<string>([
+  "/tickets",
+  "/views",
+  "/account/billing",
+  "/account/plans",
+]);
+
 export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
   const pathname = usePathname();
   const params = useParams();
@@ -204,7 +216,9 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
   const visibleSections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => hasAccess(item.roles)),
+      items: section.items.filter(
+        (item) => hasAccess(item.roles) && SHIPPED_ROUTES.has(item.href),
+      ),
     }))
     .filter((section) => section.items.length > 0);
 

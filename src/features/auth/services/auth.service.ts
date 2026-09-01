@@ -292,19 +292,19 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
   const { email } = payload;
 
   try {
-    const supabase = await createSupabaseAdminClient();
+    const supabase = createSupabaseAdminClient();
     const { data: user } = await supabase
       .from("users")
       .select("id")
       .eq("email", email)
       .maybeSingle();
 
+    // Report success either way. Telling the caller that no account exists turns
+    // this form into a list of which addresses are registered.
     if (!user) {
-      return {
-        success: false,
-        error: "No account found with this email address",
-      };
+      return { success: true };
     }
+
     const redirectTo = `${
       process.env.NEXT_PUBLIC_SITE_URL || ""
     }/auth/callback?next=/reset-password`;
@@ -349,7 +349,7 @@ export async function sendTenantPasswordResetLink(
   const { email } = payload;
 
   try {
-    const supabase = await createSupabaseAdminClient();
+    const supabase = createSupabaseAdminClient();
     const origin = await requestOrigin();
     const { data: user } = await supabase
       .from("users")
@@ -357,12 +357,11 @@ export async function sendTenantPasswordResetLink(
       .eq("email", email)
       .maybeSingle();
 
+    // Same as above: never confirm whether the address is registered.
     if (!user) {
-      return {
-        success: false,
-        error: "No account found with this email address",
-      };
+      return { success: true };
     }
+
     const redirectTo = `${origin}${tenantAuthCallbackPath(
       slug,
       "/reset-password",
@@ -560,11 +559,15 @@ export async function findActiveMembership(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<ActiveMembership | null> {
+  // A user can belong to more than one workspace. `maybeSingle()` errors on more
+  // than one row, which silently skipped the audit entry for those users.
   const { data, error } = await supabase
     .from("memberships")
     .select("tenant_id, role")
     .eq("user_id", userId)
     .eq("status", "active")
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
 
   if (error) {

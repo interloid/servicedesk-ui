@@ -5,12 +5,28 @@ const admin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+interface Subscription {
+  id: string;
+  tenant_id: string;
+  current_period_start?: string;
+  current_period_end?: string;
+}
+
+interface Payment {
+  id: string;
+  create_time?: string;
+  amount: {
+    total?: string;
+    currency?: string;
+  };
+}
+
 export async function createInvoice({
   subscription,
   payment,
 }: {
-  subscription: any;
-  payment: any;
+  subscription: Subscription;
+  payment: Payment;
 }) {
   const invoiceNumber = await generateInvoiceNumber();
 

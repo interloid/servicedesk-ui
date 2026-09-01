@@ -13,14 +13,19 @@ export interface Timezone {
   name?: string;
   utc_offset?: string;
 }
-const invitationResults: {
+
+export type InvitationResult = {
   email: string;
   status: "added" | "invited" | "already_exists" | "failed";
   message: string;
-}[] = [];
+};
 
 export async function registerTenant(payload: RegisterInput) {
   const validated = registerSchema.parse(payload);
+
+  // Per-call, not module scope: a shared array would grow for the life of the
+  // server process and hold every invitee's email address across all signups.
+  const invitationResults: InvitationResult[] = [];
 
   const {
     email,
@@ -46,11 +51,16 @@ export async function registerTenant(payload: RegisterInput) {
       strict: true,
     });
 
+  // Matched on price, not on `code`: `code` doubles as the PayPal plan id, so a
+  // sandbox-to-live migration would change it and break every signup.
   const { data: freePlan, error: planError } = await supabase
     .from("plans")
     .select("id")
-    .eq("code", "F-15e70eec-7094-403f-b70e-8126fd7c062a")
-    .single();
+    .eq("price_month", 0)
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
   if (planError || !freePlan) {
     throw new Error("Free tier plan configuration not found.");
@@ -338,6 +348,7 @@ export async function registerTenant(payload: RegisterInput) {
           id: provisioned.business_hours_id,
         },
         plan: "Free",
+        invitations: invitationResults,
       },
     };
   } catch (error) {

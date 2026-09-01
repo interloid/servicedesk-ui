@@ -717,6 +717,7 @@ export type Database = {
       };
       subscriptions: {
         Row: {
+          cancelled_at: string | null;
           created_at: string | null;
           current_period_end: string;
           id: string;
@@ -728,6 +729,7 @@ export type Database = {
           updated_at: string | null;
         };
         Insert: {
+          cancelled_at?: string | null;
           created_at?: string | null;
           current_period_end: string;
           id?: string;
@@ -739,6 +741,7 @@ export type Database = {
           updated_at?: string | null;
         };
         Update: {
+          cancelled_at?: string | null;
           created_at?: string | null;
           current_period_end?: string;
           id?: string;
@@ -761,6 +764,66 @@ export type Database = {
             foreignKeyName: "subscriptions_tenant_id_fkey";
             columns: ["tenant_id"];
             isOneToOne: true;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      subscription_switches: {
+        Row: {
+          created_at: string | null;
+          id: string;
+          old_current_period_end: string | null;
+          old_plan_id: string | null;
+          old_paypal_subscription_id: string | null;
+          old_seats: number | null;
+          old_status: string | null;
+          paypal_subscription_id: string;
+          plan_id: string;
+          status: string;
+          tenant_id: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          created_at?: string | null;
+          id?: string;
+          old_current_period_end?: string | null;
+          old_plan_id?: string | null;
+          old_paypal_subscription_id?: string | null;
+          old_seats?: number | null;
+          old_status?: string | null;
+          paypal_subscription_id: string;
+          plan_id: string;
+          status?: string;
+          tenant_id: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          created_at?: string | null;
+          id?: string;
+          old_current_period_end?: string | null;
+          old_plan_id?: string | null;
+          old_paypal_subscription_id?: string | null;
+          old_seats?: number | null;
+          old_status?: string | null;
+          paypal_subscription_id?: string;
+          plan_id?: string;
+          status?: string;
+          tenant_id?: string;
+          updated_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "subscription_switches_plan_id_fkey";
+            columns: ["plan_id"];
+            isOneToOne: false;
+            referencedRelation: "plans";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "subscription_switches_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
             referencedRelation: "tenants";
             referencedColumns: ["id"];
           },

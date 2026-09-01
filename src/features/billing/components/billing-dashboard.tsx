@@ -72,7 +72,9 @@ export default function BillingDashboard({
 }: BillingDashboardProps) {
   const router = useRouter();
   const { tenantSlug } = use(params);
-  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<
+    BillingDashboardData["invoices"][number] | null
+  >(null);
   const [isUpdatePaymentOpen, setIsUpdatePaymentOpen] = useState(false);
 
   if (isLoading) {
@@ -112,7 +114,43 @@ export default function BillingDashboard({
   const data = initialData;
   const usedSeats = data?.seats?.used ?? 0;
   const totalSeats = data?.seats?.total ?? 0;
+  const unusedSeats = data?.seats?.unused ?? 0;
   const seatPercentage = totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0;
+
+  const monthlyRate = parseFloat(
+    (data?.amountDue?.total ?? "").replace(/[^0-9.]/g, ""),
+  );
+  const perSeatRate =
+    totalSeats > 0 && Number.isFinite(monthlyRate) && monthlyRate > 0
+      ? monthlyRate / totalSeats
+      : null;
+  const monthlySavings =
+    perSeatRate !== null && unusedSeats > 0 ? unusedSeats * perSeatRate : null;
+
+  const paymentType = data?.paymentMethod?.type;
+  const cardLast4 = data?.paymentMethod?.last4;
+  const cardExpiry = data?.paymentMethod?.expiry;
+  const hasCardDetails = Boolean(
+    paymentType && cardLast4 && cardLast4.trim() !== "" && cardLast4 !== "N/A",
+  );
+
+  const suspensionReason = data?.suspensionReason;
+  const attemptedCard = suspensionReason?.card;
+  const failingInvoice = suspensionReason?.invoiceId;
+  const failingAmount = suspensionReason?.amount;
+
+  let suspensionMessage: string;
+  if (attemptedCard && failingInvoice && failingAmount) {
+    suspensionMessage = `We tried ${attemptedCard} three times for invoice ${failingInvoice} (${failingAmount}) and it was declined.`;
+  } else if (failingInvoice && failingAmount) {
+    suspensionMessage = `We tried three charges for invoice ${failingInvoice} (${failingAmount}) and they were declined.`;
+  } else if (attemptedCard) {
+    suspensionMessage = `We tried ${attemptedCard} three times and it was declined.`;
+  } else {
+    suspensionMessage = "Your last three payment attempts were declined.";
+  }
+  suspensionMessage +=
+    " Agents can read tickets but can't reply until payment clears.";
 
   const metrics = [
     {
@@ -188,12 +226,7 @@ export default function BillingDashboard({
                   Your workspace is suspended
                 </h3>
                 <p className="text-xs text-red-800/90 mt-0.5">
-                  We tried {data.suspensionReason?.card ?? "Visa ···4412"} three
-                  times for invoice{" "}
-                  {data.suspensionReason?.invoiceId ?? "INV-2291"} (
-                  {data.suspensionReason?.amount ?? "$1,740.00"}) and it was
-                  declined. Agents can read tickets but can't reply until
-                  payment clears.
+                  {suspensionMessage}
                 </p>
               </div>
             </div>
@@ -259,10 +292,13 @@ export default function BillingDashboard({
             </CardHeader>
             <CardContent className="p-0 pt-3 sm:pt-4">
               <p className="text-xs text-slate-500 leading-relaxed">
-                {(data.seats?.unused ?? 0) > 0 ? (
+                {unusedSeats > 0 ? (
                   <>
-                    You're paying for {data.seats.unused} seats nobody is using.
-                    Drop to {usedSeats} seats and save $116 a month.
+                    You&apos;re paying for {unusedSeats}{" "}
+                    {unusedSeats === 1 ? "seat" : "seats"} nobody is using.
+                    {monthlySavings !== null
+                      ? ` Drop to ${usedSeats} seats and save $${monthlySavings.toFixed(2)} a month.`
+                      : ` Drop to ${usedSeats} seats to lower your monthly bill.`}
                   </>
                 ) : (
                   "All seats are currently assigned to active team members."
@@ -277,21 +313,35 @@ export default function BillingDashboard({
                 Payment Method
               </span>
               <div className="flex items-center space-x-3 pt-1">
-                <Badge
-                  variant="secondary"
-                  className="bg-slate-900 text-white font-bold px-2 py-1.5 rounded-md text-[10px] tracking-wider"
-                >
-                  {(data.paymentMethod?.type ?? "VISA").toUpperCase()}
-                </Badge>
-                <div>
-                  <p className="text-sm font-bold text-slate-900 leading-none">
-                    {data.paymentMethod?.type ?? "Visa"} ···
-                    {data.paymentMethod?.last4 ?? "4412"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Expires {data.paymentMethod?.expiry ?? "09 / 2027"}
-                  </p>
-                </div>
+                {hasCardDetails ? (
+                  <>
+                    <Badge
+                      variant="secondary"
+                      className="bg-slate-900 text-white font-bold px-2 py-1.5 rounded-md text-[10px] tracking-wider"
+                    >
+                      {(paymentType ?? "").toUpperCase()}
+                    </Badge>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900 leading-none">
+                        {paymentType} ···· {cardLast4}
+                      </p>
+                      {cardExpiry && cardExpiry !== "N/A" && (
+                        <p className="text-xs text-slate-400 mt-1">
+                          Expires {cardExpiry}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 leading-none">
+                      No payment method on file
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Add a card to avoid service interruptions.
+                    </p>
+                  </div>
+                )}
               </div>
             </CardHeader>
             <CardContent className="p-0 pt-4">
@@ -409,8 +459,8 @@ export default function BillingDashboard({
       <UpdatePaymentModal
         open={isUpdatePaymentOpen}
         onOpenChange={setIsUpdatePaymentOpen}
-        currentCardLast4="4412"
-        invoiceId="INV-2291"
+        currentCardLast4={hasCardDetails ? cardLast4 : undefined}
+        invoiceId={data.suspensionReason?.invoiceId}
       />
     </div>
   );

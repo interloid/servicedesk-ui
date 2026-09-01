@@ -1,8 +1,25 @@
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib";
 
+interface Invoice {
+  id?: string;
+  invoice_number?: string;
+  created_at?: string;
+  paypal_txn_id?: string;
+  status?: string;
+  period_start?: string;
+  period_end?: string;
+  amount?: number;
+}
+
+interface Subscription {
+  tenant_name?: string;
+  tenant_id?: string;
+  plan_name?: string;
+}
+
 export async function generateInvoicePdf(
-  invoice: any,
-  subscription: any,
+  invoice: Invoice,
+  subscription: Subscription,
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595, 842]);

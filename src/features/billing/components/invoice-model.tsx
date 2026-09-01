@@ -10,13 +10,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 
 interface InvoiceData {
   invoiceNumber?: string;
   date?: string;
   agentsBilled?: number;
   amount?: string;
-  status?: "Paid" | "Failed" | "Pending";
+  status?: string;
   pdfUrl?: string;
 }
 
@@ -37,7 +38,7 @@ export default function InvoiceModal({
 
   const handleDownload = async () => {
     if (!pdfUrl) {
-      alert("PDF URL is missing.");
+      toast.error("This invoice has no PDF yet.");
       return;
     }
 

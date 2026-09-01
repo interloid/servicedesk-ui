@@ -12,26 +12,34 @@ interface StepSlaPolicyProps {
   onBack: () => void;
 }
 
-const DEFAULT_SLA_TARGETS: SlaTarget[] = [
+export const DEFAULT_SLA_TARGETS: SlaTarget[] = [
   {
     priority: "Urgent",
     firstReply: "15 minutes",
+    firstReplyMins: 15,
     resolve: "4 hours",
+    resolveMins: 240,
   },
   {
     priority: "High",
     firstReply: "1 hour",
+    firstReplyMins: 60,
     resolve: "8 business hours",
+    resolveMins: 480,
   },
   {
     priority: "Normal",
     firstReply: "4 business hours",
+    firstReplyMins: 240,
     resolve: "2 business days",
+    resolveMins: 2880,
   },
   {
     priority: "Low",
     firstReply: "1 business day",
+    firstReplyMins: 1440,
     resolve: "5 business days",
+    resolveMins: 7200,
   },
 ];
 

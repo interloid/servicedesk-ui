@@ -19,8 +19,12 @@ export async function getShellIdentity(
   const { data: claimsData, error: claimsError } =
     await supabase.auth.getClaims();
 
+  // Every failure below returns null rather than throwing. This runs inside the
+  // dashboard layout, so a thrown error replaces the whole shell with the root
+  // error page and leaves the user with no navigation.
   if (claimsError) {
-    throw claimsError;
+    console.error("[identity] claims lookup failed:", claimsError.message);
+    return null;
   }
 
   const tenantId = claimsData?.claims?.tenant_id as string | undefined;
@@ -48,8 +52,12 @@ export async function getShellIdentity(
     .eq("id", tenantId)
     .single();
 
-  if (tenantError) {
-    throw tenantError;
+  if (tenantError || !tenantData) {
+    console.error(
+      `[identity] tenant ${tenantId} lookup failed:`,
+      tenantError?.message ?? "not found",
+    );
+    return null;
   }
 
   const { data: subscription, error: subscriptionError } = await supabase
@@ -67,7 +75,11 @@ export async function getShellIdentity(
     .maybeSingle();
 
   if (subscriptionError) {
-    throw subscriptionError;
+    console.error(
+      "[identity] subscription lookup failed:",
+      subscriptionError.message,
+    );
+    return null;
   }
 
   let plan = null;
@@ -80,10 +92,10 @@ export async function getShellIdentity(
       .single();
 
     if (planError) {
-      throw planError;
+      console.error("[identity] plan lookup failed:", planError.message);
     }
 
-    plan = planData;
+    plan = planData ?? null;
   }
 
   const { count: memberCount, error: memberError } = await supabase
@@ -96,7 +108,7 @@ export async function getShellIdentity(
     .eq("status", "active");
 
   if (memberError) {
-    throw memberError;
+    console.error("[identity] member count failed:", memberError.message);
   }
 
   const planName = plan?.name ?? "Free";

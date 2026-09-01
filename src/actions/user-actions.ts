@@ -10,6 +10,7 @@ import {
   updateUserProfileInSupabase,
 } from "@/service/user-service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { verifyUserTenantMembership } from "@/features/tenancy/services/tenant-resolver";
 
 export async function updateProfileAction(
   tenantId: string,
@@ -34,6 +35,14 @@ export async function updateProfileAction(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      return { success: false, message: "Unauthorized." };
+    }
+
+    // `tenantId` arrives from the browser and decides the avatar storage path.
+    // Storage RLS also checks it, but the action must not rely on that alone.
+    const isMember = await verifyUserTenantMembership(user.id, tenantId);
+
+    if (!isMember) {
       return { success: false, message: "Unauthorized." };
     }
 

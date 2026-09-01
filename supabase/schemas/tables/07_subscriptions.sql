@@ -25,6 +25,8 @@ create table if not exists public.subscriptions
 
     current_period_end timestamptz,
 
+    cancelled_at timestamptz,
+
     seats integer
         not null
         default 1,

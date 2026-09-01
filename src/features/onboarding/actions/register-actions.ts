@@ -1,6 +1,7 @@
 "use server";
 
 import { RegisterInput } from "../schemas/onboarding.schema";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
 import {
   registerTenant,
   getTimezones,
@@ -50,8 +51,22 @@ export async function getTimezonesAction() {
   }
 }
 
-export async function checkEmailTenantAction(email: string) {
+export async function checkEmailTenantAction(
+  email: string,
+): Promise<{ exists: boolean; rateLimited?: boolean }> {
   try {
+    // This action answers "is this email registered?" to anonymous callers, which
+    // is exactly the shape of an enumeration oracle. The signup step needs the
+    // answer, so cap how fast one caller can ask instead of removing the check.
+    const { allowed } = rateLimit(`check-email:${await clientKey()}`, {
+      limit: 10,
+      windowMs: 60_000,
+    });
+
+    if (!allowed) {
+      return { exists: false, rateLimited: true };
+    }
+
     return await checkEmailTenant(email);
   } catch (error: unknown) {
     console.error("[Email Check Action Error]:", error);
@@ -64,6 +79,18 @@ export async function checkEmailTenantAction(email: string) {
 
 export async function checkSlugAvailabilityAction(slug: string) {
   try {
+    const { allowed } = rateLimit(`check-slug:${await clientKey()}`, {
+      limit: 20,
+      windowMs: 60_000,
+    });
+
+    if (!allowed) {
+      return {
+        available: false,
+        error: "Too many checks. Wait a moment and try again.",
+      };
+    }
+
     return await checkSlugAvailability(slug);
   } catch (error: unknown) {
     console.error("[Slug Check Action Error]:", error);

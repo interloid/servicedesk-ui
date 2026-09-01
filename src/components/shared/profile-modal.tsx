@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, useEffect, ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera } from "lucide-react";
@@ -30,11 +30,12 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { updateProfileAction } from "@/actions/user-actions";
+import { toast } from "sonner";
 
 interface ProfileModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  companyName?: string;
+  companyName: string;
   tenantId: string;
   role: string;
   initialValues?: Partial<ProfileFormValues> & { initials?: string };
@@ -43,7 +44,7 @@ interface ProfileModalProps {
 export function ProfileModal({
   open,
   onOpenChange,
-  companyName = "Northwind Support",
+  companyName,
   role,
   tenantId,
   initialValues,
@@ -66,15 +67,30 @@ export function ProfileModal({
     },
   });
 
+  // Blob URLs pin the whole file in memory until they are revoked. Without this
+  // every image the user previews stays resident for the rest of the session.
+  useEffect(() => {
+    return () => {
+      if (previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        alert("Image must be under 5MB");
+        toast.error("Image must be under 5MB.");
         return;
       }
       setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+      setPreviewUrl((previous) => {
+        if (previous?.startsWith("blob:")) {
+          URL.revokeObjectURL(previous);
+        }
+        return URL.createObjectURL(file);
+      });
     }
   };
 
@@ -131,7 +147,7 @@ export function ProfileModal({
                     />
                   )}
                   <AvatarFallback className="bg-slate-200 text-slate-700 text-base sm:text-lg font-bold">
-                    {initialValues?.initials || "SO"}
+                    {initialValues?.initials || ""}
                   </AvatarFallback>
                 </Avatar>
                 <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">

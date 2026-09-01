@@ -64,3 +64,30 @@ export async function verifyWebhookSignature(
 
   return result.verification_status === "SUCCESS";
 }
+
+export async function cancelSubscription(
+  subscriptionId: string,
+): Promise<void> {
+  const accessToken = await getAccessToken();
+
+  const response = await fetch(
+    `${PAYPAL_BASE_URL}/v1/billing/subscriptions/${subscriptionId}/cancel`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason: "Replaced by a new subscription" }),
+    },
+  );
+
+  if (!response.ok) {
+    console.error(
+      `PayPal cancel subscription ${subscriptionId} failed:`,
+      response.status,
+      await response.text(),
+    );
+    throw new Error(`Failed to cancel subscription ${subscriptionId}.`);
+  }
+}

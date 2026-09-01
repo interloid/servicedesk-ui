@@ -84,11 +84,37 @@ export async function verifyUserTenantMembership(
     .select("id")
     .eq("user_id", userId)
     .eq("tenant_id", tenantId)
+    .eq("status", "active")
     .maybeSingle();
 
   if (error) {
     console.error(
       `[tenancy] Membership check failed for user ${userId} in tenant ${tenantId}: ${error.message}`,
+    );
+    return false;
+  }
+
+  return Boolean(membership);
+}
+
+export async function canManageTenantBilling(
+  userId: string,
+  tenantId: string,
+): Promise<boolean> {
+  const supabase = createSupabaseAdminClient();
+
+  const { data: membership, error } = await supabase
+    .from("memberships")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("tenant_id", tenantId)
+    .eq("status", "active")
+    .in("role", ["tenant_admin", "billing_admin"])
+    .maybeSingle();
+
+  if (error) {
+    console.error(
+      `[tenancy] Billing permission check failed for user ${userId} in tenant ${tenantId}: ${error.message}`,
     );
     return false;
   }

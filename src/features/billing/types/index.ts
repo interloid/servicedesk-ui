@@ -7,7 +7,7 @@ export interface DbPlan {
   seat_limit: number;
   ticket_limit: number;
   storage_limit_mb: number;
-  features_json: Record<string, any> | string;
+  features_json: Record<string, unknown> | string;
   is_active: boolean;
   sort_order: number;
 }

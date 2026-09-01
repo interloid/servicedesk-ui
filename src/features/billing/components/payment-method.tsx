@@ -19,8 +19,8 @@ interface UpdatePaymentModalProps {
 export function UpdatePaymentModal({
   open,
   onOpenChange,
-  currentCardLast4 = "4412",
-  invoiceId = "INV-2291",
+  currentCardLast4,
+  invoiceId,
   onSave,
 }: UpdatePaymentModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,8 +68,12 @@ export function UpdatePaymentModal({
               Update payment method
             </h2>
             <p className="text-xs text-slate-500 font-normal">
-              Replaces Visa ···{currentCardLast4}. We'll retry {invoiceId}{" "}
-              straight away.
+              {currentCardLast4
+                ? `Replaces your current card ending in ${currentCardLast4}. `
+                : "Add a payment method for this workspace. "}
+              {invoiceId
+                ? `We'll retry invoice ${invoiceId} straight away.`
+                : "We'll retry any pending charges right away."}
             </p>
           </div>
 

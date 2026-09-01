@@ -8,7 +8,7 @@ import { OnboardingState } from "../types/onboarding";
 import { StepAccount } from "./account";
 import { StepOrganization } from "./organization";
 import { StepBusinessHours } from "./business-hours";
-import { StepSlaPolicy } from "./sla-policy";
+import { DEFAULT_SLA_TARGETS, StepSlaPolicy } from "./sla-policy";
 import { StepInviteTeam } from "./invite-team";
 import { Button } from "@/components/ui/button";
 import { Timezone } from "../services/onboarding.service";
@@ -22,17 +22,7 @@ interface OnboardingWizardProps {
   timezones: Timezone[];
 }
 
-function parseSlaMinutes(timeStr: string): number {
-  if (timeStr.includes("15 minutes")) return 15;
-  if (timeStr.includes("1 hour")) return 60;
-  if (timeStr.includes("4 hours") || timeStr.includes("4 business hours"))
-    return 240;
-  if (timeStr.includes("8 business hours")) return 480;
-  if (timeStr.includes("1 business day")) return 1440;
-  if (timeStr.includes("2 business days")) return 2880;
-  if (timeStr.includes("5 business days")) return 7200;
-  return 60;
-}
+const TOTAL_STEPS = 5;
 
 export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -51,20 +41,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
     workingDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
     dayStarts: "09:00",
     dayEnds: "18:30",
-    slaTargets: [
-      { priority: "Urgent", firstReply: "15 minutes", resolve: "4 hours" },
-      { priority: "High", firstReply: "1 hour", resolve: "8 business hours" },
-      {
-        priority: "Normal",
-        firstReply: "4 business hours",
-        resolve: "2 business days",
-      },
-      {
-        priority: "Low",
-        firstReply: "1 business day",
-        resolve: "5 business days",
-      },
-    ],
+    slaTargets: DEFAULT_SLA_TARGETS,
     invites: [{ email: "", role: "Agent" }],
   });
 
@@ -74,7 +51,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
 
   const handleNext = () => {
     setErrorMessage(null);
-    setCurrentStep((prev) => Math.min(prev + 1, 5));
+    setCurrentStep((prev) => Math.min(prev + 1, TOTAL_STEPS));
   };
 
   const handleBack = () => {
@@ -83,7 +60,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
   };
 
   const handleSkip = () => {
-    if (currentStep === 5) {
+    if (currentStep === TOTAL_STEPS) {
       handleFinish();
     } else {
       handleNext();
@@ -106,8 +83,8 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
       day_end: formData.dayEnds,
       sla: formData.slaTargets.map((target) => ({
         priority: target.priority,
-        first_response_mins: parseSlaMinutes(target.firstReply),
-        resolution_mins: parseSlaMinutes(target.resolve),
+        first_response_mins: target.firstReplyMins,
+        resolution_mins: target.resolveMins,
       })),
       invite_users: formData.invites
         .filter((inv) => inv.email.trim() !== "")
@@ -177,7 +154,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         {currentStep <= 2 ? (
           <div>
             <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-brand-accent">
-              STEP {currentStep} OF 4
+              STEP {currentStep} OF {TOTAL_STEPS}
             </span>
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">
               {currentStep === 1
@@ -194,8 +171,9 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
           <div>
             <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-brand-accent">
               SET UP{" "}
-              {formData.orgName ? formData.orgName.toUpperCase() : "NORTHWIND"}{" "}
-              SUPPORT
+              {formData.orgName
+                ? `${formData.orgName.toUpperCase()} SUPPORT`
+                : "YOUR WORKSPACE"}
             </span>
 
             <h1 className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">

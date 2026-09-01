@@ -59,7 +59,17 @@ export function StepAccount({ data, onChange, onNext }: AccountStepProps) {
     setIsCheckingTenant(true);
 
     try {
-      const { exists } = await checkEmailTenantAction(values.workEmail);
+      const { exists, rateLimited } = await checkEmailTenantAction(
+        values.workEmail,
+      );
+
+      if (rateLimited) {
+        form.setError("workEmail", {
+          type: "manual",
+          message: "Too many checks from this device. Try again in a minute.",
+        });
+        return;
+      }
 
       if (exists) {
         form.setError("workEmail", {

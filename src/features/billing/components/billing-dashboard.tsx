@@ -208,7 +208,7 @@ export default function BillingDashboard({
           </div>
           <Button
             variant="outline"
-            className="w-fit text-xs font-semibold text-teal-800 border-slate-300 hover:bg-slate-100 rounded-lg px-4 h-9"
+            className="w-fit text-xs font-semibold bg-brand-accent text-primary-foreground rounded-lg px-4 h-9"
             onClick={() => router.push(`/${tenantSlug}/account/plans`)}
           >
             Change plan
@@ -317,7 +317,7 @@ export default function BillingDashboard({
                   <>
                     <Badge
                       variant="secondary"
-                      className="bg-slate-900 text-white font-bold px-2 py-1.5 rounded-md text-[10px] tracking-wider"
+                      className="bg-brand-accent text-primary-foreground font-bold px-2 py-1.5 rounded-md text-[10px] tracking-wider"
                     >
                       {(paymentType ?? "").toUpperCase()}
                     </Badge>
@@ -349,7 +349,7 @@ export default function BillingDashboard({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsUpdatePaymentOpen(true)}
-                className="text-xs font-semibold text-teal-800 border-slate-200 hover:bg-slate-100 h-9 px-3.5 rounded-lg shadow-none"
+                className="text-xs font-semibold bg-brand-accent text-primary-foreground h-9 px-3.5 rounded-lg shadow-none"
               >
                 Update card
               </Button>

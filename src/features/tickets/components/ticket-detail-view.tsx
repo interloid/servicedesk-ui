@@ -667,11 +667,7 @@ export default function TicketDetailView({
                           </span>
                         </div>
                         <div className="flex justify-between items-center text-[11px] text-slate-400">
-                          <span>
-                            Due:{" "}
-                            {formatTime(ev.due_at) ??
-                              "—"}
-                          </span>
+                          <span>Due: {formatTime(ev.due_at) ?? "—"}</span>
                           <span>
                             {ev.status === "completed"
                               ? `at ${formatTime(ev.completed_at)}`

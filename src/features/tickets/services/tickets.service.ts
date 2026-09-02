@@ -239,7 +239,7 @@ export async function createTenantTicket(
   tenant: string,
   ticketData: CreateTicketPayload,
 ): Promise<Ticket> {
-  console.log("🚀 ~ createTenantTicket ~ ticketData:", ticketData)
+  console.log("🚀 ~ createTenantTicket ~ ticketData:", ticketData);
   const supabase = await createSupabaseServerClient();
 
   let selectedSlaId = ticketData.sla_policy_id || null;

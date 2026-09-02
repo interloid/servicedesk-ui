@@ -131,7 +131,10 @@ export default function CreateTicketSheet({
 
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs text-slate-700">
             <div className="space-y-1.5">
-              <Label htmlFor="subject" className="font-semibold text-slate-800 text-xs">
+              <Label
+                htmlFor="subject"
+                className="font-semibold text-slate-800 text-xs"
+              >
                 Subject <span className="text-red-500">*</span>
               </Label>
               <Input
@@ -145,7 +148,10 @@ export default function CreateTicketSheet({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="requester" className="font-semibold text-slate-800 text-xs">
+              <Label
+                htmlFor="requester"
+                className="font-semibold text-slate-800 text-xs"
+              >
                 Requester <span className="text-red-500">*</span>
               </Label>
               <Select
@@ -190,7 +196,10 @@ export default function CreateTicketSheet({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="priority" className="font-semibold text-slate-800 text-xs">
+              <Label
+                htmlFor="priority"
+                className="font-semibold text-slate-800 text-xs"
+              >
                 Priority
               </Label>
               <Select value={priority} onValueChange={setPriority}>
@@ -218,7 +227,10 @@ export default function CreateTicketSheet({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="description" className="font-semibold text-slate-800 text-xs">
+              <Label
+                htmlFor="description"
+                className="font-semibold text-slate-800 text-xs"
+              >
                 Description
               </Label>
               <Textarea

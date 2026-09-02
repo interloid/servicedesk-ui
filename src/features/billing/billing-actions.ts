@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { changeTenantPlan } from "./services/billing-service";
+import { changeTenantPlan } from "./services/billing.service";
 import { fetchTenantBillingData } from "./services/billing-dashboard.service";
 
 export async function changeTenantPlanAction(
@@ -44,7 +44,7 @@ export async function getBillingDashboardAction(tenantSlug: string) {
 
 export async function abortPlanSwitchAction(tenantSlug: string) {
   try {
-    const { abortPlanSwitch } = await import("./services/billing-service");
+    const { abortPlanSwitch } = await import("./services/billing.service");
     const result = await abortPlanSwitch(tenantSlug);
     revalidatePath(`/${tenantSlug}/account/plans`);
     revalidatePath(`/${tenantSlug}/account/billing`);
@@ -72,10 +72,10 @@ export async function confirmSubscriptionActivationAction(
 
   try {
     const { activateTenantSubscription } =
-      await import("./services/billing-service");
+      await import("./services/billing.service");
     const result = await activateTenantSubscription(tenantSlug, subscriptionId);
-    revalidatePath(`/tenant/${tenantSlug}/account/billing`);
-    revalidatePath(`/tenant/${tenantSlug}/account/plans`);
+    revalidatePath(`/${tenantSlug}/account/billing`);
+    revalidatePath(`/${tenantSlug}/account/plans`);
     return result;
   } catch (error) {
     return {

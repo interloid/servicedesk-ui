@@ -97,7 +97,79 @@ async function restoreSubscriptionFromSwitch(
 
 export async function handleSubscriptionActivated(event: WebhookEvent) {
   const subscription = event.resource;
+
+  if (!subscription.id) {
+    throw new Error("Webhook missing subscription id.");
+  }
+
   const nextBilling = subscription.billing_info?.next_billing_time;
+  const now = new Date().toISOString();
+
+  const { data: pendingSwitch, error: switchError } = await admin
+    .from("subscription_switches")
+    .select("*")
+    .eq("paypal_subscription_id", subscription.id)
+    .in("status", ["pending", "approved"])
+    .maybeSingle();
+
+  if (switchError) {
+    throw switchError;
+  }
+
+  if (pendingSwitch) {
+    const { data: plan } = await admin
+      .from("plans")
+      .select("seat_limit")
+      .eq("id", pendingSwitch.plan_id)
+      .maybeSingle();
+
+    const { error: subError } = await admin
+      .from("subscriptions")
+      .update({
+        plan_id: pendingSwitch.plan_id,
+        paypal_subscription_id: subscription.id,
+        status: "active",
+        seats: plan?.seat_limit ?? 1,
+        current_period_end: nextBilling ?? null,
+        updated_at: now,
+      })
+      .eq("tenant_id", pendingSwitch.tenant_id);
+
+    if (subError) {
+      throw subError;
+    }
+
+    const { error: tenantError } = await admin
+      .from("tenants")
+      .update({ plan_id: pendingSwitch.plan_id, updated_at: now })
+      .eq("id", pendingSwitch.tenant_id);
+
+    if (tenantError) {
+      throw tenantError;
+    }
+
+    if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
+      try {
+        await cancelSubscription(pendingSwitch.old_paypal_subscription_id!);
+      } catch (cancelError) {
+        console.error(
+          "Failed to cancel previous agreement on activation:",
+          cancelError,
+        );
+      }
+    }
+
+    const { error: applyError } = await admin
+      .from("subscription_switches")
+      .update({ status: "applied", updated_at: now })
+      .eq("id", pendingSwitch.id);
+
+    if (applyError) {
+      throw applyError;
+    }
+
+    return;
+  }
 
   const { data, error } = await admin
     .from("subscriptions")
@@ -106,7 +178,7 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
 
       current_period_end: nextBilling,
 
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     })
     .eq("paypal_subscription_id", subscription.id)
     .select();
@@ -124,47 +196,11 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
   if (sub.plan_id) {
     const { error: tenantError } = await admin
       .from("tenants")
-      .update({ plan_id: sub.plan_id, updated_at: new Date().toISOString() })
+      .update({ plan_id: sub.plan_id, updated_at: now })
       .eq("id", sub.tenant_id);
 
     if (tenantError) {
       throw tenantError;
-    }
-  }
-
-  const { data: pendingSwitch, error: switchError } = await admin
-    .from("subscription_switches")
-    .select("*")
-    .eq("paypal_subscription_id", subscription.id)
-    .in("status", ["pending", "approved"])
-    .maybeSingle();
-
-  if (switchError) {
-    throw switchError;
-  }
-
-  if (pendingSwitch) {
-    if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
-      try {
-        await cancelSubscription(pendingSwitch.old_paypal_subscription_id!);
-      } catch (cancelError) {
-        console.error(
-          "Failed to cancel previous agreement on activation:",
-          cancelError,
-        );
-      }
-    }
-
-    const { error: applyError } = await admin
-      .from("subscription_switches")
-      .update({
-        status: "applied",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", pendingSwitch.id);
-
-    if (applyError) {
-      throw applyError;
     }
   }
 }

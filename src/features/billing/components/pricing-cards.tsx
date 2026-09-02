@@ -40,6 +40,7 @@ export function PricingCards({
   const [loadingPlanCode, setLoadingPlanCode] = useState<string | null>(null);
   const [selectedPlanForSwitch, setSelectedPlanForSwitch] =
     useState<FormattedPlan | null>(null);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   const executePlanSwitch = (plan: FormattedPlan) => {
     setLoadingPlanCode(plan.id);
@@ -59,6 +60,7 @@ export function PricingCards({
         }
 
         setSelectedPlanForSwitch(null);
+        setConfirmingCancel(false);
         window.location.reload();
       } catch (error) {
         console.error("Plan switch error:", error);
@@ -91,6 +93,31 @@ export function PricingCards({
   };
 
   const currentOrderIndex = getPlanOrderIndex(activeTarget);
+
+  const currentPlan = plans.find(
+    (p) =>
+      (p.id || "").trim().toLowerCase() === activeTarget ||
+      (p.code || "").trim().toLowerCase() === activeTarget,
+  );
+
+  const freePlan = plans.find(
+    (p) =>
+      (p.name || "").trim().toLowerCase() === "free" ||
+      (p.code || "").trim().toLowerCase().includes("free") ||
+      (p.code || "").trim().toLowerCase().includes("starter"),
+  );
+
+  const canCancelCurrent =
+    currentPlan !== undefined &&
+    currentOrderIndex > 0 &&
+    freePlan !== undefined &&
+    freePlan.id !== currentPlan.id;
+
+  const openCancelDialog = () => {
+    if (!freePlan) return;
+    setConfirmingCancel(true);
+    setSelectedPlanForSwitch(freePlan);
+  };
 
   return (
     <>
@@ -212,13 +239,23 @@ export function PricingCards({
 
               <CardFooter className="py-4 sm:py-6 bg-transparent mt-auto">
                 {isCurrent ? (
-                  <Button
-                    disabled
-                    variant="outline"
-                    className="h-10 w-full border border-border text-primary bg-background cursor-default disabled:opacity-100 font-semibold text-xs rounded-lg shadow-none hover:bg-background whitespace-nowrap"
-                  >
-                    Your current plan
-                  </Button>
+                  canCancelCurrent ? (
+                    <Button
+                      disabled={isPending}
+                      onClick={openCancelDialog}
+                      className="h-10 w-full gap-2 border border-red-200 text-red-600 bg-background hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-950/30 font-semibold text-xs rounded-lg shadow-none transition-colors whitespace-nowrap"
+                    >
+                      Cancel subscription
+                    </Button>
+                  ) : (
+                    <Button
+                      disabled
+                      variant="outline"
+                      className="h-10 w-full border border-border text-primary bg-background cursor-default disabled:opacity-100 font-semibold text-xs rounded-lg shadow-none hover:bg-background whitespace-nowrap"
+                    >
+                      Your current plan
+                    </Button>
+                  )
                 ) : (
                   <Button
                     disabled={isPending}
@@ -245,14 +282,15 @@ export function PricingCards({
         onOpenChange={(open) => {
           if (!open && !isPending) {
             setSelectedPlanForSwitch(null);
+            setConfirmingCancel(false);
           }
         }}
       >
         <AlertDialogContent
           className="
     w-[calc(100%-2rem)]
-    max-w-225
-    sm:max-w-225
+    data-[size=default]:max-w-110
+    data-[size=default]:sm:max-w-125
     rounded-2xl
     border
     border-border
@@ -268,6 +306,7 @@ export function PricingCards({
               onClick={() => {
                 if (!isPending) {
                   setSelectedPlanForSwitch(null);
+                  setConfirmingCancel(false);
                 }
               }}
               disabled={isPending}
@@ -278,7 +317,9 @@ export function PricingCards({
             </button>
 
             <AlertDialogTitle className="pr-10 text-xl font-bold text-foreground">
-              Switch to {selectedPlanForSwitch?.name}?
+              {confirmingCancel
+                ? "Are you sure you want to cancel your subscription?"
+                : `Switch to ${selectedPlanForSwitch?.name}?`}
             </AlertDialogTitle>
 
             <AlertDialogDescription asChild>
@@ -287,7 +328,17 @@ export function PricingCards({
                   <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600 dark:text-orange-400" />
 
                   <p className="text-sm font-medium leading-5 text-orange-900 dark:text-orange-200">
-                    {selectedPlanForSwitch?.name?.toLowerCase() === "free" ? (
+                    {confirmingCancel ? (
+                      <>
+                        Cancelling your {currentPlan?.name ?? currentPlanLabel}{" "}
+                        subscription takes effect immediately — you&apos;ll be
+                        moved to the Free plan, no further charges will be made,
+                        and paid features and seats above the Free plan&apos;s
+                        limits will stop working right away. Export anything you
+                        need first.
+                      </>
+                    ) : selectedPlanForSwitch?.name?.toLowerCase() ===
+                      "free" ? (
                       <>
                         Downgrading to Free takes effect immediately — your{" "}
                         {currentPlanLabel} subscription is cancelled right away
@@ -310,12 +361,12 @@ export function PricingCards({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <AlertDialogFooter className="border-t border-border px-6 py-3 pb-5 flex flex-row justify-end gap-3 sm:space-x-0">
+          <AlertDialogFooter className="mx-0 mb-0 border-t border-border px-4 py-4">
             <AlertDialogCancel
               disabled={isPending}
               className="mt-0 h-10 rounded-xl border-border bg-background px-5 font-semibold text-foreground hover:bg-muted"
             >
-              Cancel
+              {confirmingCancel ? "Keep my plan" : "Cancel"}
             </AlertDialogCancel>
 
             <AlertDialogAction
@@ -327,10 +378,14 @@ export function PricingCards({
                   executePlanSwitch(selectedPlanForSwitch);
                 }
               }}
-              className="h-10 rounded-xl bg-brand-accent px-5 font-semibold text-primary-foreground hover:bg-brand-accent/90"
+              className={`h-10 rounded-xl px-5 font-semibold shadow-none transition-colors ${
+                confirmingCancel
+                  ? "bg-red-600 text-white hover:bg-red-700"
+                  : "bg-brand-accent text-primary-foreground hover:bg-brand-accent/90"
+              }`}
             >
               {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Confirm switch
+              {confirmingCancel ? "Yes, cancel subscription" : "Confirm switch"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

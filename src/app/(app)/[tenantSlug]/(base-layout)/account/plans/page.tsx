@@ -2,7 +2,7 @@ import React from "react";
 import {
   getPlans,
   getTenantPlan,
-} from "@/features/billing/services/billing-service";
+} from "@/features/billing/services/billing.service";
 import { PricingCards } from "@/features/billing/components/pricing-cards";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {

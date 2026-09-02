@@ -64,14 +64,15 @@ interface NavSection {
   items: NavItem[];
 }
 
-/**
- * Routes that actually exist under `app/(app)/[tenantSlug]/(base-layout)`.
- * Everything else in `navSections` is planned but unbuilt, and rendering those
- * as live links sent users to the 404 page. Add a path here when its page ships.
- */
 const SHIPPED_ROUTES = new Set<string>([
   "/tickets",
   "/views",
+  "/customers",
+  "/sla",
+  "/reports",
+  "/settings/team",
+  "/settings/branding",
+  "/settings/notifications",
   "/account/billing",
   "/account/plans",
 ]);

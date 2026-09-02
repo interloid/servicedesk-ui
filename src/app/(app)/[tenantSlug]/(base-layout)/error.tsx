@@ -4,11 +4,6 @@ import { useEffect } from "react";
 import * as Sentry from "@sentry/nextjs";
 import { Button } from "@/components/ui/button";
 
-/**
- * Scoped to the signed-in shell. Without this, anything thrown while rendering a
- * tenant page falls through to the root error page, which drops the sidebar and
- * header and leaves the user with no way to navigate.
- */
 export default function TenantError({
   error,
   unstable_retry,

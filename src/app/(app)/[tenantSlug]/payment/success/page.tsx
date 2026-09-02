@@ -25,8 +25,6 @@ function PaymentSuccessContent() {
   const [error, setError] = useState<string | null>(null);
   const subscriptionId = searchParams.get("subscription_id");
   const missingSubscriptionId = !subscriptionId;
-  // Nothing to check without an id, so start settled rather than flipping the
-  // flag inside the effect.
   const [checking, setChecking] = useState(Boolean(subscriptionId));
   const tenantSlug = params.tenantSlug as string;
   const targetRedirectUrl = `/${tenantSlug}/account/plans`;
@@ -57,8 +55,6 @@ function PaymentSuccessContent() {
     };
   }, [tenantSlug, missingSubscriptionId, subscriptionId]);
 
-  // The countdown starts only once the check has settled. Running both at the
-  // same time redirected slow checks away before the result was ever shown.
   useEffect(() => {
     if (checking) return;
 
@@ -157,9 +153,6 @@ function PaymentSuccessContent() {
   );
 }
 
-// useSearchParams() renders everything up to the nearest Suspense boundary on the
-// client. Without this wrapper that was the whole page, so the user saw a blank
-// screen on return from PayPal until the bundle loaded.
 export default function PaymentSuccessPage() {
   return (
     <Suspense fallback={<PageLoader />}>

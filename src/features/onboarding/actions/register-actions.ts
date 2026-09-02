@@ -55,9 +55,6 @@ export async function checkEmailTenantAction(
   email: string,
 ): Promise<{ exists: boolean; rateLimited?: boolean }> {
   try {
-    // This action answers "is this email registered?" to anonymous callers, which
-    // is exactly the shape of an enumeration oracle. The signup step needs the
-    // answer, so cap how fast one caller can ask instead of removing the check.
     const { allowed } = rateLimit(`check-email:${await clientKey()}`, {
       limit: 10,
       windowMs: 60_000,

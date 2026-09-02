@@ -67,8 +67,6 @@ export function ProfileModal({
     },
   });
 
-  // Blob URLs pin the whole file in memory until they are revoked. Without this
-  // every image the user previews stays resident for the rest of the session.
   useEffect(() => {
     return () => {
       if (previewUrl?.startsWith("blob:")) {

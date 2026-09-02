@@ -7,16 +7,6 @@ type Bucket = {
   resetAt: number;
 };
 
-/**
- * Fixed-window, in-memory rate limiter for unauthenticated Server Actions.
- *
- * Scope and limits, stated plainly:
- * - The map is bounded by MAX_TRACKED_KEYS and every expired entry is evicted on
- *   read, so it cannot grow without limit.
- * - State is per server instance. On serverless this is best-effort: it stops
- *   bulk scraping from one warm instance, not a distributed attacker. Move to a
- *   shared store (Upstash, Redis) if that threat matters.
- */
 const buckets = new Map<string, Bucket>();
 
 const MAX_TRACKED_KEYS = 10_000;
@@ -32,7 +22,6 @@ function sweep(now: number) {
     return;
   }
 
-  // Still oversized after sweeping: drop the oldest entries (Map keeps insertion order).
   const excess = buckets.size - MAX_TRACKED_KEYS;
   let dropped = 0;
 

@@ -75,8 +75,6 @@ export function formatPlan(plan: DbPlan): FormattedPlan {
 }
 
 export async function getPlans(): Promise<FormattedPlan[]> {
-  // Was the browser client (cookie storage, memoised at module scope), which on
-  // the server reused the first request's client for every later request.
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase

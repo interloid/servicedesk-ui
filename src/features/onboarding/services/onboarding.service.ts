@@ -22,9 +22,6 @@ export type InvitationResult = {
 
 export async function registerTenant(payload: RegisterInput) {
   const validated = registerSchema.parse(payload);
-
-  // Per-call, not module scope: a shared array would grow for the life of the
-  // server process and hold every invitee's email address across all signups.
   const invitationResults: InvitationResult[] = [];
 
   const {
@@ -51,8 +48,6 @@ export async function registerTenant(payload: RegisterInput) {
       strict: true,
     });
 
-  // Matched on price, not on `code`: `code` doubles as the PayPal plan id, so a
-  // sandbox-to-live migration would change it and break every signup.
   const { data: freePlan, error: planError } = await supabase
     .from("plans")
     .select("id")

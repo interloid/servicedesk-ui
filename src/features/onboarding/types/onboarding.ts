@@ -7,10 +7,8 @@ export interface TeamInvite {
 
 export interface SlaTarget {
   priority: "Urgent" | "High" | "Normal" | "Low";
-  /** Display label only — never parsed back into a number. */
   firstReply: string;
   resolve: string;
-  /** The values actually sent to the server. */
   firstReplyMins: number;
   resolveMins: number;
 }

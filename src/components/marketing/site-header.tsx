@@ -6,10 +6,6 @@ import { Menu, X } from "lucide-react";
 
 import { APP_ROUTES } from "@/lib/routes";
 
-/**
- * The only interactive part of the landing page. Extracted so `app/page.tsx` can
- * stay a Server Component — it renders to HTML and can export `metadata`.
- */
 export function SiteHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 

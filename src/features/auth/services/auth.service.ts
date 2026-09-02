@@ -299,8 +299,6 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
       .eq("email", email)
       .maybeSingle();
 
-    // Report success either way. Telling the caller that no account exists turns
-    // this form into a list of which addresses are registered.
     if (!user) {
       return { success: true };
     }
@@ -357,7 +355,6 @@ export async function sendTenantPasswordResetLink(
       .eq("email", email)
       .maybeSingle();
 
-    // Same as above: never confirm whether the address is registered.
     if (!user) {
       return { success: true };
     }
@@ -559,8 +556,6 @@ export async function findActiveMembership(
   supabase: SupabaseClient,
   userId: string,
 ): Promise<ActiveMembership | null> {
-  // A user can belong to more than one workspace. `maybeSingle()` errors on more
-  // than one row, which silently skipped the audit entry for those users.
   const { data, error } = await supabase
     .from("memberships")
     .select("tenant_id, role")

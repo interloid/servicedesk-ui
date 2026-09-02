@@ -19,9 +19,6 @@ export async function getShellIdentity(
   const { data: claimsData, error: claimsError } =
     await supabase.auth.getClaims();
 
-  // Every failure below returns null rather than throwing. This runs inside the
-  // dashboard layout, so a thrown error replaces the whole shell with the root
-  // error page and leaves the user with no navigation.
   if (claimsError) {
     console.error("[identity] claims lookup failed:", claimsError.message);
     return null;

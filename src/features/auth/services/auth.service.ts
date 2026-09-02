@@ -19,7 +19,6 @@ import {
   landingUrlForSlug,
   stripTenantPrefix,
   TENANT_ROUTES,
-  tenantAuthCallbackPath,
   tenantPath,
 } from "@/lib/tenancy";
 import { APP_ROUTES } from "@/lib/routes";
@@ -305,7 +304,7 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
 
     const redirectTo = `${
       process.env.NEXT_PUBLIC_SITE_URL || ""
-    }/auth/callback?next=/reset-password`;
+    }/reset-password`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
@@ -359,9 +358,9 @@ export async function sendTenantPasswordResetLink(
       return { success: true };
     }
 
-    const redirectTo = `${origin}${tenantAuthCallbackPath(
+    const redirectTo = `${origin}${tenantPath(
       slug,
-      "/reset-password",
+      TENANT_ROUTES.RESET_PASSWORD,
     )}`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {

@@ -429,14 +429,17 @@ Deno.serve(async (req) => {
 
       const { data: plan, error: planError } = await admin
         .from("plans")
-        .select("id, name")
+        .select("id, name, seat_limit")
         .eq("id", pendingSwitch.plan_id)
         .single();
 
       const { error: activationError } = await admin
         .from("subscriptions")
         .update({
+          plan_id: pendingSwitch.plan_id,
+          paypal_subscription_id: pendingSwitch.paypal_subscription_id,
           status: "active",
+          seats: plan?.seat_limit ?? 1,
           updated_at: new Date().toISOString(),
         })
         .eq("tenant_id", tenantId);
@@ -673,30 +676,6 @@ Deno.serve(async (req) => {
           message: `Failed to record plan change: ${switchError.message}`,
         },
         { status: 500 },
-      );
-    }
-
-    const { error: updateError } = await admin
-      .from("subscriptions")
-      .update({
-        plan_id: plan.id,
-        paypal_subscription_id: paypalSubscription.id,
-        status: "trialing",
-        seats: plan.seat_limit,
-        current_period_end: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("tenant_id", tenantId);
-
-    if (updateError) {
-      console.error("Subscription update failed:", updateError);
-      return Response.json(
-        {
-          success: false,
-          message: `Failed to update subscription: ${updateError.message}`,
-          details: updateError.details ?? null,
-        },
-        { status: 400 },
       );
     }
 

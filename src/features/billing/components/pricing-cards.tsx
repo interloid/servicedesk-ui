@@ -94,7 +94,7 @@ export function PricingCards({
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch max-w-6xl mx-auto pt-6 pb-12 px-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 items-stretch max-w-6xl mx-auto pt-6 pb-12 px-2 sm:px-4">
         {plans.map((plan, planIdx) => {
           const planId = (plan.id || "").trim().toLowerCase();
           const planCode = (plan.code || "").trim().toLowerCase();
@@ -147,50 +147,50 @@ export function PricingCards({
           return (
             <Card
               key={plan.id}
-              className={`flex flex-col justify-between h-full rounded-xl p-6 transition-all shadow-none ring-0 ${
+              className={`flex flex-col justify-between h-full rounded-xl p-4 sm:p-5 md:p-6 transition-all shadow-none ring-0 ${
                 isCurrent
                   ? "border-2 border-brand-accent ring-0"
-                  : "border border-border"
+                  : "border border-border ring-0"
               }`}
             >
               <div className="flex-1 flex flex-col">
-                <CardHeader className="p-0 space-y-3">
+                <CardHeader className="p-0 space-y-2.5 sm:space-y-3">
                   <div className="flex items-center gap-2.5">
-                    <CardTitle className="text-base font-bold text-card-foreground">
+                    <CardTitle className="text-sm sm:text-base font-bold text-card-foreground">
                       {plan.name}
                     </CardTitle>
 
                     {isCurrent && (
-                      <Badge className="bg-primary/10 text-primary hover:bg-primary/10 font-medium px-2 py-0.5 text-xs rounded-full shadow-none border-none">
+                      <Badge className="bg-primary/10 text-primary hover:bg-primary/10 font-medium px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs rounded-full shadow-none border-none">
                         Current plan
                       </Badge>
                     )}
                   </div>
 
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-3xl font-extrabold tracking-tight text-card-foreground">
+                    <span className="text-2xl sm:text-3xl font-extrabold tracking-tight text-card-foreground">
                       {plan.price}
                     </span>
 
                     {plan.priceSuffix && (
-                      <span className="text-xs font-normal text-muted-foreground">
+                      <span className="text-[10px] sm:text-xs font-normal text-muted-foreground">
                         {plan.priceSuffix}
                       </span>
                     )}
                   </div>
 
-                  <CardDescription className="text-xs text-muted-foreground font-normal min-h-9 border-b border-border pb-4 leading-relaxed">
+                  <CardDescription className="text-[11px] sm:text-xs text-muted-foreground font-normal min-h-9 border-b border-border pb-3 sm:pb-4 leading-relaxed">
                     {plan.description}
                   </CardDescription>
                 </CardHeader>
 
-                <CardContent className="p-0 pt-4 flex-1">
-                  <ul className="space-y-3">
+                <CardContent className="p-0 pt-3 sm:pt-4 flex-1">
+                  <ul className="space-y-2 sm:space-y-2.5">
                     {displayFeatures.map((feature, index) => (
-                      <li key={index} className="flex items-start gap-2.5">
-                        <Check className="h-4 w-4 text-primary shrink-0 mt-0.5 stroke-[2.5]" />
+                      <li key={index} className="flex items-start gap-2">
+                        <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0 mt-0.5 stroke-[2.5]" />
                         <span
-                          className={`text-xs ${
+                          className={`text-[11px] sm:text-xs ${
                             feature.label
                               .toLowerCase()
                               .startsWith("everything in")
@@ -210,12 +210,12 @@ export function PricingCards({
                 </CardContent>
               </div>
 
-              <CardFooter className="py-6 bg-transparent mt-auto">
+              <CardFooter className="py-4 sm:py-6 bg-transparent mt-auto">
                 {isCurrent ? (
                   <Button
                     disabled
                     variant="outline"
-                    className="h-10 w-full border border-border text-primary bg-background cursor-default disabled:opacity-100 font-semibold text-xs rounded-lg shadow-none hover:bg-background"
+                    className="h-10 w-full border border-border text-primary bg-background cursor-default disabled:opacity-100 font-semibold text-xs rounded-lg shadow-none hover:bg-background whitespace-nowrap"
                   >
                     Your current plan
                   </Button>
@@ -223,7 +223,7 @@ export function PricingCards({
                   <Button
                     disabled={isPending}
                     onClick={() => setSelectedPlanForSwitch(plan)}
-                    className="h-10 w-full gap-2 bg-brand-accent text-primary-foreground hover:bg-brand-accent/90 font-semibold text-xs rounded-lg shadow-none transition-colors"
+                    className="h-10 w-full gap-2 bg-brand-accent text-primary-foreground hover:bg-brand-accent/90 font-semibold text-xs rounded-lg shadow-none transition-colors whitespace-nowrap"
                   >
                     {isLoadingThis && (
                       <Loader2 className="h-4 w-4 animate-spin" />

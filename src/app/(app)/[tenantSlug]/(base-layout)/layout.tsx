@@ -27,7 +27,7 @@ export default async function DashboardLayout({
           <div className="flex flex-1 flex-col min-w-0 h-full w-full">
             <AppHeader identity={identity} />
 
-            <main className="flex-1 overflow-y-auto w-full p-6 md:p-8">
+            <main className="flex-1 overflow-y-auto w-full p-6 sm:mb-10 md:p-8 ">
               {children}
             </main>
 

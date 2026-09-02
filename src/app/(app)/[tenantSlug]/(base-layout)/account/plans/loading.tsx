@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function PlansLoading() {
   return (
-    <div className="min-h-full w-full bg-background font-sans text-foreground sm:px-6 sm:py-8 lg:px-8">
+    <div className="min-h-full w-full bg-background font-sans text-foreground p-6 sm:px-6 sm:py-8 md:p-8 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
         <div className="text-center max-w-2xl mx-auto">
           <Skeleton className="h-7 w-48 mx-auto sm:h-8" />

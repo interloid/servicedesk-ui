@@ -195,7 +195,7 @@ export default function BillingDashboard({
   ];
 
   return (
-    <div className="h-full font-sans text-slate-900 pb-20 sm:pb-24">
+    <div className="h-full font-sans text-slate-900 p-8 overflow-y-auto ">
       <div className="mx-auto space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>

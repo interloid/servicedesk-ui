@@ -108,7 +108,7 @@ export default function CustomerDetailPage({
           </div>
           {customer.company && (
             <div className="self-start sm:self-auto">
-              <Badge className="bg-teal-50 text-teal-800 hover:bg-teal-50 border border-teal-100/60 font-medium text-xs px-3 py-1 rounded-full">
+              <Badge className="bg-teal-100 text-teal-800 hover:bg-teal-100 border border-teal-100/60 font-medium text-xs px-3 py-3 rounded-full">
                 {customer.company}
               </Badge>
             </div>
@@ -116,7 +116,7 @@ export default function CustomerDetailPage({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="rounded-xl border border-slate-200/80 shadow-sm bg-white p-5 ring-0">
+          <Card className="rounded-xl shadow-sm bg-white p-5 ">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               Open Tickets
             </p>
@@ -125,7 +125,7 @@ export default function CustomerDetailPage({
             </p>
           </Card>
 
-          <Card className="rounded-xl border border-slate-200/80 shadow-sm bg-white p-5 ring-0">
+          <Card className="rounded-xl shadow-sm bg-white p-5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               Lifetime Tickets
             </p>
@@ -134,7 +134,7 @@ export default function CustomerDetailPage({
             </p>
           </Card>
 
-          <Card className="rounded-xl border border-slate-200/80 shadow-sm bg-white p-5 ring-0">
+          <Card className="rounded-xl  shadow-sm bg-white p-5 ">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               Email
             </p>
@@ -143,7 +143,7 @@ export default function CustomerDetailPage({
             </p>
           </Card>
 
-          <Card className="rounded-xl border border-slate-200/80 shadow-sm bg-white p-5 ring-0">
+          <Card className="rounded-xl shadow-sm bg-white p-5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               CSAT
             </p>
@@ -152,7 +152,7 @@ export default function CustomerDetailPage({
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          <Card className="rounded-xl border border-slate-200/80 shadow-sm bg-white overflow-hidden ring-0">
+          <Card className="rounded-xl shadow-sm bg-white overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 space-y-0">
               <CardTitle className="text-sm font-bold text-slate-900">
                 Contacts & portal access
@@ -200,7 +200,7 @@ export default function CustomerDetailPage({
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border border-slate-200/80 shadow-sm bg-white overflow-hidden ring-0">
+          <Card className="rounded-xl  bg-white overflow-hidden gap-0">
             <CardHeader className="border-b border-slate-100">
               <CardTitle className="text-sm font-bold text-slate-900">
                 Recent tickets
@@ -216,7 +216,7 @@ export default function CustomerDetailPage({
                   <Link
                     key={ticket.id}
                     href={`/${tenant}/tickets/${ticket.id}`}
-                    className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors"
+                    className="p-2 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/50 transition-colors"
                   >
                     <div>
                       <span className="text-xs text-slate-400 font-normal">

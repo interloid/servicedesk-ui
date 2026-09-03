@@ -9,6 +9,7 @@ import {
   SlaPolicy,
   Ticket,
   TicketAttachment,
+  TicketMessage,
   TicketPriority,
   TicketStatus,
 } from "../types/tickets.types";
@@ -72,7 +73,15 @@ export async function fetchTenantTickets(
 ): Promise<{ tickets: Ticket[]; totalCount: number }> {
   const supabase = await createSupabaseServerClient();
   const tenantid = await getTenantIdBySlug(tenant);
-  const { search, priority, status, page = 1, limit = 8 } = options;
+  const {
+    search,
+    priority,
+    status,
+    page = 1,
+    limit = 8,
+    sort,
+    sortOrder,
+  } = options;
 
   const from = (page - 1) * limit;
   const to = from + limit - 1;
@@ -107,8 +116,11 @@ export async function fetchTenantTickets(
     query = query.or(`subject.ilike.%${search}%,description.ilike.%${search}%`);
   }
 
+  const sortColumn = sort === "subject" ? "subject" : "created_at";
+  const sortAscending = sortOrder === "asc";
+
   const { data, count, error } = await query
-    .order("created_at", { ascending: false })
+    .order(sortColumn, { ascending: sortAscending })
     .range(from, to);
 
   if (error) {
@@ -128,10 +140,94 @@ export async function fetchTenantTickets(
     tenantid!,
   );
 
+  const withSla = await attachSlaInfo(tickets);
+
   return {
-    tickets,
+    tickets: withSla,
     totalCount: count || 0,
   };
+}
+
+function formatDuration(ms: number): string {
+  const abs = Math.abs(ms);
+  const minutes = Math.floor(abs / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}d ${hours % 24}h`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  return `${minutes}m`;
+}
+
+/**
+ * Attach SLA status to each ticket in the list.
+ * For a ticket that is not resolved/closed we use the pending SLA events
+ * (first_response / resolution) to build a "Xd Yh left" or "Breached" label.
+ */
+async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
+  if (tickets.length === 0) return tickets;
+
+  const supabase = await createSupabaseServerClient();
+  const ids = tickets.map((t) => t.id);
+
+  const { data: events, error } = await supabase
+    .from("sla_events")
+    .select("ticket_id, type, status, due_at, completed_at, breached_at")
+    .in("ticket_id", ids);
+
+  if (error || !events) {
+    return tickets.map((t) => ({ ...t, sla_type: "normal", sla_text: "—" }));
+  }
+
+  const byTicket = new Map<string, SlaEvent[]>();
+  for (const ev of events) {
+    const list = byTicket.get(ev.ticket_id) || [];
+    list.push(ev as SlaEvent);
+    byTicket.set(ev.ticket_id, list);
+  }
+
+  const now = Date.now();
+  const editable = tickets.map(
+    (t) => ({ ...t }) as Ticket & { status: string },
+  );
+
+  return editable.map((t) => {
+    if (t.status === "resolved" || t.status === "closed") {
+      return { ...t, sla_type: "normal" as const, sla_text: "Completed" };
+    }
+
+    const evs = byTicket.get(t.id) || [];
+    const active = evs.find((e) => e.status === "pending") || evs[0];
+
+    if (!active) {
+      return { ...t, sla_type: "normal" as const, sla_text: "—" };
+    }
+
+    if (active.status === "breached") {
+      const over = now - new Date(active.due_at).getTime();
+      return {
+        ...t,
+        sla_type: "breached" as const,
+        sla_text: `Breached ${formatDuration(over)} ago`,
+      };
+    }
+
+    const due = new Date(active.due_at).getTime();
+    const remaining = due - now;
+
+    if (remaining <= 0) {
+      return {
+        ...t,
+        sla_type: "breached" as const,
+        sla_text: `Breached ${formatDuration(remaining)} ago`,
+      };
+    }
+
+    return {
+      ...t,
+      sla_type: remaining < 600000 ? ("warning" as const) : ("normal" as const),
+      sla_text: `${formatDuration(remaining)} left`,
+    };
+  });
 }
 
 export interface AssignableAgent {
@@ -142,6 +238,50 @@ export interface AssignableAgent {
 }
 
 const ASSIGNABLE_ROLES = ["agent", "manager"] as const;
+const MENTIONABLE_ROLES = ["agent", "manager", "tenant_admin"] as const;
+
+export async function fetchMentionableMembers(
+  tenant: string,
+): Promise<AssignableAgent[]> {
+  const supabase = await createSupabaseServerClient();
+  const tenantId = await getTenantIdBySlug(tenant);
+
+  if (!tenantId) return [];
+
+  const { data, error } = await supabase
+    .from("memberships")
+    .select("user_id, role, users!memberships_user_id_fkey(full_name, email)")
+    .eq("tenant_id", tenantId)
+    .eq("status", "active")
+    .in("role", [...MENTIONABLE_ROLES]);
+
+  if (error) {
+    console.error("Error fetching mentionable members:", error.message);
+    return [];
+  }
+
+  type MemberUser = { full_name: string | null; email: string };
+
+  const rows = (data || []) as Array<{
+    user_id: string;
+    role: string;
+    users: Array<MemberUser> | MemberUser | null;
+  }>;
+
+  return rows
+    .map((m) => {
+      const user = Array.isArray(m.users) ? m.users[0] : m.users;
+      return user
+        ? {
+            id: m.user_id,
+            full_name: user.full_name || user.email || "Unknown",
+            email: user.email || "",
+            role: m.role,
+          }
+        : null;
+    })
+    .filter((r): r is AssignableAgent => r !== null);
+}
 
 export async function fetchAssignableAgents(
   tenant: string,
@@ -239,7 +379,6 @@ export async function createTenantTicket(
   tenant: string,
   ticketData: CreateTicketPayload,
 ): Promise<Ticket> {
-  console.log("🚀 ~ createTenantTicket ~ ticketData:", ticketData);
   const supabase = await createSupabaseServerClient();
 
   let selectedSlaId = ticketData.sla_policy_id || null;
@@ -296,7 +435,53 @@ export async function getTicketMessages(ticketId: string, tenantId: string) {
     .order("created_at", { ascending: true });
 
   if (error) throw new Error(`Failed to fetch messages: ${error.message}`);
-  return data;
+
+  const rows = (data || []) as TicketMessage[];
+
+  const authorIds = Array.from(
+    new Set(
+      rows.filter((m) => m.author_type === "agent").map((m) => m.author_id),
+    ),
+  );
+
+  if (authorIds.length > 0) {
+    const { data: members } = await supabase
+      .from("memberships")
+      .select("user_id, users!memberships_user_id_fkey(full_name, email)")
+      .eq("tenant_id", tenantId)
+      .in("user_id", authorIds);
+
+    type MemberUser = { full_name: string | null; email: string };
+
+    const nameById = new Map<string, string>();
+    for (const m of (members || []) as Array<{
+      user_id: string;
+      users: MemberUser[] | MemberUser | null;
+    }>) {
+      const user = Array.isArray(m.users) ? m.users[0] : m.users;
+      if (user && m.user_id) {
+        nameById.set(m.user_id, user.full_name || user.email || "Agent");
+      }
+    }
+
+    rows.forEach((m) => {
+      if (m.author_type === "agent" && !m.author_name) {
+        const name = nameById.get(m.author_id);
+        if (name) {
+          m.author_name = name;
+          m.author_initials = name
+            .split(" ")
+            .map((p) => p[0])
+            .filter(Boolean)
+            .slice(0, 2)
+            .join("")
+            .toUpperCase();
+        }
+      }
+    });
+  }
+
+  return rows;
 }
 
 export async function fetchTicketSlaEvents(

@@ -18,6 +18,9 @@ import {
   TicketStatus,
 } from "../types/tickets.types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createNotification } from "@/lib/notifications.service";
+import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
+import { extractMentionIds, stripMentions } from "@/lib/mentions";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
@@ -54,6 +57,17 @@ export async function createTicketAction(tenant: string, formData: FormData) {
       priority: priority.toLowerCase() as CreateTicketPayload["priority"],
       status: status.toLowerCase() as CreateTicketPayload["status"],
     });
+
+    if (description.trim()) {
+      await createMessage({
+        tenantId: tenant,
+        ticketId: newTicket.id,
+        authorType: "customer",
+        authorId: requesterCustomerId,
+        body: description,
+        visibility: "public",
+      });
+    }
 
     const files = (formData.getAll("files") as File[]).filter(
       (f) => f.size > 0,
@@ -96,6 +110,8 @@ export async function sendTicketMessageAction(formData: FormData) {
       throw new Error("Unauthorized");
     }
 
+    const tenantIdResolved = await getTenantIdBySlug(tenantId);
+
     let message = null;
     if (body.trim()) {
       message = await createMessage({
@@ -117,6 +133,66 @@ export async function sendTicketMessageAction(formData: FormData) {
       });
     }
 
+    if (visibility === "public" && tenantIdResolved) {
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("assignee_user_id, subject, number")
+        .eq("id", ticketId)
+        .eq("tenant_id", tenantIdResolved)
+        .single();
+
+      const notifyUserId =
+        ticket?.assignee_user_id && ticket.assignee_user_id !== user.id
+          ? ticket.assignee_user_id
+          : null;
+
+      if (notifyUserId) {
+        await createNotification({
+          tenantId: tenantIdResolved,
+          userId: notifyUserId,
+          type: "ticket_updated",
+          payload: {
+            ticket_id: ticketId,
+            ticket_number: ticket?.number,
+            subject: ticket?.subject,
+            body: body.slice(0, 200),
+          },
+        });
+      }
+    }
+
+    if (tenantIdResolved && body.trim()) {
+      const mentionedIds = extractMentionIds(body);
+      if (mentionedIds.length > 0) {
+        const senderIdentity = await getCurrentUserIdentity(tenantId);
+        const { data: ticket } = await supabase
+          .from("tickets")
+          .select("subject, number")
+          .eq("id", ticketId)
+          .eq("tenant_id", tenantIdResolved)
+          .single();
+
+        await Promise.all(
+          mentionedIds
+            .filter((id) => id !== user.id)
+            .map((id) =>
+              createNotification({
+                tenantId: tenantIdResolved,
+                userId: id,
+                type: "mention",
+                payload: {
+                  ticket_id: ticketId,
+                  ticket_number: ticket?.number,
+                  subject: ticket?.subject,
+                  sender_name: senderIdentity?.email || "Someone",
+                  body: stripMentions(body).slice(0, 200),
+                },
+              }),
+            ),
+        );
+      }
+    }
+
     revalidatePath(`/${tenantId}/tickets/${ticketId}`);
     return { success: true };
   } catch (error) {
@@ -136,6 +212,8 @@ export async function updateTicketDetailsAction(formData: {
   unassign?: boolean;
 }) {
   try {
+    const tenantIdResolved = await getTenantIdBySlug(formData.tenantId);
+
     await updateTicketDetails(formData.ticketId, formData.tenantId, {
       ...(formData.status && { status: formData.status }),
       ...(formData.priority && { priority: formData.priority }),
@@ -143,6 +221,32 @@ export async function updateTicketDetailsAction(formData: {
         ? { assignee_user_id: null }
         : formData.assigneeId && { assignee_user_id: formData.assigneeId }),
     });
+
+    if (
+      !formData.unassign &&
+      formData.assigneeId &&
+      formData.assigneeId !== "unassigned" &&
+      tenantIdResolved
+    ) {
+      const supabase = await createSupabaseServerClient();
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("subject, number")
+        .eq("id", formData.ticketId)
+        .eq("tenant_id", tenantIdResolved)
+        .single();
+
+      await createNotification({
+        tenantId: tenantIdResolved,
+        userId: formData.assigneeId,
+        type: "ticket_assigned",
+        payload: {
+          ticket_id: formData.ticketId,
+          ticket_number: ticket?.number,
+          subject: ticket?.subject,
+        },
+      });
+    }
 
     revalidatePath(`/${formData.tenantId}/tickets/${formData.ticketId}`);
     return { success: true };

@@ -30,9 +30,9 @@ export default function CustomersTable({
       : "—";
 
   return (
-    <div className="h-full bg-slate-50/50 p-8 font-sans text-slate-700">
+    <div className="h-full bg-slate-50/50 p-4 sm:p-8 font-sans text-slate-700">
       <div className="max-w mx-auto space-y-6">
-        <div className="flex justify-between items-start">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Customers</h1>
             <p className="text-xs text-slate-500 mt-1">

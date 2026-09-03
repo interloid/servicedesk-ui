@@ -99,12 +99,12 @@ export default function TicketImportWizard({
 
         <Card className="border border-slate-200/80 shadow-sm bg-white rounded-lg">
           <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center space-x-6 sm:space-x-8 text-xs sm:text-sm font-medium">
+            <div className="flex items-center space-x-6 sm:space-x-8 text-xs sm:text-sm font-medium overflow-x-auto scrollbar-none whitespace-nowrap">
               <div className="flex items-center space-x-2.5">
                 <span
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                     currentStep >= 1
-                      ? "bg-[#0d7a6a] text-white"
+                      ? "bg-teal-700 text-white"
                       : "bg-slate-100 text-slate-500"
                   }`}
                 >
@@ -125,7 +125,7 @@ export default function TicketImportWizard({
                 <span
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                     currentStep >= 2
-                      ? "bg-[#0d7a6a] text-white"
+                      ? "bg-teal-700 text-white"
                       : "bg-slate-200 text-slate-600"
                   }`}
                 >
@@ -146,7 +146,7 @@ export default function TicketImportWizard({
                 <span
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                     currentStep === 3
-                      ? "bg-[#0d7a6a] text-white"
+                      ? "bg-teal-700 text-white"
                       : "bg-slate-200 text-slate-600"
                   }`}
                 >
@@ -343,14 +343,14 @@ export default function TicketImportWizard({
             <Button
               disabled={!file || isUploading}
               onClick={() => setCurrentStep((prev) => (prev + 1) as 2 | 3)}
-              className="h-9 px-5 text-xs font-semibold bg-[#0d7a6a] hover:bg-[#095b4f] text-white shadow-sm"
+              className="h-9 px-5 text-xs font-semibold bg-teal-700 hover:bg-teal-800 text-white shadow-sm"
             >
               Continue
             </Button>
           ) : (
             <Button
               onClick={() => alert("Import process started for 412 tickets!")}
-              className="h-9 px-5 text-xs font-semibold bg-[#0d7a6a] hover:bg-[#095b4f] text-white shadow-sm"
+              className="h-9 px-5 text-xs font-semibold bg-teal-700 hover:bg-teal-800 text-white shadow-sm"
             >
               Import 412 tickets
             </Button>

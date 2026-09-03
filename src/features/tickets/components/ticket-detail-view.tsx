@@ -13,14 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  ChevronLeft,
-  Paperclip,
-  Loader2,
-  X,
-  UserPlus,
-  CheckCircle2,
-} from "lucide-react";
+import { ChevronLeft, Paperclip, Loader2, X } from "lucide-react";
 import {
   Ticket,
   TicketMessage,
@@ -36,7 +29,13 @@ import {
   updateTicketDetailsAction,
   assignTicketToMeAction,
 } from "@/features/tickets/actions/tickets.actions";
+import { MentionText } from "@/components/shared/mention-text";
+import { serializeMention } from "@/lib/mentions";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useRealtimeSlaEvents } from "@/hooks/use-realtime-sla-events";
+import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
+import { Label } from "@/components/ui/label";
 
 interface TicketDetailViewProps {
   ticket: Ticket;
@@ -45,18 +44,32 @@ interface TicketDetailViewProps {
   slaEvents?: SlaEvent[];
   tenantslug: string;
   agents?: AssignableAgent[];
+  mentionableMembers?: AssignableAgent[];
   currentUserId?: string | null;
 }
 
 export default function TicketDetailView({
   ticket,
-  messages = [],
+  messages: initialMessages = [],
   attachments = [],
-  slaEvents = [],
+  slaEvents: initialSlaEvents = [],
   tenantslug: tenant,
   agents = [],
+  mentionableMembers = [],
   currentUserId = null,
 }: TicketDetailViewProps) {
+  const slaEvents = useRealtimeSlaEvents(ticket.id, initialSlaEvents);
+
+  const memberNameById: Record<string, string> = {};
+  for (const m of [...agents, ...mentionableMembers]) {
+    if (m.id && !memberNameById[m.id]) memberNameById[m.id] = m.full_name;
+  }
+  const { messages, lastActivityAt } = useRealtimeMessages(
+    ticket.id,
+    initialMessages,
+    memberNameById,
+  );
+
   const [isPending, startTransition] = useTransition();
   const [status, setStatus] = useState<TicketStatus>(ticket.status);
   const [priority, setPriority] = useState<TicketPriority>(ticket.priority);
@@ -69,6 +82,45 @@ export default function TicketDetailView({
   const [replyText, setReplyText] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionActive, setMentionActive] = useState(false);
+  const mentionRef = useRef<HTMLDivElement>(null);
+
+  const mentionMatches = mentionActive
+    ? mentionableMembers.filter(
+        (m) =>
+          !mentionQuery ||
+          m.full_name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
+          m.email.toLowerCase().includes(mentionQuery.toLowerCase()),
+      )
+    : [];
+
+  const applyMention = (member: AssignableAgent) => {
+    if (mentionQuery === null) return;
+    const mentionToken = `@${mentionQuery}`;
+    const idx = replyText.lastIndexOf(mentionToken);
+    if (idx === -1) return;
+    const before = replyText.slice(0, idx);
+    const after = replyText.slice(idx + mentionToken.length);
+    setReplyText(
+      before + serializeMention(member.full_name, member.id) + after,
+    );
+    setMentionQuery(null);
+    setMentionActive(false);
+  };
+
+  const handleReplyTextChange = (value: string) => {
+    setReplyText(value);
+    const caretMatch = value.slice(0, value.length).match(/@([\w .-]*)$/);
+    if (caretMatch) {
+      setMentionActive(true);
+      setMentionQuery(caretMatch[1]);
+    } else {
+      setMentionActive(false);
+      setMentionQuery(null);
+    }
+  };
 
   const hasPendingSla = slaEvents.some((e) => e.status === "pending");
   const [now, setNow] = useState<number>(() => Date.now());
@@ -93,6 +145,8 @@ export default function TicketDetailView({
       if (res.success) {
         setReplyText("");
         setPendingFiles([]);
+        setMentionQuery(null);
+        setMentionActive(false);
       }
     });
   };
@@ -124,39 +178,107 @@ export default function TicketDetailView({
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
 
-  const formatTime = (iso?: string | null) =>
-    iso
-      ? new Date(iso).toLocaleString([], {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : null;
+  const formatRemaining = (ms: number) => {
+    const abs = Math.abs(ms);
+    const minutes = Math.floor(abs / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days}d ${hours % 24}h left`;
+    if (hours > 0) return `${hours}h ${minutes % 60}m left`;
+    return `${minutes}m left`;
+  };
 
-  const slaProgress = (ev: SlaEvent, now: number) => {
+  const formatClock = (iso?: string | null) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    let h = d.getHours();
+    const m = d.getMinutes().toString().padStart(2, "0");
+    const meridiem = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    return `${h}:${m} ${meridiem}`;
+  };
+
+  const activityAt = lastActivityAt ?? ticket.created_at;
+  const lastActivityText = (() => {
+    const diff = now - new Date(activityAt).getTime();
+    const mins = Math.max(0, Math.floor(diff / 60000));
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs} hr${hrs > 1 ? "s" : ""} ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days} day${days > 1 ? "s" : ""} ago`;
+  })();
+  const slaRemainingText = (ev: SlaEvent) => {
     const start = new Date(ev.created_at).getTime();
     const due = new Date(ev.due_at).getTime();
+    const total = due - start;
+    const remaining = due - now;
+    const elapsedPct = total > 0 ? ((now - start) / total) * 100 : 100;
 
-    if (ev.status === "completed") return 100;
+    let text = `${formatRemaining(remaining)}`;
+    let badgeStyle =
+      "bg-emerald-100 text-emerald-900 border border-emerald-200/60";
+    let dotStyle = "bg-emerald-600";
+
+    if (ev.status === "completed") {
+      text = "Completed";
+      badgeStyle = "bg-slate-100 text-slate-700 border border-slate-200/60";
+      dotStyle = "bg-slate-500";
+    } else if (ev.status === "breached" || remaining <= 0) {
+      text = "Breached";
+      badgeStyle = "bg-red-100 text-red-800 border border-red-200/80";
+      dotStyle = "bg-red-500";
+    } else if (elapsedPct >= 75 || remaining < 600000) {
+      badgeStyle = "bg-amber-100 text-amber-900 border border-amber-200/60";
+      dotStyle = "bg-amber-600";
+    }
+
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${badgeStyle}`}
+      >
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotStyle}`} />
+        {text}
+      </span>
+    );
+  };
+
+  const slaRemainingTone = (ev: SlaEvent) => {
+    if (ev.status === "completed") return "bg-slate-100 text-slate-600";
+    if (ev.status === "breached") return "bg-red-100/70 text-red-800";
+
+    const start = new Date(ev.created_at).getTime();
+    const due = new Date(ev.due_at).getTime();
+    const total = due - start;
+    const remaining = due - now;
+    const elapsedPct = total > 0 ? ((now - start) / total) * 100 : 100;
+
+    if (remaining <= 0) return "bg-red-100/70 text-red-800";
+    if (elapsedPct >= 75 || remaining < 600000)
+      return "bg-amber-50 text-amber-800";
+    return "bg-emerald-50 text-emerald-800";
+  };
+
+  const slaProgressPercent = (ev: SlaEvent) => {
     if (ev.status === "breached") return 100;
-
+    if (ev.status === "completed") return 100;
+    const start = new Date(ev.created_at).getTime();
+    const due = new Date(ev.due_at).getTime();
     const total = due - start;
     if (total <= 0) return 100;
-
     const elapsed = ((now - start) / total) * 100;
     return Math.max(0, Math.min(100, Math.round(elapsed)));
   };
 
-  const slaStatusColor = (ev: SlaEvent, now: number) => {
-    if (ev.status === "breached") return "bg-red-500";
-    if (ev.status === "completed") return "bg-emerald-500";
-    const pct = slaProgress(ev, now);
-    if (pct >= 100) return "bg-red-500";
+  const slaBarColor = (ev: SlaEvent) => {
+    if (ev.status === "completed") return "bg-slate-400";
+    if (ev.status === "breached") return "bg-red-400";
+    const pct = slaProgressPercent(ev);
+    if (pct >= 100) return "bg-red-400";
     if (pct >= 75) return "bg-amber-400";
-    return "bg-sky-500";
+    return "bg-emerald-500";
   };
-
   const handleStatusChange = (val: TicketStatus) => {
     const prev = status;
     setStatus(val);
@@ -234,36 +356,6 @@ export default function TicketDetailView({
     });
   };
 
-  const handleAssignToMe = () => {
-    startTransition(async () => {
-      const res = await assignTicketToMeAction({
-        ticketId: ticket.id,
-        tenantId: tenant,
-      });
-      if (res.success && res.assigneeId) {
-        setAssigneeId(res.assigneeId);
-      } else {
-        toast.error(res.error || "Failed to assign ticket to you.");
-      }
-    });
-  };
-
-  const handleMarkSolved = () => {
-    const prev = status;
-    setStatus("resolved");
-    startTransition(async () => {
-      const res = await updateTicketDetailsAction({
-        ticketId: ticket.id,
-        tenantId: tenant,
-        status: "resolved",
-      });
-      if (!res.success) {
-        setStatus(prev);
-        toast.error(res.error || "Failed to mark ticket as resolved.");
-      }
-    });
-  };
-
   return (
     <div className="h-full bg-slate-50/50 font-sans text-slate-700">
       <div className="max-w mx-auto space-y-6">
@@ -282,17 +374,14 @@ export default function TicketDetailView({
             <span className="text-slate-400 font-medium">
               #{ticket.id.substring(0, 4)}
             </span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-              {humanizeStatus(ticket.status)}
-            </span>
-            <span className="text-slate-400">
-              Opened{" "}
-              {new Date(ticket.created_at).toLocaleString([], {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </span>
+            {(() => {
+              const headEv =
+                slaEvents.find((e) => e.status === "pending") || slaEvents[0];
+              if (headEv) {
+                return slaRemainingText(headEv);
+              }
+              return null;
+            })()}
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
@@ -313,69 +402,45 @@ export default function TicketDetailView({
                 </span>
               </>
             )}
+            <span className="text-slate-400">
+              {" "}
+              · last activity {lastActivityText}
+            </span>
           </p>
-
-          {status !== "resolved" && status !== "closed" && (
-            <div className="flex items-center space-x-2 pt-1">
-              <Button
-                type="button"
-                size="sm"
-                disabled={isPending}
-                onClick={handleAssignToMe}
-                className="h-8 text-xs font-semibold bg-[#0d7a6a] hover:bg-[#095b4f] text-white shadow-none rounded-md px-3"
-              >
-                {isPending ? (
-                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                ) : (
-                  <UserPlus className="w-3.5 h-3.5 mr-1.5" />
-                )}
-                Assign to me
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={isPending}
-                onClick={handleMarkSolved}
-                className="h-8 text-xs font-semibold border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-none rounded-md px-3"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
-                Mark solved
-              </Button>
-            </div>
-          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
             {messages.map((msg) => {
               const isInternal = msg.visibility === "internal";
+              const isCustomer = msg.author_type === "customer";
+
               return (
-                <div key={msg.id} className="flex space-x-3">
+                <div key={msg.id} className="flex space-x-3 items-start">
                   <div
-                    className={`w-8 h-8 rounded-full ${
-                      msg.author_type === "customer"
-                        ? "bg-slate-500"
-                        : "bg-emerald-700"
-                    } text-white flex items-center justify-center text-xs font-bold shrink-0 mt-0.5`}
+                    className={`w-8 h-8 rounded-full text-white flex items-center justify-center text-sm font-semibold shrink-0 ${
+                      isCustomer
+                        ? "bg-slate-600"
+                        : isInternal
+                          ? "bg-amber-600"
+                          : "bg-teal-700"
+                    }`}
                   >
-                    {msg.author_initials ||
-                      (msg.author_type === "customer" ? "CU" : "AG")}
+                    {msg.author_initials || (isCustomer ? "AN" : "SO")}
                   </div>
+
                   <div className="flex-1 space-y-1">
                     <div className="flex items-center space-x-2 text-xs">
-                      <span className="font-bold text-slate-900">
+                      <span className="font-semibold text-slate-900">
                         {msg.author_name ||
-                          (msg.author_type === "customer"
-                            ? "Customer"
-                            : "Agent")}
+                          (isCustomer ? "Aisha Noor" : "Sam Okafor")}
                       </span>
                       {isInternal && (
-                        <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 text-[9px] uppercase tracking-wider font-bold px-1.5 py-0 border-none">
+                        <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded border border-amber-200 tracking-wider uppercase">
                           Internal Note
-                        </Badge>
+                        </span>
                       )}
-                      <span className="text-slate-400">
+                      <span className="text-slate-400 text-xs">
                         {new Date(msg.created_at).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
@@ -384,141 +449,180 @@ export default function TicketDetailView({
                     </div>
 
                     <div
-                      className={`p-4 rounded-xl text-xs leading-relaxed border ${
+                      className={`p-3.5 rounded-lg text-sm leading-relaxed border ${
                         isInternal
-                          ? "bg-amber-50/60 border-amber-200/80 text-slate-800"
-                          : "bg-white border-slate-200/80 text-slate-800 shadow-sm"
+                          ? "bg-amber-50 border-amber-200 text-slate-800"
+                          : isCustomer
+                            ? "bg-white border-slate-200 text-slate-800 shadow-sm"
+                            : "bg-emerald-50/50 border-emerald-200 text-slate-800"
                       }`}
                     >
-                      {msg.body}
+                      <MentionText text={msg.body} />
                     </div>
                   </div>
                 </div>
               );
             })}
 
-            <Card className="shadow-sm border border-slate-200 overflow-hidden bg-white mt-6 rounded-lg w-full">
-              <CardContent className="p-0">
-                <div className="flex items-center space-x-2 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setReplyType("public")}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                      replyType === "public"
-                        ? "border border-[#0d7a6a]/30 text-[#0d7a6a] bg-[#0d7a6a]/5"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    Public reply
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReplyType("internal")}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                      replyType === "internal"
-                        ? "border border-amber-500/30 text-amber-800 bg-amber-50"
-                        : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    Internal note
-                  </button>
-                </div>
+            <div
+              className={`rounded-xl border overflow-hidden transition-colors ${
+                replyType === "internal"
+                  ? "bg-amber-50 border-amber-200"
+                  : "bg-white border-slate-200"
+              }`}
+            >
+              <div className="flex items-center space-x-2 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setReplyType("public")}
+                  className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                    replyType === "public"
+                      ? "border-teal-700 text-teal-700 bg-teal-700/10 shadow-sm ring-1 ring-teal-700"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Public reply
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReplyType("internal")}
+                  className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                    replyType === "internal"
+                      ? "border-amber-600 text-amber-800 bg-amber-100/50 shadow-sm ring-1 ring-amber-600"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Internal note
+                </button>
+              </div>
 
-                <div className="p-3 sm:p-4">
-                  <Textarea
-                    rows={4}
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    placeholder={
-                      replyType === "internal"
-                        ? "Write an internal note..."
-                        : `Write a reply to ${ticket.requester_name || "customer"}...`
-                    }
-                    className="border-none shadow-none text-xs sm:text-sm focus-visible:ring-0 p-0 placeholder:text-slate-400 text-slate-800 w-full"
-                  />
-                </div>
-
-                {pendingFiles.length > 0 && (
-                  <div className="px-3 sm:px-4 pb-3 flex flex-wrap gap-2">
-                    {pendingFiles.map((file, i) => (
-                      <div
-                        key={`${file.name}-${i}`}
-                        className="inline-flex items-center gap-1.5 bg-slate-100 rounded-md pl-2 pr-1 py-1 text-[11px] font-medium text-slate-700 max-w-full"
-                      >
-                        <span className="w-4 h-4 rounded bg-white flex items-center justify-center text-[8px] font-bold text-slate-500 shrink-0">
-                          {fileExtension(file.name).slice(0, 3)}
-                        </span>
-                        <span className="truncate max-w-30 sm:max-w-45">
-                          {file.name}
-                        </span>
-                        <span className="text-slate-400 text-[10px] shrink-0">
-                          {formatSize(file.size)}
-                        </span>
+              <div className="px-4 sm:px-6 py-3 relative min-h-30">
+                <textarea
+                  rows={4}
+                  value={replyText}
+                  onChange={(e) => handleReplyTextChange(e.target.value)}
+                  placeholder={
+                    replyType === "internal"
+                      ? "Visible to your team only — context, root cause, next steps."
+                      : `Write a reply to ${ticket.requester_name || "John Doe"}...`
+                  }
+                  className="w-full bg-transparent text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 border-none outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 p-0 resize-none"
+                />
+                {mentionActive && mentionMatches.length > 0 && (
+                  <div
+                    ref={mentionRef}
+                    className="absolute z-30 top-10 left-4 sm:left-6 mt-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
+                  >
+                    <p className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Mention someone
+                    </p>
+                    <div className="max-h-48 overflow-y-auto">
+                      {mentionMatches.map((member) => (
                         <button
+                          key={member.id}
                           type="button"
-                          onClick={() => removePendingFile(i)}
-                          className="text-slate-400 hover:text-slate-700 ml-1 shrink-0"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            applyMention(member);
+                          }}
+                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-slate-50"
                         >
-                          <X className="w-3 h-3" />
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
+                              {member.full_name
+                                .split(" ")
+                                .map((s) => s[0])
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()}
+                            </span>
+                            <span className="truncate text-xs font-medium text-slate-800">
+                              {member.full_name}
+                            </span>
+                          </span>
+                          <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold capitalize text-slate-500">
+                            {member.role.replace("_", " ")}
+                          </span>
                         </button>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
+              </div>
 
-                <div className="px-3 sm:px-4 py-3 bg-[#fafbfc] border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-2">
-                  <div className="flex items-center space-x-2 sm:space-x-3">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={handleFilesSelected}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs font-semibold border-slate-200 text-slate-700 bg-white hover:bg-slate-50 shadow-none px-2.5 sm:px-3 shrink-0"
-                      onClick={() => fileInputRef.current?.click()}
+              {pendingFiles.length > 0 && (
+                <div className="px-4 pb-3 flex flex-wrap gap-2">
+                  {pendingFiles.map((file, i) => (
+                    <div
+                      key={`${file.name}-${i}`}
+                      className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-md pl-2 pr-1 py-1 text-[11px] font-medium text-slate-700 shadow-sm"
                     >
-                      <Paperclip className="w-3.5 h-3.5 sm:mr-1.5 text-slate-600" />
-                      <span className="hidden sm:inline">Attach</span>
-                    </Button>
-                    <span className="text-[11px] sm:text-xs text-slate-400 truncate">
-                      {replyType === "internal"
-                        ? "Visible to team only."
-                        : "Sends by email and shows on the portal."}
-                    </span>
-                  </div>
-
-                  <Button
-                    size="sm"
-                    onClick={handleSendReply}
-                    disabled={
-                      isPending ||
-                      (!replyText.trim() && pendingFiles.length === 0)
-                    }
-                    className={`w-full sm:w-auto ${
-                      replyType === "internal"
-                        ? "bg-amber-600 hover:bg-amber-700"
-                        : "bg-[#0d7a6a] hover:bg-[#095b4f]"
-                    } text-white text-xs font-medium px-4 h-8 rounded-md transition-colors shrink-0`}
-                  >
-                    {isPending && (
-                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                    )}
-                    Send{" "}
-                    {replyType === "internal"
-                      ? "internal note"
-                      : "public reply"}
-                  </Button>
+                      <span className="w-4 h-4 rounded bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 shrink-0">
+                        {fileExtension(file.name).slice(0, 3)}
+                      </span>
+                      <span className="truncate max-w-30">{file.name}</span>
+                      <span className="text-slate-400 text-[10px] shrink-0">
+                        {formatSize(file.size)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removePendingFile(i)}
+                        className="text-slate-400 hover:text-slate-700 ml-1 shrink-0"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              </CardContent>
-            </Card>
+              )}
+
+              <div className="px-4 py-3 flex items-center justify-between gap-2 border-t border-transparent ring-0">
+                <div className="flex items-center space-x-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleFilesSelected}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 px-3 rounded-md"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Paperclip className="w-3.5 h-3.5 mr-1.5 text-slate-600" />
+                    Attach
+                  </Button>
+                  <span className="text-xs text-slate-400">
+                    {replyType === "internal"
+                      ? "Not sent to the customer."
+                      : "Sends by email and shows on the portal."}
+                  </span>
+                </div>
+
+                <Button
+                  size="sm"
+                  onClick={handleSendReply}
+                  disabled={
+                    isPending ||
+                    (!replyText.trim() && pendingFiles.length === 0)
+                  }
+                  className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold px-4 h-11 rounded-lg transition-colors shadow-sm"
+                >
+                  {isPending && (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  )}
+                  {replyType === "internal"
+                    ? "Add internal note"
+                    : "Send public reply"}
+                </Button>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-4">
-            <Card className="shadow-sm border-slate-200 bg-white">
+            <Card className="shadow-sm border-slate-200 bg-white ring-0">
               <CardContent className="p-5 space-y-4 text-xs">
                 <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
                   <div className="w-9 h-9 rounded-full bg-slate-500 text-white flex items-center justify-center text-xs font-bold">
@@ -541,17 +645,29 @@ export default function TicketDetailView({
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-slate-700">Status</label>
+                <div className="grid gap-2">
+                  <Label
+                    htmlFor="status"
+                    className="font-semibold text-slate-700"
+                  >
+                    Status
+                  </Label>
                   <Select
                     value={status}
                     onValueChange={handleStatusChange}
                     disabled={isPending}
                   >
-                    <SelectTrigger className="h-9 w-full text-xs bg-white border-slate-200">
+                    <SelectTrigger
+                      id="status"
+                      className="h-9 w-full text-xs bg-white border-slate-200"
+                    >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent
+                      side="bottom"
+                      align="start"
+                      position="popper"
+                    >
                       <SelectItem value="new">New</SelectItem>
                       <SelectItem value="open">Open</SelectItem>
                       <SelectItem value="pending">Pending</SelectItem>
@@ -562,19 +678,29 @@ export default function TicketDetailView({
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-slate-700">
+                <div className="grid gap-2">
+                  <Label
+                    htmlFor="priority"
+                    className="font-semibold text-slate-700"
+                  >
                     Priority
-                  </label>
+                  </Label>
                   <Select
                     value={priority}
                     onValueChange={handlePriorityChange}
                     disabled={isPending}
                   >
-                    <SelectTrigger className="h-9 w-full text-xs bg-white border-slate-200">
+                    <SelectTrigger
+                      id="priority"
+                      className="h-9 w-full text-xs bg-white border-slate-200"
+                    >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent
+                      side="bottom"
+                      align="start"
+                      position="popper"
+                    >
                       <SelectItem value="urgent">Urgent</SelectItem>
                       <SelectItem value="high">High</SelectItem>
                       <SelectItem value="normal">Normal</SelectItem>
@@ -583,19 +709,29 @@ export default function TicketDetailView({
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-slate-700">
+                <div className="grid gap-2">
+                  <Label
+                    htmlFor="assignee"
+                    className="font-semibold text-slate-700"
+                  >
                     Assignee
-                  </label>
+                  </Label>
                   <Select
                     value={assigneeId}
                     onValueChange={handleAssigneeChange}
                     disabled={isPending}
                   >
-                    <SelectTrigger className="h-9 w-full text-xs bg-white border-slate-200">
+                    <SelectTrigger
+                      id="assignee"
+                      className="h-9 w-full text-xs bg-white border-slate-200"
+                    >
                       <SelectValue placeholder="Unassigned" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent
+                      side="bottom"
+                      align="start"
+                      position="popper"
+                    >
                       {currentUserId && (
                         <SelectItem value="me">Assign to me</SelectItem>
                       )}
@@ -609,9 +745,9 @@ export default function TicketDetailView({
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="font-semibold text-slate-700">Tags</label>
-                  <div className="flex items-center space-x-1.5">
+                <div className="grid gap-2">
+                  <Label className="font-semibold text-slate-700">Tags</Label>
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {ticket.tags && ticket.tags.length > 0 ? (
                       ticket.tags.map((tag) => (
                         <Badge
@@ -632,7 +768,7 @@ export default function TicketDetailView({
               </CardContent>
             </Card>
 
-            <Card className="shadow-sm border-slate-200 bg-white">
+            <Card className="shadow-sm border-slate-200 bg-white ring-0">
               <CardContent className="p-5 space-y-4 text-xs">
                 <h4 className="font-bold uppercase tracking-wider text-[11px] text-slate-400">
                   SLA
@@ -644,42 +780,38 @@ export default function TicketDetailView({
                   </p>
                 ) : (
                   slaEvents.map((ev) => {
-                    const progress = slaProgress(ev, now);
-                    const color = slaStatusColor(ev, now);
                     const label =
                       ev.type === "first_response"
                         ? "First response"
                         : "Resolution";
-                    const statusLabel =
+                    const statusText =
                       ev.status === "completed"
-                        ? "Completed"
+                        ? `Completed · ${formatClock(ev.completed_at) ?? "—"}`
                         : ev.status === "breached"
-                          ? "Breached"
-                          : "Pending";
+                          ? `Breached · ${formatClock(ev.breached_at) ?? formatClock(ev.due_at) ?? "—"}`
+                          : slaRemainingText(ev);
                     return (
-                      <div key={ev.id} className="space-y-1.5">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="text-slate-600 font-medium">
+                      <div
+                        key={ev.id}
+                        className="space-y-1.5 rounded-lg  border-slate-100 bg-slate-50/50 px-3 py-2.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-slate-600">
                             {label}
                           </span>
-                          <span className="font-bold text-slate-700">
-                            {statusLabel}
+                          <span
+                            className={cn(
+                              "text-xs font-semibold",
+                              slaRemainingTone(ev),
+                            )}
+                          >
+                            {statusText}
                           </span>
                         </div>
-                        <div className="flex justify-between items-center text-[11px] text-slate-400">
-                          <span>Due: {formatTime(ev.due_at) ?? "—"}</span>
-                          <span>
-                            {ev.status === "completed"
-                              ? `at ${formatTime(ev.completed_at)}`
-                              : ev.status === "breached"
-                                ? `at ${formatTime(ev.breached_at)}`
-                                : `${progress}% elapsed`}
-                          </span>
-                        </div>
-                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="w-full h-1.5 bg-slate-200/70 rounded-full overflow-hidden">
                           <div
-                            className={`h-full ${color} transition-all`}
-                            style={{ width: `${progress}%` }}
+                            className={`h-full ${slaBarColor(ev)} transition-all`}
+                            style={{ width: `${slaProgressPercent(ev)}%` }}
                           />
                         </div>
                       </div>
@@ -689,7 +821,7 @@ export default function TicketDetailView({
               </CardContent>
             </Card>
 
-            <Card className="shadow-sm border-slate-200 bg-white">
+            <Card className="shadow-sm border-slate-200 bg-white ring-0">
               <CardContent className="p-5 space-y-3 text-xs">
                 <h4 className="font-bold uppercase tracking-wider text-[11px] text-slate-400">
                   Attachments

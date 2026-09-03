@@ -36,9 +36,13 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
+  ArrowUpDown,
   Columns,
   Loader2,
+  AlertCircle,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import CreateTicketSheet from "./create-ticket-sheet";
 import { Ticket, TicketPriority } from "../types/tickets.types";
 import {
@@ -49,6 +53,7 @@ import {
 import Link from "next/link";
 import { TicketsEmptyState } from "./ticket-empty";
 import TicketImportWizard from "./csv-import";
+import { useRealtimeTicketsRefresh } from "@/hooks/use-realtime-tickets-refresh";
 
 interface TicketsTableProps {
   initialTickets: Ticket[];
@@ -69,6 +74,7 @@ export default function TicketsTable({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  useRealtimeTicketsRefresh(tenant);
   const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState(
     searchParams.get("search") || "",
@@ -240,6 +246,23 @@ export default function TicketsTable({
     });
   };
 
+  const currentSort = searchParams.get("sort") || "";
+  const currentSortOrder = searchParams.get("sortOrder") || "desc";
+
+  const handleSortToggle = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (currentSort === "subject") {
+      params.set("sortOrder", currentSortOrder === "asc" ? "desc" : "asc");
+    } else {
+      params.set("sort", "subject");
+      params.set("sortOrder", "asc");
+    }
+    params.delete("page");
+    startTransition(() => {
+      router.push(`${pathname}?${params.toString()}`);
+    });
+  };
+
   const currentPage = Number(searchParams.get("page")) || 1;
   const currentLimit = Number(searchParams.get("limit")) || 8;
   const totalPages = Math.ceil(totalCount / currentLimit);
@@ -288,7 +311,7 @@ export default function TicketsTable({
                   checked={visibleColumns?.id}
                   onCheckedChange={() => toggleColumn("id")}
                 >
-                  ID
+                  Ticket
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={visibleColumns?.subject}
@@ -324,7 +347,7 @@ export default function TicketsTable({
                   checked={visibleColumns?.sla}
                   onCheckedChange={() => toggleColumn("sla")}
                 >
-                  Created At
+                  SLA
                 </DropdownMenuCheckboxItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -464,9 +487,9 @@ export default function TicketsTable({
         </div>
 
         {selectedTicketIds.length > 0 && (
-          <div className="flex items-center justify-between rounded-lg border border-teal-600/30 bg-teal-50/60 px-4 py-2.5 text-xs font-semibold text-teal-900 transition-all">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 justify-between rounded-lg border border-teal-600/30 bg-teal-50/60 px-4 py-2.5 text-xs font-semibold text-teal-900 transition-all">
             <span>{selectedTicketIds.length} selected</span>
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               {bulkError && (
                 <span className="text-red-600 font-medium mr-1">
                   {bulkError}
@@ -527,67 +550,88 @@ export default function TicketsTable({
           </div>
         )}
 
-        <Card className="shadow-sm border-slate-200/80 overflow-hidden">
+        <Card className="shadow-sm border-slate-200/80 overflow-hidden p-0 ring-0">
           <CardContent className="p-0">
             {initialTickets.length === 0 ? (
               <TicketsEmptyState onAction={() => setIsSheetOpen(true)} />
             ) : (
               <div className="overflow-x-auto">
                 <Table>
-                  <TableHeader className="bg-slate-50/50 text-[10px] uppercase tracking-wider">
+                  <TableHeader className="bg-slate-50/60 text-[10px] uppercase tracking-wider">
                     <TableRow className="hover:bg-transparent">
-                      <TableHead className="w-10 text-center px-4">
+                      <TableHead className="w-10 px-4 text-center">
                         <Checkbox
                           checked={isAllSelected}
                           onCheckedChange={(checked) =>
                             handleSelectAll(Boolean(checked))
                           }
-                          className="border-slate-300"
+                          className="h-5 w-5 rounded border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-primary-foreground "
                         />
                       </TableHead>
+
                       {visibleColumns?.id && (
-                        <TableHead className="px-2 font-bold text-slate-500">
+                        <TableHead className="w-22.5 px-4 font-bold text-slate-500">
                           Ticket
                         </TableHead>
                       )}
+
                       {visibleColumns?.subject && (
-                        <TableHead className="px-4 font-bold text-teal-800">
-                          <div className="flex items-center space-x-1 cursor-pointer">
-                            <span>Subject</span>
-                            <ChevronDown className="w-3 h-3" />
-                          </div>
+                        <TableHead className="min-w-70 px-4 font-bold text-teal-800">
+                          <button
+                            type="button"
+                            onClick={handleSortToggle}
+                            className="flex items-center space-x-1 cursor-pointer select-none hover:text-teal-900 transition-colors"
+                          >
+                            <span className="font-bold uppercase">Subject</span>
+                            {currentSort === "subject" ? (
+                              currentSortOrder === "asc" ? (
+                                <ChevronUp className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )
+                            ) : (
+                              <ArrowUpDown className="w-3 h-3 opacity-40" />
+                            )}
+                          </button>
                         </TableHead>
                       )}
+
                       {visibleColumns?.requester && (
-                        <TableHead className="px-4 font-bold text-slate-500">
+                        <TableHead className="min-w-45 px-4 font-bold text-slate-500">
                           Requester
                         </TableHead>
                       )}
+
                       {visibleColumns?.priority && (
-                        <TableHead className="px-4 font-bold text-slate-500">
+                        <TableHead className="w-22.5 px-4 font-bold text-slate-500">
                           Priority
                         </TableHead>
                       )}
+
                       {visibleColumns?.assignee && (
-                        <TableHead className="px-4 font-bold text-slate-500">
+                        <TableHead className="min-w-45 px-4 font-bold text-slate-500">
                           Assignee
                         </TableHead>
                       )}
+
                       {visibleColumns?.status && (
-                        <TableHead className="px-4 font-bold text-slate-500">
+                        <TableHead className="w-22.5 px-4 font-bold text-slate-500">
                           Status
                         </TableHead>
                       )}
+
                       {visibleColumns?.sla && (
-                        <TableHead className="px-4 font-bold text-slate-500 text-right">
+                        <TableHead className="w-35 px-4 text-center font-bold text-slate-500">
                           SLA
                         </TableHead>
                       )}
                     </TableRow>
                   </TableHeader>
+
                   <TableBody className="text-xs font-medium">
                     {initialTickets.map((ticket) => {
                       const isSelected = selectedTicketIds.includes(ticket.id);
+
                       return (
                         <TableRow
                           key={ticket.id}
@@ -597,21 +641,21 @@ export default function TicketsTable({
                               : "hover:bg-slate-50/80"
                           }`}
                         >
-                          <TableCell className="text-center px-4">
+                          <TableCell className="w-10 px-4 text-center">
                             <Checkbox
                               checked={isSelected}
                               onCheckedChange={(checked) =>
                                 handleSelectRow(ticket.id, Boolean(checked))
                               }
-                              className="border-slate-300"
+                              className="h-5 w-5 rounded border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-primary-foreground "
                             />
                           </TableCell>
 
                           {visibleColumns?.id && (
-                            <TableCell className="font-medium text-xs text-slate-500">
+                            <TableCell className="w-22.5 px-4 text-xs font-medium text-slate-500">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full h-full py-1 text-slate-500 group-hover:text-teal-800 font-semibold"
+                                className="block w-full py-1 text-slate-500 group-hover:text-teal-800 font-semibold"
                               >
                                 #{ticket.id.substring(0, 4)}
                               </Link>
@@ -619,10 +663,10 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.subject && (
-                            <TableCell className="text-xs">
+                            <TableCell className="min-w-70 px-4 text-xs">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full h-full py-1 font-semibold text-slate-900 group-hover:text-teal-800 transition-colors line-clamp-1"
+                                className="block w-full py-1 font-semibold text-slate-900 group-hover:text-teal-800 transition-colors line-clamp-1"
                               >
                                 {ticket.subject}
                               </Link>
@@ -630,14 +674,15 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.requester && (
-                            <TableCell className="text-xs">
+                            <TableCell className="min-w-45 px-4 text-xs">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full h-full py-1 text-slate-700"
+                                className="block w-full py-1 text-slate-700"
                               >
                                 <span className="font-semibold">
                                   {ticket.customers?.full_name || "Customer"}
                                 </span>
+
                                 {ticket.customers?.company && (
                                   <span className="text-slate-400 font-normal">
                                     {" "}
@@ -649,10 +694,10 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.priority && (
-                            <TableCell className="text-xs">
+                            <TableCell className="w-30 px-4 text-xs">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full h-full py-1"
+                                className="block w-full py-1"
                               >
                                 {getPriorityBadge(ticket.priority)}
                               </Link>
@@ -660,18 +705,19 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.assignee && (
-                            <TableCell className="text-xs">
+                            <TableCell className="min-w-42.5 px-4 text-xs">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full h-full py-1 text-slate-600"
+                                className="block w-full py-1 text-slate-600"
                               >
                                 {ticket.assignee_name ? (
                                   <span className="inline-flex items-center gap-1.5">
                                     {ticket.assignee_initials && (
-                                      <span className="w-5 h-5 rounded-full bg-emerald-700 text-white flex items-center justify-center text-[9px] font-bold">
+                                      <span className="w-5 h-5 rounded-full bg-brand-accent text-white flex items-center justify-center text-[9px] font-bold">
                                         {ticket.assignee_initials}
                                       </span>
                                     )}
+
                                     {ticket.assignee_name}
                                   </span>
                                 ) : (
@@ -682,10 +728,10 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.status && (
-                            <TableCell className="text-xs">
+                            <TableCell className="w-30 px-4 text-xs">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full h-full py-1"
+                                className="block w-full py-1"
                               >
                                 {getStatusBadge(ticket.status)}
                               </Link>
@@ -693,18 +739,33 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.sla && (
-                            <TableCell className="text-right text-xs text-slate-400">
+                            <TableCell className="w-35 px-4 text-right text-xs">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full h-full py-1"
+                                className="inline-flex w-full justify-end py-1"
                               >
-                                {new Date(ticket.created_at).toLocaleDateString(
-                                  "en-US",
-                                  {
-                                    month: "short",
-                                    day: "numeric",
-                                  },
-                                )}
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border",
+                                    ticket.sla_type === "breached"
+                                      ? "bg-rose-100 text-rose-900 border-rose-200/60"
+                                      : ticket.sla_type === "warning"
+                                        ? "bg-amber-100 text-amber-900 border-amber-200/60"
+                                        : "bg-emerald-100 text-emerald-900 border-emerald-200/60",
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      "w-1.5 h-1.5 rounded-full shrink-0",
+                                      ticket.sla_type === "breached"
+                                        ? "bg-rose-600"
+                                        : ticket.sla_type === "warning"
+                                          ? "bg-amber-600"
+                                          : "bg-emerald-600",
+                                    )}
+                                  />
+                                  {ticket.sla_text || "—"}
+                                </span>
                               </Link>
                             </TableCell>
                           )}
@@ -716,65 +777,62 @@ export default function TicketsTable({
               </div>
             )}
           </CardContent>
-
-          {initialTickets.length > 0 && (
-            <div className="px-4 sm:px-6 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-              <div className="flex items-center space-x-2">
-                <span>
-                  Showing {initialTickets.length} of {totalCount}
-                </span>
-                <span className="hidden sm:inline-block ml-4">
-                  Rows per page
-                </span>
-                <Select
-                  value={String(currentLimit)}
-                  onValueChange={(val) => updateQueryParam("limit", val)}
-                >
-                  <SelectTrigger className="w-16 h-7 text-xs bg-white border-slate-200">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="8">8</SelectItem>
-                    <SelectItem value="15">15</SelectItem>
-                    <SelectItem value="25">25</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center space-x-1">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  disabled={currentPage <= 1}
-                  onClick={() =>
-                    updateQueryParam("page", String(currentPage - 1))
-                  }
-                  className="h-7 w-7"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2.5 bg-teal-50 text-teal-800 font-bold border-teal-200"
-                >
-                  {currentPage}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  disabled={currentPage >= totalPages || totalPages === 0}
-                  onClick={() =>
-                    updateQueryParam("page", String(currentPage + 1))
-                  }
-                  className="h-7 w-7"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            </div>
-          )}
         </Card>
+        {initialTickets.length > 0 && (
+          <div className="px-4 sm:px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+            <div className="flex items-center space-x-2">
+              <span>
+                Showing {initialTickets.length} of {totalCount}
+              </span>
+              <span className="hidden sm:inline-block ml-4">Rows per page</span>
+              <Select
+                value={String(currentLimit)}
+                onValueChange={(val) => updateQueryParam("limit", val)}
+              >
+                <SelectTrigger className="w-16 h-7 text-xs bg-white border-slate-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="8">8</SelectItem>
+                  <SelectItem value="15">15</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center space-x-1">
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={currentPage <= 1}
+                onClick={() =>
+                  updateQueryParam("page", String(currentPage - 1))
+                }
+                className="h-7 w-7"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 bg-teal-50 text-teal-800 font-bold border-teal-200"
+              >
+                {currentPage}
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={currentPage >= totalPages || totalPages === 0}
+                onClick={() =>
+                  updateQueryParam("page", String(currentPage + 1))
+                }
+                className="h-7 w-7"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
         <CreateTicketSheet
           open={isSheetOpen}
           onOpenChange={setIsSheetOpen}

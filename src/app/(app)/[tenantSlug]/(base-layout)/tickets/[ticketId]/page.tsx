@@ -5,6 +5,7 @@ import TicketDetailView from "@/features/tickets/components/ticket-detail-view";
 import {
   fetchTicketAttachments,
   fetchAssignableAgents,
+  fetchMentionableMembers,
   fetchTicketSlaEvents,
   getCurrentUserIdentity,
   getTicketMessages,
@@ -67,16 +68,19 @@ export default async function TicketDetailPage({
   const attachments = await fetchTicketAttachments(ticketId, tenantId!);
   const slaEvents = await fetchTicketSlaEvents(ticketId, tenantId!);
   const agents = await fetchAssignableAgents(tenantSlug);
+  const mentionable = await fetchMentionableMembers(tenantSlug);
   const currentUser = await getCurrentUserIdentity(tenantSlug);
 
   return (
     <TicketDetailView
+      key={ticket.id}
       messages={messages}
       ticket={formattedTicket}
       attachments={attachments}
       slaEvents={slaEvents}
       tenantslug={tenantSlug}
       agents={agents}
+      mentionableMembers={mentionable}
       currentUserId={currentUser?.id ?? null}
     />
   );

@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Bell } from "lucide-react";
 import {
   Tooltip,
@@ -13,12 +12,50 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { NOTIFICATIONS, TONE_TILE } from "@/lib/notifications";
+import { TONE_TILE } from "@/lib/notifications";
+import { UiNotification } from "@/lib/notifications-shared";
+import { NotificationIcon } from "@/components/shared/layout/notification-icon";
 import { cn } from "@/lib/utils";
+import {
+  markAllNotificationsReadAction,
+  markNotificationReadAction,
+} from "@/lib/notifications.actions";
+import { useRealtimeNotifications } from "@/hooks/use-realtime-notifications";
+import { useRouter } from "next/navigation";
 
-export function NotificationMenu() {
-  const [readAll, setReadAll] = useState<boolean>(false);
-  const unread = readAll ? 0 : NOTIFICATIONS.filter((n) => n.unread).length;
+interface NotificationMenuProps {
+  notifications: UiNotification[];
+  tenantSlug: string;
+}
+
+export function NotificationMenu({
+  notifications = [],
+  tenantSlug,
+}: NotificationMenuProps) {
+  const { items, setItems, unread } = useRealtimeNotifications(
+    tenantSlug,
+    notifications,
+  );
+  const router = useRouter();
+
+  const handleMarkAllRead = async () => {
+    await markAllNotificationsReadAction(tenantSlug);
+    setItems((prev) => prev.map((n) => ({ ...n, unread: false })));
+  };
+
+  const handleOpen = async (n: UiNotification) => {
+    if (n.unread) {
+      await markNotificationReadAction(n.id);
+      setItems((prev) =>
+        prev.map((x) => (x.id === n.id ? { ...x, unread: false } : x)),
+      );
+    }
+    if (n.payload.ticket_id) {
+      router.push(`/${tenantSlug}/tickets/${n.payload.ticket_id}`);
+    } else if (n.payload.ticket_number || n.payload.subject) {
+      router.push(`/${tenantSlug}/tickets`);
+    }
+  };
 
   return (
     <Popover>
@@ -60,10 +97,10 @@ export function NotificationMenu() {
           <span className="text-sm font-bold text-foreground">
             Notifications
           </span>
-          {NOTIFICATIONS.length > 0 && (
+          {unread > 0 && (
             <button
               type="button"
-              onClick={() => setReadAll(true)}
+              onClick={handleMarkAllRead}
               className="rounded-sm p-1 text-xs font-semibold text-brand-accent hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               Mark all read
@@ -71,7 +108,7 @@ export function NotificationMenu() {
           )}
         </div>
 
-        {NOTIFICATIONS.length === 0 && (
+        {items.length === 0 && (
           <div className="px-4 py-8 text-center">
             <p className="text-sm font-medium text-foreground">
               You&apos;re all caught up
@@ -83,45 +120,57 @@ export function NotificationMenu() {
         )}
 
         <div className="max-h-[60vh] sm:max-h-80 overflow-y-auto">
-          {NOTIFICATIONS.map((n) => {
-            const isUnread = n.unread && !readAll;
-            return (
-              <div
-                key={n.id}
+          {items.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => handleOpen(n)}
+              className={cn(
+                "flex w-full items-start gap-3 border-t border-muted px-4 py-3.5 first:border-t-0 text-left transition-colors hover:bg-muted/50",
+                n.unread ? "bg-accent/50" : "bg-popover",
+              )}
+            >
+              <span
                 className={cn(
-                  "flex items-start gap-3 border-t border-muted px-4 py-3.5 first:border-t-0 transition-colors",
-                  isUnread ? "bg-accent/50" : "bg-popover",
+                  "flex size-8 shrink-0 items-center justify-center rounded-md",
+                  TONE_TILE[n.tone],
                 )}
               >
-                <span
-                  className={cn(
-                    "flex size-8 shrink-0 items-center justify-center rounded-md",
-                    TONE_TILE[n.tone],
-                  )}
-                >
-                  <n.icon className="size-4" aria-hidden />
+                <NotificationIcon
+                  name={n.icon}
+                  className="size-4"
+                  aria-hidden
+                />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="text-sm font-semibold text-foreground truncate">
+                  {n.title}
                 </span>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="text-sm font-semibold text-foreground truncate">
-                    {n.title}
-                  </span>
+                {n.body && (
                   <span className="text-xs leading-relaxed text-muted-foreground wrap-break-word">
                     {n.body}
                   </span>
-                  <span className="text-[11px] text-muted-foreground/80 mt-0.5">
-                    {n.time}
-                  </span>
-                </div>
-                <span
-                  aria-hidden
-                  className={cn(
-                    "mt-1.5 size-2 shrink-0 rounded-full",
-                    isUnread ? "bg-brand-accent" : "bg-transparent",
-                  )}
-                />
-              </div>
-            );
-          })}
+                )}
+                <span className="text-[11px] text-muted-foreground/80 mt-0.5">
+                  {n.time
+                    ? new Date(n.time).toLocaleString([], {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : ""}
+                </span>
+              </span>
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-1.5 size-2 shrink-0 rounded-full",
+                  n.unread ? "bg-brand-accent" : "bg-transparent",
+                )}
+              />
+            </button>
+          ))}
         </div>
       </PopoverContent>
     </Popover>

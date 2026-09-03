@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 
 export default function TenantError({
   error,
-  unstable_retry,
+  retry,
 }: {
   error: Error & { digest?: string };
-  unstable_retry: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -36,7 +36,7 @@ export default function TenantError({
       <Button
         type="button"
         variant="outline"
-        onClick={() => unstable_retry()}
+        onClick={() => retry()}
         className="mt-2 h-9 font-semibold"
       >
         Try again

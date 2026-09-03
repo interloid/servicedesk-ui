@@ -6,8 +6,17 @@ import { HeaderSearch } from "@/components/shared/layout/header-search";
 import { NotificationMenu } from "@/components/shared/layout/notification-menu";
 import { ProfileMenu } from "@/components/shared/layout/profile-menu";
 import { ShellIdentity } from "@/types/shell-identity";
+import { UiNotification } from "@/lib/notifications-shared";
 
-export function AppHeader({ identity }: { identity: ShellIdentity | null }) {
+export function AppHeader({
+  identity,
+  notifications,
+  tenantSlug,
+}: {
+  identity: ShellIdentity | null;
+  notifications?: UiNotification[];
+  tenantSlug?: string;
+}) {
   return (
     <header className="sticky top-0 z-10 flex h-15 shrink-0 items-center gap-2.5 border-b bg-background/95 px-4 backdrop-blur md:px-6 lg:px-8">
       <SidebarTrigger
@@ -32,7 +41,10 @@ export function AppHeader({ identity }: { identity: ShellIdentity | null }) {
           <Search aria-hidden />
         </Button>
 
-        <NotificationMenu />
+        <NotificationMenu
+          notifications={notifications || []}
+          tenantSlug={tenantSlug || ""}
+        />
         <ProfileMenu identity={identity} />
       </div>
     </header>

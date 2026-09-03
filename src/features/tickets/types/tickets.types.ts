@@ -93,6 +93,8 @@ export interface FetchTicketsOptions {
   status?: string;
   page?: number;
   limit?: number;
+  sort?: "subject" | "created_at";
+  sortOrder?: "asc" | "desc";
 }
 export interface TicketComment {
   id: string;

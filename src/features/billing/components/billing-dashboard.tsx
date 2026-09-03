@@ -312,7 +312,7 @@ export default function BillingDashboard({
               <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Payment Method
               </span>
-              <div className="flex items-center space-x-3 pt-1">
+              <div className="flex flex-wrap items-center gap-3 pt-1">
                 {hasCardDetails ? (
                   <>
                     <Badge

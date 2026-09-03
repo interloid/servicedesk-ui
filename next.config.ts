@@ -11,6 +11,10 @@ const supabaseOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL
   ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
   : null;
 
+const supabaseWsOrigin = supabaseOrigin
+  ? supabaseOrigin.replace(/^https:/, "wss:")
+  : null;
+
 const cspHeader = `
   default-src 'self';
   script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""};
@@ -18,8 +22,8 @@ const cspHeader = `
   img-src 'self' data: blob:${supabaseOrigin ? ` ${supabaseOrigin}` : ""};
   font-src 'self';
   connect-src 'self'${supabaseOrigin ? ` ${supabaseOrigin}` : ""}${
-    sentryIngestHost ? ` https://${sentryIngestHost}` : ""
-  };
+    supabaseWsOrigin ? ` ${supabaseWsOrigin}` : ""
+  }${sentryIngestHost ? ` https://${sentryIngestHost}` : ""};
   object-src 'none';
   base-uri 'self';
   form-action 'self';

@@ -50,6 +50,14 @@ export default function CreateTicketSheet({
   const [customerError, setCustomerError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const subjectInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      const id = setTimeout(() => subjectInputRef.current?.focus(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [open]);
 
   const resetForm = () => {
     setSubject("");
@@ -59,7 +67,6 @@ export default function CreateTicketSheet({
     setFiles([]);
   };
 
-  // Fetch customers whenever the sheet opens or tenant changes
   useEffect(() => {
     if (open && tenant) {
       setLoadingCustomers(true);
@@ -139,6 +146,7 @@ export default function CreateTicketSheet({
               </Label>
               <Input
                 id="subject"
+                ref={subjectInputRef}
                 placeholder="Short summary the customer will see"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
@@ -171,7 +179,7 @@ export default function CreateTicketSheet({
                     }
                   />
                 </SelectTrigger>
-                <SelectContent align="start">
+                <SelectContent side="bottom" align="start" position="popper">
                   {customers.length === 0 && !loadingCustomers ? (
                     <div className="p-2 text-xs text-slate-400 text-center">
                       No customers found
@@ -209,7 +217,7 @@ export default function CreateTicketSheet({
                 >
                   <SelectValue placeholder="Select priority" />
                 </SelectTrigger>
-                <SelectContent align="start">
+                <SelectContent side="bottom" align="start" position="popper">
                   <SelectItem value="urgent" className="text-xs">
                     Urgent
                   </SelectItem>

@@ -18,6 +18,12 @@ export default async function TicketsPage({
   const status = typeof sp.status === "string" ? sp.status : undefined;
   const priority = typeof sp.priority === "string" ? sp.priority : undefined;
   const search = typeof sp.search === "string" ? sp.search : undefined;
+  const sort =
+    sp.sort === "subject" || sp.sort === "created_at" ? sp.sort : undefined;
+  const sortOrder =
+    sp.sortOrder === "asc" || sp.sortOrder === "desc"
+      ? sp.sortOrder
+      : undefined;
   const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
   const limit = typeof sp.limit === "string" ? Number(sp.limit) || 8 : 8;
 
@@ -25,6 +31,8 @@ export default async function TicketsPage({
     status,
     priority,
     search,
+    sort,
+    sortOrder,
     page,
     limit,
   });

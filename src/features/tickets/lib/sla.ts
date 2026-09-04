@@ -32,10 +32,7 @@ export function computeLiveSla(ticket: Ticket, now: number): LiveSla {
     return { type: "completed", text: ticket.sla_text };
   }
 
-  if (
-    !sla_due_at ||
-    (sla_status !== "pending" && sla_status !== "breached")
-  ) {
+  if (!sla_due_at || (sla_status !== "pending" && sla_status !== "breached")) {
     return { type: ticket.sla_type, text: ticket.sla_text };
   }
 

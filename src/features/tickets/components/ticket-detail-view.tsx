@@ -131,14 +131,19 @@ export default function TicketDetailView({
       (a, b) => b.length - a.length,
     );
     if (names.length === 0) return body;
-    const re = new RegExp(`@(${names.map((n) => escapeRegExp(n)).join("|")})`, "gi");
+    const re = new RegExp(
+      `@(${names.map((n) => escapeRegExp(n)).join("|")})`,
+      "gi",
+    );
     return body.replace(re, (match, name: string) => {
       const id = mentionMap.get(name.toLowerCase());
       return id ? serializeMention(name, id) : match;
     });
   };
 
-  const handleMentionKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleMentionKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+  ) => {
     if (!mentionActive || mentionMatches.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -308,7 +313,8 @@ export default function TicketDetailView({
               new Date(ev.created_at).getTime(),
           )}`
         : "Completed";
-      badgeStyle = "bg-emerald-100 text-emerald-800 border border-emerald-200/60";
+      badgeStyle =
+        "bg-emerald-100 text-emerald-800 border border-emerald-200/60";
       dotStyle = "bg-emerald-600";
     } else if (ev.status === "breached" || remaining <= 0) {
       text = "Breached";
@@ -405,9 +411,10 @@ export default function TicketDetailView({
             new Date(onset).getTime() - new Date(ev.created_at).getTime(),
           )
         : null;
-      const at =
-        formatClock(ev.breached_at) ?? formatClock(ev.due_at) ?? "—";
-      return duration ? `Breached after ${duration} (${at})` : `Breached · ${at}`;
+      const at = formatClock(ev.breached_at) ?? formatClock(ev.due_at) ?? "—";
+      return duration
+        ? `Breached after ${duration} (${at})`
+        : `Breached · ${at}`;
     }
     const due = new Date(ev.due_at).getTime();
     const remaining = due - now;
@@ -699,7 +706,9 @@ export default function TicketDetailView({
                           onMouseEnter={() => setMentionIndex(idx)}
                           className={cn(
                             "flex w-full items-center gap-2 px-3 py-2 text-left",
-                            idx === mentionIndex ? "bg-slate-50" : "hover:bg-slate-50",
+                            idx === mentionIndex
+                              ? "bg-slate-50"
+                              : "hover:bg-slate-50",
                           )}
                         >
                           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
@@ -1031,9 +1040,7 @@ export default function TicketDetailView({
                     {attachments.length > VISIBLE_ATTACHMENTS && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setShowAllAttachments((prev) => !prev)
-                        }
+                        onClick={() => setShowAllAttachments((prev) => !prev)}
                         className="text-xs font-semibold text-[#0e7adf] hover:underline transition-colors cursor-pointer"
                       >
                         {showAllAttachments

@@ -798,48 +798,49 @@ export default function TicketsTable({
                             </TableCell>
                           )}
 
-                          {visibleColumns?.sla && (() => {
-                            const live = computeLiveSla(ticket, now);
-                            return (
-                              <TableCell className="w-35 px-4 text-right text-xs">
-                                <Link
-                                  href={`/${tenant}/tickets/${ticket.id}`}
-                                  className="inline-flex w-full justify-end py-1"
-                                >
-                                  {live.text === "—" || !live.text ? (
-                                    <span className="text-slate-400">—</span>
-                                  ) : (
-                                    <span
-                                      className={cn(
-                                        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                                        live.type === "breached"
-                                          ? "bg-rose-100/80 text-rose-800"
-                                          : live.type === "warning"
-                                            ? "bg-amber-100/80 text-amber-900"
-                                            : live.type === "completed"
-                                              ? "bg-emerald-100/80 text-emerald-800"
-                                              : "bg-[#0e7adf]/10 text-[#0e7adf]",
-                                      )}
-                                    >
+                          {visibleColumns?.sla &&
+                            (() => {
+                              const live = computeLiveSla(ticket, now);
+                              return (
+                                <TableCell className="w-35 px-4 text-right text-xs">
+                                  <Link
+                                    href={`/${tenant}/tickets/${ticket.id}`}
+                                    className="inline-flex w-full justify-end py-1"
+                                  >
+                                    {live.text === "—" || !live.text ? (
+                                      <span className="text-slate-400">—</span>
+                                    ) : (
                                       <span
                                         className={cn(
-                                          "w-1.5 h-1.5 rounded-full shrink-0",
+                                          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
                                           live.type === "breached"
-                                            ? "bg-rose-600"
+                                            ? "bg-rose-100/80 text-rose-800"
                                             : live.type === "warning"
-                                              ? "bg-amber-600"
+                                              ? "bg-amber-100/80 text-amber-900"
                                               : live.type === "completed"
-                                                ? "bg-emerald-600"
-                                                : "bg-[#0e7adf]",
+                                                ? "bg-emerald-100/80 text-emerald-800"
+                                                : "bg-[#0e7adf]/10 text-[#0e7adf]",
                                         )}
-                                      />
-                                      {live.text}
-                                    </span>
-                                  )}
-                                </Link>
-                              </TableCell>
-                            );
-                          })()}
+                                      >
+                                        <span
+                                          className={cn(
+                                            "w-1.5 h-1.5 rounded-full shrink-0",
+                                            live.type === "breached"
+                                              ? "bg-rose-600"
+                                              : live.type === "warning"
+                                                ? "bg-amber-600"
+                                                : live.type === "completed"
+                                                  ? "bg-emerald-600"
+                                                  : "bg-[#0e7adf]",
+                                          )}
+                                        />
+                                        {live.text}
+                                      </span>
+                                    )}
+                                  </Link>
+                                </TableCell>
+                              );
+                            })()}
                         </TableRow>
                       );
                     })}

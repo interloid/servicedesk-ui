@@ -243,9 +243,10 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
     const evs = byTicket.get(t.id) || [];
     const active = evs.find((e) => e.status === "pending") || evs[0];
     const completed = evs.find((e) => e.status === "completed");
-    const breached = t.status === "resolved" || t.status === "closed"
-      ? evs.find((e) => e.status === "breached")
-      : undefined;
+    const breached =
+      t.status === "resolved" || t.status === "closed"
+        ? evs.find((e) => e.status === "breached")
+        : undefined;
 
     if ((t.status === "resolved" || t.status === "closed") && breached) {
       const onset = breached.breached_at || breached.due_at;
@@ -318,8 +319,7 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
 
     return {
       ...t,
-      sla_type:
-        remaining < 600000 ? ("warning" as const) : ("normal" as const),
+      sla_type: remaining < 600000 ? ("warning" as const) : ("normal" as const),
       sla_text: `${formatDuration(remaining)} left`,
       sla_due_at: active.due_at,
       sla_status: "pending" as const,

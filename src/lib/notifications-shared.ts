@@ -80,10 +80,7 @@ function resolveTitle(type: NotificationType, payload: NotificationPayload) {
   if (payload.title) return payload.title;
   if (type === "sla_breach" && payload.subject)
     return `SLA breached: ${payload.subject}`;
-  if (
-    (type === "ticket_updated" || type === "mention") &&
-    payload.sender_name
-  )
+  if ((type === "ticket_updated" || type === "mention") && payload.sender_name)
     return `New message from ${payload.sender_name}`;
   return TYPE_META[type].fallbackTitle;
 }

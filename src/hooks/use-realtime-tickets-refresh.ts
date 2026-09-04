@@ -29,7 +29,10 @@ export function useRealtimeTicketsRefresh(tenantSlug?: string) {
       timer.current = setTimeout(() => router.refresh(), 400);
     };
 
-    const handleSlaChange = (payload: { new: Record<string, unknown>; old: Record<string, unknown> }) => {
+    const handleSlaChange = (payload: {
+      new: Record<string, unknown>;
+      old: Record<string, unknown>;
+    }) => {
       schedule();
       const prev = payload.old?.status as string | undefined;
       const next = payload.new?.status as string | undefined;
@@ -41,9 +44,10 @@ export function useRealtimeTicketsRefresh(tenantSlug?: string) {
           tenantId: tenantSlug,
           ticketId,
           slaEventId: eventId,
-          slaLabel: eventType === "first_response"
-            ? "First response SLA"
-            : "Resolution SLA",
+          slaLabel:
+            eventType === "first_response"
+              ? "First response SLA"
+              : "Resolution SLA",
         });
       }
     };

@@ -1,12 +1,14 @@
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 -- SELECT
-CREATE POLICY "Members can view tenant Notifications"
+DROP POLICY IF EXISTS "Members can view tenant Notifications" ON public.notifications;
+CREATE POLICY "Members can view own Notifications"
 ON public.notifications
 FOR SELECT
 TO authenticated
 USING (
-    tenant_id = (auth.jwt()->>'tenant_id')::uuid
+    user_id = (select auth.uid())
+    AND tenant_id = (auth.jwt()->>'tenant_id')::uuid
     AND public.is_active_membership()
 );
 

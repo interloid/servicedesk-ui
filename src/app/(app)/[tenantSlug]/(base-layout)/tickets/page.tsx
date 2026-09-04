@@ -1,5 +1,8 @@
 import TicketsTable from "@/features/tickets/components/tickets-table";
-import { fetchTenantTickets } from "@/features/tickets/services/tickets.service";
+import {
+  fetchTenantTickets,
+  fetchTicketStatusCounts,
+} from "@/features/tickets/services/tickets.service";
 
 interface TicketsPageProps {
   params: Promise<{ tenantSlug: string }>;
@@ -27,20 +30,24 @@ export default async function TicketsPage({
   const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
   const limit = typeof sp.limit === "string" ? Number(sp.limit) || 8 : 8;
 
-  const { tickets, totalCount } = await fetchTenantTickets(tenantSlug, {
-    status,
-    priority,
-    search,
-    sort,
-    sortOrder,
-    page,
-    limit,
-  });
+  const [{ tickets, totalCount }, statusCounts] = await Promise.all([
+    fetchTenantTickets(tenantSlug, {
+      status,
+      priority,
+      search,
+      sort,
+      sortOrder,
+      page,
+      limit,
+    }),
+    fetchTicketStatusCounts(tenantSlug),
+  ]);
 
   return (
     <TicketsTable
       initialTickets={tickets}
       totalCount={totalCount}
+      statusCounts={statusCounts}
       tenant={tenantSlug}
     />
   );

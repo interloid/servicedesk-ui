@@ -10,6 +10,7 @@ import {
   CreditCard,
   Settings,
   Inbox,
+  AlertTriangle,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
@@ -18,6 +19,7 @@ const ICON_MAP: Record<string, React.ComponentType<LucideProps>> = {
   "file-plus": FilePlus,
   "check-circle-2": CheckCircle2,
   "at-sign": AtSign,
+  "alert-triangle": AlertTriangle,
   "credit-card": CreditCard,
   settings: Settings,
   inbox: Inbox,

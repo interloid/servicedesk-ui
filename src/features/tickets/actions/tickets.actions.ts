@@ -7,6 +7,7 @@ import {
   updateTicketDetails,
   bulkUpdateTickets,
   createMessage,
+  createSystemCustomerMessage,
   uploadTicketAttachments,
   getCurrentUserIdentity,
 } from "../services/tickets.service";
@@ -18,6 +19,7 @@ import {
   TicketStatus,
 } from "../types/tickets.types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createNotification } from "@/lib/notifications.service";
 import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import { extractMentionIds, stripMentions } from "@/lib/mentions";
@@ -59,14 +61,20 @@ export async function createTicketAction(tenant: string, formData: FormData) {
     });
 
     if (description.trim()) {
-      await createMessage({
-        tenantId: tenant,
-        ticketId: newTicket.id,
-        authorType: "customer",
-        authorId: requesterCustomerId,
-        body: description,
-        visibility: "public",
-      });
+      try {
+        await createSystemCustomerMessage({
+          tenantId: tenant,
+          ticketId: newTicket.id,
+          authorId: requesterCustomerId,
+          body: description,
+          visibility: "public",
+        });
+      } catch (seedError) {
+        console.error(
+          "[createTicketAction] failed to seed message:",
+          seedError,
+        );
+      }
     }
 
     const files = (formData.getAll("files") as File[]).filter(
@@ -78,6 +86,44 @@ export async function createTicketAction(tenant: string, formData: FormData) {
         ticketId: newTicket.id,
         files,
       });
+    }
+
+    try {
+      const tenantIdResolved = await getTenantIdBySlug(tenant);
+      const supabase = await createSupabaseServerClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const { data: managers } = await supabase
+        .from("memberships")
+        .select("user_id")
+        .eq("tenant_id", tenantIdResolved)
+        .eq("status", "active")
+        .in("role", ["manager", "tenant_admin"]);
+
+      const recipients = (managers || [])
+        .map((m) => m.user_id)
+        .filter((id) => id !== user?.id);
+
+      if (recipients.length > 0) {
+        await Promise.all(
+          recipients.map((userId) =>
+            createNotification({
+              tenantId: tenantIdResolved as string,
+              userId,
+              type: "ticket_created",
+              payload: {
+                ticket_id: newTicket.id,
+                subject,
+                ticket_number: (newTicket as { number?: number }).number,
+              },
+            }),
+          ),
+        );
+      }
+    } catch (notifError) {
+      console.error("[notifications] skipped:", notifError);
     }
 
     revalidatePath(`/${tenant}/tickets`);
@@ -134,67 +180,78 @@ export async function sendTicketMessageAction(formData: FormData) {
     }
 
     if (visibility === "public" && tenantIdResolved) {
-      const { data: ticket } = await supabase
-        .from("tickets")
-        .select("assignee_user_id, subject, number")
-        .eq("id", ticketId)
-        .eq("tenant_id", tenantIdResolved)
-        .single();
+      try {
+        const { data: ticket } = await supabase
+          .from("tickets")
+          .select("assignee_user_id, subject, number")
+          .eq("id", ticketId)
+          .eq("tenant_id", tenantIdResolved)
+          .single();
 
-      const notifyUserId =
-        ticket?.assignee_user_id && ticket.assignee_user_id !== user.id
-          ? ticket.assignee_user_id
-          : null;
+        const notifyUserId =
+          ticket?.assignee_user_id && ticket.assignee_user_id !== user.id
+            ? ticket.assignee_user_id
+            : null;
 
-      if (notifyUserId) {
-        await createNotification({
-          tenantId: tenantIdResolved,
-          userId: notifyUserId,
-          type: "ticket_updated",
-          payload: {
-            ticket_id: ticketId,
-            ticket_number: ticket?.number,
-            subject: ticket?.subject,
-            body: body.slice(0, 200),
-          },
-        });
+        if (notifyUserId) {
+          await createNotification({
+            tenantId: tenantIdResolved,
+            userId: notifyUserId,
+            type: "ticket_updated",
+            payload: {
+              ticket_id: ticketId,
+              ticket_number: ticket?.number,
+              subject: ticket?.subject,
+              body: stripMentions(body).slice(0, 200),
+            },
+          });
+        }
+      } catch (notifError) {
+        console.error("[notifications] skipped:", notifError);
       }
     }
 
     if (tenantIdResolved && body.trim()) {
       const mentionedIds = extractMentionIds(body);
       if (mentionedIds.length > 0) {
-        const senderIdentity = await getCurrentUserIdentity(tenantId);
-        const { data: ticket } = await supabase
-          .from("tickets")
-          .select("subject, number")
-          .eq("id", ticketId)
-          .eq("tenant_id", tenantIdResolved)
-          .single();
+        try {
+          const senderIdentity = await getCurrentUserIdentity(tenantId);
+          const { data: ticket } = await supabase
+            .from("tickets")
+            .select("subject, number")
+            .eq("id", ticketId)
+            .eq("tenant_id", tenantIdResolved)
+            .single();
 
-        await Promise.all(
-          mentionedIds
-            .filter((id) => id !== user.id)
-            .map((id) =>
-              createNotification({
-                tenantId: tenantIdResolved,
-                userId: id,
-                type: "mention",
-                payload: {
-                  ticket_id: ticketId,
-                  ticket_number: ticket?.number,
-                  subject: ticket?.subject,
-                  sender_name: senderIdentity?.email || "Someone",
-                  body: stripMentions(body).slice(0, 200),
-                },
-              }),
-            ),
-        );
+          await Promise.all(
+            mentionedIds
+              .filter((id) => id !== user.id)
+              .map((id) =>
+                createNotification({
+                  tenantId: tenantIdResolved,
+                  userId: id,
+                  type: "mention",
+                  payload: {
+                    ticket_id: ticketId,
+                    ticket_number: ticket?.number,
+                    subject: ticket?.subject,
+                    sender_name:
+                      senderIdentity?.full_name ||
+                      senderIdentity?.email ||
+                      "Someone",
+                    body: stripMentions(body).slice(0, 200),
+                  },
+                }),
+              ),
+          );
+        } catch (notifError) {
+          console.error("[notifications] skipped:", notifError);
+        }
       }
     }
 
     revalidatePath(`/${tenantId}/tickets/${ticketId}`);
-    return { success: true };
+    return { success: true, message };
   } catch (error) {
     return {
       success: false,
@@ -214,6 +271,22 @@ export async function updateTicketDetailsAction(formData: {
   try {
     const tenantIdResolved = await getTenantIdBySlug(formData.tenantId);
 
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    let previousAssignee: string | null = null;
+    if (formData.assigneeId && !formData.unassign) {
+      const { data: existing } = await supabase
+        .from("tickets")
+        .select("assignee_user_id")
+        .eq("id", formData.ticketId)
+        .eq("tenant_id", tenantIdResolved)
+        .maybeSingle();
+      previousAssignee = existing?.assignee_user_id ?? null;
+    }
+
     await updateTicketDetails(formData.ticketId, formData.tenantId, {
       ...(formData.status && { status: formData.status }),
       ...(formData.priority && { priority: formData.priority }),
@@ -222,30 +295,36 @@ export async function updateTicketDetailsAction(formData: {
         : formData.assigneeId && { assignee_user_id: formData.assigneeId }),
     });
 
-    if (
+    const assigneeChanged =
       !formData.unassign &&
       formData.assigneeId &&
       formData.assigneeId !== "unassigned" &&
-      tenantIdResolved
-    ) {
-      const supabase = await createSupabaseServerClient();
-      const { data: ticket } = await supabase
-        .from("tickets")
-        .select("subject, number")
-        .eq("id", formData.ticketId)
-        .eq("tenant_id", tenantIdResolved)
-        .single();
+      tenantIdResolved &&
+      formData.assigneeId !== previousAssignee &&
+      formData.assigneeId !== user?.id;
 
-      await createNotification({
-        tenantId: tenantIdResolved,
-        userId: formData.assigneeId,
-        type: "ticket_assigned",
-        payload: {
-          ticket_id: formData.ticketId,
-          ticket_number: ticket?.number,
-          subject: ticket?.subject,
-        },
-      });
+    if (assigneeChanged && formData.assigneeId) {
+      try {
+        const { data: ticket } = await supabase
+          .from("tickets")
+          .select("subject, number")
+          .eq("id", formData.ticketId)
+          .eq("tenant_id", tenantIdResolved)
+          .single();
+
+        await createNotification({
+          tenantId: tenantIdResolved,
+          userId: formData.assigneeId,
+          type: "ticket_assigned",
+          payload: {
+            ticket_id: formData.ticketId,
+            ticket_number: ticket?.number,
+            subject: ticket?.subject,
+          },
+        });
+      } catch (notifError) {
+        console.error("[notifications] skipped:", notifError);
+      }
     }
 
     revalidatePath(`/${formData.tenantId}/tickets/${formData.ticketId}`);
@@ -329,6 +408,90 @@ export async function bulkSetPriorityAction(payload: {
     revalidatePath(`/${payload.tenantId}/tickets`);
     return { success: true, count };
   } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An error occurred",
+    };
+  }
+}
+
+/**
+ * Notify a ticket's assignee that one of its SLA events has breached.
+ *
+ * Triggered by the realtime client when it sees a `sla_events` row transition
+ * from `pending` -> `breached`. Insertion is idempotent per SLA event so that
+ * multiple realtime clients observing the same breach cannot create duplicates.
+ */
+export async function notifySlaBreachAction(payload: {
+  tenantId: string;
+  ticketId: string;
+  slaEventId: string;
+  slaLabel?: string;
+}) {
+  try {
+    const { tenantId, ticketId, slaEventId } = payload;
+    if (!tenantId || !ticketId || !slaEventId) {
+      return { success: false, error: "Missing data." };
+    }
+
+    const tenantIdResolved = await getTenantIdBySlug(tenantId);
+    if (!tenantIdResolved) {
+      return { success: false, error: "Tenant not found." };
+    }
+
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return { success: false, error: "Unauthorized." };
+    }
+
+    const { data: ticket } = await supabase
+      .from("tickets")
+      .select("assignee_user_id, subject, number")
+      .eq("id", ticketId)
+      .eq("tenant_id", tenantIdResolved)
+      .single();
+
+    const assigneeId = ticket?.assignee_user_id;
+    if (!ticket || !assigneeId || assigneeId === user.id) {
+      return { success: true };
+    }
+
+    // Idempotency: skip if this breach was already notified for this event.
+    const { data: existing } = await createSupabaseAdminClient()
+      .from("notifications")
+      .select("id")
+      .eq("tenant_id", tenantIdResolved)
+      .eq("user_id", assigneeId)
+      .eq("type", "sla_breach")
+      .eq("payload_json->>sla_event_id", slaEventId)
+      .maybeSingle();
+
+    if (existing?.id) {
+      return { success: true };
+    }
+
+    await createNotification({
+      tenantId: tenantIdResolved,
+      userId: assigneeId,
+      type: "sla_breach",
+      payload: {
+        ticket_id: ticketId,
+        ticket_number: ticket?.number,
+        subject: ticket?.subject,
+        sla_event_id: slaEventId,
+        sla_label: payload.slaLabel,
+        body: payload.slaLabel
+          ? `${payload.slaLabel} is overdue for "${ticket.subject}".`
+          : `SLA is now breached for "${ticket.subject}".`,
+      },
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error("[notifySlaBreachAction] failed:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "An error occurred",

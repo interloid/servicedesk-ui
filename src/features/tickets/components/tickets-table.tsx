@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition, useState } from "react";
+import { useTransition, useState, useEffect, ReactNode } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -37,14 +37,12 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  ArrowUpDown,
   Columns,
   Loader2,
-  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CreateTicketSheet from "./create-ticket-sheet";
-import { Ticket, TicketPriority } from "../types/tickets.types";
+import { Ticket, TicketPriority, TicketStatus } from "../types/tickets.types";
 import {
   bulkAssignToMeAction,
   bulkMarkSolvedAction,
@@ -54,19 +52,45 @@ import Link from "next/link";
 import { TicketsEmptyState } from "./ticket-empty";
 import TicketImportWizard from "./csv-import";
 import { useRealtimeTicketsRefresh } from "@/hooks/use-realtime-tickets-refresh";
+import { computeLiveSla } from "../lib/sla";
 
 interface TicketsTableProps {
   initialTickets: Ticket[];
   totalCount: number;
+  statusCounts?: Partial<Record<TicketStatus, number>>;
   tenant: string;
 }
 
 type ColumnKey =
   "id" | "subject" | "requester" | "priority" | "assignee" | "status" | "sla";
 
+interface TabButtonProps {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}
+
+function TabButton({ active, onClick, children }: TabButtonProps) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onClick}
+      className={`h-8 whitespace-nowrap border ${
+        active
+          ? "bg-accent text-accent-foreground font-semibold border-accent-foreground/20"
+          : "border-transparent text-slate-500 hover:text-slate-800"
+      }`}
+    >
+      {children}
+    </Button>
+  );
+}
+
 export default function TicketsTable({
   initialTickets,
   totalCount,
+  statusCounts = {},
   tenant,
 }: TicketsTableProps) {
   const router = useRouter();
@@ -75,6 +99,11 @@ export default function TicketsTable({
   const [isPending, startTransition] = useTransition();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   useRealtimeTicketsRefresh(tenant);
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
   const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState(
     searchParams.get("search") || "",
@@ -173,37 +202,41 @@ export default function TicketsTable({
     switch (status?.toLowerCase()) {
       case "new":
         return (
-          <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-none font-semibold">
+          <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-none font-semibold">
             New
           </Badge>
         );
       case "open":
         return (
-          <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 border-none font-semibold">
+          <Badge className="rounded-full bg-blue-100 text-blue-800 hover:bg-blue-100 border-none font-semibold">
             Open
           </Badge>
         );
       case "pending":
         return (
-          <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 border-none font-semibold">
+          <Badge className="rounded-full bg-amber-100 text-amber-800 hover:bg-amber-100 border-none font-semibold">
             Pending
           </Badge>
         );
       case "solved":
       case "resolved":
         return (
-          <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100 border-none font-semibold">
+          <Badge className="rounded-full bg-slate-100 text-slate-700 hover:bg-slate-100 border-none font-semibold">
             Resolved
           </Badge>
         );
       case "on_hold":
         return (
-          <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100 border-none font-semibold">
+          <Badge className="rounded-full bg-purple-100 text-purple-800 hover:bg-purple-100 border-none font-semibold">
             On hold
           </Badge>
         );
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return (
+          <Badge variant="outline" className="rounded-full">
+            {status}
+          </Badge>
+        );
     }
   };
 
@@ -211,24 +244,28 @@ export default function TicketsTable({
     switch (priority?.toLowerCase()) {
       case "urgent":
         return (
-          <Badge className="bg-red-50 text-red-700 border-red-200 font-semibold">
+          <Badge className="rounded-full bg-red-50 text-red-700 border-red-200 font-semibold">
             Urgent
           </Badge>
         );
       case "high":
         return (
-          <Badge className="bg-orange-50 text-orange-700 border-orange-200 font-semibold">
+          <Badge className="rounded-full bg-orange-50 text-orange-700 border-orange-200 font-semibold">
             High
           </Badge>
         );
       case "normal":
         return (
-          <Badge className="bg-slate-50 text-slate-600 border-slate-200 font-normal">
+          <Badge className="rounded-full bg-slate-50 text-slate-600 border-slate-200 font-semibold">
             Normal
           </Badge>
         );
       default:
-        return <Badge variant="outline">{priority}</Badge>;
+        return (
+          <Badge variant="outline" className="rounded-full">
+            {priority}
+          </Badge>
+        );
     }
   };
 
@@ -267,6 +304,11 @@ export default function TicketsTable({
   const currentLimit = Number(searchParams.get("limit")) || 8;
   const totalPages = Math.ceil(totalCount / currentLimit);
 
+  const allOpenCount = Object.values(statusCounts).reduce(
+    (sum, n) => sum + (n || 0),
+    0,
+  );
+
   const isAllSelected =
     initialTickets.length > 0 &&
     initialTickets.every((t) => selectedTicketIds.includes(t.id));
@@ -302,50 +344,57 @@ export default function TicketsTable({
                   Columns
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40 text-xs">
-                <DropdownMenuLabel className="text-[11px] font-bold text-slate-500">
+              <DropdownMenuContent align="end" className="w-44 text-xs p-2">
+                <DropdownMenuLabel className="text-[11px] font-bold text-slate-500 px-2 py-1.5">
                   Toggle Columns
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuCheckboxItem
                   checked={visibleColumns?.id}
                   onCheckedChange={() => toggleColumn("id")}
+                  className="py-2 px-2.5"
                 >
                   Ticket
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={visibleColumns?.subject}
                   onCheckedChange={() => toggleColumn("subject")}
+                  className="py-2 px-2.5"
                 >
                   Subject
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={visibleColumns?.requester}
                   onCheckedChange={() => toggleColumn("requester")}
+                  className="py-2 px-2.5"
                 >
                   Requester
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={visibleColumns?.priority}
                   onCheckedChange={() => toggleColumn("priority")}
+                  className="py-2 px-2.5"
                 >
                   Priority
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={visibleColumns?.assignee}
                   onCheckedChange={() => toggleColumn("assignee")}
+                  className="py-2 px-2.5"
                 >
                   Assignee
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={visibleColumns?.status}
                   onCheckedChange={() => toggleColumn("status")}
+                  className="py-2 px-2.5"
                 >
                   Status
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem
                   checked={visibleColumns?.sla}
                   onCheckedChange={() => toggleColumn("sla")}
+                  className="py-2 px-2.5"
                 >
                   SLA
                 </DropdownMenuCheckboxItem>
@@ -361,10 +410,10 @@ export default function TicketsTable({
             </Button>
 
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={() => setView("import")}
-              className="text-xs font-semibold text-slate-500 hover:text-slate-800 h-9"
+              className="bg-white text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 h-9 border-slate-200"
             >
               Import from CSV
             </Button>
@@ -372,51 +421,66 @@ export default function TicketsTable({
         </div>
 
         <div className="flex items-center space-x-1 border-b border-slate-200 pb-3 text-xs font-medium overflow-x-auto scrollbar-none">
-          <Button
-            variant={!searchParams?.get("status") ? "secondary" : "ghost"}
-            size="sm"
+          <TabButton
+            active={!searchParams?.get("status")}
             onClick={() => updateQueryParam("status", "all")}
-            className={`h-8 whitespace-nowrap ${
-              !searchParams?.get("status")
-                ? "bg-teal-50 text-teal-800 font-semibold"
-                : "text-slate-500"
-            }`}
           >
-            All open{" "}
-            <Badge className="ml-1 bg-teal-100 text-teal-800 hover:bg-teal-100 text-[10px] px-1.5 py-0">
-              {totalCount}
+            All open
+            <Badge
+              className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
+                !searchParams?.get("status")
+                  ? "bg-brand-badge text-brand-badge-foreground"
+                  : "bg-teal-100 text-teal-800"
+              }`}
+            >
+              {allOpenCount}
             </Badge>
-          </Button>
-          <Button
-            variant={
-              searchParams?.get("status") === "new" ? "secondary" : "ghost"
-            }
-            size="sm"
+          </TabButton>
+          <TabButton
+            active={searchParams?.get("status") === "new"}
             onClick={() => updateQueryParam("status", "new")}
-            className="text-slate-500 hover:text-slate-800 h-8 whitespace-nowrap"
           >
             New
-          </Button>
-          <Button
-            variant={
-              searchParams?.get("status") === "open" ? "secondary" : "ghost"
-            }
-            size="sm"
+            <Badge
+              className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
+                searchParams?.get("status") === "new"
+                  ? "bg-brand-badge text-brand-badge-foreground"
+                  : "bg-teal-100 text-teal-800"
+              }`}
+            >
+              {statusCounts.new ?? 0}
+            </Badge>
+          </TabButton>
+          <TabButton
+            active={searchParams?.get("status") === "open"}
             onClick={() => updateQueryParam("status", "open")}
-            className="text-slate-500 hover:text-slate-800 h-8 whitespace-nowrap"
           >
             Open
-          </Button>
-          <Button
-            variant={
-              searchParams?.get("status") === "resolved" ? "secondary" : "ghost"
-            }
-            size="sm"
+            <Badge
+              className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
+                searchParams?.get("status") === "open"
+                  ? "bg-brand-badge text-brand-badge-foreground"
+                  : "bg-teal-100 text-teal-800"
+              }`}
+            >
+              {statusCounts.open ?? 0}
+            </Badge>
+          </TabButton>
+          <TabButton
+            active={searchParams?.get("status") === "resolved"}
             onClick={() => updateQueryParam("status", "resolved")}
-            className="text-slate-500 hover:text-slate-800 h-8 whitespace-nowrap"
           >
             Resolved
-          </Button>
+            <Badge
+              className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
+                searchParams?.get("status") === "resolved"
+                  ? "bg-brand-badge text-brand-badge-foreground"
+                  : "bg-teal-100 text-teal-800"
+              }`}
+            >
+              {statusCounts.resolved ?? 0}
+            </Badge>
+          </TabButton>
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 sm:gap-4">
@@ -555,107 +619,101 @@ export default function TicketsTable({
             {initialTickets.length === 0 ? (
               <TicketsEmptyState onAction={() => setIsSheetOpen(true)} />
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto rounded-lg border border-slate-200/80 bg-white">
                 <Table>
-                  <TableHeader className="bg-slate-50/60 text-[10px] uppercase tracking-wider">
+                  <TableHeader className="bg-slate-50/50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200/80">
                     <TableRow className="hover:bg-transparent">
-                      <TableHead className="w-10 px-4 text-center">
+                      <TableHead className="w-12 px-4 text-center">
                         <Checkbox
                           checked={isAllSelected}
                           onCheckedChange={(checked) =>
                             handleSelectAll(Boolean(checked))
                           }
-                          className="h-5 w-5 rounded border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-primary-foreground "
+                          className="h-4 w-4 rounded-md border-slate-300 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white"
                         />
                       </TableHead>
 
                       {visibleColumns?.id && (
-                        <TableHead className="w-22.5 px-4 font-bold text-slate-500">
-                          Ticket
+                        <TableHead className="w-20 px-4 font-bold text-slate-500">
+                          TICKET
                         </TableHead>
                       )}
 
                       {visibleColumns?.subject && (
-                        <TableHead className="min-w-70 px-4 font-bold text-teal-800">
+                        <TableHead className="px-4 font-bold text-teal-800">
                           <button
                             type="button"
                             onClick={handleSortToggle}
-                            className="flex items-center space-x-1 cursor-pointer select-none hover:text-teal-900 transition-colors"
+                            className="flex items-center space-x-1 cursor-pointer select-none text-teal-800 hover:text-teal-900 transition-colors font-bold uppercase"
                           >
-                            <span className="font-bold uppercase">Subject</span>
-                            {currentSort === "subject" ? (
-                              currentSortOrder === "asc" ? (
-                                <ChevronUp className="w-3 h-3" />
-                              ) : (
-                                <ChevronDown className="w-3 h-3" />
-                              )
-                            ) : (
-                              <ArrowUpDown className="w-3 h-3 opacity-40" />
+                            <span>SUBJECT</span>
+                            {currentSort === "subject" && (
+                              <span className="text-xs">
+                                {currentSortOrder === "asc" ? "↑" : "↓"}
+                              </span>
                             )}
                           </button>
                         </TableHead>
                       )}
 
                       {visibleColumns?.requester && (
-                        <TableHead className="min-w-45 px-4 font-bold text-slate-500">
-                          Requester
+                        <TableHead className="w-48 px-4 font-bold text-slate-500">
+                          REQUESTER
                         </TableHead>
                       )}
 
                       {visibleColumns?.priority && (
-                        <TableHead className="w-22.5 px-4 font-bold text-slate-500">
-                          Priority
+                        <TableHead className="w-32 px-4 text-center font-bold text-slate-500">
+                          PRIORITY
                         </TableHead>
                       )}
 
                       {visibleColumns?.assignee && (
-                        <TableHead className="min-w-45 px-4 font-bold text-slate-500">
-                          Assignee
+                        <TableHead className="w-40 px-4 font-bold text-slate-500">
+                          ASSIGNEE
                         </TableHead>
                       )}
 
                       {visibleColumns?.status && (
-                        <TableHead className="w-22.5 px-4 font-bold text-slate-500">
-                          Status
+                        <TableHead className="w-32 px-4 text-center font-bold text-slate-500">
+                          STATUS
                         </TableHead>
                       )}
 
                       {visibleColumns?.sla && (
-                        <TableHead className="w-35 px-4 text-center font-bold text-slate-500">
+                        <TableHead className="w-32 px-4 text-right font-bold text-slate-500">
                           SLA
                         </TableHead>
                       )}
                     </TableRow>
                   </TableHeader>
 
-                  <TableBody className="text-xs font-medium">
+                  <TableBody className="divide-y divide-slate-100 text-sm">
                     {initialTickets.map((ticket) => {
                       const isSelected = selectedTicketIds.includes(ticket.id);
 
                       return (
                         <TableRow
                           key={ticket.id}
-                          className={`transition-colors cursor-pointer group ${
-                            isSelected
-                              ? "bg-teal-50/40 hover:bg-teal-50/70"
-                              : "hover:bg-slate-50/80"
+                          className={`transition-colors cursor-pointer group hover:bg-slate-50/50 ${
+                            isSelected ? "bg-teal-50/30" : ""
                           }`}
                         >
-                          <TableCell className="w-10 px-4 text-center">
+                          <TableCell className="px-4 text-center align-middle">
                             <Checkbox
                               checked={isSelected}
                               onCheckedChange={(checked) =>
                                 handleSelectRow(ticket.id, Boolean(checked))
                               }
-                              className="h-5 w-5 rounded border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-primary-foreground "
+                              className="h-4 w-4 rounded-md border-slate-300 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white"
                             />
                           </TableCell>
 
                           {visibleColumns?.id && (
-                            <TableCell className="w-22.5 px-4 text-xs font-medium text-slate-500">
+                            <TableCell className="px-4 align-middle text-xs font-normal text-slate-400">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full py-1 text-slate-500 group-hover:text-teal-800 font-semibold"
+                                className="block py-1 hover:text-slate-600"
                               >
                                 #{ticket.id.substring(0, 4)}
                               </Link>
@@ -663,10 +721,10 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.subject && (
-                            <TableCell className="min-w-70 px-4 text-xs">
+                            <TableCell className="px-4 align-middle">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full py-1 font-semibold text-slate-900 group-hover:text-teal-800 transition-colors line-clamp-1"
+                                className="block py-1 font-semibold text-slate-900 group-hover:text-teal-900 transition-colors line-clamp-1"
                               >
                                 {ticket.subject}
                               </Link>
@@ -674,30 +732,28 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.requester && (
-                            <TableCell className="min-w-45 px-4 text-xs">
+                            <TableCell className="px-4 align-middle">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full py-1 text-slate-700"
+                                className="block py-1 text-xs"
                               >
-                                <span className="font-semibold">
+                                <div className="font-semibold text-slate-700 leading-snug">
                                   {ticket.customers?.full_name || "Customer"}
-                                </span>
-
+                                </div>
                                 {ticket.customers?.company && (
-                                  <span className="text-slate-400 font-normal">
-                                    {" "}
-                                    · {ticket.customers.company}
-                                  </span>
+                                  <div className="text-slate-400 text-[11px] leading-snug">
+                                    {ticket.customers.company}
+                                  </div>
                                 )}
                               </Link>
                             </TableCell>
                           )}
 
                           {visibleColumns?.priority && (
-                            <TableCell className="w-30 px-4 text-xs">
+                            <TableCell className="px-4 align-middle text-center">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full py-1"
+                                className="inline-block py-1"
                               >
                                 {getPriorityBadge(ticket.priority)}
                               </Link>
@@ -705,70 +761,85 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.assignee && (
-                            <TableCell className="min-w-42.5 px-4 text-xs">
+                            <TableCell className="px-4 align-middle text-xs text-slate-600">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full py-1 text-slate-600"
+                                className="block py-1"
                               >
                                 {ticket.assignee_name ? (
-                                  <span className="inline-flex items-center gap-1.5">
+                                  <span className="inline-flex items-center gap-2 font-medium">
                                     {ticket.assignee_initials && (
-                                      <span className="w-5 h-5 rounded-full bg-brand-accent text-white flex items-center justify-center text-[9px] font-bold">
+                                      <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[10px] font-bold">
                                         {ticket.assignee_initials}
                                       </span>
                                     )}
-
                                     {ticket.assignee_name}
                                   </span>
                                 ) : (
-                                  "Unassigned"
+                                  <span className="inline-flex items-center gap-2 text-slate-500 font-medium">
+                                    <span className="w-5 h-5 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] text-slate-400">
+                                      —
+                                    </span>
+                                    Unassigned
+                                  </span>
                                 )}
                               </Link>
                             </TableCell>
                           )}
 
                           {visibleColumns?.status && (
-                            <TableCell className="w-30 px-4 text-xs">
+                            <TableCell className="px-4 align-middle text-center">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block w-full py-1"
+                                className="inline-block py-1"
                               >
                                 {getStatusBadge(ticket.status)}
                               </Link>
                             </TableCell>
                           )}
 
-                          {visibleColumns?.sla && (
-                            <TableCell className="w-35 px-4 text-right text-xs">
-                              <Link
-                                href={`/${tenant}/tickets/${ticket.id}`}
-                                className="inline-flex w-full justify-end py-1"
-                              >
-                                <span
-                                  className={cn(
-                                    "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold border",
-                                    ticket.sla_type === "breached"
-                                      ? "bg-rose-100 text-rose-900 border-rose-200/60"
-                                      : ticket.sla_type === "warning"
-                                        ? "bg-amber-100 text-amber-900 border-amber-200/60"
-                                        : "bg-emerald-100 text-emerald-900 border-emerald-200/60",
-                                  )}
+                          {visibleColumns?.sla && (() => {
+                            const live = computeLiveSla(ticket, now);
+                            return (
+                              <TableCell className="w-35 px-4 text-right text-xs">
+                                <Link
+                                  href={`/${tenant}/tickets/${ticket.id}`}
+                                  className="inline-flex w-full justify-end py-1"
                                 >
-                                  <span
-                                    className={cn(
-                                      "w-1.5 h-1.5 rounded-full shrink-0",
-                                      ticket.sla_type === "breached"
-                                        ? "bg-rose-600"
-                                        : ticket.sla_type === "warning"
-                                          ? "bg-amber-600"
-                                          : "bg-emerald-600",
-                                    )}
-                                  />
-                                  {ticket.sla_text || "—"}
-                                </span>
-                              </Link>
-                            </TableCell>
-                          )}
+                                  {live.text === "—" || !live.text ? (
+                                    <span className="text-slate-400">—</span>
+                                  ) : (
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                                        live.type === "breached"
+                                          ? "bg-rose-100/80 text-rose-800"
+                                          : live.type === "warning"
+                                            ? "bg-amber-100/80 text-amber-900"
+                                            : live.type === "completed"
+                                              ? "bg-emerald-100/80 text-emerald-800"
+                                              : "bg-[#0e7adf]/10 text-[#0e7adf]",
+                                      )}
+                                    >
+                                      <span
+                                        className={cn(
+                                          "w-1.5 h-1.5 rounded-full shrink-0",
+                                          live.type === "breached"
+                                            ? "bg-rose-600"
+                                            : live.type === "warning"
+                                              ? "bg-amber-600"
+                                              : live.type === "completed"
+                                                ? "bg-emerald-600"
+                                                : "bg-[#0e7adf]",
+                                        )}
+                                      />
+                                      {live.text}
+                                    </span>
+                                  )}
+                                </Link>
+                              </TableCell>
+                            );
+                          })()}
                         </TableRow>
                       );
                     })}

@@ -64,12 +64,15 @@ export default async function TicketDetailPage({
     tenantId!,
   );
 
-  const messages = await getTicketMessages(ticketId, tenantId!);
-  const attachments = await fetchTicketAttachments(ticketId, tenantId!);
-  const slaEvents = await fetchTicketSlaEvents(ticketId, tenantId!);
-  const agents = await fetchAssignableAgents(tenantSlug);
-  const mentionable = await fetchMentionableMembers(tenantSlug);
-  const currentUser = await getCurrentUserIdentity(tenantSlug);
+  const [messages, attachments, slaEvents, agents, mentionable, currentUser] =
+    await Promise.all([
+      getTicketMessages(ticketId, tenantId!),
+      fetchTicketAttachments(ticketId, tenantId!),
+      fetchTicketSlaEvents(ticketId, tenantId!),
+      fetchAssignableAgents(tenantSlug),
+      fetchMentionableMembers(tenantSlug),
+      getCurrentUserIdentity(tenantSlug),
+    ]);
 
   return (
     <TicketDetailView

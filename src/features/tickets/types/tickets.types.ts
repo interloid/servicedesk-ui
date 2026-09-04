@@ -53,6 +53,9 @@ export interface Ticket {
   status: TicketStatus;
   sla_type: "warning" | "breached" | "normal";
   sla_text: string;
+  sla_due_at?: string | null;
+  sla_status?: "pending" | "completed" | "breached" | null;
+  sla_completed_at?: string | null;
   created_at: string;
   assignee_id?: string | null;
   first_response_at?: string | null;

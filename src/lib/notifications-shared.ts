@@ -4,6 +4,7 @@ export type NotificationType =
   | "ticket_updated"
   | "ticket_closed"
   | "mention"
+  | "sla_breach"
   | "billing"
   | "system";
 
@@ -58,6 +59,11 @@ const TYPE_META: Record<
     icon: "at-sign",
     fallbackTitle: "You were mentioned",
   },
+  sla_breach: {
+    tone: "error",
+    icon: "alert-triangle",
+    fallbackTitle: "SLA breached",
+  },
   billing: {
     tone: "warning",
     icon: "credit-card",
@@ -71,12 +77,15 @@ const TYPE_META: Record<
 };
 
 function resolveTitle(type: NotificationType, payload: NotificationPayload) {
-  return (
-    payload.title ||
-    ((type === "ticket_updated" || type === "mention") && payload.sender_name
-      ? `New message from ${payload.sender_name}`
-      : TYPE_META[type].fallbackTitle)
-  );
+  if (payload.title) return payload.title;
+  if (type === "sla_breach" && payload.subject)
+    return `SLA breached: ${payload.subject}`;
+  if (
+    (type === "ticket_updated" || type === "mention") &&
+    payload.sender_name
+  )
+    return `New message from ${payload.sender_name}`;
+  return TYPE_META[type].fallbackTitle;
 }
 
 function resolveBody(payload: NotificationPayload) {

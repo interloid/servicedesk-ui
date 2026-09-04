@@ -123,8 +123,27 @@ export async function getShellIdentity(
     .eq("id", user.id)
     .maybeSingle();
 
+  const pickName = (
+    ...candidates: Array<string | null | undefined>
+  ): string => {
+    for (const c of candidates) {
+      if (typeof c === "string") {
+        const t = c.trim();
+        if (
+          t &&
+          t.toLowerCase() !== "null" &&
+          t.toLowerCase() !== "undefined"
+        ) {
+          return t;
+        }
+      }
+    }
+    return "";
+  };
+
   const name =
-    profile?.full_name ?? user.user_metadata?.full_name ?? user.email ?? "User";
+    pickName(profile?.full_name, user.user_metadata?.full_name, user.email) ||
+    "User";
 
   const initials = name
     .split(/\s+/)

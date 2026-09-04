@@ -248,3 +248,29 @@
 *::-webkit-scrollbar-thumb:hover {
   background-color: var(--foreground);
 }
+
+/* Indeterminate progress bar — sweep from left to right with decelerating ease */
+@keyframes progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(-10%);
+  }
+  /* Stops short of the end so it can only complete when the request finishes */
+  100% {
+    transform: translateX(85%);
+  }
+}
+
+.progress-sweep {
+  animation: progress-sweep 2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.progress-sweep[data-state="finishing"] {
+  transform: translateX(0%);
+  transition:
+    transform 0.3s ease-out,
+    opacity 0.3s ease-out;
+  opacity: 0;
+}

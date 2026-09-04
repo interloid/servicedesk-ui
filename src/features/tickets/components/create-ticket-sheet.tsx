@@ -59,18 +59,39 @@ export default function CreateTicketSheet({
     }
   }, [open]);
 
+  const autoDescriptionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const trimmed = subject.trim();
+    const customer = customers.find(
+      (c) => String(c.id) === requesterCustomerId,
+    );
+    const company = customer?.company || "our team";
+    const template = `Hi — raising this from ${company}. ${trimmed}. Happy to send logs if that helps.`;
+    const usingAuto =
+      description === autoDescriptionRef.current ||
+      autoDescriptionRef.current === null;
+    if (usingAuto && trimmed) {
+      setDescription(template);
+      autoDescriptionRef.current = template;
+    }
+  }, [subject, requesterCustomerId, customers, description]);
+
   const resetForm = () => {
     setSubject("");
     setRequesterCustomerId("");
     setPriority("normal");
     setDescription("");
     setFiles([]);
+    autoDescriptionRef.current = null;
   };
 
   useEffect(() => {
     if (open && tenant) {
-      setLoadingCustomers(true);
-      setCustomerError(null);
+      queueMicrotask(() => {
+        setLoadingCustomers(true);
+        setCustomerError(null);
+      });
       getCustomersAction(tenant)
         .then((res) => {
           if (res?.success && res.customers) {
@@ -84,7 +105,7 @@ export default function CreateTicketSheet({
         })
         .finally(() => setLoadingCustomers(false));
     } else if (!open) {
-      resetForm();
+      queueMicrotask(resetForm);
     }
   }, [open, tenant]);
 

@@ -1387,6 +1387,7 @@ export const Constants = {
         "ticket_updated",
         "ticket_closed",
         "mention",
+        "sla_breach",
         "billing",
         "system",
       ],

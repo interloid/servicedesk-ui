@@ -36,26 +36,6 @@ export async function createNotification(params: {
 /**
  * Insert notifications for a set of agents (or any user ids) belonging to a tenant.
  */
-export async function notifyUsers(params: {
-  tenantId: string;
-  userIds: string[];
-  type: NotificationType;
-  payload?: NotificationPayload;
-}): Promise<void> {
-  if (params.userIds.length === 0) return;
-  const admin = createSupabaseAdminClient();
-  const rows = params.userIds.map((userId) => ({
-    tenant_id: params.tenantId,
-    user_id: userId,
-    type: params.type,
-    payload_json: (params.payload || {}) as Record<string, unknown>,
-  }));
-
-  const { error } = await admin.from("notifications").insert(rows);
-  if (error) {
-    console.error("[notifications] bulk create failed:", error.message);
-  }
-}
 
 /**
  * Fetch notifications for the current user within the given tenant (server-side).
@@ -121,24 +101,4 @@ export async function markNotificationRead(
   if (error) {
     console.error("[notifications] mark read failed:", error.message);
   }
-}
-
-/**
- * Helper used by ticket actions to insert notifications using the admin client
- * regardless of the caller's RLS context. Resolves tenantId from a tenant slug.
- */
-export async function createNotificationForTenant(params: {
-  tenantSlug: string;
-  userIds: string[];
-  type: NotificationType;
-  payload?: NotificationPayload;
-}): Promise<void> {
-  const tenantId = await getTenantIdBySlug(params.tenantSlug);
-  if (!tenantId || params.userIds.length === 0) return;
-  await notifyUsers({
-    tenantId,
-    userIds: params.userIds,
-    type: params.type,
-    payload: params.payload,
-  });
 }

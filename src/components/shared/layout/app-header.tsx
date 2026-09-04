@@ -14,8 +14,8 @@ export function AppHeader({
   tenantSlug,
 }: {
   identity: ShellIdentity | null;
-  notifications?: UiNotification[];
-  tenantSlug?: string;
+  notifications: UiNotification[];
+  tenantSlug: string;
 }) {
   return (
     <header className="sticky top-0 z-10 flex h-15 shrink-0 items-center gap-2.5 border-b bg-background/95 px-4 backdrop-blur md:px-6 lg:px-8">
@@ -42,8 +42,8 @@ export function AppHeader({
         </Button>
 
         <NotificationMenu
-          notifications={notifications || []}
-          tenantSlug={tenantSlug || ""}
+          notifications={notifications}
+          tenantSlug={tenantSlug}
         />
         <ProfileMenu identity={identity} />
       </div>

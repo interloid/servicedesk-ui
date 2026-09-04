@@ -48,6 +48,7 @@ export default function TicketImportWizard({
     size: "3.2 MB",
   });
   const [isUploading, setIsUploading] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [columnMappings, setColumnMappings] = useState<MappingRow[]>([
@@ -282,7 +283,7 @@ export default function TicketImportWizard({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mt-4">
                 <div>
                   <p className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-                    412
+                    {file?.rows ?? 0}
                   </p>
                   <p className="text-xs text-slate-400 mt-0.5">Tickets</p>
                 </div>
@@ -349,10 +350,20 @@ export default function TicketImportWizard({
             </Button>
           ) : (
             <Button
-              onClick={() => alert("Import process started for 412 tickets!")}
+              disabled={!file || isImporting}
+              onClick={() => {
+                setIsImporting(true);
+                // Importing is a future feature (see Known Issues). Simulate a
+                // non-blocking submission instead of a synchronous alert.
+                setTimeout(() => {
+                  onBack();
+                }, 800);
+              }}
               className="h-9 px-5 text-xs font-semibold bg-teal-700 hover:bg-teal-800 text-white shadow-sm"
             >
-              Import 412 tickets
+              {isImporting
+                ? `Importing ${file?.rows ?? 0} tickets…`
+                : `Import ${file?.rows ?? 0} tickets`}
             </Button>
           )}
         </div>

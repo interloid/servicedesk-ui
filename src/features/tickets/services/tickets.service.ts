@@ -73,6 +73,13 @@ export async function fetchTenantTickets(
 ): Promise<{ tickets: Ticket[]; totalCount: number }> {
   const supabase = await createSupabaseServerClient();
   const tenantid = await getTenantIdBySlug(tenant);
+
+  // Mark any overdue SLA events as breached so realtime picks up the change.
+  try {
+    await supabase.rpc("process_sla_breaches");
+  } catch (e) {
+    console.error("[fetchTenantTickets] process_sla_breaches failed:", e);
+  }
   const {
     search,
     priority,
@@ -100,8 +107,12 @@ export async function fetchTenantTickets(
           full_name
         )
       `,
-      { count: "exact" },
     )
+    .eq("tenant_id", tenantid);
+
+  const countQuery = supabase
+    .from("tickets")
+    .select("id", { count: "exact" })
     .eq("tenant_id", tenantid);
 
   if (status && status !== "all") {
@@ -119,12 +130,15 @@ export async function fetchTenantTickets(
   const sortColumn = sort === "subject" ? "subject" : "created_at";
   const sortAscending = sortOrder === "asc";
 
-  const { data, count, error } = await query
-    .order(sortColumn, { ascending: sortAscending })
-    .range(from, to);
+  const [countRes, { data, error }] = await Promise.all([
+    countQuery,
+    query.order(sortColumn, { ascending: sortAscending }).range(from, to),
+  ]);
+
+  const totalCount = countRes.count || 0;
 
   if (error) {
-    return { tickets: [], totalCount: 0 };
+    return { tickets: [], totalCount };
   }
 
   const tickets: Ticket[] = await withVisibleAssignee(
@@ -144,8 +158,35 @@ export async function fetchTenantTickets(
 
   return {
     tickets: withSla,
-    totalCount: count || 0,
+    totalCount,
   };
+}
+
+export type TicketStatusCounts = Partial<Record<TicketStatus, number>>;
+
+export async function fetchTicketStatusCounts(
+  tenant: string,
+): Promise<TicketStatusCounts> {
+  const supabase = await createSupabaseServerClient();
+  const tenantId = await getTenantIdBySlug(tenant);
+  if (!tenantId) return {};
+
+  const { data, error } = await supabase
+    .from("tickets")
+    .select("status")
+    .eq("tenant_id", tenantId);
+
+  if (error) {
+    console.error("Error fetching ticket status counts:", error.message);
+    return {};
+  }
+
+  const counts: TicketStatusCounts = {};
+  for (const row of data || []) {
+    const status = row.status as TicketStatus;
+    counts[status] = (counts[status] || 0) + 1;
+  }
+  return counts;
 }
 
 function formatDuration(ms: number): string {
@@ -172,10 +213,18 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
   const { data: events, error } = await supabase
     .from("sla_events")
     .select("ticket_id, type, status, due_at, completed_at, breached_at")
-    .in("ticket_id", ids);
+    .in("ticket_id", ids)
+    .order("type", { ascending: true });
 
   if (error || !events) {
-    return tickets.map((t) => ({ ...t, sla_type: "normal", sla_text: "—" }));
+    return tickets.map((t) => ({
+      ...t,
+      sla_type: "normal",
+      sla_text: "—",
+      sla_due_at: null,
+      sla_status: null,
+      sla_completed_at: null,
+    }));
   }
 
   const byTicket = new Map<string, SlaEvent[]>();
@@ -191,15 +240,54 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
   );
 
   return editable.map((t) => {
-    if (t.status === "resolved" || t.status === "closed") {
-      return { ...t, sla_type: "normal" as const, sla_text: "Completed" };
-    }
-
     const evs = byTicket.get(t.id) || [];
     const active = evs.find((e) => e.status === "pending") || evs[0];
+    const completed = evs.find((e) => e.status === "completed");
+    const breached = t.status === "resolved" || t.status === "closed"
+      ? evs.find((e) => e.status === "breached")
+      : undefined;
+
+    if ((t.status === "resolved" || t.status === "closed") && breached) {
+      const onset = breached.breached_at || breached.due_at;
+      return {
+        ...t,
+        sla_type: "breached" as const,
+        sla_text: breachedText(breached, onset),
+        sla_due_at: breached.due_at,
+        sla_status: "breached" as const,
+        sla_completed_at: null,
+      };
+    }
+    if ((t.status === "resolved" || t.status === "closed") && completed) {
+      return {
+        ...t,
+        sla_type: "normal" as const,
+        sla_text: metIn(completed),
+        sla_due_at: completed.due_at,
+        sla_status: "completed" as const,
+        sla_completed_at: completed.completed_at,
+      };
+    }
+    if (t.status === "resolved" || t.status === "closed") {
+      return {
+        ...t,
+        sla_type: "normal" as const,
+        sla_text: "Completed",
+        sla_due_at: null,
+        sla_status: "completed" as const,
+        sla_completed_at: null,
+      };
+    }
 
     if (!active) {
-      return { ...t, sla_type: "normal" as const, sla_text: "—" };
+      return {
+        ...t,
+        sla_type: "normal" as const,
+        sla_text: "—",
+        sla_due_at: null,
+        sla_status: null,
+        sla_completed_at: null,
+      };
     }
 
     if (active.status === "breached") {
@@ -208,6 +296,9 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
         ...t,
         sla_type: "breached" as const,
         sla_text: `Breached ${formatDuration(over)} ago`,
+        sla_due_at: active.due_at,
+        sla_status: "breached" as const,
+        sla_completed_at: null,
       };
     }
 
@@ -219,15 +310,41 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
         ...t,
         sla_type: "breached" as const,
         sla_text: `Breached ${formatDuration(remaining)} ago`,
+        sla_due_at: active.due_at,
+        sla_status: "breached" as const,
+        sla_completed_at: null,
       };
     }
 
     return {
       ...t,
-      sla_type: remaining < 600000 ? ("warning" as const) : ("normal" as const),
+      sla_type:
+        remaining < 600000 ? ("warning" as const) : ("normal" as const),
       sla_text: `${formatDuration(remaining)} left`,
+      sla_due_at: active.due_at,
+      sla_status: "pending" as const,
+      sla_completed_at: null,
     };
   });
+}
+
+function metIn(ev: SlaEvent): string {
+  if (ev.completed_at) {
+    return `Met in ${formatDuration(
+      new Date(ev.completed_at).getTime() - new Date(ev.created_at).getTime(),
+    )}`;
+  }
+  return "Completed";
+}
+
+function breachedText(ev: SlaEvent, onset: string | null): string {
+  if (onset) {
+    const duration = formatDuration(
+      new Date(onset).getTime() - new Date(ev.created_at).getTime(),
+    );
+    return `Breached after ${duration}`;
+  }
+  return "Breached";
 }
 
 export interface AssignableAgent {
@@ -237,7 +354,7 @@ export interface AssignableAgent {
   role: string;
 }
 
-const ASSIGNABLE_ROLES = ["agent", "manager"] as const;
+const ASSIGNABLE_ROLES = ["agent", "manager", "tenant_admin"] as const;
 const MENTIONABLE_ROLES = ["agent", "manager", "tenant_admin"] as const;
 
 export async function fetchMentionableMembers(
@@ -343,15 +460,22 @@ export async function getCurrentUserIdentity(tenant: string) {
 
   const { data: membership } = await supabase
     .from("memberships")
-    .select("role")
+    .select("role, users!memberships_user_id_fkey(full_name)")
     .eq("user_id", user.id)
     .eq("tenant_id", tenantId)
     .eq("status", "active")
     .maybeSingle();
 
+  const memberUser = membership
+    ? (Array.isArray(membership.users)
+        ? membership.users[0]
+        : membership.users) || null
+    : null;
+
   return {
     id: user.id,
     email: user.email || "",
+    full_name: memberUser?.full_name || user.email || "",
     role: membership?.role || null,
   };
 }
@@ -530,6 +654,36 @@ export async function createMessage(params: {
     .single();
   if (error) throw new Error(`Failed to send message: ${error.message}`);
   return data;
+}
+
+/**
+ * Insert a ticket message on behalf of a customer using the service-role client,
+ * bypassing RLS. Used when an agent creates a ticket with a description so the
+ * seed message is attributed to the customer even though the signed-in caller is
+ * an agent (the ticket_messages_insert policy only permits agents to insert
+ * their own agent-authored rows).
+ */
+export async function createSystemCustomerMessage(params: {
+  tenantId: string;
+  ticketId: string;
+  authorId: string;
+  body: string;
+  visibility: MessageVisibility;
+}) {
+  const admin = createSupabaseAdminClient();
+  const tenantId = await getTenantIdBySlug(params.tenantId);
+  const { error } = await admin.from("ticket_messages").insert({
+    tenant_id: tenantId,
+    ticket_id: params.ticketId,
+    author_type: "customer",
+    author_id: params.authorId,
+    body: params.body,
+    visibility: params.visibility,
+    is_edited: false,
+  });
+  if (error) {
+    throw new Error(`Failed to seed message: ${error.message}`);
+  }
 }
 
 export async function updateTicketDetails(

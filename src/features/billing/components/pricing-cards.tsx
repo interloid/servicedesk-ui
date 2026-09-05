@@ -153,7 +153,9 @@ export function PricingCards({
   const target = selectedPlanForSwitch;
   const isFreeTarget = target?.priceValue === 0;
   const isUpgradeTarget =
-    currentPrice !== null && target !== null && target.priceValue > currentPrice;
+    currentPrice !== null &&
+    target !== null &&
+    target.priceValue > currentPrice;
   const freeSeatLimit = freePlan?.seatLimit ?? 0;
   const targetSeatLimit = target?.seatLimit ?? 0;
   const seatsAtRisk = target ? Math.max(0, usedSeats - targetSeatLimit) : 0;
@@ -313,7 +315,12 @@ export function PricingCards({
                       <ul className="mt-3 space-y-2.5">
                         {(additionalFeatures.length > 0
                           ? additionalFeatures
-                          : [{ label: "Additional capabilities included", value: "" }]
+                          : [
+                              {
+                                label: "Additional capabilities included",
+                                value: "",
+                              },
+                            ]
                         ).map((feature, index) => (
                           <li key={index} className="flex items-start gap-2.5">
                             <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-accent stroke-[2.5]" />
@@ -349,7 +356,10 @@ export function PricingCards({
                 <div className="mt-6 flex flex-col gap-2.5">
                   {isCurrent ? (
                     <>
-                      <Button asChild className="h-11 w-full gap-2 whitespace-nowrap bg-brand-accent text-primary-foreground shadow-none hover:bg-brand-accent/90">
+                      <Button
+                        asChild
+                        className="h-11 w-full gap-2 whitespace-nowrap bg-brand-accent text-primary-foreground shadow-none hover:bg-brand-accent/90"
+                      >
                         <Link href={manageBillingHref}>
                           <Settings className="h-4 w-4" />
                           Manage plan
@@ -466,8 +476,8 @@ export function PricingCards({
                           </p>
                           <p className="font-normal text-amber-800/90 dark:text-amber-300/90">
                             The Free plan includes {freeSeatLimit} agent seats.
-                            You&apos;ll need to free up{" "}
-                            {seatsAtRiskForFree} seat
+                            You&apos;ll need to free up {seatsAtRiskForFree}{" "}
+                            seat
                             {seatsAtRiskForFree === 1 ? "" : "s"} before this
                             change applies.
                           </p>

@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 export default function ViewsPage() {
   return (
     <ComingSoon
-          title="Saved Views"
-          description="Manage and track support views. Coming soon."
-        />
+      title="Saved Views"
+      description="Manage and track support views. Coming soon."
+    />
   );
 }

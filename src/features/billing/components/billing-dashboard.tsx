@@ -42,7 +42,13 @@ interface SummaryCardProps {
   action?: ReactNode;
 }
 
-function SummaryCard({ label, value, subtext, isLoading, action }: SummaryCardProps) {
+function SummaryCard({
+  label,
+  value,
+  subtext,
+  isLoading,
+  action,
+}: SummaryCardProps) {
   if (isLoading) {
     return (
       <Card className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-none">
@@ -103,7 +109,9 @@ function StatusBanner({
         <div className="flex items-center space-x-3 pt-1">
           <Button
             className="bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold h-9 px-4 rounded-lg shadow-none"
-            onClick={() => router.push(`/${tenantSlug}/account/billing/payment`)}
+            onClick={() =>
+              router.push(`/${tenantSlug}/account/billing/payment`)
+            }
           >
             Update payment method
           </Button>
@@ -194,7 +202,7 @@ export default function BillingDashboard({
             <Skeleton className="h-9 w-28 rounded-lg bg-slate-200" />
           </div>
           <Skeleton className="h-20 w-full rounded-xl bg-slate-100" />
-<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <SummaryCard key={i} label="" isLoading={true} />
             ))}
@@ -293,8 +301,9 @@ export default function BillingDashboard({
                     Your plan will change to {scheduledChange.planName}
                   </h3>
                   <p className="text-xs text-amber-800/90 mt-0.5">
-                    On {effectiveDateLabel} ({daysLabel(scheduledChange.daysRemaining)}),
-                    your subscription will switch to {scheduledChange.planName} at{" "}
+                    On {effectiveDateLabel} (
+                    {daysLabel(scheduledChange.daysRemaining)}), your
+                    subscription will switch to {scheduledChange.planName} at{" "}
                     {scheduledChange.planRate}. You keep{" "}
                     {data.plan?.name ?? "your current plan"} and all of its
                     features until then.
@@ -308,7 +317,9 @@ export default function BillingDashboard({
                 onClick={handleAbort}
                 className="shrink-0 text-xs font-semibold bg-white border-amber-300 text-amber-900 hover:bg-amber-100 h-9 px-3.5 rounded-lg shadow-none"
               >
-                {isAborting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {isAborting && (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                )}
                 Cancel change
               </Button>
             </div>
@@ -341,9 +352,11 @@ export default function BillingDashboard({
             }
             subtext={
               <>
-                {data.agents?.admins ?? 0} admin{data.agents?.admins === 1 ? "" : "s"} ·{" "}
-                {data.agents?.regular ?? 0} agent{data.agents?.regular === 1 ? "" : "s"} ·{" "}
-                {unusedSeats} seat{unusedSeats === 1 ? "" : "s"} available
+                {data.agents?.admins ?? 0} admin
+                {data.agents?.admins === 1 ? "" : "s"} ·{" "}
+                {data.agents?.regular ?? 0} agent
+                {data.agents?.regular === 1 ? "" : "s"} · {unusedSeats} seat
+                {unusedSeats === 1 ? "" : "s"} available
               </>
             }
             action={
@@ -475,8 +488,8 @@ export default function BillingDashboard({
             <p className="text-xs text-slate-500 leading-relaxed mt-3">
               {unusedSeats > 0 ? (
                 <>
-                  You&apos;re currently using {usedSeats} of {totalSeats}{" "}
-                  agent seats. {unusedSeats} agent seat
+                  You&apos;re currently using {usedSeats} of {totalSeats} agent
+                  seats. {unusedSeats} agent seat
                   {unusedSeats === 1 ? "" : "s"} available.
                 </>
               ) : (

@@ -278,14 +278,13 @@ export async function fetchTenantBillingData(
       total: totalSeats,
       unused: unusedSeats,
     },
-    renewalDate:
-      renewalRaw
-        ? new Date(renewalRaw).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })
-        : "N/A",
+    renewalDate: renewalRaw
+      ? new Date(renewalRaw).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : "N/A",
     renewalDateRaw: renewalRaw,
     autoRenew: !isFreePlan && !(sub?.status === "cancelled"),
     amountDue: {

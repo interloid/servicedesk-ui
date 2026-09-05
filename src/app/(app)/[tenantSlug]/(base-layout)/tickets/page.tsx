@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 export default function TicketsPage() {
   return (
     <ComingSoon
-          title="Tickets"
-          description="Manage and track support tickets. Coming soon."
-        />
+      title="Tickets"
+      description="Manage and track support tickets. Coming soon."
+    />
   );
 }

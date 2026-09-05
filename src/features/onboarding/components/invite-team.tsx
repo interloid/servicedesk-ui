@@ -100,8 +100,8 @@ export function StepInviteTeam({
           Invite your agents
         </h3>
         <p className="text-xs sm:text-sm text-slate-500">
-          Invite agents up to your plan&apos;s agent seat allowance. Add more any
-          time from Billing.
+          Invite agents up to your plan&apos;s agent seat allowance. Add more
+          any time from Billing.
         </p>
       </div>
 

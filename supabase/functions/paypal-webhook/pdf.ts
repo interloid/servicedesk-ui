@@ -95,11 +95,22 @@ export async function generateInvoicePdf(
   };
 
   const drawLabel = (text: string, x: number, y: number, size = 8) => {
-    page.drawText(text.toUpperCase(), { x, y, size, font: bold, color: textMuted });
+    page.drawText(text.toUpperCase(), {
+      x,
+      y,
+      size,
+      font: bold,
+      color: textMuted,
+    });
   };
 
   const drawLine = (y: number) => {
-    page.drawLine({ start: { x: left, y }, end: { x: right, y }, thickness: 1, color: borderColor });
+    page.drawLine({
+      start: { x: left, y },
+      end: { x: right, y },
+      thickness: 1,
+      color: borderColor,
+    });
   };
 
   // Status maps to the invoice_status enum:
@@ -159,7 +170,10 @@ export async function generateInvoicePdf(
     color: brandTeal,
   });
 
-  const invoiceId = String(invoice.id || "").replace(/-/g, "").slice(0, 8).toUpperCase();
+  const invoiceId = String(invoice.id || "")
+    .replace(/-/g, "")
+    .slice(0, 8)
+    .toUpperCase();
   const invoiceNumber = invoiceId ? `INV-${invoiceId}` : "-";
 
   page.drawText(`# ${invoiceNumber}`, {
@@ -176,13 +190,7 @@ export async function generateInvoicePdf(
 
   y -= 28;
 
-  const badgeWidth = isFailed
-    ? 115
-    : isPending
-      ? 75
-      : isRefunded
-        ? 90
-        : 55;
+  const badgeWidth = isFailed ? 115 : isPending ? 75 : isRefunded ? 90 : 55;
 
   page.drawRectangle({
     x: right - badgeWidth,
@@ -411,7 +419,13 @@ export async function generateInvoicePdf(
     valueSize = 10,
     valueColor = textPrimary,
   ) => {
-    page.drawText(label, { x: totalsX, y: rowY, size: 10, font, color: textMuted });
+    page.drawText(label, {
+      x: totalsX,
+      y: rowY,
+      size: 10,
+      font,
+      color: textMuted,
+    });
 
     const valueWidth = bold.widthOfTextAtSize(value, valueSize);
 
@@ -526,16 +540,13 @@ export async function generateInvoicePdf(
       color: statusColor,
     });
 
-    page.drawText(
-      "Please refer to your billing account for payment details.",
-      {
-        x: left + 15,
-        y: y - 37,
-        size: 9,
-        font,
-        color: textMuted,
-      },
-    );
+    page.drawText("Please refer to your billing account for payment details.", {
+      x: left + 15,
+      y: y - 37,
+      size: 9,
+      font,
+      color: textMuted,
+    });
   }
 
   y -= 105;
@@ -585,7 +596,9 @@ export async function generateInvoicePdf(
   });
 
   page.drawText("This invoice was generated electronically.", {
-    x: right - font.widthOfTextAtSize("This invoice was generated electronically.", 8),
+    x:
+      right -
+      font.widthOfTextAtSize("This invoice was generated electronically.", 8),
     y,
     size: 8,
     font,

@@ -25,5 +25,9 @@ export interface FormattedPlan {
   priceValue: number;
   priceSuffix: string;
   description: string;
+  seatLimit: number;
+  seatLimitText: string;
+  ticketLimitText: string;
+  storageLimitText: string;
   features: FormattedFeature[];
 }

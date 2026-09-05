@@ -1,8 +1,15 @@
 "use client";
 
-import { use, useState, ReactNode } from "react";
+import { use, useState, useTransition, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  Loader2,
+  ShieldCheck,
+  Clock,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -19,6 +26,7 @@ import {
 import { BillingDashboardData } from "../services/billing-dashboard.service";
 import InvoiceModal from "./invoice-model";
 import { UpdatePaymentModal } from "./payment-method";
+import { abortPlanSwitchAction } from "../billing-actions";
 
 interface BillingDashboardProps {
   params: Promise<{ tenantSlug: string }>;
@@ -26,20 +34,21 @@ interface BillingDashboardProps {
   isLoading?: boolean;
 }
 
-interface MetricCardProps {
+interface SummaryCardProps {
   label: string;
   value?: ReactNode;
   subtext?: ReactNode;
   isLoading?: boolean;
+  action?: ReactNode;
 }
 
-function MetricCard({ label, value, subtext, isLoading }: MetricCardProps) {
+function SummaryCard({ label, value, subtext, isLoading, action }: SummaryCardProps) {
   if (isLoading) {
     return (
-      <Card className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-none">
-        <div className="space-y-3">
+      <Card className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-none">
+        <div className="space-y-2.5">
           <Skeleton className="h-3 w-20 bg-slate-100" />
-          <Skeleton className="h-6 w-32 bg-slate-100" />
+          <Skeleton className="h-5 w-32 bg-slate-100" />
           <Skeleton className="h-3 w-24 bg-slate-100" />
         </div>
       </Card>
@@ -47,12 +56,12 @@ function MetricCard({ label, value, subtext, isLoading }: MetricCardProps) {
   }
 
   return (
-    <Card className="rounded-xl border bg-white p-3.5 shadow-none drop-shadow-none transition-all hover:border-slate-300 ring-0">
+    <Card className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-none drop-shadow-none flex flex-col justify-between ring-0">
       <CardHeader className="p-0">
         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
           {label}
         </span>
-        <CardTitle className="text-lg font-bold tracking-tight text-slate-900">
+        <CardTitle className="mt-1 text-base font-bold tracking-tight text-slate-900">
           {value}
         </CardTitle>
       </CardHeader>
@@ -61,7 +70,102 @@ function MetricCard({ label, value, subtext, isLoading }: MetricCardProps) {
           <p className="text-xs text-slate-500">{subtext}</p>
         </CardContent>
       )}
+      {action && <div className="pt-2.5">{action}</div>}
     </Card>
+  );
+}
+
+function StatusBanner({
+  data,
+  tenantSlug,
+}: {
+  data: BillingDashboardData;
+  tenantSlug: string;
+}) {
+  const router = useRouter();
+  const { billingStatus } = data;
+
+  if (billingStatus === "past_due" || data.isSuspended) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50/60 p-5 space-y-4">
+        <div className="flex items-start space-x-3">
+          <div className="rounded-md bg-red-500 p-1.5 text-white shrink-0 mt-0.5">
+            <AlertTriangle className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-red-950">Payment failed</h3>
+            <p className="text-xs text-red-800/90 mt-0.5">
+              We couldn&apos;t process your {data.amountDue.next} payment.
+              Update your payment method to keep your subscription active.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-3 pt-1">
+          <Button
+            className="bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold h-9 px-4 rounded-lg shadow-none"
+            onClick={() => router.push(`/${tenantSlug}/account/billing/payment`)}
+          >
+            Update payment method
+          </Button>
+          <Button
+            variant="outline"
+            className="bg-white border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold h-9 px-4 rounded-lg shadow-none"
+          >
+            Retry charge
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (billingStatus === "cancelled") {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 space-y-3">
+        <div className="flex items-start space-x-3">
+          <div className="rounded-md bg-amber-500 p-1.5 text-white shrink-0 mt-0.5">
+            <Clock className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-amber-950">
+              Cancels on {data.renewalDate}
+            </h3>
+            <p className="text-xs text-amber-800/90 mt-0.5">
+              Your subscription will end on {data.renewalDate}. You can
+              reactivate or change your plan before then.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start space-x-3">
+          <div className="rounded-md bg-emerald-500 p-1.5 text-white shrink-0 mt-0.5">
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-emerald-950">
+                {data.plan.name}
+              </span>
+              <span className="text-sm text-emerald-800/90">
+                · {data.plan.rate}
+              </span>
+            </div>
+            <p className="text-xs text-emerald-800/90 mt-0.5">
+              Next payment: {data.amountDue.next} on {data.renewalDate}
+            </p>
+          </div>
+        </div>
+        <Badge className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-full text-xs font-semibold shadow-none">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          Active · Auto-renew ON
+        </Badge>
+      </div>
+    </div>
   );
 }
 
@@ -76,6 +180,7 @@ export default function BillingDashboard({
     BillingDashboardData["invoices"][number] | null
   >(null);
   const [isUpdatePaymentOpen, setIsUpdatePaymentOpen] = useState(false);
+  const [isAborting, startAbort] = useTransition();
 
   if (isLoading) {
     return (
@@ -88,10 +193,10 @@ export default function BillingDashboard({
             </div>
             <Skeleton className="h-9 w-28 rounded-lg bg-slate-200" />
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <MetricCard key={i} label="" isLoading={true} />
+          <Skeleton className="h-20 w-full rounded-xl bg-slate-100" />
+<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <SummaryCard key={i} label="" isLoading={true} />
             ))}
           </div>
         </div>
@@ -117,16 +222,6 @@ export default function BillingDashboard({
   const unusedSeats = data?.seats?.unused ?? 0;
   const seatPercentage = totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0;
 
-  const monthlyRate = parseFloat(
-    (data?.amountDue?.total ?? "").replace(/[^0-9.]/g, ""),
-  );
-  const perSeatRate =
-    totalSeats > 0 && Number.isFinite(monthlyRate) && monthlyRate > 0
-      ? monthlyRate / totalSeats
-      : null;
-  const monthlySavings =
-    perSeatRate !== null && unusedSeats > 0 ? unusedSeats * perSeatRate : null;
-
   const paymentType = data?.paymentMethod?.type;
   const cardLast4 = data?.paymentMethod?.last4;
   const cardExpiry = data?.paymentMethod?.expiry;
@@ -134,70 +229,34 @@ export default function BillingDashboard({
     paymentType && cardLast4 && cardLast4.trim() !== "" && cardLast4 !== "N/A",
   );
 
-  // Wallet-funded PayPal subscriptions have no card on file, only the payer's
-  // PayPal account. The funding instrument behind it is private to PayPal.
   const paypalEmail = data?.paymentMethod?.email;
   const hasPayPalWallet = Boolean(!hasCardDetails && paypalEmail);
+  const isFreeTier = (data?.plan?.rate ?? "") === "$0/mo";
 
-  const suspensionReason = data?.suspensionReason;
-  const attemptedCard = suspensionReason?.card;
-  const failingInvoice = suspensionReason?.invoiceId;
-  const failingAmount = suspensionReason?.amount;
+  const scheduledChange = data.scheduledChange;
 
-  let suspensionMessage: string;
-  if (attemptedCard && failingInvoice && failingAmount) {
-    suspensionMessage = `We tried ${attemptedCard} three times for invoice ${failingInvoice} (${failingAmount}) and it was declined.`;
-  } else if (failingInvoice && failingAmount) {
-    suspensionMessage = `We tried three charges for invoice ${failingInvoice} (${failingAmount}) and they were declined.`;
-  } else if (attemptedCard) {
-    suspensionMessage = `We tried ${attemptedCard} three times and it was declined.`;
-  } else {
-    suspensionMessage = "Your last three payment attempts were declined.";
-  }
-  suspensionMessage +=
-    " Agents can read tickets but can't reply until payment clears.";
+  const handleAbort = () => {
+    startAbort(async () => {
+      const res = await abortPlanSwitchAction(tenantSlug);
+      if (!res.success) {
+        toast.error(res.error || "Failed to cancel the scheduled change.");
+        return;
+      }
+      toast.success("Plan change cancelled.");
+      router.refresh();
+    });
+  };
 
-  const metrics = [
-    {
-      label: "Current Plan",
-      value: data.plan?.name ?? "N/A",
-      subtext: data.plan?.rate,
-    },
-    {
-      label: "Current Agents",
-      value: (
-        <>
-          {data.agents?.active ?? 0}{" "}
-          <span className="text-lg font-bold tracking-tight text-slate-900">
-            active
-          </span>
-        </>
-      ),
-      subtext: `${data.agents?.admins ?? 0} admins · ${data.agents?.regular ?? 0} agents`,
-    },
-    {
-      label: "Seats",
-      value: (
-        <>
-          {usedSeats}{" "}
-          <span className="text-lg font-bold tracking-tight text-slate-900">
-            of {totalSeats}
-          </span>
-        </>
-      ),
-      subtext: `${data.seats?.unused ?? 0} unused`,
-    },
-    {
-      label: "Next Renewal",
-      value: data.renewalDate,
-      subtext: "Auto-renews",
-    },
-    {
-      label: "Amount Due",
-      value: data.amountDue?.total ?? "$0.00",
-      subtext: `Includes ${data.amountDue?.unusedSeats ?? 0} unused seats`,
-    },
-  ];
+  const effectiveDateLabel = scheduledChange
+    ? new Date(scheduledChange.effectiveAt).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : "";
+
+  const daysLabel = (d: number) =>
+    d <= 0 ? "today" : d === 1 ? "in 1 day" : `in ${d} days`;
 
   return (
     <div className="h-full font-sans text-slate-900 p-8 overflow-y-auto ">
@@ -220,169 +279,218 @@ export default function BillingDashboard({
           </Button>
         </div>
 
-        {data.isSuspended && (
-          <div className="rounded-xl border border-red-200 bg-red-50/60 p-5 space-y-4">
-            <div className="flex items-start space-x-3">
-              <div className="rounded-md bg-red-500 p-1.5 text-white shrink-0 mt-0.5">
-                <AlertTriangle className="h-4 w-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-red-950">
-                  Your workspace is suspended
-                </h3>
-                <p className="text-xs text-red-800/90 mt-0.5">
-                  {suspensionMessage}
-                </p>
-              </div>
-            </div>
+        <StatusBanner data={data} tenantSlug={tenantSlug} />
 
-            <div className="flex items-center space-x-3 pt-1">
-              <Button
-                className="bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold h-9 px-4 rounded-lg shadow-none"
-                onClick={() =>
-                  router.push(`/${tenantSlug}/account/billing/payment`)
-                }
-              >
-                Update payment method
-              </Button>
+        {scheduledChange && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start space-x-3">
+                <div className="rounded-md bg-amber-500 p-1.5 text-white shrink-0 mt-0.5">
+                  <CalendarClock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-amber-950">
+                    Your plan will change to {scheduledChange.planName}
+                  </h3>
+                  <p className="text-xs text-amber-800/90 mt-0.5">
+                    On {effectiveDateLabel} ({daysLabel(scheduledChange.daysRemaining)}),
+                    your subscription will switch to {scheduledChange.planName} at{" "}
+                    {scheduledChange.planRate}. You keep{" "}
+                    {data.plan?.name ?? "your current plan"} and all of its
+                    features until then.
+                  </p>
+                </div>
+              </div>
               <Button
                 variant="outline"
-                className="bg-white border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold h-9 px-4 rounded-lg shadow-none"
+                size="sm"
+                disabled={isAborting}
+                onClick={handleAbort}
+                className="shrink-0 text-xs font-semibold bg-white border-amber-300 text-amber-900 hover:bg-amber-100 h-9 px-3.5 rounded-lg shadow-none"
               >
-                Retry charge
+                {isAborting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Cancel change
               </Button>
-              <button
-                type="button"
-                className="text-xs font-semibold text-teal-800 hover:underline px-2"
-              >
-                Contact billing support
-              </button>
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {metrics.map((metric, idx) => (
-            <MetricCard
-              key={idx}
-              label={metric.label}
-              value={metric.value}
-              subtext={metric.subtext}
-            />
-          ))}
-        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <SummaryCard
+            label="Current Plan"
+            value={
+              <>
+                {data.plan?.name ?? "N/A"}
+                <span className="text-sm font-medium text-slate-500 ml-2">
+                  · {data.plan?.rate ?? ""}
+                </span>
+              </>
+            }
+            subtext={`${totalSeats} agent seats · Renews ${data.renewalDate}`}
+          />
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6">
-          <Card className="md:col-span-7 rounded-xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-none drop-shadow-none flex flex-col justify-between ring-0">
-            <CardHeader className="p-0 space-y-2">
-              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Seat Usage
-              </span>
-              <div className="flex justify-between items-baseline pt-1">
-                <span className="text-sm font-semibold text-slate-900">
-                  {usedSeats} agents active
+          <SummaryCard
+            label="Agent seats"
+            value={
+              <>
+                {usedSeats}{" "}
+                <span className="text-base font-medium text-slate-500">
+                  / {totalSeats} used
                 </span>
-                <span className="text-xs text-slate-400 font-normal">
-                  of{" "}
-                  <strong className="text-slate-900 font-semibold">
-                    {totalSeats}
-                  </strong>{" "}
-                  purchased
+              </>
+            }
+            subtext={
+              <>
+                {data.agents?.admins ?? 0} admin{data.agents?.admins === 1 ? "" : "s"} ·{" "}
+                {data.agents?.regular ?? 0} agent{data.agents?.regular === 1 ? "" : "s"} ·{" "}
+                {unusedSeats} seat{unusedSeats === 1 ? "" : "s"} available
+              </>
+            }
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/${tenantSlug}/settings/team`)}
+                className="text-xs font-semibold text-teal-800 border-slate-200 hover:bg-teal-50 h-8 px-3.5 rounded-lg shadow-none"
+              >
+                Manage members
+              </Button>
+            }
+          />
+
+          <SummaryCard
+            label="Next Payment"
+            value={
+              <>
+                {data.amountDue?.next ?? "$0.00"}
+                <span className="text-sm font-medium text-slate-500 ml-2">
+                  on {data.renewalDate}
                 </span>
-              </div>
-              <Progress
-                value={seatPercentage}
-                className="h-2 mt-2 bg-slate-100 [&>div]:bg-teal-700 rounded-full"
-              />
-            </CardHeader>
-            <CardContent className="p-0 pt-3 sm:pt-4">
-              <p className="text-xs text-slate-500 leading-relaxed">
-                {unusedSeats > 0 ? (
+              </>
+            }
+            subtext={
+              <span className="inline-flex items-center gap-1.5">
+                {data.autoRenew ? (
                   <>
-                    You&apos;re paying for {unusedSeats}{" "}
-                    {unusedSeats === 1 ? "seat" : "seats"} nobody is using.
-                    {monthlySavings !== null
-                      ? ` Drop to ${usedSeats} seats and save $${monthlySavings.toFixed(2)} a month.`
-                      : ` Drop to ${usedSeats} seats to lower your monthly bill.`}
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Auto-renew is ON
                   </>
                 ) : (
-                  "All seats are currently assigned to active team members."
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                    Auto-renew is OFF
+                  </>
                 )}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="md:col-span-5 rounded-xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-none drop-shadow-none flex flex-col justify-between ring-0">
-            <CardHeader className="p-0 space-y-3">
-              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Payment Method
               </span>
-              <div className="flex items-center space-x-3 pt-1">
-                {hasCardDetails ? (
-                  <>
-                    <Badge
-                      variant="secondary"
-                      className="bg-brand-accent text-primary-foreground font-bold px-2 py-1.5 rounded-md text-[10px] tracking-wider"
-                    >
-                      {(paymentType ?? "").toUpperCase()}
-                    </Badge>
-                    <div>
-                      <p className="text-sm font-bold text-slate-900 leading-none">
-                        {paymentType} ···· {cardLast4}
-                      </p>
-                      {cardExpiry && cardExpiry !== "N/A" && (
-                        <p className="text-xs text-slate-400 mt-1">
-                          Expires {cardExpiry}
-                        </p>
-                      )}
-                    </div>
-                  </>
-                ) : hasPayPalWallet ? (
-                  <>
-                    <Badge
-                      variant="secondary"
-                      className="bg-brand-accent text-primary-foreground font-bold px-2 py-1.5 rounded-md text-[10px] tracking-wider"
-                    >
-                      PAYPAL
-                    </Badge>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-900 leading-none truncate">
-                        {paypalEmail}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Billed through your PayPal account
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <div>
-                    <p className="text-sm font-bold text-slate-900 leading-none">
-                      No payment method on file
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Add a card to avoid service interruptions.
-                    </p>
-                  </div>
-                )}
+            }
+            action={
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-slate-400">Current billing</span>
+                <span className="text-xs text-slate-500">
+                  {data.amountDue?.current} due
+                  {data.lastPayment ? (
+                    <>
+                      {" "}
+                      · Last payment: {data.lastPayment.amount} · Paid{" "}
+                      {data.lastPayment.date}
+                    </>
+                  ) : null}
+                </span>
               </div>
-            </CardHeader>
-            <CardContent className="p-0 pt-4">
+            }
+          />
+
+          <SummaryCard
+            label="Payment Method"
+            value={
+              hasCardDetails ? (
+                <>
+                  {paymentType} ···· {cardLast4}
+                </>
+              ) : hasPayPalWallet ? (
+                <>
+                  PayPal
+                  <span className="text-sm font-medium text-slate-500 ml-2">
+                    {paypalEmail}
+                  </span>
+                </>
+              ) : isFreeTier ? (
+                "Free Tier"
+              ) : (
+                "No payment method on file"
+              )
+            }
+            subtext={
+              hasCardDetails
+                ? `Expires ${cardExpiry || "N/A"}`
+                : hasPayPalWallet
+                  ? "Billed through PayPal"
+                  : isFreeTier
+                    ? "No charges for this plan"
+                    : "Add a card to avoid service interruptions."
+            }
+            action={
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setIsUpdatePaymentOpen(true)}
-                className="text-xs font-semibold bg-brand-accent text-primary-foreground h-9 px-3.5 rounded-lg shadow-none"
+                className="text-xs font-semibold text-teal-800 border-slate-200 hover:bg-teal-50 h-8 px-3.5 rounded-lg shadow-none"
               >
-                Update card
+                {hasPayPalWallet ? "Manage PayPal" : "Change payment method"}
               </Button>
-            </CardContent>
-          </Card>
+            }
+          />
         </div>
 
+        {/* Seat usage */}
+        <Card className="rounded-xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-none drop-shadow-none ring-0">
+          <CardHeader className="p-0 flex flex-row items-start justify-between gap-4">
+            <div>
+              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                Agent Seat Usage
+              </span>
+              <div className="mt-2 flex items-baseline gap-3">
+                <span className="text-sm font-semibold text-slate-900">
+                  {usedSeats} of {totalSeats} agent seats used
+                </span>
+                <span className="text-xs text-slate-400 font-normal">
+                  {Math.round(seatPercentage)}%
+                </span>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(`/${tenantSlug}/settings/team`)}
+              className="text-xs font-semibold text-teal-800 border-slate-200 hover:bg-teal-50 h-8 px-3.5 rounded-lg shadow-none shrink-0"
+            >
+              Manage seats
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0 pt-3 sm:pt-4">
+            <Progress
+              value={seatPercentage}
+              className="h-2 bg-slate-100 [&>div]:bg-teal-700 rounded-full"
+            />
+            <p className="text-xs text-slate-500 leading-relaxed mt-3">
+              {unusedSeats > 0 ? (
+                <>
+                  You&apos;re currently using {usedSeats} of {totalSeats}{" "}
+                  agent seats. {unusedSeats} agent seat
+                  {unusedSeats === 1 ? "" : "s"} available.
+                </>
+              ) : (
+                "All agent seats are currently assigned to active team members."
+              )}
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Billing history */}
         <Card className="rounded-xl border border-slate-200/80 bg-white shadow-none overflow-hidden ring-0">
-          <CardHeader className="border-b border-slate-100">
+          <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-bold text-slate-900">
-              Invoices
+              Billing History
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -401,8 +509,11 @@ export default function BillingDashboard({
                       <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-left">
                         Date
                       </TableHead>
+                      <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-left">
+                        Description
+                      </TableHead>
                       <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-center">
-                        Agents
+                        Agent Seats
                       </TableHead>
                       <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-right">
                         Amount
@@ -427,8 +538,11 @@ export default function BillingDashboard({
                         <TableCell className="px-6 py-3.5 text-slate-500 text-left whitespace-nowrap">
                           {inv.date}
                         </TableCell>
+                        <TableCell className="px-6 py-3.5 text-slate-500 text-left whitespace-nowrap">
+                          {inv.description}
+                        </TableCell>
                         <TableCell className="px-6 py-3.5 text-center text-slate-700 whitespace-nowrap">
-                          {inv.agents}
+                          {inv.seats}
                         </TableCell>
                         <TableCell className="px-6 py-3.5 text-right font-semibold text-slate-900 whitespace-nowrap">
                           {inv.amount}
@@ -458,7 +572,7 @@ export default function BillingDashboard({
                             onClick={() => setSelectedInvoice(inv)}
                             className="text-teal-800 hover:underline focus:outline-none cursor-pointer"
                           >
-                            PDF
+                            View PDF
                           </button>
                         </TableCell>
                       </TableRow>

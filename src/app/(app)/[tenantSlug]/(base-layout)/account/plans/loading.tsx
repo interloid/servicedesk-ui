@@ -9,20 +9,28 @@ export default function PlansLoading() {
           <Skeleton className="h-4 w-72 mx-auto mt-2" />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 items-stretch max-w-6xl mx-auto pt-6 pb-12 px-2 sm:px-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-7 items-stretch">
           {Array.from({ length: 3 }).map((_, idx) => (
             <div
               key={idx}
-              className="rounded-xl border border-border h-full flex flex-col p-4 sm:p-5 md:p-6"
+              className="relative flex h-full flex-col rounded-2xl border border-border p-5 sm:p-7 shadow-sm"
             >
-              <div className="space-y-3">
-                <Skeleton className="h-5 w-20" />
-                <Skeleton className="h-8 w-24" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-5 w-24" />
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
               </div>
 
-              <div className="flex-1 mt-6 space-y-3">
+              <div className="mt-5">
+                <Skeleton className="h-8 w-28" />
+              </div>
+
+              <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-border bg-muted/40 px-3.5 py-2.5">
+                <Skeleton className="h-4 w-4 rounded-full" />
+                <Skeleton className="h-3.5 w-40" />
+              </div>
+
+              <div className="mt-5 flex-1 space-y-3 border-t border-border pt-5">
                 {Array.from({ length: 6 }).map((_, fIdx) => (
                   <div key={fIdx} className="flex items-center gap-2.5">
                     <Skeleton className="h-4 w-4 rounded-full" />
@@ -33,8 +41,8 @@ export default function PlansLoading() {
                 ))}
               </div>
 
-              <div className="py-6 mt-auto">
-                <Skeleton className="h-10 w-full rounded-lg" />
+              <div className="mt-6">
+                <Skeleton className="h-11 w-full rounded-lg" />
               </div>
             </div>
           ))}

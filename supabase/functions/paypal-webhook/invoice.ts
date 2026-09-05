@@ -8,6 +8,7 @@ const admin = createClient(
 interface Subscription {
   id: string;
   tenant_id: string;
+  created_at?: string;
   current_period_start?: string;
   current_period_end?: string;
 }
@@ -21,6 +22,13 @@ interface Payment {
   };
 }
 
+// Inserts only columns that exist on public.invoices:
+//   id, tenant_id, paypal_txn_id, amount, status,
+//   storage_path, period_start, period_end, created_at, updated_at
+//
+// Customer-facing invoice numbers are derived from the row id as
+// "INV-" + first 8 hex chars, matching how the billing dashboard
+// renders them (INV-DE35DB27). There is no invoice_number column.
 export async function createInvoice({
   subscription,
   payment,
@@ -28,30 +36,24 @@ export async function createInvoice({
   subscription: Subscription;
   payment: Payment;
 }) {
-  const invoiceNumber = await generateInvoiceNumber();
-
   const { data, error } = await admin
     .from("invoices")
     .insert({
       tenant_id: subscription.tenant_id,
 
-      subscription_id: subscription.id,
-
       paypal_txn_id: payment.id,
 
       amount: Number(payment.amount.total),
 
-      currency: payment.amount.currency,
-
       status: "paid",
 
-      period_start: subscription.current_period_start,
+      period_start: subscription.created_at
+        ? subscription.created_at.substring(0, 10)
+        : undefined,
 
-      period_end: subscription.current_period_end,
-
-      paid_at: payment.create_time,
-
-      invoice_number: invoiceNumber,
+      period_end: subscription.current_period_end
+        ? subscription.current_period_end.substring(0, 10)
+        : undefined,
     })
     .select()
     .single();
@@ -106,23 +108,4 @@ export async function failInvoice(paypalTxnId: string) {
   if (error) {
     throw error;
   }
-}
-
-async function generateInvoiceNumber() {
-  const now = new Date();
-
-  const year = now.getFullYear();
-
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-
-  const prefix = `INV-${year}${month}`;
-
-  const { count } = await admin.from("invoices").select("*", {
-    count: "exact",
-    head: true,
-  });
-
-  const sequence = String((count ?? 0) + 1).padStart(6, "0");
-
-  return `${prefix}-${sequence}`;
 }

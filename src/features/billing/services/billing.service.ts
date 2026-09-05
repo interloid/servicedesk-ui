@@ -8,7 +8,17 @@ import {
 } from "@/features/tenancy/services/tenant-resolver";
 
 function formatFeatureLabel(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  let label = key.replace(/_/g, " ");
+  label = label
+    .replace(/\bsla\b/gi, "SLA")
+    .replace(/\bai\b/gi, "AI")
+    .replace(/\bapi\b/gi, "API")
+    .replace(/\bdb\b/gi, "DB");
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function unlimitedOr(value: number | null | undefined): string {
+  return value == null || value >= 999999 ? "Unlimited" : `${value}`;
 }
 
 export function formatPlan(plan: DbPlan): FormattedPlan {
@@ -18,21 +28,6 @@ export function formatPlan(plan: DbPlan): FormattedPlan {
       : plan.features_json || {};
 
   const features: FormattedFeature[] = [];
-
-  features.push({
-    label: "Agent seats",
-    value: plan.seat_limit === 999999 ? "Unlimited" : `${plan.seat_limit}`,
-  });
-
-  features.push({
-    label: "Ticket limit",
-    value: plan.ticket_limit === 999999 ? "Unlimited" : `${plan.ticket_limit}`,
-  });
-
-  features.push({
-    label: "Storage limit",
-    value: `${plan.storage_limit_mb / 1024} GB`,
-  });
 
   Object.entries(rawFeatures).forEach(([key, val]) => {
     if (typeof val === "boolean") {
@@ -56,6 +51,8 @@ export function formatPlan(plan: DbPlan): FormattedPlan {
   });
 
   const priceNum = parseFloat(plan.price_month);
+  const seatLimit = plan.seat_limit;
+  const storageMb = plan.storage_limit_mb ?? 0;
 
   return {
     id: plan.id,
@@ -63,14 +60,18 @@ export function formatPlan(plan: DbPlan): FormattedPlan {
     name: plan.name,
     price: `$${priceNum === 0 ? "0" : priceNum.toFixed(0)}`,
     priceValue: Number.isFinite(priceNum) ? priceNum : 0,
-    priceSuffix: priceNum === 0 ? "forever" : "/ month",
+    priceSuffix: "/month",
     description:
       plan.description ||
       (plan.name === "Free"
-        ? "For small teams testing the waters."
+        ? "For small teams getting started with help desk essentials."
         : plan.name === "Pro"
-          ? "SLA targets, saved views, and reporting."
-          : "Governance, audit, and priority response."),
+          ? "For growing teams that need SLA policies, shared views, and reporting."
+          : "Advanced governance, AI automation, and scale for larger teams."),
+    seatLimit,
+    seatLimitText: unlimitedOr(seatLimit),
+    ticketLimitText: unlimitedOr(plan.ticket_limit),
+    storageLimitText: `${(storageMb / 1024).toFixed(storageMb > 0 && storageMb % 1024 !== 0 ? 1 : 0)} GB`,
     features,
   };
 }

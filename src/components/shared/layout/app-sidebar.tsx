@@ -402,7 +402,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                           "h-10 w-full rounded-md px-2.5 text-sm font-medium text-slate-600",
                           "transition-colors hover:bg-slate-100/80 hover:text-slate-900",
                           isActive &&
-                            "bg-slate-100/80 font-semibold text-slate-900",
+                          "bg-slate-100/80 font-semibold text-slate-900",
                           "group-data-[collapsible=icon]:h-10",
                           "group-data-[collapsible=icon]:w-10",
                           "group-data-[collapsible=icon]:justify-center",
@@ -474,14 +474,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               alt={identity?.user.name ?? "User"}
             />
 
-            <AvatarFallback
-              className="
-                bg-foreground
-                text-xs
-                font-bold
-                text-background
-              "
-            >
+            <AvatarFallback className="bg-foreground text-xs font-bold text-background">
               {identity?.user.initials ?? "U"}
             </AvatarFallback>
           </Avatar>

@@ -13,9 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 interface InvoiceData {
-  invoiceNumber?: string;
+  id?: string;
   date?: string;
-  agentsBilled?: number;
+  description?: string;
+  seats?: number;
   amount?: string;
   status?: string;
   pdfUrl?: string;
@@ -34,7 +35,7 @@ export default function InvoiceModal({
 }: InvoiceModalProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const pdfUrl = invoice?.pdfUrl;
-  const fileName = `${invoice?.invoiceNumber || "Invoice"}.pdf`;
+  const fileName = `${invoice?.id || "Invoice"}.pdf`;
 
   const handleDownload = async () => {
     if (!pdfUrl) {
@@ -79,7 +80,7 @@ export default function InvoiceModal({
       <DialogContent className="max-w-105 rounded-2xl p-6 border-none shadow-xl">
         <DialogHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
           <DialogTitle className="text-xl font-bold text-slate-900">
-            Invoice {invoice?.invoiceNumber || "Details"}
+            Invoice INV-{invoice?.id || "Details"}
           </DialogTitle>
         </DialogHeader>
 
@@ -92,9 +93,16 @@ export default function InvoiceModal({
           </div>
 
           <div className="flex justify-between items-center text-sm">
-            <span className="text-slate-400 font-medium">Agents billed</span>
+            <span className="text-slate-400 font-medium">Description</span>
             <span className="font-bold text-slate-800">
-              {invoice?.agentsBilled ?? "-"}
+              {invoice?.description || "-"}
+            </span>
+          </div>
+
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-slate-400 font-medium">Agent Seats</span>
+            <span className="font-bold text-slate-800">
+              {invoice?.seats ?? "-"}
             </span>
           </div>
 
@@ -110,12 +118,16 @@ export default function InvoiceModal({
             <Badge
               variant="outline"
               className={
-                invoice?.status === "Failed"
+                invoice?.status !== "Paid"
                   ? "bg-red-50 text-red-600 border-none font-semibold rounded-full px-3 py-0.5 text-xs"
                   : "bg-emerald-50 text-emerald-600 border-none font-semibold rounded-full px-3 py-0.5 text-xs"
               }
             >
-              <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-red-500 inline-block" />
+              <span
+                className={`mr-1.5 h-1.5 w-1.5 rounded-full inline-block ${
+                  invoice?.status === "Paid" ? "bg-emerald-500" : "bg-red-500"
+                }`}
+              />
               {invoice?.status || "Unknown"}
             </Badge>
           </div>

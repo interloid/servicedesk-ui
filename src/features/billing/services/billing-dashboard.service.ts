@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export interface BillingDashboardData {
   accountName: string;
   accountId: string;
+  billingStatus: "active" | "past_due" | "cancelled" | "trialing";
   isSuspended?: boolean;
   suspensionReason?: {
     card?: string;
@@ -12,6 +13,8 @@ export interface BillingDashboardData {
   plan: {
     name: string;
     rate: string;
+    rateValue: number;
+    seatLimit: number;
   };
   agents: {
     active: number;
@@ -24,9 +27,16 @@ export interface BillingDashboardData {
     unused: number;
   };
   renewalDate: string;
+  renewalDateRaw?: string;
+  autoRenew: boolean;
   amountDue: {
-    total: string;
+    current: string;
+    next: string;
     unusedSeats: number;
+  };
+  lastPayment?: {
+    amount: string;
+    date: string;
   };
   paymentMethod: {
     type: string;
@@ -39,10 +49,17 @@ export interface BillingDashboardData {
     country?: string;
     status?: string;
   };
+  scheduledChange?: {
+    planName: string;
+    planRate: string;
+    effectiveAt: string;
+    daysRemaining: number;
+  } | null;
   invoices: Array<{
     id: string;
     date: string;
-    agents: number;
+    description: string;
+    seats: number;
     amount: string;
     status: string;
     pdfUrl?: string;
@@ -71,6 +88,36 @@ export async function fetchTenantBillingData(
     .order("created_at", { ascending: false })
     .maybeSingle();
 
+  const { data: pendingSwitch } = await supabase
+    .from("subscription_switches")
+    .select(
+      "plan_id, effective_at, status, plans!subscription_switches_plan_id_fkey(name, price_month)",
+    )
+    .eq("tenant_id", tenant.id)
+    .in("status", ["pending", "approved"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  let scheduledChange: BillingDashboardData["scheduledChange"] = null;
+  if (pendingSwitch?.effective_at && pendingSwitch.plans) {
+    const switchPlan = Array.isArray(pendingSwitch.plans)
+      ? pendingSwitch.plans[0]
+      : pendingSwitch.plans;
+    const effectiveAt = new Date(pendingSwitch.effective_at);
+    const daysRemaining = Math.max(
+      0,
+      Math.ceil((effectiveAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
+    );
+    const rate = Number(switchPlan?.price_month ?? 0);
+    scheduledChange = {
+      planName: switchPlan?.name ?? "Free",
+      planRate: rate > 0 ? `$${rate.toFixed(0)}/mo` : "$0/mo",
+      effectiveAt: pendingSwitch.effective_at,
+      daysRemaining,
+    };
+  }
+
   const { data: paymentMethod } = await supabase
     .from("payment_methods")
     .select("*")
@@ -94,7 +141,21 @@ export async function fetchTenantBillingData(
   const regularCount = usedSeats - adminCount;
 
   const plan = sub?.plans;
-  const totalSeats = sub?.seats ?? plan?.seat_limit ?? 2;
+
+  let planSeatLimit: number | undefined = plan?.seat_limit;
+
+  // No active subscription: fall back to the tenant's assigned plan rather
+  // than guessing a seat count, so limits always match the plans config.
+  if (!sub && tenant.plan_id) {
+    const { data: tenantPlan } = await supabase
+      .from("plans")
+      .select("seat_limit")
+      .eq("id", tenant.plan_id)
+      .single();
+    planSeatLimit = tenantPlan?.seat_limit;
+  }
+
+  const totalSeats = sub?.seats ?? planSeatLimit ?? 0;
   const unusedSeats = Math.max(0, totalSeats - usedSeats);
 
   const monthlyRate = Number(plan?.price_month ?? 0);
@@ -127,6 +188,8 @@ export async function fetchTenantBillingData(
         pdfUrl = signedData?.signedUrl || undefined;
       }
 
+      const description = `${plan?.name ?? "Pro"} · Monthly`;
+
       return {
         id: inv.invoice_number || inv.id.slice(0, 8).toUpperCase(),
         date: new Date(inv.period_start).toLocaleDateString("en-US", {
@@ -134,7 +197,8 @@ export async function fetchTenantBillingData(
           day: "numeric",
           year: "numeric",
         }),
-        agents: totalSeats > 0 ? totalSeats : 0,
+        description,
+        seats: totalSeats > 0 ? totalSeats : 0,
         amount: `$${amountNum.toFixed(2)}`,
         status: inv.status === "paid" ? "Paid" : "Unpaid",
         pdfUrl,
@@ -176,12 +240,33 @@ export async function fetchTenantBillingData(
     };
   }
 
+  const latestInvoice = invoiceRows?.[0];
+  const latestInvoicePaid = latestInvoice?.status === "paid";
+
+  let billingStatus: BillingDashboardData["billingStatus"] = "active";
+  if (sub?.status === "trialing") {
+    billingStatus = "trialing";
+  } else if (sub?.status === "suspended" || sub?.status === "past_due") {
+    billingStatus = "past_due";
+  } else if (sub?.status === "cancelled") {
+    billingStatus = "cancelled";
+  }
+
+  const renewalRaw =
+    sub?.current_period_end && !paypalSubId.startsWith("FREE-")
+      ? sub.current_period_end
+      : undefined;
+
   return {
     accountName: tenant.name,
     accountId: tenant.slug.toUpperCase(),
+    billingStatus,
+    isSuspended: billingStatus === "past_due",
     plan: {
       name: plan?.name ?? "Free",
       rate: isFreePlan ? "$0/mo" : `$${monthlyRate}/mo`,
+      rateValue: monthlyRate,
+      seatLimit: totalSeats,
     },
     agents: {
       active: usedSeats,
@@ -194,18 +279,26 @@ export async function fetchTenantBillingData(
       unused: unusedSeats,
     },
     renewalDate:
-      sub?.current_period_end && !paypalSubId.startsWith("FREE-")
-        ? new Date(sub.current_period_end).toLocaleDateString("en-US", {
+      renewalRaw
+        ? new Date(renewalRaw).toLocaleDateString("en-US", {
             month: "short",
             day: "numeric",
             year: "numeric",
           })
         : "N/A",
+    renewalDateRaw: renewalRaw,
+    autoRenew: !isFreePlan && !(sub?.status === "cancelled"),
     amountDue: {
-      total: `$${totalAmount}`,
+      current: latestInvoicePaid ? "$0.00" : `$${totalAmount}`,
+      next: isFreePlan ? "$0.00" : `$${totalAmount}`,
       unusedSeats: unusedSeats,
     },
+    lastPayment:
+      invoices.length > 0 && invoices[0].status === "Paid"
+        ? { amount: invoices[0].amount, date: invoices[0].date }
+        : undefined,
     paymentMethod: paymentMethodData,
+    scheduledChange,
     invoices,
   };
 }

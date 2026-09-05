@@ -4,6 +4,7 @@ import {
   getTenantPlan,
 } from "@/features/billing/services/billing.service";
 import { PricingCards } from "@/features/billing/components/pricing-cards";
+import { fetchTenantBillingData } from "@/features/billing/services/billing-dashboard.service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   canManageTenantBilling,
@@ -32,34 +33,55 @@ export default async function TenantBillingPage({
     getTenantPlan(tenantSlug),
   ]);
 
+  let billingData = null;
+  if (canManageBilling && tenantSlug) {
+    try {
+      billingData = await fetchTenantBillingData(tenantSlug);
+    } catch (error) {
+      console.error("Failed to load billing data for plans page:", error);
+    }
+  }
+
   return (
-    <div className="min-h-full w-full bg-background font-sans text-foreground  sm:px-6 sm:py-8  md:p-8 lg:px-8 p-6 ">
-      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-        <div className="text-center max-w-2xl mx-auto">
-          <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
+    <div className="min-h-full w-full bg-background px-4 sm:px-6 lg:px-8 py-6 sm:py-8 md:py-10">
+      <div className="mx-auto max-w-7xl space-y-8 sm:space-y-12">
+        <header className="mx-auto max-w-2xl text-center">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
             Plans & pricing
           </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Billed monthly per active agent. Change or cancel at any time.
+          <p className="mt-2 text-xs sm:text-sm text-muted-foreground">
+            One flat monthly price per plan, with agent seats included. Change
+            or cancel anytime.
           </p>
-        </div>
+        </header>
 
-        {canManageBilling ? (
-          <PricingCards
-            tenantSlug={tenantSlug}
-            currentPlanCode={currentPlanId}
-            plans={plans}
-          />
-        ) : (
-          <div className="rounded-xl border border-border bg-card p-6 sm:p-8 text-center shadow-none">
+        {!canManageBilling ? (
+          <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-6 sm:p-8 text-center shadow-sm">
             <p className="text-sm font-semibold text-card-foreground">
               You don&apos;t have permission to change plans.
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="mt-1 text-xs text-muted-foreground">
               Ask a tenant admin or billing admin to manage subscriptions for
               this workspace.
             </p>
           </div>
+        ) : plans.length === 0 ? (
+          <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-6 sm:p-8 text-center shadow-sm">
+            <p className="text-sm font-semibold text-card-foreground">
+              Plans aren&apos;t available right now.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Please try again shortly. If the problem persists, contact
+              support.
+            </p>
+          </div>
+        ) : (
+          <PricingCards
+            tenantSlug={tenantSlug}
+            currentPlanCode={currentPlanId}
+            plans={plans}
+            billingData={billingData}
+          />
         )}
       </div>
     </div>

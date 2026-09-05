@@ -114,8 +114,8 @@ export async function getShellIdentity(
 
   const planSummary =
     seatLimit > 0
-      ? `${planName} plan · ${seatsUsed} of ${seatLimit} seats`
-      : `${planName} plan · ${seatsUsed} seats`;
+      ? `${planName} plan · ${seatsUsed} of ${seatLimit} agent seats`
+      : `${planName} plan · ${seatsUsed} agent seats`;
 
   const { data: profile } = await supabase
     .from("users")

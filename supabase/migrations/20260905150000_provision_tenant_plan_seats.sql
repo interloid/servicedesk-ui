@@ -1,4 +1,8 @@
-CREATE OR REPLACE FUNCTION public.provision_tenant(
+-- Provision new tenants with the trial subscription seat count taken from the
+-- plans table instead of a hardcoded value, so seats always match the
+-- authoritative plan configuration (Free currently = 2).
+-- Keeps the canonical definition at supabase/schemas/functions/provision_tenant.sql in sync.
+create or replace function public.provision_tenant(
     p_user_id uuid,
     p_email text,
     p_full_name text,
@@ -11,72 +15,71 @@ CREATE OR REPLACE FUNCTION public.provision_tenant(
     p_day_end time,
     p_sla jsonb
 )
-RETURNS TABLE (
+returns table (
     tenant_id uuid,
     tenant_name text,
     tenant_slug text,
     business_hours_id uuid,
     plan_id uuid
 )
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
     v_tenant_id uuid;
     v_business_hours_id uuid;
     v_sla_policy_id uuid;
-BEGIN
+begin
 
-    IF EXISTS (
-        SELECT 1
-        FROM public.tenants
-        WHERE slug = p_portal_slug
-    ) THEN
-        RAISE EXCEPTION 'Portal address is already taken.';
-    END IF;
+    if exists (
+        select 1
+        from public.tenants
+        where slug = p_portal_slug
+    ) then
+        raise exception 'Portal address is already taken.';
+    end if;
 
-    IF EXISTS (
-        SELECT 1
-        FROM public.users
-        WHERE email = p_email
-    ) THEN
-        RAISE EXCEPTION 'Email address is already registered.';
-    END IF;
+    if exists (
+        select 1
+        from public.users
+        where email = p_email
+    ) then
+        raise exception 'Email address is already registered.';
+    end if;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM public.timezones
-        WHERE id = p_timezone_id
-    ) THEN
-        RAISE EXCEPTION 'Invalid timezone selected.';
-    END IF;
+    if not exists (
+        select 1
+        from public.timezones
+        where id = p_timezone_id
+    ) then
+        raise exception 'Invalid timezone selected.';
+    end if;
 
+    if not exists (
+        select 1
+        from public.plans
+        where id = p_plan_id
+    ) then
+        raise exception 'Invalid subscription plan.';
+    end if;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM public.plans
-        WHERE id = p_plan_id
-    ) THEN
-        RAISE EXCEPTION 'Invalid subscription plan.';
-    END IF;
-
-    INSERT INTO public.tenants (
+    insert into public.tenants (
         name,
         slug,
         status,
         plan_id
     )
-    VALUES (
+    values (
         p_organization_name,
         p_portal_slug,
         'active',
         p_plan_id
     )
-    RETURNING id
-    INTO v_tenant_id;
+    returning id
+    into v_tenant_id;
 
-    INSERT INTO public.subscriptions (
+    insert into public.subscriptions (
         tenant_id,
         plan_id,
         paypal_subscription_id,
@@ -84,49 +87,48 @@ BEGIN
         current_period_end,
         seats
     )
-    VALUES (
+    values (
         v_tenant_id,
         p_plan_id,
         'FREE-' || v_tenant_id,
         'trialing',
         now() + interval '15 days',
-        (SELECT seat_limit FROM public.plans WHERE id = p_plan_id)
+        (select seat_limit from public.plans where id = p_plan_id)
     );
 
-    INSERT INTO public.users (
+    insert into public.users (
         id,
         email,
         full_name,
         avatar_url
     )
-    VALUES (
+    values (
         p_user_id,
         p_email,
         p_full_name,
-        NULL
+        null
     );
 
-
-    INSERT INTO public.memberships (
+    insert into public.memberships (
         tenant_id,
         user_id,
         role,
         status
     )
-    VALUES (
+    values (
         v_tenant_id,
         p_user_id,
         'tenant_admin',
         'active'
     );
 
-    INSERT INTO public.business_hours (
+    insert into public.business_hours (
         tenant_id,
         name,
         timezone_id,
         schedule_json
     )
-    VALUES (
+    values (
         v_tenant_id,
         'Default Business Hours',
         p_timezone_id,
@@ -136,10 +138,10 @@ BEGIN
             'day_end', p_day_end
         )
     )
-    RETURNING id
-    INTO v_business_hours_id;
+    returning id
+    into v_business_hours_id;
 
-    INSERT INTO public.sla_policies (
+    insert into public.sla_policies (
         tenant_id,
         business_hours_id,
         name,
@@ -149,7 +151,7 @@ BEGIN
         notify_before_breach,
         escalate_on_breach
     )
-    VALUES (
+    values (
         v_tenant_id,
         v_business_hours_id,
         'Default SLA',
@@ -159,10 +161,10 @@ BEGIN
         true,
         false
     )
-    RETURNING id
-    INTO v_sla_policy_id;
+    returning id
+    into v_sla_policy_id;
 
-    INSERT INTO public.sla_policy_targets (
+    insert into public.sla_policy_targets (
         tenant_id,
         policy_id,
         priority_scope,
@@ -171,7 +173,7 @@ BEGIN
         first_response_business,
         resolution_business
     )
-    SELECT
+    select
         v_tenant_id,
         v_sla_policy_id,
         lower(rule->>'priority')::public.ticket_priority,
@@ -179,15 +181,15 @@ BEGIN
         (rule->>'resolution_mins')::integer,
         false,
         false
-    FROM jsonb_array_elements(p_sla) AS rule;
+    from jsonb_array_elements(p_sla) as rule;
 
-    RETURN QUERY
-    SELECT
+    return query
+    select
         v_tenant_id,
         p_organization_name,
         p_portal_slug,
         v_business_hours_id,
         p_plan_id;
 
-END;
+end;
 $$;

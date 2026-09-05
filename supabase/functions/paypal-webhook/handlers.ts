@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateInvoicePdf } from "./pdf.ts";
-import { uploadInvoicePdf } from "./storage.ts";
+import { uploadInvoicePdf, getInvoiceSignedUrl } from "./storage.ts";
+import { sendInvoiceEmail } from "./email.ts";
 import { updateInvoiceStorage } from "./invoice.ts";
 import { cancelSubscription, getSubscription } from "./paypal.ts";
 
@@ -30,7 +31,7 @@ interface WebhookEvent {
     billing_info?: { next_billing_time?: string };
     billing_agreement_id?: string;
     seller_receivable_breakdown?: unknown;
-    amount?: { total?: string };
+    amount?: { total?: string; currency?: string };
     sale_id?: string;
     subscriber?: PayPalSubscriber;
   };
@@ -491,7 +492,7 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   const { data: subscription, error } = await admin
     .from("subscriptions")
-    .select("*")
+    .select("*, plans(name), tenants(name)")
     .eq("paypal_subscription_id", subscriptionId)
     .single();
 
@@ -538,7 +539,28 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     throw fetchError;
   }
 
-  const pdf = await generateInvoicePdf(invoice, subscription);
+  const plan = Array.isArray(subscription.plans)
+    ? subscription.plans?.[0]
+    : subscription.plans;
+  const tenant = Array.isArray(subscription.tenants)
+    ? subscription.tenants?.[0]
+    : subscription.tenants;
+
+  // PayPal is the only payment provider, and the currency comes from the
+  // PayPal payload (the invoices table does not store either yet).
+  const pdf = await generateInvoicePdf(
+    {
+      ...invoice,
+      currency: payment.amount.currency ?? "USD",
+      payment_method: "PayPal",
+    },
+    {
+      tenant_name: tenant?.name,
+      tenant_id: subscription.tenant_id,
+      plan_name: plan?.name,
+      seats: subscription.seats,
+    },
+  );
 
   const storagePath = await uploadInvoicePdf(
     subscription.tenant_id,
@@ -547,6 +569,51 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   );
 
   await updateInvoiceStorage(invoice.id, storagePath);
+
+  // Email the invoice to the tenant's billing admin with a short-lived
+  // download link. Email failures must not fail payment processing.
+  try {
+    const { data: billingMember, error: memberError } = await admin
+      .from("memberships")
+      .select("user_id, users!memberships_user_id_fkey(full_name, email)")
+      .eq("tenant_id", subscription.tenant_id)
+      .in("role", ["tenant_admin", "billing_admin"])
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (memberError) {
+      throw memberError;
+    }
+
+    const customerEmail = billingMember?.users?.email as string | undefined;
+
+    if (customerEmail) {
+      const invoiceNumber = invoice.id
+        ? `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
+        : "-";
+      const signedUrl = await getInvoiceSignedUrl(storagePath);
+
+      await sendInvoiceEmail({
+        customerEmail,
+        customerName:
+          (billingMember?.users?.full_name as string | undefined) ??
+          tenant?.name ??
+          "there",
+        invoiceNumber,
+        amount: Number(invoice.amount ?? payment.amount.total ?? 0),
+        currency: payment.amount.currency ?? "USD",
+        signedUrl,
+      });
+    } else {
+      console.warn(
+        `No billing admin email found for tenant ${subscription.tenant_id}; invoice email skipped.`,
+      );
+    }
+  } catch (emailError) {
+    console.error("Failed to send invoice email:", emailError);
+  }
 }
 
 export async function handlePaymentDenied(event: WebhookEvent) {

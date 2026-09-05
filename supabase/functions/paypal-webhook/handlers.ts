@@ -2,16 +2,37 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateInvoicePdf } from "./pdf.ts";
 import { uploadInvoicePdf } from "./storage.ts";
 import { updateInvoiceStorage } from "./invoice.ts";
-import { cancelSubscription } from "./paypal.ts";
+import { cancelSubscription, getSubscription } from "./paypal.ts";
+
+interface PayPalSubscriber {
+  payer_id?: string;
+  email_address?: string;
+  // Present only for card-funded subscriptions. Wallet-funded ones report
+  // tenant: "PAYPAL" and omit payment_source entirely.
+  tenant?: string;
+  payment_source?: {
+    card?: {
+      brand?: string;
+      last_digits?: string;
+      expiry?: string;
+      bin_details?: {
+        bin?: string;
+        issuing_bank?: string;
+        bin_country_code?: string;
+      };
+    };
+  };
+}
 
 interface WebhookEvent {
-  resource: {
+  resource: Record<string, unknown> & {
     id?: string;
     billing_info?: { next_billing_time?: string };
     billing_agreement_id?: string;
     seller_receivable_breakdown?: unknown;
     amount?: { total?: string };
     sale_id?: string;
+    subscriber?: PayPalSubscriber;
   };
 }
 
@@ -95,6 +116,88 @@ async function restoreSubscriptionFromSwitch(
   }
 }
 
+// Card columns are populated only when PayPal actually reports a card. A
+// wallet-approved subscription reports subscriber.tenant "PAYPAL" with no
+// payment_source at all -- PayPal does not disclose the card behind a wallet --
+// so those rows carry the payer identity instead.
+async function storePayPalPaymentMethod(
+  tenantId: string,
+  subscriptionRowId: string | null,
+  paypalSubscriptionId: string,
+  subscriber?: PayPalSubscriber,
+) {
+  // The webhook resource is a point-in-time snapshot and does not always carry
+  // subscriber.payment_source. Re-read the subscription so a card-funded one is
+  // recorded from the authoritative record, falling back to the event payload
+  // when the API call fails.
+  let resolved = subscriber;
+
+  try {
+    const fresh = await getSubscription(paypalSubscriptionId);
+    resolved = (fresh.subscriber as PayPalSubscriber | undefined) ?? subscriber;
+  } catch (error) {
+    console.error(
+      `Falling back to webhook subscriber for ${paypalSubscriptionId}:`,
+      error,
+    );
+  }
+
+  const card = resolved?.payment_source?.card;
+
+  // PayPal formats card.expiry as YYYY-MM.
+  let expiryMonth: number | null = null;
+  let expiryYear: number | null = null;
+
+  if (card?.expiry) {
+    const [year, month] = card.expiry.split("-");
+    expiryMonth = parseInt(month, 10) || null;
+    expiryYear = parseInt(year, 10) || null;
+  }
+
+  const paymentMethodData = {
+    tenant_id: tenantId,
+    subscription_id: subscriptionRowId,
+    paypal_payment_token_id: paypalSubscriptionId,
+    paypal_customer_id: resolved?.payer_id ?? null,
+    paypal_email: resolved?.email_address ?? null,
+    card_brand: card?.brand ?? null,
+    card_last4: card?.last_digits ?? null,
+    card_expiry_month: expiryMonth,
+    card_expiry_year: expiryYear,
+    card_bin: card?.bin_details?.bin ?? null,
+    card_issuer: card?.bin_details?.issuing_bank ?? null,
+    card_country: card?.bin_details?.bin_country_code ?? null,
+    payment_source_type: card ? "card" : "paypal",
+    is_default: true,
+    status: "active",
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existing } = await admin
+    .from("payment_methods")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("is_default", true)
+    .maybeSingle();
+
+  const { error } = existing
+    ? await admin
+        .from("payment_methods")
+        .update(paymentMethodData)
+        .eq("id", existing.id)
+    : await admin.from("payment_methods").insert(paymentMethodData);
+
+  if (error) {
+    console.error("Failed to store PayPal payment method:", error);
+    return;
+  }
+
+  console.log(
+    `Stored ${card ? `card ${card.brand ?? "?"} ****${card.last_digits ?? "?"}` : `PayPal wallet (tenant ${resolved?.tenant ?? "unknown"})`}` +
+      ` for subscription ${paypalSubscriptionId}.`,
+  );
+}
+
 export async function handleSubscriptionActivated(event: WebhookEvent) {
   const subscription = event.resource;
 
@@ -123,7 +226,7 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
       .eq("id", pendingSwitch.plan_id)
       .maybeSingle();
 
-    const { error: subError } = await admin
+    const { data: updatedSub, error: subError } = await admin
       .from("subscriptions")
       .update({
         plan_id: pendingSwitch.plan_id,
@@ -133,11 +236,20 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
         current_period_end: nextBilling ?? null,
         updated_at: now,
       })
-      .eq("tenant_id", pendingSwitch.tenant_id);
+      .eq("tenant_id", pendingSwitch.tenant_id)
+      .select("id")
+      .maybeSingle();
 
     if (subError) {
       throw subError;
     }
+
+    await storePayPalPaymentMethod(
+      pendingSwitch.tenant_id!,
+      updatedSub?.id ?? null,
+      subscription.id,
+      subscription.subscriber,
+    );
 
     const { error: tenantError } = await admin
       .from("tenants")
@@ -193,6 +305,13 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
 
   const sub = data[0];
 
+  await storePayPalPaymentMethod(
+    sub.tenant_id,
+    sub.id,
+    subscription.id,
+    subscription.subscriber,
+  );
+
   if (sub.plan_id) {
     const { error: tenantError } = await admin
       .from("tenants")
@@ -207,6 +326,24 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
 
 export async function handleSubscriptionCancelled(event: WebhookEvent) {
   const subscription = event.resource;
+
+  // A scheduled downgrade cancels the agreement it replaces as soon as the
+  // buyer approves, to avoid being double-charged when the new agreement
+  // starts. That cancellation must not mark the tenant cancelled: they keep
+  // the current plan until the replacement goes live at effective_at.
+  const { data: supersedingSwitch } = await admin
+    .from("subscription_switches")
+    .select("id, effective_at")
+    .eq("old_paypal_subscription_id", subscription.id)
+    .in("status", ["pending", "approved"])
+    .maybeSingle();
+
+  if (supersedingSwitch) {
+    console.log(
+      `Ignoring cancellation of ${subscription.id}: superseded by scheduled switch ${supersedingSwitch.id} (effective ${supersedingSwitch.effective_at}).`,
+    );
+    return;
+  }
 
   const { data: rows } = await admin
     .from("subscriptions")
@@ -271,6 +408,78 @@ export async function handleSubscriptionSuspended(event: WebhookEvent) {
       updated_at: new Date().toISOString(),
     })
     .eq("paypal_subscription_id", subscription.id);
+}
+
+export async function handleSubscriptionUpdated(event: WebhookEvent) {
+  const subscription = event.resource;
+
+  if (!subscription.id) {
+    throw new Error("Webhook missing subscription id.");
+  }
+
+  const { data: existingSub, error: subError } = await admin
+    .from("subscriptions")
+    .select("id")
+    .eq("paypal_subscription_id", subscription.id)
+    .maybeSingle();
+
+  if (subError || !existingSub) {
+    console.error("Subscription not found for update:", subError);
+    return;
+  }
+
+  // Payment methods are not written from this webhook: PayPal does not fire
+  // BILLING.SUBSCRIPTION.UPDATED for funding-instrument changes, and the
+  // subscription resource carries no subscriber.payment_source for
+  // wallet-funded subscriptions. The payment_methods table is owned by the
+  // update-payment-method function instead.
+  const updates: Record<string, string> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  const nextBilling = subscription.billing_info?.next_billing_time;
+
+  if (nextBilling) {
+    updates.current_period_end = nextBilling;
+  }
+
+  const { error: updateError } = await admin
+    .from("subscriptions")
+    .update(updates)
+    .eq("paypal_subscription_id", subscription.id);
+
+  if (updateError) {
+    console.error("Failed to sync subscription on update:", updateError);
+  }
+}
+
+export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
+  const subscription = event.resource;
+
+  if (!subscription.id) {
+    throw new Error("Webhook missing subscription id.");
+  }
+
+  const { data: existingSub, error: subError } = await admin
+    .from("subscriptions")
+    .select("id, tenant_id, paypal_subscription_id")
+    .eq("paypal_subscription_id", subscription.id)
+    .maybeSingle();
+
+  if (subError || !existingSub) {
+    console.error("Subscription not found for payment failure:", subError);
+    return;
+  }
+
+  await admin
+    .from("subscriptions")
+    .update({
+      status: "past_due",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("paypal_subscription_id", subscription.id);
+
+  console.log(`Payment failed for subscription ${subscription.id}. Status updated to past_due.`);
 }
 
 export async function handlePaymentCompleted(event: WebhookEvent) {

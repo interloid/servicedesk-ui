@@ -6,6 +6,8 @@ import {
   handleSubscriptionActivated,
   handleSubscriptionCancelled,
   handleSubscriptionSuspended,
+  handleSubscriptionUpdated,
+  handleSubscriptionPaymentFailed,
   handlePaymentCompleted,
   handlePaymentDenied,
   handlePaymentRefunded,
@@ -54,6 +56,14 @@ serve(async (req) => {
 
       case "BILLING.SUBSCRIPTION.SUSPENDED":
         await handleSubscriptionSuspended(event);
+        break;
+
+      case "BILLING.SUBSCRIPTION.UPDATED":
+        await handleSubscriptionUpdated(event);
+        break;
+
+      case "BILLING.SUBSCRIPTION.PAYMENT.FAILED":
+        await handleSubscriptionPaymentFailed(event);
         break;
 
       case "PAYMENT.SALE.COMPLETED":

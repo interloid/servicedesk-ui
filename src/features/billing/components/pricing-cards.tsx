@@ -84,34 +84,31 @@ export function PricingCards({
         (p.code || "").trim().toLowerCase() === activeTarget,
     )?.name ?? "your current plan";
 
-  const getPlanOrderIndex = (planCode: string) => {
-    const code = planCode.toLowerCase();
-    if (code.includes("free") || code.includes("starter")) return 0;
-    if (code.includes("pro")) return 1;
-    if (code.includes("business") || code.includes("enterprise")) return 2;
-    return 1;
-  };
-
-  const currentOrderIndex = getPlanOrderIndex(activeTarget);
-
   const currentPlan = plans.find(
     (p) =>
       (p.id || "").trim().toLowerCase() === activeTarget ||
       (p.code || "").trim().toLowerCase() === activeTarget,
   );
 
-  const freePlan = plans.find(
-    (p) =>
-      (p.name || "").trim().toLowerCase() === "free" ||
-      (p.code || "").trim().toLowerCase().includes("free") ||
-      (p.code || "").trim().toLowerCase().includes("starter"),
-  );
+  // plans.code holds PayPal plan ids (P-1PL59890TT..., F-15e70eec-...), so rank
+  // plans by monthly price rather than by matching names inside the code.
+  const currentPrice = currentPlan?.priceValue ?? null;
+
+  const freePlan = plans.find((p) => p.priceValue === 0);
 
   const canCancelCurrent =
     currentPlan !== undefined &&
-    currentOrderIndex > 0 &&
+    currentPlan.priceValue > 0 &&
     freePlan !== undefined &&
     freePlan.id !== currentPlan.id;
+
+  const selectedSwitchLabel = !selectedPlanForSwitch
+    ? ""
+    : currentPrice === null
+      ? `Switch to ${selectedPlanForSwitch.name}`
+      : selectedPlanForSwitch.priceValue < currentPrice
+        ? `Downgrade to ${selectedPlanForSwitch.name}`
+        : `Upgrade to ${selectedPlanForSwitch.name}`;
 
   const openCancelDialog = () => {
     if (!freePlan) return;
@@ -133,7 +130,8 @@ export function PricingCards({
           const isLoadingThis =
             isPending && loadingPlanCode?.toLowerCase() === planId;
 
-          const planOrderIndex = getPlanOrderIndex(planCode);
+          const isDowngrade =
+            currentPrice !== null && plan.priceValue < currentPrice;
           const previousPlan = planIdx > 0 ? plans[planIdx - 1] : null;
 
           const prevFeatureMap = new Map<string, string | number | undefined>();
@@ -260,15 +258,21 @@ export function PricingCards({
                   <Button
                     disabled={isPending}
                     onClick={() => setSelectedPlanForSwitch(plan)}
-                    className="h-10 w-full gap-2 bg-brand-accent text-primary-foreground hover:bg-brand-accent/90 font-semibold text-xs rounded-lg shadow-none transition-colors whitespace-nowrap"
+                    className={`h-10 w-full gap-2 font-semibold text-xs rounded-lg shadow-none transition-colors whitespace-nowrap ${
+                      isDowngrade
+                        ? "border border-border bg-background text-foreground hover:bg-muted"
+                        : "bg-brand-accent text-primary-foreground hover:bg-brand-accent/90"
+                    }`}
                   >
                     {isLoadingThis && (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     )}
 
-                    {planOrderIndex < currentOrderIndex
-                      ? `Downgrade to ${plan.name}`
-                      : `Upgrade to ${plan.name}`}
+                    {currentPrice === null
+                      ? `Choose ${plan.name}`
+                      : isDowngrade
+                        ? `Downgrade to ${plan.name}`
+                        : `Upgrade to ${plan.name}`}
                   </Button>
                 )}
               </CardFooter>
@@ -319,7 +323,7 @@ export function PricingCards({
             <AlertDialogTitle className="pr-10 text-xl font-bold text-foreground">
               {confirmingCancel
                 ? "Are you sure you want to cancel your subscription?"
-                : `Switch to ${selectedPlanForSwitch?.name}?`}
+                : `${selectedSwitchLabel}?`}
             </AlertDialogTitle>
 
             <AlertDialogDescription asChild>
@@ -337,8 +341,7 @@ export function PricingCards({
                         limits will stop working right away. Export anything you
                         need first.
                       </>
-                    ) : selectedPlanForSwitch?.name?.toLowerCase() ===
-                      "free" ? (
+                    ) : selectedPlanForSwitch?.priceValue === 0 ? (
                       <>
                         Downgrading to Free takes effect immediately — your{" "}
                         {currentPlanLabel} subscription is cancelled right away

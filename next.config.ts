@@ -13,17 +13,18 @@ const supabaseOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL
 
 const cspHeader = `
   default-src 'self';
-  script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""};
+  script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.paypal.com https://www.sandbox.paypal.com;
   style-src 'self' 'unsafe-inline';
-  img-src 'self' data: blob:${supabaseOrigin ? ` ${supabaseOrigin}` : ""};
+  img-src 'self' data: blob:${supabaseOrigin ? ` ${supabaseOrigin}` : ""} https://www.paypal.com https://www.sandbox.paypal.com;
   font-src 'self';
   connect-src 'self'${supabaseOrigin ? ` ${supabaseOrigin}` : ""}${
     sentryIngestHost ? ` https://${sentryIngestHost}` : ""
-  };
+  } https://www.paypal.com https://www.sandbox.paypal.com https://api-m.sandbox.paypal.com https://api-m.paypal.com;
   object-src 'none';
   base-uri 'self';
-  form-action 'self';
+  form-action 'self' https://www.paypal.com https://www.sandbox.paypal.com;
   frame-ancestors 'self';
+  frame-src 'self' https://www.paypal.com https://www.sandbox.paypal.com;
   upgrade-insecure-requests;
 `
   .replace(/\s{2,}/g, " ")

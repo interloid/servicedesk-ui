@@ -62,6 +62,7 @@ export function formatPlan(plan: DbPlan): FormattedPlan {
     code: plan.code,
     name: plan.name,
     price: `$${priceNum === 0 ? "0" : priceNum.toFixed(0)}`,
+    priceValue: Number.isFinite(priceNum) ? priceNum : 0,
     priceSuffix: priceNum === 0 ? "forever" : "/ month",
     description:
       plan.description ||
@@ -81,8 +82,8 @@ export async function getPlans(): Promise<FormattedPlan[]> {
     .from("plans")
     .select("*")
     .eq("is_active", true)
-    .order("sort_order", { ascending: true })
-    .order("price_month", { ascending: true });
+    .order("price_month", { ascending: true })
+    .order("sort_order", { ascending: true });
 
   if (error || !data) {
     return [];

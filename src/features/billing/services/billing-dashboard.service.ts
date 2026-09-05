@@ -32,6 +32,12 @@ export interface BillingDashboardData {
     type: string;
     last4: string;
     expiry: string;
+    email?: string;
+    brand?: string;
+    bin?: string;
+    issuer?: string;
+    country?: string;
+    status?: string;
   };
   invoices: Array<{
     id: string;
@@ -63,6 +69,14 @@ export async function fetchTenantBillingData(
     .eq("tenant_id", tenant.id)
     .in("status", ["active", "trialing"])
     .order("created_at", { ascending: false })
+    .maybeSingle();
+
+  const { data: paymentMethod } = await supabase
+    .from("payment_methods")
+    .select("*")
+    .eq("tenant_id", tenant.id)
+    .eq("is_default", true)
+    .eq("status", "active")
     .maybeSingle();
 
   const { data: activeMembers } = await supabase
@@ -128,6 +142,39 @@ export async function fetchTenantBillingData(
     }),
   );
 
+  let paymentMethodData: BillingDashboardData["paymentMethod"];
+
+  if (paymentMethod) {
+    const expiryMonth = paymentMethod.card_expiry_month;
+    const expiryYear = paymentMethod.card_expiry_year;
+    const expiry = expiryMonth && expiryYear
+      ? `${String(expiryMonth).padStart(2, "0")}/${String(expiryYear).slice(-2)}`
+      : "N/A";
+
+    paymentMethodData = {
+      type:
+        paymentMethod.card_brand ||
+        (paymentMethod.payment_source_type === "paypal"
+          ? "PayPal"
+          : paymentMethod.payment_source_type) ||
+        "PayPal",
+      last4: paymentMethod.card_last4 || "N/A",
+      expiry,
+      email: paymentMethod.paypal_email || undefined,
+      brand: paymentMethod.card_brand || undefined,
+      bin: paymentMethod.card_bin || undefined,
+      issuer: paymentMethod.card_issuer || undefined,
+      country: paymentMethod.card_country || undefined,
+      status: paymentMethod.status || undefined,
+    };
+  } else {
+    paymentMethodData = {
+      type: isFreePlan ? "Free Tier" : "PayPal",
+      last4: "N/A",
+      expiry: "N/A",
+    };
+  }
+
   return {
     accountName: tenant.name,
     accountId: tenant.slug.toUpperCase(),
@@ -157,11 +204,7 @@ export async function fetchTenantBillingData(
       total: `$${totalAmount}`,
       unusedSeats: unusedSeats,
     },
-    paymentMethod: {
-      type: isFreePlan ? "Free Tier" : "PayPal Subscription",
-      last4: paypalSubId ? paypalSubId.slice(-4) : "N/A",
-      expiry: "N/A",
-    },
+    paymentMethod: paymentMethodData,
     invoices,
   };
 }

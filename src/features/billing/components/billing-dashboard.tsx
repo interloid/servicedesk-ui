@@ -134,6 +134,11 @@ export default function BillingDashboard({
     paymentType && cardLast4 && cardLast4.trim() !== "" && cardLast4 !== "N/A",
   );
 
+  // Wallet-funded PayPal subscriptions have no card on file, only the payer's
+  // PayPal account. The funding instrument behind it is private to PayPal.
+  const paypalEmail = data?.paymentMethod?.email;
+  const hasPayPalWallet = Boolean(!hasCardDetails && paypalEmail);
+
   const suspensionReason = data?.suspensionReason;
   const attemptedCard = suspensionReason?.card;
   const failingInvoice = suspensionReason?.invoiceId;
@@ -332,6 +337,23 @@ export default function BillingDashboard({
                       )}
                     </div>
                   </>
+                ) : hasPayPalWallet ? (
+                  <>
+                    <Badge
+                      variant="secondary"
+                      className="bg-brand-accent text-primary-foreground font-bold px-2 py-1.5 rounded-md text-[10px] tracking-wider"
+                    >
+                      PAYPAL
+                    </Badge>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-900 leading-none truncate">
+                        {paypalEmail}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Billed through your PayPal account
+                      </p>
+                    </div>
+                  </>
                 ) : (
                   <div>
                     <p className="text-sm font-bold text-slate-900 leading-none">
@@ -461,6 +483,7 @@ export default function BillingDashboard({
         onOpenChange={setIsUpdatePaymentOpen}
         currentCardLast4={hasCardDetails ? cardLast4 : undefined}
         invoiceId={data.suspensionReason?.invoiceId}
+        tenantSlug={tenantSlug}
       />
     </div>
   );

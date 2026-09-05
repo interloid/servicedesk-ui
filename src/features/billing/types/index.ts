@@ -22,6 +22,7 @@ export interface FormattedPlan {
   code: string;
   name: string;
   price: string;
+  priceValue: number;
   priceSuffix: string;
   description: string;
   features: FormattedFeature[];

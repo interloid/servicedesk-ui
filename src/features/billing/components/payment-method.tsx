@@ -2,18 +2,17 @@
 
 import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X, Loader2 } from "lucide-react";
+import { X, Loader2, ExternalLink, CreditCard, Shield } from "lucide-react";
 
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { updatePaymentMethodAction } from "../billing-actions";
 
 interface UpdatePaymentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentCardLast4?: string;
   invoiceId?: string;
-  onSave?: (formData: Record<string, string>) => Promise<void>;
+  tenantSlug?: string;
 }
 
 export function UpdatePaymentModal({
@@ -21,25 +20,36 @@ export function UpdatePaymentModal({
   onOpenChange,
   currentCardLast4,
   invoiceId,
-  onSave,
+  tenantSlug,
 }: UpdatePaymentModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState({
-    cardNumber: "",
-    expiry: "",
-    cvc: "",
-    nameOnCard: "",
-    billingEmail: "",
-    billingAddress: "",
-    taxId: "",
-  });
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleUpdatePayment = async () => {
+    if (!tenantSlug) {
+      setError("Tenant slug is required.");
+      return;
+    }
+
     setIsSubmitting(true);
+    setError(null);
+
     try {
-      if (onSave) await onSave(formData);
-      onOpenChange(false);
+      const result = await updatePaymentMethodAction(tenantSlug);
+
+      if (!result.success) {
+        setError(result.error || "Failed to update payment method.");
+        return;
+      }
+
+      if (result.updateUrl) {
+        window.location.href = result.updateUrl;
+      } else {
+        onOpenChange(false);
+      }
+    } catch (err) {
+      console.error("Update payment method error:", err);
+      setError("An unexpected error occurred. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -63,6 +73,7 @@ export function UpdatePaymentModal({
             <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
+
           <div className="space-y-1 mb-5">
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
               Update payment method
@@ -77,114 +88,34 @@ export function UpdatePaymentModal({
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-900">
-                Card number
-              </Label>
-              <Input
-                required
-                placeholder="4242 4242 4242 4242"
-                value={formData.cardNumber}
-                onChange={(e) =>
-                  setFormData({ ...formData, cardNumber: e.target.value })
-                }
-                className="h-10 text-sm rounded-lg border-slate-200 focus-visible:ring-teal-700/20 focus-visible:border-teal-700 placeholder:text-slate-400"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-900">
-                  Expiry
-                </Label>
-                <Input
-                  required
-                  placeholder="MM / YY"
-                  value={formData.expiry}
-                  onChange={(e) =>
-                    setFormData({ ...formData, expiry: e.target.value })
-                  }
-                  className="h-10 text-sm rounded-lg border-slate-200 focus-visible:ring-teal-700/20 focus-visible:border-teal-700 placeholder:text-slate-400"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-slate-900">CVC</Label>
-                <Input
-                  required
-                  maxLength={4}
-                  placeholder="123"
-                  value={formData.cvc}
-                  onChange={(e) =>
-                    setFormData({ ...formData, cvc: e.target.value })
-                  }
-                  className="h-10 text-sm rounded-lg border-slate-200 focus-visible:ring-teal-700/20 focus-visible:border-teal-700 placeholder:text-slate-400"
-                />
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+              <div className="flex items-start space-x-3">
+                <div className="rounded-lg bg-teal-100 p-2">
+                  <CreditCard className="h-5 w-5 text-teal-700" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Secure payment update
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    You&apos;ll be redirected to PayPal to securely update your payment method. 
+                    Your card details are handled by PayPal and never touch our servers.
+                  </p>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-900">
-                Name on card
-              </Label>
-              <Input
-                required
-                placeholder="Maya Okonkwo"
-                value={formData.nameOnCard}
-                onChange={(e) =>
-                  setFormData({ ...formData, nameOnCard: e.target.value })
-                }
-                className="h-10 text-sm rounded-lg border-slate-200 focus-visible:ring-teal-700/20 focus-visible:border-teal-700 placeholder:text-slate-400"
-              />
+            <div className="flex items-center space-x-2 text-xs text-slate-500">
+              <Shield className="h-4 w-4 text-emerald-600" />
+              <span>PCI DSS compliant - powered by PayPal</span>
             </div>
 
-            <div className="space-y-1">
-              <Label className="text-xs font-bold text-slate-900">
-                Billing email
-              </Label>
-              <Input
-                type="email"
-                required
-                placeholder="finance@northwind.io"
-                value={formData.billingEmail}
-                onChange={(e) =>
-                  setFormData({ ...formData, billingEmail: e.target.value })
-                }
-                className="h-10 text-sm rounded-lg border-slate-200 focus-visible:ring-teal-700/20 focus-visible:border-teal-700 placeholder:text-slate-400"
-              />
-              <p className="text-[11px] text-slate-400 pt-0.5">
-                Receipts and dunning notices go here.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-900">
-                Billing address
-              </Label>
-              <Input
-                placeholder="221B, Indiranagar, Bengaluru 560038"
-                value={formData.billingAddress}
-                onChange={(e) =>
-                  setFormData({ ...formData, billingAddress: e.target.value })
-                }
-                className="h-10 text-sm rounded-lg border-slate-200 focus-visible:ring-teal-700/20 focus-visible:border-teal-700 placeholder:text-slate-400"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-900">
-                Tax / GST ID
-              </Label>
-              <Input
-                placeholder="29ABCDE1234F1Z5"
-                value={formData.taxId}
-                onChange={(e) =>
-                  setFormData({ ...formData, taxId: e.target.value })
-                }
-                className="h-10 text-sm rounded-lg border-slate-200 focus-visible:ring-teal-700/20 focus-visible:border-teal-700 placeholder:text-slate-400"
-              />
-            </div>
+            {error && (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+                <p className="text-xs text-red-700">{error}</p>
+              </div>
+            )}
 
             <div className="pt-4 flex flex-row items-center justify-end gap-2.5">
               <Button
@@ -197,17 +128,25 @@ export function UpdatePaymentModal({
                 Cancel
               </Button>
               <Button
-                type="submit"
+                type="button"
                 disabled={isSubmitting}
+                onClick={handleUpdatePayment}
                 className="rounded-lg bg-teal-800 text-white hover:bg-teal-900 font-semibold px-5 h-10 text-xs shadow-none"
               >
-                {isSubmitting && (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    Update on PayPal
+                    <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+                  </>
                 )}
-                Save and retry charge
               </Button>
             </div>
-          </form>
+          </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

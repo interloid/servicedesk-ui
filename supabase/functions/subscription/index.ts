@@ -73,6 +73,12 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
+// "FREE-<tenant>" placeholders are not real PayPal agreements and must never
+// be sent to the cancel endpoint.
+function isRealAgreement(id?: string | null): boolean {
+  return Boolean(id && !id.startsWith("FREE-"));
+}
+
 async function cancelPayPalSubscription(
   accessToken: string,
   paypalSubscriptionId: string,
@@ -342,7 +348,7 @@ Deno.serve(async (req) => {
       const { data: pendingSwitch, error: switchError } = await admin
         .from("subscription_switches")
         .select(
-          "id, plan_id, paypal_subscription_id, old_paypal_subscription_id, status",
+          "id, plan_id, paypal_subscription_id, old_paypal_subscription_id, status, effective_at",
         )
         .eq("paypal_subscription_id", subscriptionId)
         .eq("tenant_id", tenantId)
@@ -424,6 +430,68 @@ Deno.serve(async (req) => {
         return Response.json({
           success: false,
           message: "Subscription does not belong to this tenant.",
+        });
+      }
+
+      // A scheduled downgrade is approved now but must not touch the tenant's
+      // plan yet -- they keep what they paid for until effective_at, when
+      // PayPal starts the new agreement. The ACTIVATED webhook applies it then,
+      // with the reconcile-subscriptions job as the backstop.
+      if (
+        pendingSwitch.effective_at &&
+        new Date(pendingSwitch.effective_at).getTime() > Date.now()
+      ) {
+        const { error: scheduleError } = await admin
+          .from("subscription_switches")
+          .update({ status: "approved", updated_at: new Date().toISOString() })
+          .eq("id", pendingSwitch.id);
+
+        if (scheduleError) {
+          console.error("Failed to mark switch approved:", scheduleError);
+          return Response.json(
+            {
+              success: false,
+              message: `Failed to schedule plan change: ${scheduleError.message}`,
+            },
+            { status: 500 },
+          );
+        }
+
+        // The buyer has now committed to the replacement, so retire the old
+        // agreement: the new one starts at exactly the moment the old one
+        // would next charge, and leaving both live risks PayPal billing twice
+        // at that instant. Cancelling does not touch the period already paid
+        // for -- the tenant keeps the current plan until effective_at, because
+        // entitlements come from our subscriptions row, not from PayPal.
+        // Doing this only after approval means an abandoned checkout leaves
+        // the paying subscription untouched.
+        if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
+          try {
+            await cancelPayPalSubscription(
+              accessToken,
+              pendingSwitch.old_paypal_subscription_id!,
+            );
+          } catch (cancelError) {
+            console.error(
+              "Failed to cancel superseded agreement for scheduled downgrade:",
+              cancelError,
+            );
+          }
+        }
+
+        const { data: scheduledPlan } = await admin
+          .from("plans")
+          .select("name")
+          .eq("id", pendingSwitch.plan_id)
+          .maybeSingle();
+
+        return Response.json({
+          success: true,
+          scheduled: true,
+          effectiveAt: pendingSwitch.effective_at,
+          planName: scheduledPlan?.name ?? null,
+          message:
+            "Plan change scheduled. Your current plan stays active until the end of the billing period.",
         });
       }
 
@@ -540,6 +608,35 @@ Deno.serve(async (req) => {
         ? currentSubscription
         : null;
 
+    // A downgrade must not take effect while the tenant still has paid time
+    // left. Instead of switching now, the cheaper PayPal subscription is
+    // created with start_time set to the end of the paid period, so PayPal
+    // activates (and first bills) it exactly when that period runs out. The
+    // current plan keeps running untouched until then.
+    const { data: currentPlan } = currentSubscription?.plan_id
+      ? await admin
+          .from("plans")
+          .select("price_month")
+          .eq("id", currentSubscription.plan_id)
+          .maybeSingle()
+      : { data: null };
+
+    const periodEnd = currentSubscription?.current_period_end
+      ? new Date(currentSubscription.current_period_end)
+      : null;
+
+    const isDowngrade =
+      currentPlan !== null &&
+      Number(plan.price_month) < Number(currentPlan.price_month);
+
+    const deferUntil =
+      isDowngrade &&
+      existingPaidSubscription !== null &&
+      periodEnd !== null &&
+      periodEnd.getTime() > Date.now()
+        ? periodEnd
+        : null;
+
     const isFreePlan = Number(plan.price_month) === 0;
     const accessToken = await getAccessToken();
 
@@ -598,6 +695,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         plan_id: plan.code,
         custom_id: tenantId,
+        ...(deferUntil ? { start_time: deferUntil.toISOString() } : {}),
         subscriber: {
           email_address: user.email,
         },
@@ -665,6 +763,7 @@ Deno.serve(async (req) => {
         old_status: currentSubscription?.status ?? "trialing",
         old_seats: currentSubscription?.seats ?? 1,
         old_current_period_end: currentSubscription?.current_period_end ?? null,
+        effective_at: deferUntil?.toISOString() ?? null,
         status: "pending",
       });
 
@@ -681,9 +780,12 @@ Deno.serve(async (req) => {
 
     return Response.json({
       success: true,
-      message: "PayPal subscription created successfully.",
+      message: deferUntil
+        ? "PayPal subscription created successfully. The plan change takes effect at the end of the current billing period."
+        : "PayPal subscription created successfully.",
       subscriptionId: paypalSubscription.id,
       approvalUrl,
+      effectiveAt: deferUntil?.toISOString() ?? null,
     });
   } catch (error) {
     console.error("Subscription Edge Function Error:", error);

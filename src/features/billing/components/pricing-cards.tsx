@@ -59,6 +59,26 @@ export function PricingCards({
           return;
         }
 
+        // A deferred downgrade changes nothing today, so reloading would just
+        // show the old plan and look like the request failed. Say when it
+        // takes effect instead.
+        if (res.scheduled) {
+          const when = res.effectiveAt
+            ? new Date(res.effectiveAt).toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })
+            : "the end of your billing period";
+
+          toast.success(
+            `Switch to ${plan.name} scheduled for ${when}. You keep your current plan until then.`,
+          );
+          setSelectedPlanForSwitch(null);
+          setConfirmingCancel(false);
+          return;
+        }
+
         setSelectedPlanForSwitch(null);
         setConfirmingCancel(false);
         window.location.reload();

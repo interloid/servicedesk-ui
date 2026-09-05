@@ -147,9 +147,10 @@ export async function fetchTenantBillingData(
   if (paymentMethod) {
     const expiryMonth = paymentMethod.card_expiry_month;
     const expiryYear = paymentMethod.card_expiry_year;
-    const expiry = expiryMonth && expiryYear
-      ? `${String(expiryMonth).padStart(2, "0")}/${String(expiryYear).slice(-2)}`
-      : "N/A";
+    const expiry =
+      expiryMonth && expiryYear
+        ? `${String(expiryMonth).padStart(2, "0")}/${String(expiryYear).slice(-2)}`
+        : "N/A";
 
     paymentMethodData = {
       type:

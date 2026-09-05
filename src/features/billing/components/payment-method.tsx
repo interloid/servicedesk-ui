@@ -99,8 +99,9 @@ export function UpdatePaymentModal({
                     Secure payment update
                   </h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    You&apos;ll be redirected to PayPal to securely update your payment method. 
-                    Your card details are handled by PayPal and never touch our servers.
+                    You&apos;ll be redirected to PayPal to securely update your
+                    payment method. Your card details are handled by PayPal and
+                    never touch our servers.
                   </p>
                 </div>
               </div>

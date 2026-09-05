@@ -155,6 +155,10 @@ export type PlanChangeResult = {
   error?: string;
   subscriptionId?: string | null;
   approvalUrl?: string | null;
+  // Set when the change was recorded but does not take effect until the paid
+  // period ends, so the UI can say so instead of implying it already applied.
+  scheduled?: boolean;
+  effectiveAt?: string | null;
 };
 
 export async function changeTenantPlan(
@@ -237,6 +241,8 @@ export async function changeTenantPlan(
       success: true,
       subscriptionId: data.subscriptionId ?? null,
       approvalUrl: data.approvalUrl ?? null,
+      scheduled: data.scheduled ?? false,
+      effectiveAt: data.effectiveAt ?? null,
     };
   } catch (error) {
     console.error("changeTenantPlan error:", error);
@@ -342,6 +348,8 @@ export async function activateTenantSubscription(
   success: boolean;
   error?: string;
   planName?: string;
+  scheduled?: boolean;
+  effectiveAt?: string | null;
 }> {
   const supabase = await createSupabaseServerClient();
 
@@ -401,6 +409,8 @@ export async function activateTenantSubscription(
     return {
       success: true,
       planName: data?.planName ?? undefined,
+      scheduled: data?.scheduled ?? false,
+      effectiveAt: data?.effectiveAt ?? null,
     };
   } catch (error) {
     console.error("activateTenantSubscription error:", error);

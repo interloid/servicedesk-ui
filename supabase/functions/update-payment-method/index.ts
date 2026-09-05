@@ -182,10 +182,7 @@ Deno.serve(async (req) => {
     }
 
     const paypalSubscriptionId = subscription.paypal_subscription_id;
-    if (
-      !paypalSubscriptionId ||
-      paypalSubscriptionId.startsWith("FREE-")
-    ) {
+    if (!paypalSubscriptionId || paypalSubscriptionId.startsWith("FREE-")) {
       return Response.json(
         {
           success: false,
@@ -201,8 +198,10 @@ Deno.serve(async (req) => {
       paypalSubscriptionId,
     );
 
-    const subscriber = paypalSub.subscriber as Record<string, unknown> | undefined;
-    const paymentSource = subscriber?.payment_source as Record<string, unknown> | undefined;
+    const subscriber = paypalSub.subscriber as
+      Record<string, unknown> | undefined;
+    const paymentSource = subscriber?.payment_source as
+      Record<string, unknown> | undefined;
     const card = paymentSource?.card as Record<string, unknown> | undefined;
 
     const cardBrand = (card?.brand as string) || null;
@@ -253,9 +252,7 @@ Deno.serve(async (req) => {
         .update(paymentMethodData)
         .eq("id", existingPM.id);
     } else {
-      await admin
-        .from("payment_methods")
-        .insert(paymentMethodData);
+      await admin.from("payment_methods").insert(paymentMethodData);
     }
 
     return Response.json({

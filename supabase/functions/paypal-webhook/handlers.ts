@@ -479,7 +479,9 @@ export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
     })
     .eq("paypal_subscription_id", subscription.id);
 
-  console.log(`Payment failed for subscription ${subscription.id}. Status updated to past_due.`);
+  console.log(
+    `Payment failed for subscription ${subscription.id}. Status updated to past_due.`,
+  );
 }
 
 export async function handlePaymentCompleted(event: WebhookEvent) {

@@ -24,6 +24,8 @@ export async function changeTenantPlanAction(
       error: null,
       subscriptionId: result.subscriptionId,
       approvalUrl: result.approvalUrl,
+      scheduled: result.scheduled ?? false,
+      effectiveAt: result.effectiveAt ?? null,
     };
   } catch (error) {
     const message =
@@ -62,7 +64,13 @@ export async function abortPlanSwitchAction(tenantSlug: string) {
 export async function confirmSubscriptionActivationAction(
   tenantSlug: string,
   subscriptionId: string,
-): Promise<{ success: boolean; error?: string; planName?: string }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  planName?: string;
+  scheduled?: boolean;
+  effectiveAt?: string | null;
+}> {
   if (!subscriptionId) {
     return {
       success: false,
@@ -86,12 +94,16 @@ export async function confirmSubscriptionActivationAction(
 }
 
 export async function updatePaymentMethodAction(tenantSlug: string) {
-  console.log("🚀 ~ updatePaymentMethodAction ~ tenantSlug:", tenantSlug)
+  console.log("🚀 ~ updatePaymentMethodAction ~ tenantSlug:", tenantSlug);
   try {
-    const { createSupabaseServerClient } = await import("@/lib/supabase/server");
+    const { createSupabaseServerClient } =
+      await import("@/lib/supabase/server");
     const supabase = await createSupabaseServerClient();
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
     if (userError || !user) {
       return { success: false, error: "Unauthorized" };
     }
@@ -196,20 +208,28 @@ export async function updatePaymentMethodAction(tenantSlug: string) {
 
     const paypalSubscription = await subscriptionResponse.json();
 
-    const links = paypalSubscription.links as Array<{ rel: string; href: string }> | undefined;
+    const links = paypalSubscription.links as
+      Array<{ rel: string; href: string }> | undefined;
     const approveLink = links?.find((link) => link.rel === "approve");
     const updateUrl = approveLink?.href || null;
 
-    const subscriber = paypalSubscription.subscriber as Record<string, unknown> | undefined;
-    const paymentSource = subscriber?.payment_source as Record<string, unknown> | undefined;
+    const subscriber = paypalSubscription.subscriber as
+      Record<string, unknown> | undefined;
+    const paymentSource = subscriber?.payment_source as
+      Record<string, unknown> | undefined;
     const card = paymentSource?.card as Record<string, unknown> | undefined;
 
     const cardBrand = (card?.brand as string) || null;
     const cardLast4 = (card?.last_digits as string) || null;
     const cardExpiry = (card?.expiry as string) || null;
-    const cardBin = (card?.bin_details as Record<string, unknown>)?.bin as string || null;
-    const cardIssuer = (card?.bin_details as Record<string, unknown>)?.issuing_bank as string || null;
-    const cardCountry = (card?.bin_details as Record<string, unknown>)?.bin_country_code as string || null;
+    const cardBin =
+      ((card?.bin_details as Record<string, unknown>)?.bin as string) || null;
+    const cardIssuer =
+      ((card?.bin_details as Record<string, unknown>)
+        ?.issuing_bank as string) || null;
+    const cardCountry =
+      ((card?.bin_details as Record<string, unknown>)
+        ?.bin_country_code as string) || null;
 
     let expiryMonth: number | null = null;
     let expiryYear: number | null = null;
@@ -233,7 +253,9 @@ export async function updatePaymentMethodAction(tenantSlug: string) {
       card_bin: cardBin,
       card_issuer: cardIssuer,
       card_country: cardCountry,
-      payment_source_type: paymentSource ? Object.keys(paymentSource)[0] : "paypal",
+      payment_source_type: paymentSource
+        ? Object.keys(paymentSource)[0]
+        : "paypal",
       is_default: true,
       status: "active",
     };
@@ -283,7 +305,10 @@ export async function updatePaymentMethodAction(tenantSlug: string) {
     console.error("updatePaymentMethodAction error:", error);
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to update payment method",
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to update payment method",
     };
   }
 }

@@ -641,6 +641,81 @@ Deno.serve(async (req) => {
     const accessToken = await getAccessToken();
 
     if (isFreePlan) {
+      // Dropping to Free with paid time still on the clock must not take
+      // effect now -- the tenant keeps what they paid for until
+      // current_period_end. Free has no PayPal agreement to schedule with a
+      // start_time, so the switch is recorded here and applied by
+      // reconcile-subscriptions at effective_at. The paid agreement is
+      // cancelled straight away so PayPal never charges another cycle;
+      // access is governed by our subscriptions row, not by PayPal.
+      if (deferUntil) {
+        await admin
+          .from("subscription_switches")
+          .update({ status: "cancelled", updated_at: new Date().toISOString() })
+          .eq("tenant_id", tenantId)
+          .in("status", ["pending", "approved"]);
+
+        const { error: freeSwitchError } = await admin
+          .from("subscription_switches")
+          .insert({
+            tenant_id: tenantId,
+            plan_id: plan.id,
+            // No PayPal agreement backs a free plan, but the column is NOT
+            // NULL and UNIQUE, so a per-request placeholder is used.
+            paypal_subscription_id: `FREE-${tenantId}-${Date.now()}`,
+            old_paypal_subscription_id:
+              currentSubscription?.paypal_subscription_id ?? null,
+            old_plan_id: currentSubscription?.plan_id ?? tenant.plan_id,
+            old_status: currentSubscription?.status ?? "active",
+            old_seats: currentSubscription?.seats ?? 1,
+            old_current_period_end:
+              currentSubscription?.current_period_end ?? null,
+            effective_at: deferUntil.toISOString(),
+            // Free needs no buyer approval, so it is committed on request.
+            status: "approved",
+          });
+
+        if (freeSwitchError) {
+          console.error(
+            "Scheduled Free switch insert failed:",
+            freeSwitchError,
+          );
+          return Response.json(
+            {
+              success: false,
+              message: `Failed to schedule plan change: ${freeSwitchError.message}`,
+            },
+            { status: 500 },
+          );
+        }
+
+        // Insert first, then cancel: the CANCELLED webhook guard looks for
+        // this row to know the cancellation is intentional.
+        if (existingPaidSubscription?.paypal_subscription_id) {
+          try {
+            await cancelPayPalSubscription(
+              accessToken,
+              existingPaidSubscription.paypal_subscription_id,
+            );
+          } catch (cancelError) {
+            console.error(
+              "Failed to cancel agreement for scheduled Free downgrade:",
+              cancelError,
+            );
+          }
+        }
+
+        return Response.json({
+          success: true,
+          scheduled: true,
+          effectiveAt: deferUntil.toISOString(),
+          message:
+            "Plan change scheduled. Your current plan stays active until the end of the billing period.",
+          subscriptionId: null,
+          approvalUrl: null,
+        });
+      }
+
       if (existingPaidSubscription?.paypal_subscription_id) {
         await cancelPayPalSubscription(
           accessToken,

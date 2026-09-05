@@ -173,13 +173,19 @@ async function backfillInvoices(
 async function applySwitch(
   token: string,
   pendingSwitch: SubscriptionSwitch,
-  paypalSub: Record<string, unknown>,
+  paypalSub: Record<string, unknown> | null,
 ) {
   const now = new Date().toISOString();
-  const billingInfo = paypalSub.billing_info as
-    | { next_billing_time?: string }
-    | undefined;
-  const nextBilling = billingInfo?.next_billing_time ?? null;
+
+  // A scheduled drop to Free has no PayPal agreement behind it, so there is
+  // no billing cycle to read. Mirror the immediate Free path's 15-day window.
+  const isFreeSwitch = pendingSwitch.paypal_subscription_id.startsWith("FREE-");
+
+  const billingInfo = paypalSub?.billing_info as
+    { next_billing_time?: string } | undefined;
+  const nextBilling = isFreeSwitch
+    ? new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString()
+    : (billingInfo?.next_billing_time ?? null);
 
   const { data: plan } = await admin
     .from("plans")
@@ -212,7 +218,10 @@ async function applySwitch(
   // confirmed live, so a failure here can never leave the tenant unbilled.
   if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
     try {
-      await cancelSubscription(token, pendingSwitch.old_paypal_subscription_id!);
+      await cancelSubscription(
+        token,
+        pendingSwitch.old_paypal_subscription_id!,
+      );
     } catch (error) {
       console.error("Failed to cancel superseded agreement:", error);
     }
@@ -225,12 +234,15 @@ async function applySwitch(
 
   if (appliedError) throw appliedError;
 
-  const invoices = await backfillInvoices(
-    token,
-    pendingSwitch.tenant_id,
-    pendingSwitch.paypal_subscription_id,
-    nextBilling,
-  );
+  // Nothing is charged for a free plan, so there are no transactions.
+  const invoices = isFreeSwitch
+    ? 0
+    : await backfillInvoices(
+        token,
+        pendingSwitch.tenant_id,
+        pendingSwitch.paypal_subscription_id,
+        nextBilling,
+      );
 
   return invoices;
 }
@@ -281,6 +293,17 @@ Deno.serve(async (req) => {
 
     for (const pendingSwitch of (dueSwitches ?? []) as SubscriptionSwitch[]) {
       try {
+        // Nothing to verify for a Free switch: the paid agreement was already
+        // cancelled when the change was requested, so it just applies.
+        if (pendingSwitch.paypal_subscription_id.startsWith("FREE-")) {
+          await applySwitch(token, pendingSwitch, null);
+          summary.applied += 1;
+          console.log(
+            `Applied scheduled Free switch ${pendingSwitch.id} for tenant ${pendingSwitch.tenant_id}.`,
+          );
+          continue;
+        }
+
         const paypalSub = await getSubscription(
           token,
           pendingSwitch.paypal_subscription_id,

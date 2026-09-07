@@ -172,6 +172,14 @@ async function cancelPayPalSubscription(
     },
   );
 
+  // 404 means PayPal already removed the subscription — nothing to cancel.
+  if (response.status === 404) {
+    console.log(
+      `PayPal subscription ${paypalSubscriptionId} already gone (404); skipping cancel.`,
+    );
+    return;
+  }
+
   if (!response.ok) {
     const data = await response.text();
     console.error(

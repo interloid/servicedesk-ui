@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import {
   cardFieldStyle,
   checkAdvancedCardsEligibility,
+  inspectSdkInstance,
   loadPayPalWebSdk,
   type CardFieldsSession,
   type PayPalSdkInstance,
@@ -65,9 +66,6 @@ type Phase =
   /** Nothing left to try -- only when there is no approval URL to fall back to. */
   | "blocked";
 
-/** Two letters, the shape PayPal expects for `countryCode`. */
-const COUNTRY_PATTERN = /^[A-Za-z]{2}$/;
-
 /** Long enough to read the handover line, short enough not to feel stuck. */
 const HANDOFF_DELAY_MS = 3000;
 
@@ -106,38 +104,58 @@ function requestClientToken(tenantSlug: string) {
 /**
  * Waits for any of the session's card-field iframes to signal readiness.
  *
- * PayPal's v6 card fields do not expose a `getState()` probe like v5 did, so
- * we race the session's first field render against a timeout instead. If the
- * iframes never appear the timeout expires and the caller falls back.
+ * PayPal's v6 `createCardFieldsComponent` returns a bare HTMLElement. There is
+ * no `.render()` method -- mount it with `container.appendChild(el)`. We detect
+ * readiness by observing whether the iframe injected into `container` fires a
+ * load event within the timeout window.
  */
 function waitForFieldRender(
   session: CardFieldsSession,
-  isDark: boolean,
   container: HTMLDivElement | null,
   timeoutMs: number,
 ): Promise<boolean> {
   if (!container) return Promise.resolve(false);
 
-  const style = cardFieldStyle(isDark);
-
   return new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => resolve(false), timeoutMs);
 
-    session
-      .createCardFieldsComponent({
+    try {
+      const el = session.createCardFieldsComponent({
         type: "number",
         placeholder: "1234 5678 9012 3456",
-        style,
-      })
-      .render(container)
-      .then(() => {
+      });
+
+      container.appendChild(el);
+
+      // PayPal injects an <iframe> inside the element. Detect readiness via
+      // the iframe's load event, or resolve optimistically if the iframe is
+      // already present (v6 mounts the frame synchronously on append).
+      const iframe = container.querySelector("iframe");
+
+      if (iframe) {
         clearTimeout(timer);
         resolve(true);
-      })
-      .catch(() => {
-        clearTimeout(timer);
-        resolve(false);
-      });
+      } else {
+        // No iframe yet -- wait a tick for PayPal's runtime to inject one,
+        // then fall back to the timeout.
+        queueMicrotask(() => {
+          const lateIframe = container.querySelector("iframe");
+          if (lateIframe) {
+            lateIframe.addEventListener(
+              "load",
+              () => {
+                clearTimeout(timer);
+                resolve(true);
+              },
+              { once: true },
+            );
+          }
+        });
+      }
+    } catch {
+      clearTimeout(timer);
+      resolve(false);
+    }
   });
 }
 
@@ -145,9 +163,11 @@ function waitForFieldRender(
  * Takes card details for an already-created subscription, when PayPal's v6 SDK
  * reports it can, and otherwise hands the buyer to PayPal's hosted card page.
  *
- * v6 card fields use `createCardFieldsPaymentSession()` which creates a session
- * bound to the subscription. The session handles card processing; on success
- * `onApprove` fires with the subscription id.
+ * The v6 SDK exposes card-fields sessions for one-time payments (orders) and
+ * for vaulting only -- there is no v6 card-fields session that attaches a card
+ * to a subscription directly. This component therefore introspects the loaded
+ * instance at runtime, logs exactly which factories PayPal exposed, and uses
+ * whichever one exists; anything else falls back to the hosted redirect.
  *
  * Card number, expiry and CVV live in PayPal-owned iframes. They never enter
  * this page's JavaScript and never reach our servers.
@@ -302,18 +322,35 @@ export function CardCheckoutDialog({
 
       if (cancelled) return;
 
-      if (!sdk.createCardFieldsPaymentSession) {
+      // Ground truth: log exactly which session factories this merchant's SDK
+      // actually exposes. Survives whichever way we branch below.
+      const exposed = inspectSdkInstance(
+        sdk as unknown as Record<string, unknown>,
+        "v6",
+      );
+
+      // There is no v6 card-fields-subscription session. The one-time session
+      // submits against an orderId (not a subscriptionId); the save session
+      // vaults the card. Neither can confirm the pre-created subscription
+      // directly. If neither factory is exposed, hand off to hosted checkout.
+      const cardFactory = exposed.find(
+        (key) =>
+          key === "createCardFieldsOneTimePaymentSession" ||
+          key === "createCardFieldsSavePaymentSession",
+      );
+
+      if (!cardFactory) {
         handOff(
           "session_unavailable",
-          "v6 SDK does not expose createCardFieldsPaymentSession.",
+          `v6 instance exposes neither card-fields session factory. ` +
+            `Available: ${exposed.join(", ") || "(none)"}.`,
         );
         return;
       }
 
-      // Create the card fields payment session linked to this subscription.
-      // onApprove fires after PayPal successfully processes the card and
-      // confirms the subscription. onError fires on decline/verification fail.
-      const session = sdk.createCardFieldsPaymentSession({
+      // Session handlers. onError fires on decline/verification fail. onApprove
+      // is only wired where the session actually resolves a subscription.
+      const handlers = {
         onApprove: (data: { subscriptionId?: string }) => {
           void finalise(data.subscriptionId ?? subscriptionId);
         },
@@ -324,7 +361,12 @@ export function CardCheckoutDialog({
           );
           setPhase("ready");
         },
-      });
+      };
+
+      const session =
+        cardFactory === "createCardFieldsSavePaymentSession"
+          ? sdk.createCardFieldsSavePaymentSession!(handlers)
+          : sdk.createCardFieldsOneTimePaymentSession!(handlers);
 
       // Render the number field into a temporary container to verify the
       // session actually mounted live iframes (not dead placeholders).
@@ -337,7 +379,6 @@ export function CardCheckoutDialog({
 
       const booted = await waitForFieldRender(
         session,
-        resolvedTheme === "dark",
         probeContainer,
         CAPABILITY_TIMEOUT_MS,
       );
@@ -389,14 +430,14 @@ export function CardCheckoutDialog({
         await Promise.all(
           fieldsToRender.map((field) => {
             if (!field.ref) return Promise.resolve();
-            return session
-              .createCardFieldsComponent({
-                type: field.type,
-                placeholder: field.placeholder,
-                style,
-                inputEvents,
-              })
-              .render(field.ref);
+            const el = session.createCardFieldsComponent({
+              type: field.type,
+              placeholder: field.placeholder,
+              style,
+              inputEvents,
+            });
+            field.ref.appendChild(el);
+            return Promise.resolve();
           }),
         );
       } catch (renderError) {
@@ -425,37 +466,19 @@ export function CardCheckoutDialog({
     const session = sessionRef.current;
     if (!session) return;
 
-    setPhase("paying");
-    setError(null);
-
-    const { postalCode: zip, country: countryCode } = billingRef.current;
-
-    try {
-      const result = await session.submit("card", {
-        billingAddress: {
-          ...(zip.trim() ? { postalCode: zip.trim() } : {}),
-          ...(COUNTRY_PATTERN.test(countryCode.trim())
-            ? { countryCode: countryCode.trim().toUpperCase() }
-            : {}),
-        },
-      });
-
-      // Deliberately no success handling here: onApprove fires after submit
-      // succeeds and confirms the subscription. Only handle explicit failure.
-      if (result.state === "failed") {
-        console.error("[PayPal] Card submit failed:", result);
-        setError(
-          "We couldn't process that card. Check the details and try again, or pay with PayPal instead.",
-        );
-        setPhase("ready");
-      }
-    } catch (submitError) {
-      console.error("[PayPal] Card submit threw:", submitError);
-      setError(
-        "We couldn't take that card. Check the details and try again, or pay with PayPal instead.",
-      );
-      setPhase("ready");
-    }
+    // v6 card-fields sessions submit against an orderId (one-time) or a
+    // setup-token id (save/vault) -- never against a subscription id, and
+    // there is no v6 card-fields session that attaches a card to a
+    // subscription at all. This path is therefore unreachable today; it is
+    // guarded at mount time by the session_factory handoff. We keep submit
+    // wired only so the type stays honest; if it is ever reached, the buyer
+    // is handed to PayPal's hosted checkout.
+    setError(
+      "Card fields cannot confirm a subscription in this PayPal SDK build. " +
+        "Pay with a PayPal account instead.",
+    );
+    setPhase("ready");
+    goToPayPal();
   };
 
   return (

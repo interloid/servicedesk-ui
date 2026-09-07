@@ -26,6 +26,10 @@ export interface CardFieldComponent {
 }
 
 export interface CardFieldsSession {
+  /**
+   * Returns an `HTMLElement`; mount it with `appendChild(...)` (NOT a
+   * `.render()` callbox). Per the official v6 SDK reference.
+   */
   createCardFieldsComponent: (options: {
     type: "name" | "number" | "expiry" | "cvv";
     placeholder?: string;
@@ -34,9 +38,14 @@ export interface CardFieldsSession {
       onChange?: (state: { isFormValid?: boolean }) => void;
       onBlur?: (state: { isFormValid?: boolean }) => void;
     };
-  }) => CardFieldComponent;
+  }) => HTMLElement;
+  /**
+   * Submits the card against an **order id** created on your server. Card
+   * fields sessions only ever charge orders (vaulting aside) -- there is no
+   * card-fields session that attaches a card to a subscription in v6.
+   */
   submit: (
-    id: string,
+    orderId: string,
     options?: {
       billingAddress?: { postalCode?: string; countryCode?: string };
     },
@@ -52,7 +61,25 @@ export interface PayPalSdkInstance {
   findEligibleMethods: (options?: {
     currencyCode?: string;
   }) => Promise<EligibleMethods>;
-  createCardFieldsPaymentSession?: (handlers?: unknown) => CardFieldsSession;
+  /**
+   * Real v6 session factories, per the official v6 SDK reference.
+   *
+   * There is NO `createCardFieldsPaymentSession` and no card-fields session
+   * bound to a subscription. Card fields are available for:
+   *   - one-time payments: `createCardFieldsOneTimePaymentSession()` +
+   *     `session.submit(orderId)`   (orders only, not subscriptions)
+   *   - vaulting:          `createCardFieldsSavePaymentSession()`
+   *
+   * Whether a given factory exists on the loaded instance is probed at
+   * runtime (see `inspectSdkInstance`), because exposure varies by merchant
+   * account and can change as PayPal rolls the SDK out.
+   */
+  createCardFieldsOneTimePaymentSession?: (
+    handlers?: unknown,
+  ) => CardFieldsSession;
+  createCardFieldsSavePaymentSession?: (
+    handlers?: unknown,
+  ) => CardFieldsSession;
 }
 
 interface PayPalV6Namespace {
@@ -207,8 +234,47 @@ export async function checkAdvancedCardsEligibility({
   }
 }
 
+/**
+ * Enumerates the function-named properties reachable on an SDK instance
+ * (own properties plus the prototype chain), so the running merchant can be
+ * told exactly which session factories PayPal actually exposed.
+ *
+ * This is the ground truth the whole card path hangs on: the set of factories
+ * available varies by merchant and by sandbox/live. Logging it once per
+ * checkout turns "does createCardFieldsPaymentSession exist?" from a guess
+ * into an observability event.
+ */
+export function inspectSdkInstance(
+  sdk: Record<string, unknown>,
+  label: string,
+): string[] {
+  const names = new Set<string>();
+  let cursor: unknown = sdk;
+
+  while (cursor && cursor !== Object.prototype) {
+    const proto = Object.getPrototypeOf(cursor) as Record<
+      string,
+      unknown
+    > | null;
+    if (!proto) break;
+
+    for (const key of Object.getOwnPropertyNames(proto)) {
+      const value = (cursor as Record<string, unknown>)[key];
+      if (typeof value === "function") names.add(key);
+    }
+    cursor = proto;
+  }
+
+  const exposed = [...names].sort();
+  console.log(`[PayPal] ${label} exposes session factories:`, exposed);
+  return exposed;
+}
+
 /* ------------------------------------------------------------------ *
- * SDK v5 -- the only build that can bind card fields to a subscription
+ * SDK v5 -- card fields bound to a subscription (legacy, `intent`
+ * = "subscription"): the only build that can attach a card to an existing
+ * agreement. v6 exposes card fields for orders and vaulting only, so if v6
+ * exposes no usable session, v5 is consulted as the fallback.
  * ------------------------------------------------------------------ */
 
 export interface V5CardFieldsInstance {

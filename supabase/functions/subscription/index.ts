@@ -172,25 +172,40 @@ async function cancelPayPalSubscription(
     },
   );
 
-  // 404 means PayPal already removed the subscription — nothing to cancel.
-  if (response.status === 404) {
+  if (response.ok) return;
+
+  const data = await response.text();
+
+  // Cancelling is only meaningful for an agreement PayPal can still bill.
+  // Two responses mean there is nothing left to cancel, and both are normal:
+  //
+  //   404 RESOURCE_NOT_FOUND       — PayPal has purged the record. Abandoned
+  //     APPROVAL_PENDING subscriptions are not durable: the buyer never
+  //     approved, so PayPal drops them and the id 404s forever after.
+  //   422 SUBSCRIPTION_STATUS_INVALID — the agreement exists but is not in a
+  //     cancellable state (APPROVAL_PENDING, or already CANCELLED/EXPIRED).
+  //
+  // Treating either as failure is what turned an abandoned checkout into a
+  // hard error and blocked the plan change behind it.
+  if (
+    response.status === 404 ||
+    (response.status === 422 && data.includes("SUBSCRIPTION_STATUS_INVALID"))
+  ) {
     console.log(
-      `PayPal subscription ${paypalSubscriptionId} already gone (404); skipping cancel.`,
+      `PayPal subscription ${paypalSubscriptionId} is not cancellable ` +
+        `(${response.status}); nothing to cancel.`,
     );
     return;
   }
 
-  if (!response.ok) {
-    const data = await response.text();
-    console.error(
-      `PayPal cancel subscription ${paypalSubscriptionId} failed:`,
-      response.status,
-      data,
-    );
-    throw new Error(
-      `Failed to cancel existing PayPal subscription: ${response.status}`,
-    );
-  }
+  console.error(
+    `PayPal cancel subscription ${paypalSubscriptionId} failed:`,
+    response.status,
+    data,
+  );
+  throw new Error(
+    `Failed to cancel existing PayPal subscription: ${response.status}`,
+  );
 }
 
 async function getPayPalSubscription(
@@ -870,11 +885,22 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Best-effort, like every other cancel: the tenant asked to move to
+      // Free, and a PayPal agreement we could not retire must not be what
+      // stops that. The CANCELLED webhook and the reconcile job both treat
+      // our subscriptions row as the source of truth for entitlements.
       if (existingPaidSubscription?.paypal_subscription_id) {
-        await cancelPayPalSubscription(
-          accessToken,
-          existingPaidSubscription.paypal_subscription_id,
-        );
+        try {
+          await cancelPayPalSubscription(
+            accessToken,
+            existingPaidSubscription.paypal_subscription_id,
+          );
+        } catch (cancelError) {
+          console.error(
+            "Failed to cancel agreement for immediate Free downgrade:",
+            cancelError,
+          );
+        }
       }
 
       const { error: subError } = await admin
@@ -927,6 +953,13 @@ Deno.serve(async (req) => {
         ...(deferUntil ? { start_time: deferUntil.toISOString() } : {}),
         subscriber: {
           email_address: user.email,
+          name: {
+            given_name: "Valued",
+            surname: "Customer",
+          },
+          address: {
+            country_code: "US",
+          },
         },
         application_context: {
           brand_name: "ServiceDesk",

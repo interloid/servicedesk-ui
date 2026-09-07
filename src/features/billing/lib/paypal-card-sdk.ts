@@ -251,18 +251,22 @@ export function inspectSdkInstance(
   const names = new Set<string>();
   let cursor: unknown = sdk;
 
+  // Enumerate the object itself before walking up. `createInstance` returns a
+  // plain object whose factories are OWN properties, so a walk that starts at
+  // `getPrototypeOf(sdk)` skips every one of them and reports only
+  // Object.prototype (`hasOwnProperty`, `toString`, ...) -- which then reads
+  // as "this merchant exposes no card-fields session" for every merchant.
   while (cursor && cursor !== Object.prototype) {
-    const proto = Object.getPrototypeOf(cursor) as Record<
-      string,
-      unknown
-    > | null;
-    if (!proto) break;
-
-    for (const key of Object.getOwnPropertyNames(proto)) {
-      const value = (cursor as Record<string, unknown>)[key];
-      if (typeof value === "function") names.add(key);
+    for (const key of Object.getOwnPropertyNames(cursor)) {
+      try {
+        // Resolve against `sdk`, not `cursor`, so prototype methods bind to
+        // the instance and accessor properties are read once, from the top.
+        if (typeof sdk[key] === "function") names.add(key);
+      } catch {
+        // A throwing getter tells us nothing; it is simply not a factory.
+      }
     }
-    cursor = proto;
+    cursor = Object.getPrototypeOf(cursor);
   }
 
   const exposed = [...names].sort();

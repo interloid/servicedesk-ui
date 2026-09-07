@@ -1,4 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  storePayPalPaymentMethod,
+  type PayPalSubscriber,
+} from "../_shared/paypal-payment-method.ts";
 
 const CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID")?.trim();
 const CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET")?.trim();
@@ -71,6 +75,79 @@ async function getAccessToken(): Promise<string> {
   }
 
   return data.access_token;
+}
+
+/**
+ * Mints the browser-safe client token PayPal's JS SDK v6 needs for
+ * `createInstance({ clientToken, ... })`.
+ *
+ * `response_type=client_token` returns a short-lived (~15 min) token derived
+ * from the merchant credentials. The credentials themselves never leave this
+ * function -- the browser only ever receives the token, and it is minted only
+ * after the caller's billing membership has been checked.
+ *
+ * `domains[]` binds the token to the origins allowed to use it. PayPal rejects
+ * bare hosts like `localhost`, so it is sent only when PAYPAL_TOKEN_DOMAINS is
+ * configured with real domains; omitting it yields an unbound token, which is
+ * what local development uses.
+ */
+async function getSdkClientToken(): Promise<{
+  token: string;
+  expiresIn: number;
+}> {
+  const params = new URLSearchParams({
+    grant_type: "client_credentials",
+    response_type: "client_token",
+  });
+
+  const domains = (Deno.env.get("PAYPAL_TOKEN_DOMAINS") ?? "")
+    .split(",")
+    .map((domain) => domain.trim())
+    .filter(Boolean);
+
+  for (const domain of domains) {
+    params.append("domains[]", domain);
+  }
+
+  const response = await fetch(`${BASE_URL}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: params.toString(),
+  });
+
+  const data = (await response.json()) as {
+    access_token?: string;
+    expires_in?: number;
+    error?: string;
+    error_description?: string;
+    message?: string;
+  };
+
+  if (!response.ok || !data?.access_token) {
+    // Never log the token itself, only why it could not be made.
+    console.error("[PayPal] client token request failed:", {
+      status: response.status,
+      error: data?.error ?? data?.error_description ?? data?.message,
+      domains: domains.length,
+    });
+    throw new Error(
+      data?.error_description ??
+        data?.message ??
+        "PayPal did not return a client token.",
+    );
+  }
+
+  console.log(
+    `[PayPal] client token created (domains=${domains.length}, expires_in=${
+      data.expires_in ?? 900
+    })`,
+  );
+
+  return { token: data.access_token, expiresIn: data.expires_in ?? 900 };
 }
 
 // "FREE-<tenant>" placeholders are not real PayPal agreements and must never
@@ -158,6 +235,13 @@ Deno.serve(async (req) => {
     const planId = body?.planId;
     const tenantSlug = body?.tenantSlug;
     const subscriptionId = body?.subscriptionId;
+    // How the buyer wants to approve. "card" means the browser will confirm
+    // this subscription through PayPal's hosted card fields instead of the
+    // approval redirect. Either way exactly one subscription is created here,
+    // in APPROVAL_PENDING, and `approvalUrl` is always returned so the card
+    // flow has a redirect to fall back to.
+    const fundingPreference: "paypal" | "card" =
+      body?.fundingPreference === "card" ? "card" : "paypal";
 
     if (!tenantSlug) {
       return Response.json(
@@ -226,6 +310,35 @@ Deno.serve(async (req) => {
         },
         { status: 403 },
       );
+    }
+
+    // The browser needs a PayPal token to render hosted card fields. It is
+    // minted only after the membership check above, so a token that can confirm
+    // this tenant's subscription is never handed to someone who could not
+    // change the plan anyway.
+    if (action === "sdk-token") {
+      try {
+        const { token, expiresIn } = await getSdkClientToken();
+
+        return Response.json({
+          success: true,
+          sdkToken: token,
+          expiresIn,
+          environment: BASE_URL.includes("sandbox") ? "sandbox" : "live",
+        });
+      } catch (error) {
+        console.error("SDK client token mint failed:", error);
+        return Response.json(
+          {
+            success: false,
+            message:
+              error instanceof Error
+                ? error.message
+                : "Could not start card checkout.",
+          },
+          { status: 502 },
+        );
+      }
     }
 
     if (action === "abort") {
@@ -501,7 +614,7 @@ Deno.serve(async (req) => {
         .eq("id", pendingSwitch.plan_id)
         .single();
 
-      const { error: activationError } = await admin
+      const { data: activatedSub, error: activationError } = await admin
         .from("subscriptions")
         .update({
           plan_id: pendingSwitch.plan_id,
@@ -510,7 +623,9 @@ Deno.serve(async (req) => {
           seats: plan?.seat_limit ?? 1,
           updated_at: new Date().toISOString(),
         })
-        .eq("tenant_id", tenantId);
+        .eq("tenant_id", tenantId)
+        .select("id")
+        .maybeSingle();
 
       if (activationError) {
         console.error("Subscription activation failed:", activationError);
@@ -535,6 +650,19 @@ Deno.serve(async (req) => {
         }
       }
 
+      // The buyer lands on the billing page straight after approving, often
+      // before PayPal delivers BILLING.SUBSCRIPTION.ACTIVATED. Recording the
+      // payment method here from the subscription we just fetched means they
+      // do not see "No payment method on file" in the meantime; the webhook
+      // later updates the same row rather than adding another.
+      await storePayPalPaymentMethod(admin, {
+        tenantId,
+        subscriptionRowId: activatedSub?.id ?? null,
+        paypalSubscriptionId: pendingSwitch.paypal_subscription_id,
+        subscriber: paypalSub.subscriber as PayPalSubscriber | undefined,
+        context: "subscription:activate",
+      });
+
       await admin
         .from("subscription_switches")
         .update({
@@ -548,6 +676,24 @@ Deno.serve(async (req) => {
         message: "Subscription activated successfully.",
         planName: plan?.name ?? null,
       });
+    }
+
+    // Anything past this point is treated as "create". An action this build
+    // does not know about is almost always a version skew -- the caller was
+    // deployed with a newer contract than this function -- and silently
+    // falling through to create would either report a nonsense error or, with
+    // a planId attached, open a real PayPal subscription nobody asked for.
+    if (action !== "create") {
+      console.error(`Unsupported subscription action: ${action}`);
+      return Response.json(
+        {
+          success: false,
+          message:
+            `This action ("${action}") is not available on the deployed ` +
+            `subscription function. Redeploy it to enable it.`,
+        },
+        { status: 400 },
+      );
     }
 
     if (!planId) {
@@ -777,6 +923,12 @@ Deno.serve(async (req) => {
         application_context: {
           brand_name: "ServiceDesk",
           user_action: "SUBSCRIBE_NOW",
+          // Only reached when the buyer follows `approvalUrl`. The card flow
+          // normally never does -- it confirms this same subscription from the
+          // hosted card fields -- but it falls back to the redirect when the
+          // SDK is unavailable, and "BILLING" then opens PayPal's card form
+          // rather than its account sign-in.
+          landing_page: fundingPreference === "card" ? "BILLING" : "LOGIN",
           return_url: `${FRONTEND_URL}/${tenantSlug}/payment/success`,
           cancel_url: `${FRONTEND_URL}/${tenantSlug}/payment/cancel`,
         },
@@ -804,6 +956,13 @@ Deno.serve(async (req) => {
         { status: 400 },
       );
     }
+
+    console.log(
+      `[subscription] created ${paypalSubscription.id} tenant=${tenantId} ` +
+        `funding_preference=${fundingPreference} landing_page=${
+          fundingPreference === "card" ? "BILLING" : "LOGIN"
+        }`,
+    );
 
     const approvalUrl = paypalSubscription.links?.find(
       (link: { rel: string; href: string }) => link.rel === "approve",

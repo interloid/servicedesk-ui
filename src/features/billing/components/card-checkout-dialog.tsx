@@ -1,0 +1,623 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTheme } from "next-themes";
+import {
+  AlertCircle,
+  CreditCard,
+  ExternalLink,
+  Loader2,
+  Lock,
+  ShieldCheck,
+} from "lucide-react";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+import { env } from "@/config/env";
+
+import {
+  cardFieldStyle,
+  checkAdvancedCardsEligibility,
+  loadPayPalV5CardFields,
+  verifyCardFieldsBooted,
+  type V5CardFieldsInstance,
+} from "../lib/paypal-card-sdk";
+import {
+  confirmSubscriptionActivationAction,
+  getPayPalSdkTokenAction,
+} from "../billing-actions";
+
+export interface CardCheckoutTarget {
+  /** The APPROVAL_PENDING PayPal subscription this card would confirm. */
+  subscriptionId: string;
+  /** Hosted checkout, used whenever card fields cannot run. */
+  approvalUrl: string | null;
+  planName: string;
+  /** Formatted for display, e.g. "$29/month". */
+  priceLabel: string;
+}
+
+interface CardCheckoutDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  tenantSlug: string;
+  target: CardCheckoutTarget | null;
+  onPaid: (result: {
+    planName: string;
+    scheduled: boolean;
+    effectiveAt: string | null;
+  }) => void;
+}
+
+type Phase =
+  | "checking"
+  /** Not eligible; handing over to PayPal's hosted card page. */
+  | "handing_off"
+  | "ready"
+  | "paying"
+  /** Nothing left to try -- only when there is no approval URL to fall back to. */
+  | "blocked";
+
+/** Two letters, the shape PayPal expects for `countryCode`. */
+const COUNTRY_PATTERN = /^[A-Za-z]{2}$/;
+
+/** Long enough to read the handover line, short enough not to feel stuck. */
+const HANDOFF_DELAY_MS = 1200;
+
+/**
+ * Upper bound on the whole capability probe. PayPal's SDK calls are promises we
+ * do not control; if one never settles the buyer would sit on a spinner
+ * forever, so the probe is raced against this and falls back on expiry.
+ */
+const CAPABILITY_TIMEOUT_MS = 12000;
+
+/**
+ * Deduplicates the client-token request while one is in flight.
+ *
+ * React Strict Mode invokes effects twice in development. Guarding the effect
+ * body instead would deadlock -- React cancels the first run, so a guard that
+ * blocks the second leaves nobody to finish the work. Sharing the promise gets
+ * one network call and still lets both runs complete.
+ */
+let tokenRequest: {
+  key: string;
+  promise: ReturnType<typeof getPayPalSdkTokenAction>;
+} | null = null;
+
+function requestClientToken(tenantSlug: string) {
+  if (tokenRequest?.key === tenantSlug) return tokenRequest.promise;
+
+  const promise = getPayPalSdkTokenAction(tenantSlug).finally(() => {
+    // Cleared once settled: the token is short-lived, so a later checkout must
+    // mint a fresh one rather than reuse this result.
+    if (tokenRequest?.key === tenantSlug) tokenRequest = null;
+  });
+
+  tokenRequest = { key: tenantSlug, promise };
+
+  return promise;
+}
+
+/**
+ * Takes card details for an already-created subscription, when PayPal's SDK
+ * reports it can, and otherwise hands the buyer to PayPal's hosted card page.
+ *
+ * Eligibility is decided by the v6 SDK's `findEligibleMethods`, not by timing a
+ * probe. Every non-eligible outcome is logged with its specific cause and then
+ * falls back, so a buyer never lands on an error they cannot act on.
+ *
+ * Card number, expiry and CVV live in PayPal-owned iframes. They never enter
+ * this page's JavaScript and never reach our servers.
+ */
+export function CardCheckoutDialog({
+  open,
+  onOpenChange,
+  tenantSlug,
+  target,
+  onPaid,
+}: CardCheckoutDialogProps) {
+  const { resolvedTheme } = useTheme();
+
+  const [phase, setPhase] = useState<Phase>("checking");
+  const [error, setError] = useState<string | null>(null);
+  const [handoffReason, setHandoffReason] = useState<string | null>(null);
+  const [formValid, setFormValid] = useState(false);
+  const [postalCode, setPostalCode] = useState("");
+  const [country, setCountry] = useState("");
+
+  const nameRef = useRef<HTMLDivElement>(null);
+  const numberRef = useRef<HTMLDivElement>(null);
+  const expiryRef = useRef<HTMLDivElement>(null);
+  const cvvRef = useRef<HTMLDivElement>(null);
+
+  const fieldsRef = useRef<V5CardFieldsInstance | null>(null);
+
+  const targetRef = useRef(target);
+  const onPaidRef = useRef(onPaid);
+  const tenantSlugRef = useRef(tenantSlug);
+  const billingRef = useRef({ postalCode, country });
+
+  // Refreshed after render, not during it, so PayPal's callbacks always read
+  // current props without React seeing a ref written mid-render.
+  useEffect(() => {
+    targetRef.current = target;
+    onPaidRef.current = onPaid;
+    tenantSlugRef.current = tenantSlug;
+    billingRef.current = { postalCode, country };
+  });
+
+  const subscriptionId = target?.subscriptionId ?? null;
+  const approvalUrl = target?.approvalUrl ?? null;
+
+  const goToPayPal = useCallback(() => {
+    if (approvalUrl) window.location.assign(approvalUrl);
+  }, [approvalUrl]);
+
+  /** Records the plan change once PayPal reports the card was accepted. */
+  const finalise = useCallback(async (paypalSubscriptionId: string) => {
+    const activeTarget = targetRef.current;
+
+    const res = await confirmSubscriptionActivationAction(
+      tenantSlugRef.current,
+      paypalSubscriptionId,
+    );
+
+    if (!res.success) {
+      console.error("[PayPal] Activation failed after card accepted");
+      setError(
+        res.error ??
+          "Your card was accepted but we could not activate the plan. Refresh the billing page in a moment.",
+      );
+      setPhase("ready");
+      return;
+    }
+
+    console.log("[PayPal] Payment method persisted; plan activated");
+
+    onPaidRef.current({
+      planName: res.planName ?? activeTarget?.planName ?? "your new plan",
+      scheduled: res.scheduled ?? false,
+      effectiveAt: res.effectiveAt ?? null,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open || !subscriptionId) return;
+
+    let cancelled = false;
+
+    /** Every non-eligible path lands here: log the cause, then hand over. */
+    const handOff = (code: string, reason: string) => {
+      console.warn(`[PayPal] Card fields unavailable (${code}): ${reason}`);
+
+      if (cancelled) return;
+
+      if (!approvalUrl) {
+        console.error("[PayPal] No approval URL to fall back to");
+        setPhase("blocked");
+        return;
+      }
+
+      console.log("[PayPal] Falling back to hosted checkout");
+      setHandoffReason(reason);
+      setPhase("handing_off");
+      setTimeout(() => {
+        if (!cancelled) window.location.assign(approvalUrl);
+      }, HANDOFF_DELAY_MS);
+    };
+
+    (async () => {
+      const tokenResult = await requestClientToken(tenantSlugRef.current);
+
+      if (cancelled) return;
+
+      if (!tokenResult.success || !tokenResult.sdkToken) {
+        // B: invalid/expired/undeliverable client token.
+        handOff(
+          "client_token",
+          tokenResult.error ?? "Client token could not be created.",
+        );
+        return;
+      }
+
+      console.log("[PayPal] Client token created");
+
+      // Stage 1 -- v6 answers eligibility authoritatively. It cannot render
+      // what we need (no subscription session of any kind), so it is used for
+      // the verdict only.
+      const eligibility = await checkAdvancedCardsEligibility({
+        clientToken: tokenResult.sdkToken,
+        environment: tokenResult.environment ?? "live",
+        currencyCode: "USD",
+      });
+
+      if (cancelled) return;
+
+      if (!eligibility.eligible) {
+        handOff(eligibility.status, eligibility.reason);
+        return;
+      }
+
+      console.log("[PayPal] advanced_cards eligible: true");
+
+      const clientId = env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
+
+      if (!clientId) {
+        handOff("config", "NEXT_PUBLIC_PAYPAL_CLIENT_ID is not set.");
+        return;
+      }
+
+      // Stage 2 -- v5 is the only build whose card fields can approve a
+      // billing agreement, via createSubscription.
+      let v5;
+
+      try {
+        v5 = await loadPayPalV5CardFields({
+          clientId,
+          sdkToken: tokenResult.sdkToken,
+          environment: tokenResult.environment ?? "live",
+        });
+      } catch (loadError) {
+        handOff(
+          "sdk_load_failed",
+          loadError instanceof Error ? loadError.message : String(loadError),
+        );
+        return;
+      }
+
+      if (cancelled) return;
+
+      const fields = v5.CardFields({
+        // The subscription already exists; PayPal is given its id so the card
+        // confirms that exact agreement rather than creating a second one.
+        createSubscription: () => Promise.resolve(subscriptionId),
+        onApprove: (data) => {
+          void finalise(
+            data.subscriptionId ?? data.subscriptionID ?? subscriptionId,
+          );
+        },
+        onError: (paypalError) => {
+          console.error("[PayPal] Card payment failed:", paypalError);
+          setError(
+            "That card was declined or could not be verified. Check the details and try again, or pay with PayPal instead.",
+          );
+          setPhase("ready");
+        },
+        style: cardFieldStyle(resolvedTheme === "dark"),
+      });
+
+      if (!fields.isEligible()) {
+        handOff("component_unavailable", "v5 CardFields reported ineligible.");
+        return;
+      }
+
+      const inputEvents = {
+        onChange: (state: { isFormValid: boolean }) =>
+          setFormValid(state.isFormValid),
+        onBlur: (state: { isFormValid: boolean }) =>
+          setFormValid(state.isFormValid),
+      };
+
+      try {
+        await Promise.all([
+          nameRef.current &&
+            fields
+              .NameField({ placeholder: "Name on card", inputEvents })
+              .render(nameRef.current),
+          numberRef.current &&
+            fields
+              .NumberField({
+                placeholder: "1234 5678 9012 3456",
+                inputEvents,
+              })
+              .render(numberRef.current),
+          expiryRef.current &&
+            fields
+              .ExpiryField({ placeholder: "MM / YY", inputEvents })
+              .render(expiryRef.current),
+          cvvRef.current &&
+            fields
+              .CVVField({ placeholder: "CVC", inputEvents })
+              .render(cvvRef.current),
+        ]);
+      } catch (renderError) {
+        handOff(
+          "render_failed",
+          renderError instanceof Error
+            ? renderError.message
+            : String(renderError),
+        );
+        return;
+      }
+
+      if (cancelled) return;
+
+      // Rendering resolving is not proof the fields work: an unbound client
+      // token leaves them mounted but dead. getState() resolving is.
+      const booted = await verifyCardFieldsBooted(
+        fields,
+        CAPABILITY_TIMEOUT_MS,
+      );
+
+      if (cancelled) return;
+
+      if (!booted) {
+        handOff(
+          "fields_never_initialised",
+          "Card fields mounted but never registered. The client token is " +
+            "most likely not bound to this origin -- set PAYPAL_TOKEN_DOMAINS " +
+            "to the domain serving this page (PayPal rejects localhost).",
+        );
+        return;
+      }
+
+      console.log("[PayPal] Card Fields initialized");
+      fieldsRef.current = fields;
+      setPhase("ready");
+    })();
+
+    return () => {
+      cancelled = true;
+      // v5 owns its iframes and tears them down when the container is
+      // removed from the DOM, which Radix does on close. Only our handle is
+      // dropped here so a reopened dialog builds a fresh instance.
+      fieldsRef.current = null;
+    };
+    // `resolvedTheme` is excluded deliberately: fields are styled at mount, and
+    // tearing down a half-typed card to restyle it would lose the buyer's input.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, subscriptionId, approvalUrl, finalise]);
+
+  const handleSubmit = async () => {
+    const fields = fieldsRef.current;
+    if (!fields) return;
+
+    setPhase("paying");
+    setError(null);
+
+    const { postalCode: zip, country: countryCode } = billingRef.current;
+
+    try {
+      await fields.submit({
+        billingAddress: {
+          ...(zip.trim() ? { postalCode: zip.trim() } : {}),
+          ...(COUNTRY_PATTERN.test(countryCode.trim())
+            ? { countryCode: countryCode.trim().toUpperCase() }
+            : {}),
+        },
+      });
+      // Deliberately no success handling: submit resolves once PayPal accepts
+      // the card, and onApprove is what confirms the subscription.
+    } catch (submitError) {
+      console.error("[PayPal] Card submit threw:", submitError);
+      setError(
+        "We couldn't take that card. Check the details and try again, or pay with PayPal instead.",
+      );
+      setPhase("ready");
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && phase === "paying") return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent
+        showCloseButton={phase !== "paying"}
+        className="gap-0 p-0 sm:max-w-105"
+        // PayPal's iframes manage their own focus; grabbing it back on open
+        // would blur the card number the moment the buyer starts typing.
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <DialogHeader className="space-y-1 border-b border-border px-5 pt-5 pb-4 text-left">
+          <DialogTitle className="flex items-center gap-2 pr-8 text-base font-bold">
+            <CreditCard className="h-4 w-4 text-brand-accent" />
+            Pay by card
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {target
+              ? `${target.planName} · ${target.priceLabel}. Your card is charged by PayPal when the subscription starts.`
+              : "Enter your card details to start the subscription."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {phase === "checking" && (
+          <div className="flex items-center gap-2 px-5 py-6 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Checking how you can pay…
+          </div>
+        )}
+
+        {phase === "handing_off" && (
+          <div className="space-y-4 px-5 py-5">
+            <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 px-4 py-3.5">
+              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-brand-accent" />
+              <p className="text-xs leading-5 text-foreground">
+                Taking you to PayPal&apos;s secure checkout to pay by card.
+              </p>
+            </div>
+            {/* Shown so a stalled redirect is still actionable. */}
+            <div className="flex justify-end">
+              <Button
+                onClick={goToPayPal}
+                className="h-10 gap-1.5 rounded-xl bg-brand-accent px-5 text-xs font-semibold text-primary-foreground shadow-none hover:bg-brand-accent/90"
+              >
+                Continue now
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {phase === "blocked" && (
+          <div className="space-y-4 px-5 py-5">
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 dark:border-amber-900/50 dark:bg-amber-950/30">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <p className="text-xs leading-5 text-amber-900 dark:text-amber-200">
+                We couldn&apos;t start card payment just now. Please try again
+                in a moment{handoffReason ? "." : "."}
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                className="h-10 rounded-xl px-5 text-xs font-semibold"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {(phase === "ready" || phase === "paying") && (
+          <div className="space-y-4 px-5 py-5">
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Name on card</Label>
+                <div
+                  ref={nameRef}
+                  className="flex h-11 items-center overflow-hidden rounded-lg border border-input bg-background transition-colors focus-within:border-brand-accent focus-within:ring-1 focus-within:ring-brand-accent [&>div]:w-full"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Card number</Label>
+                <div
+                  ref={numberRef}
+                  className="flex h-11 items-center overflow-hidden rounded-lg border border-input bg-background transition-colors focus-within:border-brand-accent focus-within:ring-1 focus-within:ring-brand-accent [&>div]:w-full"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Expiry</Label>
+                  <div
+                    ref={expiryRef}
+                    className="flex h-11 items-center overflow-hidden rounded-lg border border-input bg-background transition-colors focus-within:border-brand-accent focus-within:ring-1 focus-within:ring-brand-accent [&>div]:w-full"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Security code</Label>
+                  <div
+                    ref={cvvRef}
+                    className="flex h-11 items-center overflow-hidden rounded-lg border border-input bg-background transition-colors focus-within:border-brand-accent focus-within:ring-1 focus-within:ring-brand-accent [&>div]:w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="card-postal-code"
+                    className="text-xs font-semibold"
+                  >
+                    Postal code
+                  </Label>
+                  <Input
+                    id="card-postal-code"
+                    value={postalCode}
+                    disabled={phase === "paying"}
+                    onChange={(e) => setPostalCode(e.target.value)}
+                    placeholder="Optional"
+                    autoComplete="postal-code"
+                    className="h-11 rounded-lg"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="card-country"
+                    className="text-xs font-semibold"
+                  >
+                    Country code
+                  </Label>
+                  <Input
+                    id="card-country"
+                    value={country}
+                    disabled={phase === "paying"}
+                    onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                    placeholder="Optional, e.g. US"
+                    maxLength={2}
+                    autoComplete="country"
+                    className="h-11 rounded-lg uppercase"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900/50 dark:bg-red-950/30">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+                <p className="text-xs leading-5 text-red-700 dark:text-red-300">
+                  {error}
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+              <span>
+                Card details go straight to PayPal and never touch our servers.
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2.5 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+              {approvalUrl ? (
+                <button
+                  type="button"
+                  disabled={phase === "paying"}
+                  onClick={goToPayPal}
+                  className="text-left text-xs font-semibold text-brand-accent hover:underline disabled:pointer-events-none disabled:opacity-50"
+                >
+                  Pay with a PayPal account instead
+                </button>
+              ) : (
+                <span />
+              )}
+
+              <div className="flex justify-end gap-2.5">
+                <Button
+                  variant="outline"
+                  disabled={phase === "paying"}
+                  onClick={() => onOpenChange(false)}
+                  className="h-10 rounded-xl px-5 text-xs font-semibold"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={phase === "paying" || !formValid}
+                  onClick={handleSubmit}
+                  className="h-10 gap-1.5 rounded-xl bg-brand-accent px-5 text-xs font-semibold text-primary-foreground shadow-none hover:bg-brand-accent/90"
+                >
+                  {phase === "paying" ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Confirming…
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="h-3.5 w-3.5" />
+                      Pay {target?.priceLabel ?? ""}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

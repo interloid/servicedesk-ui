@@ -2,13 +2,7 @@
 
 import { use, useState, useTransition, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import {
-  AlertTriangle,
-  CalendarClock,
-  Loader2,
-  ShieldCheck,
-  Clock,
-} from "lucide-react";
+import { AlertTriangle, CalendarClock, Loader2, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +34,7 @@ interface SummaryCardProps {
   subtext?: ReactNode;
   isLoading?: boolean;
   action?: ReactNode;
+  extra?: ReactNode;
 }
 
 function SummaryCard({
@@ -48,6 +43,7 @@ function SummaryCard({
   subtext,
   isLoading,
   action,
+  extra,
 }: SummaryCardProps) {
   if (isLoading) {
     return (
@@ -77,6 +73,7 @@ function SummaryCard({
         </CardContent>
       )}
       {action && <div className="pt-2.5">{action}</div>}
+      {extra && <div>{extra}</div>}
     </Card>
   );
 }
@@ -146,35 +143,6 @@ function StatusBanner({
       </div>
     );
   }
-
-  return (
-    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 sm:p-5">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-start space-x-3">
-          <div className="rounded-md bg-emerald-500 p-1.5 text-white shrink-0 mt-0.5">
-            <ShieldCheck className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-emerald-950">
-                {data.plan.name}
-              </span>
-              <span className="text-sm text-emerald-800/90">
-                · {data.plan.rate}
-              </span>
-            </div>
-            <p className="text-xs text-emerald-800/90 mt-0.5">
-              Next payment: {data.amountDue.next} on {data.renewalDate}
-            </p>
-          </div>
-        </div>
-        <Badge className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-full text-xs font-semibold shadow-none">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          Active · Auto-renew ON
-        </Badge>
-      </div>
-    </div>
-  );
 }
 
 export default function BillingDashboard({
@@ -230,15 +198,23 @@ export default function BillingDashboard({
   const unusedSeats = data?.seats?.unused ?? 0;
   const seatPercentage = totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0;
 
+  // The payment source comes straight from what PayPal reported, so the card
+  // branch is never taken for a wallet-funded subscription -- those show the
+  // PayPal identity rather than a card that was never disclosed.
+  const paymentSourceType = data?.paymentMethod?.sourceType ?? "none";
   const paymentType = data?.paymentMethod?.type;
   const cardLast4 = data?.paymentMethod?.last4;
   const cardExpiry = data?.paymentMethod?.expiry;
-  const hasCardDetails = Boolean(
-    paymentType && cardLast4 && cardLast4.trim() !== "" && cardLast4 !== "N/A",
-  );
+  const hasCardDetails =
+    paymentSourceType === "card" &&
+    Boolean(cardLast4 && cardLast4.trim() !== "" && cardLast4 !== "N/A");
 
   const paypalEmail = data?.paymentMethod?.email;
-  const hasPayPalWallet = Boolean(!hasCardDetails && paypalEmail);
+  // PayPal only discloses who approved the agreement, never the funding
+  // instrument behind a wallet. Showing the payer is the most specific thing
+  // this integration can truthfully put on a wallet-funded subscription.
+  const paypalPayerName = data?.paymentMethod?.payerName;
+  const hasPayPalWallet = paymentSourceType === "paypal";
   const isFreeTier = (data?.plan?.rate ?? "") === "$0/mo";
 
   const scheduledChange = data.scheduledChange;
@@ -337,11 +313,42 @@ export default function BillingDashboard({
                 </span>
               </>
             }
-            subtext={`${totalSeats} agent seats · Renews ${data.renewalDate}`}
+            subtext={
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Active
+                {data.autoRenew ? (
+                  <>
+                    <span>·</span>
+                    <span>Auto-renew ON</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-slate-400">
+                    · Auto-renew OFF
+                  </span>
+                )}
+              </span>
+            }
+            extra={
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                <div className="flex items-center justify-between gap-2">
+                  <span>User seats</span>
+                  <span className="font-semibold text-slate-700">
+                    {data.seats?.total ?? 0} seats
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span>Next payment</span>
+                  <span className="font-semibold text-slate-700">
+                    {data.amountDue?.next ?? "$0.00"} on {data.renewalDate}
+                  </span>
+                </div>
+              </div>
+            }
           />
 
           <SummaryCard
-            label="Agent seats"
+            label="User seats"
             value={
               <>
                 {usedSeats}{" "}
@@ -400,11 +407,10 @@ export default function BillingDashboard({
               <div className="flex flex-col gap-1">
                 <span className="text-xs text-slate-400">Current billing</span>
                 <span className="text-xs text-slate-500">
-                  {data.amountDue?.current} due
                   {data.lastPayment ? (
                     <>
                       {" "}
-                      · Last payment: {data.lastPayment.amount} · Paid{" "}
+                      Last payment: {data.lastPayment.amount} · Paid{" "}
                       {data.lastPayment.date}
                     </>
                   ) : null}
@@ -418,13 +424,14 @@ export default function BillingDashboard({
             value={
               hasCardDetails ? (
                 <>
-                  {paymentType} ···· {cardLast4}
+                  {paymentType}
+                  <span className="ml-2 font-medium">•••• {cardLast4}</span>
                 </>
               ) : hasPayPalWallet ? (
                 <>
                   PayPal
                   <span className="text-sm font-medium text-slate-500 ml-2">
-                    {paypalEmail}
+                    {paypalPayerName ?? "PayPal Wallet"}
                   </span>
                 </>
               ) : isFreeTier ? (
@@ -435,12 +442,17 @@ export default function BillingDashboard({
             }
             subtext={
               hasCardDetails
-                ? `Expires ${cardExpiry || "N/A"}`
+                ? cardExpiry && cardExpiry !== "N/A"
+                  ? `Expires ${cardExpiry}`
+                  : "Billed through PayPal"
                 : hasPayPalWallet
-                  ? "Billed through PayPal"
+                  ? (paypalEmail ??
+                    (paypalPayerName
+                      ? "Billed through their PayPal account"
+                      : "Billed through your PayPal account"))
                   : isFreeTier
                     ? "No charges for this plan"
-                    : "Add a card to avoid service interruptions."
+                    : "Add a payment method to avoid service interruptions."
             }
             action={
               <Button
@@ -460,11 +472,11 @@ export default function BillingDashboard({
           <CardHeader className="p-0 flex flex-row items-start justify-between gap-4">
             <div>
               <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Agent Seat Usage
+                User seat usage
               </span>
               <div className="mt-2 flex items-baseline gap-3">
                 <span className="text-sm font-semibold text-slate-900">
-                  {usedSeats} of {totalSeats} agent seats used
+                  {usedSeats} of {totalSeats} User seats used
                 </span>
                 <span className="text-xs text-slate-400 font-normal">
                   {Math.round(seatPercentage)}%
@@ -488,12 +500,12 @@ export default function BillingDashboard({
             <p className="text-xs text-slate-500 leading-relaxed mt-3">
               {unusedSeats > 0 ? (
                 <>
-                  You&apos;re currently using {usedSeats} of {totalSeats} agent
-                  seats. {unusedSeats} agent seat
+                  You&apos;re currently using {usedSeats} of {totalSeats} user
+                  seats. {unusedSeats} user seat
                   {unusedSeats === 1 ? "" : "s"} available.
                 </>
               ) : (
-                "All agent seats are currently assigned to active team members."
+                "All user seats are currently assigned to active team members."
               )}
             </p>
           </CardContent>
@@ -526,7 +538,7 @@ export default function BillingDashboard({
                         Description
                       </TableHead>
                       <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-center">
-                        Agent Seats
+                        User Seats
                       </TableHead>
                       <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-right">
                         Amount
@@ -608,9 +620,15 @@ export default function BillingDashboard({
       <UpdatePaymentModal
         open={isUpdatePaymentOpen}
         onOpenChange={setIsUpdatePaymentOpen}
+        sourceType={paymentSourceType}
         currentCardLast4={hasCardDetails ? cardLast4 : undefined}
+        currentCardBrand={hasCardDetails ? paymentType : undefined}
+        currentCardExpiry={hasCardDetails ? cardExpiry : undefined}
+        paypalEmail={paypalEmail}
+        paypalPayerName={paypalPayerName}
         invoiceId={data.suspensionReason?.invoiceId}
         tenantSlug={tenantSlug}
+        onSynced={() => router.refresh()}
       />
     </div>
   );

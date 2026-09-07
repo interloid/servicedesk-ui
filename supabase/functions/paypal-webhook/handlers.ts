@@ -4,26 +4,10 @@ import { uploadInvoicePdf, getInvoiceSignedUrl } from "./storage.ts";
 import { sendInvoiceEmail } from "./email.ts";
 import { updateInvoiceStorage } from "./invoice.ts";
 import { cancelSubscription, getSubscription } from "./paypal.ts";
-
-interface PayPalSubscriber {
-  payer_id?: string;
-  email_address?: string;
-  // Present only for card-funded subscriptions. Wallet-funded ones report
-  // tenant: "PAYPAL" and omit payment_source entirely.
-  tenant?: string;
-  payment_source?: {
-    card?: {
-      brand?: string;
-      last_digits?: string;
-      expiry?: string;
-      bin_details?: {
-        bin?: string;
-        issuing_bank?: string;
-        bin_country_code?: string;
-      };
-    };
-  };
-}
+import {
+  storePayPalPaymentMethod,
+  type PayPalSubscriber,
+} from "../_shared/paypal-payment-method.ts";
 
 interface WebhookEvent {
   resource: Record<string, unknown> & {
@@ -117,86 +101,11 @@ async function restoreSubscriptionFromSwitch(
   }
 }
 
-// Card columns are populated only when PayPal actually reports a card. A
-// wallet-approved subscription reports subscriber.tenant "PAYPAL" with no
-// payment_source at all -- PayPal does not disclose the card behind a wallet --
-// so those rows carry the payer identity instead.
-async function storePayPalPaymentMethod(
-  tenantId: string,
-  subscriptionRowId: string | null,
-  paypalSubscriptionId: string,
-  subscriber?: PayPalSubscriber,
-) {
-  // The webhook resource is a point-in-time snapshot and does not always carry
-  // subscriber.payment_source. Re-read the subscription so a card-funded one is
-  // recorded from the authoritative record, falling back to the event payload
-  // when the API call fails.
-  let resolved = subscriber;
-
-  try {
+function subscriberFetcher(paypalSubscriptionId: string) {
+  return async () => {
     const fresh = await getSubscription(paypalSubscriptionId);
-    resolved = (fresh.subscriber as PayPalSubscriber | undefined) ?? subscriber;
-  } catch (error) {
-    console.error(
-      `Falling back to webhook subscriber for ${paypalSubscriptionId}:`,
-      error,
-    );
-  }
-
-  const card = resolved?.payment_source?.card;
-
-  // PayPal formats card.expiry as YYYY-MM.
-  let expiryMonth: number | null = null;
-  let expiryYear: number | null = null;
-
-  if (card?.expiry) {
-    const [year, month] = card.expiry.split("-");
-    expiryMonth = parseInt(month, 10) || null;
-    expiryYear = parseInt(year, 10) || null;
-  }
-
-  const paymentMethodData = {
-    tenant_id: tenantId,
-    subscription_id: subscriptionRowId,
-    paypal_payment_token_id: paypalSubscriptionId,
-    paypal_customer_id: resolved?.payer_id ?? null,
-    paypal_email: resolved?.email_address ?? null,
-    card_brand: card?.brand ?? null,
-    card_last4: card?.last_digits ?? null,
-    card_expiry_month: expiryMonth,
-    card_expiry_year: expiryYear,
-    card_bin: card?.bin_details?.bin ?? null,
-    card_issuer: card?.bin_details?.issuing_bank ?? null,
-    card_country: card?.bin_details?.bin_country_code ?? null,
-    payment_source_type: card ? "card" : "paypal",
-    is_default: true,
-    status: "active",
-    updated_at: new Date().toISOString(),
+    return (fresh.subscriber as PayPalSubscriber | undefined) ?? null;
   };
-
-  const { data: existing } = await admin
-    .from("payment_methods")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .eq("is_default", true)
-    .maybeSingle();
-
-  const { error } = existing
-    ? await admin
-        .from("payment_methods")
-        .update(paymentMethodData)
-        .eq("id", existing.id)
-    : await admin.from("payment_methods").insert(paymentMethodData);
-
-  if (error) {
-    console.error("Failed to store PayPal payment method:", error);
-    return;
-  }
-
-  console.log(
-    `Stored ${card ? `card ${card.brand ?? "?"} ****${card.last_digits ?? "?"}` : `PayPal wallet (tenant ${resolved?.tenant ?? "unknown"})`}` +
-      ` for subscription ${paypalSubscriptionId}.`,
-  );
 }
 
 export async function handleSubscriptionActivated(event: WebhookEvent) {
@@ -245,12 +154,14 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
       throw subError;
     }
 
-    await storePayPalPaymentMethod(
-      pendingSwitch.tenant_id!,
-      updatedSub?.id ?? null,
-      subscription.id,
-      subscription.subscriber,
-    );
+    await storePayPalPaymentMethod(admin, {
+      tenantId: pendingSwitch.tenant_id!,
+      subscriptionRowId: updatedSub?.id ?? null,
+      paypalSubscriptionId: subscription.id,
+      subscriber: subscription.subscriber,
+      fetchSubscriber: subscriberFetcher(subscription.id),
+      context: "webhook:activated:switch",
+    });
 
     const { error: tenantError } = await admin
       .from("tenants")
@@ -306,12 +217,14 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
 
   const sub = data[0];
 
-  await storePayPalPaymentMethod(
-    sub.tenant_id,
-    sub.id,
-    subscription.id,
-    subscription.subscriber,
-  );
+  await storePayPalPaymentMethod(admin, {
+    tenantId: sub.tenant_id,
+    subscriptionRowId: sub.id,
+    paypalSubscriptionId: subscription.id,
+    subscriber: subscription.subscriber,
+    fetchSubscriber: subscriberFetcher(subscription.id),
+    context: "webhook:activated",
+  });
 
   if (sub.plan_id) {
     const { error: tenantError } = await admin
@@ -420,7 +333,7 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
 
   const { data: existingSub, error: subError } = await admin
     .from("subscriptions")
-    .select("id")
+    .select("id, tenant_id")
     .eq("paypal_subscription_id", subscription.id)
     .maybeSingle();
 
@@ -429,11 +342,20 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
     return;
   }
 
-  // Payment methods are not written from this webhook: PayPal does not fire
-  // BILLING.SUBSCRIPTION.UPDATED for funding-instrument changes, and the
-  // subscription resource carries no subscriber.payment_source for
-  // wallet-funded subscriptions. The payment_methods table is owned by the
-  // update-payment-method function instead.
+  // A card-funded subscription fires this event when its payment source is
+  // patched, so it is the one place a card change shows up. Safe to run for
+  // wallet-funded subscriptions too: storePayPalPaymentMethod leaves existing
+  // card metadata alone when the event carries no payment source, so an
+  // unrelated UPDATED event cannot blank out a card we already hold.
+  await storePayPalPaymentMethod(admin, {
+    tenantId: existingSub.tenant_id,
+    subscriptionRowId: existingSub.id,
+    paypalSubscriptionId: subscription.id,
+    subscriber: subscription.subscriber,
+    fetchSubscriber: subscriberFetcher(subscription.id),
+    context: "webhook:updated",
+  });
+
   const updates: Record<string, string> = {
     updated_at: new Date().toISOString(),
   };
@@ -490,6 +412,27 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   const subscriptionId = payment.billing_agreement_id;
 
+  // PayPal retries deliveries, so the same sale can arrive several times. The
+  // invoice is keyed on the PayPal transaction id: if one already exists this
+  // sale is fully processed, and re-running would both violate that key and
+  // email the customer a second copy.
+  const { data: alreadyInvoiced, error: existingInvoiceError } = await admin
+    .from("invoices")
+    .select("id")
+    .eq("paypal_txn_id", payment.id)
+    .maybeSingle();
+
+  if (existingInvoiceError) {
+    throw existingInvoiceError;
+  }
+
+  if (alreadyInvoiced) {
+    console.log(
+      `Sale ${payment.id} already invoiced as ${alreadyInvoiced.id}; skipping duplicate delivery.`,
+    );
+    return;
+  }
+
   const { data: subscription, error } = await admin
     .from("subscriptions")
     .select("*, plans(name), tenants(name)")
@@ -511,6 +454,13 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
       status: "paid",
 
+      plan_name:
+        (Array.isArray(subscription.plans)
+          ? subscription.plans?.[0]?.name
+          : subscription.plans?.name) ?? null,
+
+      seats: subscription.seats ?? null,
+
       period_start: subscription.created_at
         ? subscription.created_at.substring(0, 10)
         : new Date().toISOString().substring(0, 10),
@@ -527,6 +477,15 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     .single();
 
   if (invoiceError) {
+    // A concurrent delivery inserted it between the check above and here. The
+    // unique key on paypal_txn_id did its job: nothing left to do.
+    if (invoiceError.code === "23505") {
+      console.log(
+        `Sale ${payment.id} was invoiced concurrently; skipping duplicate delivery.`,
+      );
+      return;
+    }
+
     throw invoiceError;
   }
   const { data: invoice, error: fetchError } = await admin

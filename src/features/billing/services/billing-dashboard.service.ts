@@ -39,10 +39,21 @@ export interface BillingDashboardData {
     date: string;
   };
   paymentMethod: {
+    /**
+     * What PayPal actually reported. "card" only when PayPal returned card
+     * metadata; "paypal" for a wallet-funded subscription, where PayPal does
+     * not disclose the underlying card; "none" when nothing is on file yet.
+     */
+    sourceType: "card" | "paypal" | "none";
+    /** Display label: the card brand, or "PayPal". */
     type: string;
     last4: string;
+    /** "MM/YYYY" for a card, otherwise "N/A". */
     expiry: string;
     email?: string;
+    /** Payer name PayPal reported once the buyer approved, if any. */
+    payerName?: string;
+    payerCountry?: string;
     brand?: string;
     bin?: string;
     issuer?: string;
@@ -188,7 +199,7 @@ export async function fetchTenantBillingData(
         pdfUrl = signedData?.signedUrl || undefined;
       }
 
-      const description = `${plan?.name ?? "Pro"} · Monthly`;
+      const description = `${inv.plan_name ?? plan?.name ?? "ServiceDesk"} · Monthly`;
 
       return {
         id: inv.invoice_number || inv.id.slice(0, 8).toUpperCase(),
@@ -198,7 +209,7 @@ export async function fetchTenantBillingData(
           year: "numeric",
         }),
         description,
-        seats: totalSeats > 0 ? totalSeats : 0,
+        seats: inv.seats ?? (totalSeats > 0 ? totalSeats : 0),
         amount: `$${amountNum.toFixed(2)}`,
         status: inv.status === "paid" ? "Paid" : "Unpaid",
         pdfUrl,
@@ -209,31 +220,37 @@ export async function fetchTenantBillingData(
   let paymentMethodData: BillingDashboardData["paymentMethod"];
 
   if (paymentMethod) {
+    // A card is only ever shown when PayPal reported one. `card_last4` is the
+    // marker: the database rejects a row typed 'card' without it, so this can
+    // never render a card that PayPal did not actually disclose.
+    const isCard =
+      paymentMethod.payment_source_type === "card" &&
+      Boolean(paymentMethod.card_last4);
+
     const expiryMonth = paymentMethod.card_expiry_month;
     const expiryYear = paymentMethod.card_expiry_year;
     const expiry =
-      expiryMonth && expiryYear
-        ? `${String(expiryMonth).padStart(2, "0")}/${String(expiryYear).slice(-2)}`
+      isCard && expiryMonth && expiryYear
+        ? `${String(expiryMonth).padStart(2, "0")}/${expiryYear}`
         : "N/A";
 
     paymentMethodData = {
-      type:
-        paymentMethod.card_brand ||
-        (paymentMethod.payment_source_type === "paypal"
-          ? "PayPal"
-          : paymentMethod.payment_source_type) ||
-        "PayPal",
-      last4: paymentMethod.card_last4 || "N/A",
+      sourceType: isCard ? "card" : "paypal",
+      type: isCard ? (paymentMethod.card_brand ?? "Card") : "PayPal",
+      last4: isCard ? paymentMethod.card_last4 : "N/A",
       expiry,
       email: paymentMethod.paypal_email || undefined,
-      brand: paymentMethod.card_brand || undefined,
-      bin: paymentMethod.card_bin || undefined,
-      issuer: paymentMethod.card_issuer || undefined,
-      country: paymentMethod.card_country || undefined,
+      payerName: paymentMethod.paypal_payer_name || undefined,
+      payerCountry: paymentMethod.paypal_payer_country || undefined,
+      brand: isCard ? (paymentMethod.card_brand ?? undefined) : undefined,
+      bin: isCard ? (paymentMethod.card_bin ?? undefined) : undefined,
+      issuer: isCard ? (paymentMethod.card_issuer ?? undefined) : undefined,
+      country: isCard ? (paymentMethod.card_country ?? undefined) : undefined,
       status: paymentMethod.status || undefined,
     };
   } else {
     paymentMethodData = {
+      sourceType: "none",
       type: isFreePlan ? "Free Tier" : "PayPal",
       last4: "N/A",
       expiry: "N/A",

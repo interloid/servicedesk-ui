@@ -7,9 +7,15 @@ import { fetchTenantBillingData } from "./services/billing-dashboard.service";
 export async function changeTenantPlanAction(
   tenantSlug: string,
   newPlan: string,
+  fundingPreference: "paypal" | "card" = "paypal",
 ) {
   try {
-    const result = await changeTenantPlan(tenantSlug, newPlan);
+    const result = await changeTenantPlan(
+      tenantSlug,
+      newPlan,
+      undefined,
+      fundingPreference,
+    );
 
     if (!result.success) {
       return {
@@ -93,8 +99,21 @@ export async function confirmSubscriptionActivationAction(
   }
 }
 
-export async function updatePaymentMethodAction(tenantSlug: string) {
-  console.log("🚀 ~ updatePaymentMethodAction ~ tenantSlug:", tenantSlug);
+/**
+ * Mints the short-lived PayPal token that lets the browser render hosted card
+ * fields for this tenant's checkout.
+ *
+ * The merchant secret stays inside the `subscription` Edge Function, which
+ * only issues a token once it has re-checked that the caller may manage this
+ * tenant's billing. The token is scoped to confirming a subscription and
+ * expires in minutes, so it is fetched per checkout rather than cached.
+ */
+export async function getPayPalSdkTokenAction(tenantSlug: string): Promise<{
+  success: boolean;
+  error?: string;
+  sdkToken?: string;
+  environment?: "sandbox" | "live";
+}> {
   try {
     const { createSupabaseServerClient } =
       await import("@/lib/supabase/server");
@@ -104,188 +123,120 @@ export async function updatePaymentMethodAction(tenantSlug: string) {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
+
     if (userError || !user) {
       return { success: false, error: "Unauthorized" };
     }
 
-    const { data: tenant, error: tenantError } = await supabase
-      .from("tenants")
-      .select("id, slug")
-      .eq("slug", tenantSlug)
-      .single();
-
-    if (tenantError || !tenant) {
-      return { success: false, error: "Tenant not found" };
-    }
-
-    const { data: billingMember, error: membershipError } = await supabase
-      .from("memberships")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("tenant_id", tenant.id)
-      .in("role", ["tenant_admin", "billing_admin"])
-      .eq("status", "active")
-      .maybeSingle();
-
-    if (membershipError || !billingMember) {
-      return {
-        success: false,
-        error: "You do not have billing permissions for this tenant.",
-      };
-    }
-
-    const { data: subscription, error: subError } = await supabase
-      .from("subscriptions")
-      .select("id, paypal_subscription_id, status")
-      .eq("tenant_id", tenant.id)
-      .in("status", ["active", "trialing", "past_due"])
-      .maybeSingle();
-
-    if (subError || !subscription) {
-      return {
-        success: false,
-        error: "No active subscription found for this tenant.",
-      };
-    }
-
-    const paypalSubscriptionId = subscription.paypal_subscription_id;
-    if (!paypalSubscriptionId || paypalSubscriptionId.startsWith("FREE-")) {
-      return {
-        success: false,
-        error: "This tenant does not have a PayPal subscription.",
-      };
-    }
-
-    const { createSupabaseAdminClient } = await import("@/lib/supabase/admin");
-    const serviceClient = createSupabaseAdminClient();
-
-    const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
-    const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
-    const PAYPAL_BASE_URL = process.env.PAYPAL_BASE_URL;
-
-    if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET || !PAYPAL_BASE_URL) {
-      return {
-        success: false,
-        error: "PayPal configuration is missing.",
-      };
-    }
-
-    const tokenResponse = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`)}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: "grant_type=client_credentials",
+    const { data, error } = await supabase.functions.invoke("subscription", {
+      body: { action: "sdk-token", tenantSlug },
     });
 
-    if (!tokenResponse.ok) {
+    if (error) {
+      let message: string | undefined;
+
+      try {
+        const body = (await error.context?.json()) as
+          { message?: string } | undefined;
+        message = body?.message;
+      } catch {
+        message = undefined;
+      }
+
+      console.error("[PayPal] client token action failed:", message ?? error);
       return {
         success: false,
-        error: "Failed to authenticate with PayPal.",
+        error: message ?? "Could not start card checkout.",
       };
     }
 
-    const { access_token } = await tokenResponse.json();
+    if (!data?.success || !data?.sdkToken) {
+      return {
+        success: false,
+        error: data?.message ?? "Could not start card checkout.",
+      };
+    }
 
-    const subscriptionResponse = await fetch(
-      `${PAYPAL_BASE_URL}/v1/billing/subscriptions/${paypalSubscriptionId}`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-          "Content-Type": "application/json",
-        },
-      },
+    // The token itself is never logged -- only that one was issued.
+    return {
+      success: true,
+      sdkToken: data.sdkToken as string,
+      environment: (data.environment as "sandbox" | "live") ?? "live",
+    };
+  } catch (error) {
+    console.error("[PayPal] client token action error:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Could not start card checkout.",
+    };
+  }
+}
+
+/**
+ * Re-syncs the tenant's payment method from PayPal and returns where the
+ * customer changes it.
+ *
+ * All PayPal work lives in the `update-payment-method` Edge Function so there
+ * is one implementation of the payment-method mapping rather than a Node copy
+ * drifting from the Deno one. Nothing here creates a subscription or a tenant.
+ */
+export async function updatePaymentMethodAction(tenantSlug: string): Promise<{
+  success: boolean;
+  error?: string;
+  manageUrl?: string | null;
+  paymentMethod?: {
+    type: "card" | "paypal";
+    brand: string | null;
+    last4: string | null;
+    expiryMonth: number | null;
+    expiryYear: number | null;
+    email: string | null;
+  } | null;
+}> {
+  try {
+    const { createSupabaseServerClient } =
+      await import("@/lib/supabase/server");
+    const supabase = await createSupabaseServerClient();
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const { data, error } = await supabase.functions.invoke(
+      "update-payment-method",
+      { body: { tenantSlug } },
     );
 
-    if (!subscriptionResponse.ok) {
+    if (error) {
+      let message: string | undefined;
+
+      try {
+        const body = (await error.context?.json()) as
+          { message?: string } | undefined;
+        message = body?.message;
+      } catch {
+        message = undefined;
+      }
+
+      console.error("updatePaymentMethodAction failed:", message ?? error);
       return {
         success: false,
-        error: "Failed to fetch subscription details from PayPal.",
+        error: message ?? "Failed to update payment method",
       };
     }
 
-    const paypalSubscription = await subscriptionResponse.json();
-
-    const links = paypalSubscription.links as
-      Array<{ rel: string; href: string }> | undefined;
-    const approveLink = links?.find((link) => link.rel === "approve");
-    const updateUrl = approveLink?.href || null;
-
-    const subscriber = paypalSubscription.subscriber as
-      Record<string, unknown> | undefined;
-    const paymentSource = subscriber?.payment_source as
-      Record<string, unknown> | undefined;
-    const card = paymentSource?.card as Record<string, unknown> | undefined;
-
-    const cardBrand = (card?.brand as string) || null;
-    const cardLast4 = (card?.last_digits as string) || null;
-    const cardExpiry = (card?.expiry as string) || null;
-    const cardBin =
-      ((card?.bin_details as Record<string, unknown>)?.bin as string) || null;
-    const cardIssuer =
-      ((card?.bin_details as Record<string, unknown>)
-        ?.issuing_bank as string) || null;
-    const cardCountry =
-      ((card?.bin_details as Record<string, unknown>)
-        ?.bin_country_code as string) || null;
-
-    let expiryMonth: number | null = null;
-    let expiryYear: number | null = null;
-    if (cardExpiry) {
-      const parts = cardExpiry.split("-");
-      if (parts.length === 2) {
-        expiryMonth = parseInt(parts[1], 10) || null;
-        expiryYear = parseInt(parts[0], 10) || null;
-      }
-    }
-
-    const paymentMethodData = {
-      tenant_id: tenant.id,
-      subscription_id: subscription.id,
-      paypal_payment_token_id: paypalSubscriptionId,
-      paypal_customer_id: (subscriber?.payer_id as string) || null,
-      card_brand: cardBrand,
-      card_last4: cardLast4,
-      card_expiry_month: expiryMonth,
-      card_expiry_year: expiryYear,
-      card_bin: cardBin,
-      card_issuer: cardIssuer,
-      card_country: cardCountry,
-      payment_source_type: paymentSource
-        ? Object.keys(paymentSource)[0]
-        : "paypal",
-      is_default: true,
-      status: "active",
-    };
-
-    const { data: existingPM } = await serviceClient
-      .from("payment_methods")
-      .select("id")
-      .eq("tenant_id", tenant.id)
-      .eq("is_default", true)
-      .maybeSingle();
-
-    let upsertError;
-    if (existingPM) {
-      const { error } = await serviceClient
-        .from("payment_methods")
-        .update(paymentMethodData)
-        .eq("id", existingPM.id);
-      upsertError = error;
-    } else {
-      const { error } = await serviceClient
-        .from("payment_methods")
-        .insert(paymentMethodData);
-      upsertError = error;
-    }
-
-    if (upsertError) {
-      console.error("Failed to upsert payment method:", upsertError);
+    if (!data?.success) {
       return {
         success: false,
-        error: "Failed to update payment method in database.",
+        error: data?.message ?? "Failed to update payment method",
       };
     }
 
@@ -293,13 +244,8 @@ export async function updatePaymentMethodAction(tenantSlug: string) {
 
     return {
       success: true,
-      updateUrl,
-      paymentMethod: {
-        brand: cardBrand,
-        last4: cardLast4,
-        expiry: cardExpiry,
-        type: paymentSource ? Object.keys(paymentSource)[0] : "paypal",
-      },
+      manageUrl: data.manageUrl ?? null,
+      paymentMethod: data.paymentMethod ?? null,
     };
   } catch (error) {
     console.error("updatePaymentMethodAction error:", error);

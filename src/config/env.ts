@@ -22,6 +22,17 @@ const clientSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.string().min(1).optional(),
   ),
+
+  // Whether to collect card details in-app with PayPal's hosted card fields.
+  // Off by default: card fields for *subscriptions* are a separately gated
+  // PayPal capability, and where it is not granted the iframes render but
+  // never initialise, leaving the buyer with a form they cannot type into.
+  // Turn it on only for a merchant PayPal has enabled it for; otherwise the
+  // card option goes to PayPal's own card page, which always works.
+  NEXT_PUBLIC_PAYPAL_CARD_FIELDS: z.preprocess(
+    (value) => value === "true" || value === "1",
+    z.boolean(),
+  ),
 });
 
 const parsed = clientSchema.safeParse({
@@ -33,6 +44,7 @@ const parsed = clientSchema.safeParse({
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   NEXT_PUBLIC_PAYPAL_CLIENT_ID: process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID,
+  NEXT_PUBLIC_PAYPAL_CARD_FIELDS: process.env.NEXT_PUBLIC_PAYPAL_CARD_FIELDS,
 });
 
 if (!parsed.success) {

@@ -23,6 +23,10 @@ create table if not exists public.invoices
         
     storage_path text,
 
+    plan_name text,
+
+    seats integer,
+
     period_start date
         not null,
 

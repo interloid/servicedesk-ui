@@ -1,4 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  paypalAutopayUrl,
+  resolvePaymentSource,
+  storePayPalPaymentMethod,
+  type PayPalSubscriber,
+} from "../_shared/paypal-payment-method.ts";
 
 const CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID")?.trim();
 const CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET")?.trim();
@@ -198,71 +204,64 @@ Deno.serve(async (req) => {
       paypalSubscriptionId,
     );
 
-    const subscriber = paypalSub.subscriber as
-      Record<string, unknown> | undefined;
-    const paymentSource = subscriber?.payment_source as
-      Record<string, unknown> | undefined;
-    const card = paymentSource?.card as Record<string, unknown> | undefined;
+    const subscriber = paypalSub.subscriber as PayPalSubscriber | undefined;
+    const resolved = resolvePaymentSource(subscriber);
 
-    const cardBrand = (card?.brand as string) || null;
-    const cardLast4 = (card?.last_digits as string) || null;
-    const cardExpiry = (card?.expiry as string) || null;
-    const cardBin = (card?.bin_details?.bin as string) || null;
-    const cardIssuer = (card?.bin_details?.issuing_bank as string) || null;
-    const cardCountry = (card?.bin_details?.bin_country_code as string) || null;
+    // Re-sync from PayPal against the EXISTING agreement. Nothing here creates
+    // a subscription or a tenant: the customer keeps both, and this call only
+    // refreshes the metadata PayPal reports for the agreement they already have.
+    const outcome = await storePayPalPaymentMethod(admin, {
+      tenantId,
+      subscriptionRowId: subscription.id,
+      paypalSubscriptionId,
+      subscriber,
+      context: "update-payment-method",
+    });
 
-    let expiryMonth: number | null = null;
-    let expiryYear: number | null = null;
-    if (cardExpiry) {
-      const parts = cardExpiry.split("-");
-      if (parts.length === 2) {
-        expiryMonth = parseInt(parts[1], 10) || null;
-        expiryYear = parseInt(parts[0], 10) || null;
-      }
+    if (outcome === "failed") {
+      return Response.json(
+        {
+          success: false,
+          message: "Failed to update payment method in database.",
+        },
+        { status: 500 },
+      );
     }
 
-    const paymentMethodData = {
-      tenant_id: tenantId,
-      subscription_id: subscription.id,
-      paypal_payment_token_id: paypalSubscriptionId,
-      paypal_customer_id: (subscriber?.payer_id as string) || null,
-      paypal_email: (subscriber?.email_address as string) || null,
-      card_brand: cardBrand,
-      card_last4: cardLast4,
-      card_expiry_month: expiryMonth,
-      card_expiry_year: expiryYear,
-      card_bin: cardBin,
-      card_issuer: cardIssuer,
-      card_country: cardCountry,
-      payment_source_type: card ? "card" : "paypal",
-      is_default: true,
-      status: "active",
-    };
+    // Where the customer actually changes the funding instrument.
+    //
+    // This integration creates subscriptions through PayPal's hosted approval
+    // redirect, so the agreement is owned by the buyer's PayPal account and the
+    // funding instrument behind it is changed in PayPal's own Automatic
+    // Payments screen. That edits the existing agreement in place -- no second
+    // PayPal account, no second subscription, no second tenant.
+    //
+    // PayPal's alternative, PATCH /v1/billing/subscriptions/{id} with
+    // subscriber.payment_source, is documented for card-funded subscriptions
+    // only and requires the raw card number, which needs Advanced Credit and
+    // Debit Card Payments plus SAQ-D compliance. Neither is enabled on this
+    // merchant account, so it is deliberately not attempted.
+    const manageUrl = paypalAutopayUrl(BASE_URL);
 
-    const { data: existingPM } = await admin
-      .from("payment_methods")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .eq("is_default", true)
-      .maybeSingle();
-
-    if (existingPM) {
-      await admin
-        .from("payment_methods")
-        .update(paymentMethodData)
-        .eq("id", existingPM.id);
-    } else {
-      await admin.from("payment_methods").insert(paymentMethodData);
-    }
+    console.log(
+      `[update-payment-method] tenant=${tenantId} subscription=${paypalSubscriptionId} ` +
+        `payment_source_type=${resolved.sourceType} has_card=${resolved.hasCard} outcome=${outcome}`,
+    );
 
     return Response.json({
       success: true,
-      message: "Payment method updated successfully.",
+      message:
+        "Payment method synced from PayPal. Change the funding source in your PayPal account to update it.",
+      manageUrl,
+      // Kept for older clients that still read `updateUrl`.
+      updateUrl: manageUrl,
       paymentMethod: {
-        brand: cardBrand,
-        last4: cardLast4,
-        expiry: cardExpiry,
-        type: paymentSource ? Object.keys(paymentSource)[0] : "paypal",
+        type: resolved.sourceType,
+        brand: resolved.card?.brand ?? null,
+        last4: resolved.card?.last4 ?? null,
+        expiryMonth: resolved.card?.expiryMonth ?? null,
+        expiryYear: resolved.card?.expiryYear ?? null,
+        email: resolved.email,
       },
     });
   } catch (error) {

@@ -166,6 +166,8 @@ export async function changeTenantPlan(
   tenantSlug: string,
   newPlanCode: string,
   newPlanId?: string,
+  /** Which PayPal checkout page to open first. Does not change what is created. */
+  fundingPreference: "paypal" | "card" = "paypal",
 ): Promise<PlanChangeResult> {
   try {
     const supabase = await createSupabaseServerClient();
@@ -202,6 +204,7 @@ export async function changeTenantPlan(
       body: {
         tenantSlug,
         planId: newPlanId ?? newPlanCode,
+        fundingPreference,
       },
     });
 

@@ -6,11 +6,13 @@ import {
   AlertTriangle,
   CalendarClock,
   Check,
+  CreditCard,
   Info,
   Layers,
   Loader2,
   Settings,
   Users,
+  Wallet,
   X,
   Zap,
 } from "lucide-react";
@@ -18,7 +20,12 @@ import { FormattedPlan } from "../types";
 import { toast } from "sonner";
 import { changeTenantPlanAction } from "../billing-actions";
 import { BillingDashboardData } from "../services/billing-dashboard.service";
+import {
+  CardCheckoutDialog,
+  type CardCheckoutTarget,
+} from "./card-checkout-dialog";
 import { tenantPath } from "@/lib/tenancy";
+import { env } from "@/config/env";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,16 +59,67 @@ export function PricingCards({
   const [selectedPlanForSwitch, setSelectedPlanForSwitch] =
     useState<FormattedPlan | null>(null);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  // How the buyer wants to approve the new subscription. Both choices create
+  // exactly one subscription through the same API call; "card" then confirms it
+  // from hosted card fields on this page, "paypal" hands over to PayPal.
+  const [fundingPreference, setFundingPreference] = useState<"paypal" | "card">(
+    "paypal",
+  );
+  const [cardCheckout, setCardCheckout] = useState<CardCheckoutTarget | null>(
+    null,
+  );
+  // In-app card fields need a PayPal capability that is granted per merchant.
+  // Without it the fields render but never come alive, so the card option goes
+  // to PayPal's own card page rather than a form the buyer cannot use.
+  const cardFieldsEnabled = env.NEXT_PUBLIC_PAYPAL_CARD_FIELDS;
+
+  const announceScheduled = (planName: string, effectiveAt: string | null) => {
+    const when = effectiveAt
+      ? new Date(effectiveAt).toLocaleDateString(undefined, {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : "the end of your billing period";
+
+    toast.success(
+      `Switch to ${planName} scheduled for ${when}. You keep your current plan until then.`,
+    );
+  };
 
   const executePlanSwitch = (plan: FormattedPlan) => {
     setLoadingPlanCode(plan.id);
 
     startTransition(async () => {
       try {
-        const res = await changeTenantPlanAction(tenantSlug, plan.id);
+        const res = await changeTenantPlanAction(
+          tenantSlug,
+          plan.id,
+          fundingPreference,
+        );
 
         if (!res.success) {
           toast.error(res.error || "Failed to switch plan.");
+          return;
+        }
+
+        // The subscription now exists in APPROVAL_PENDING either way. With card
+        // fields enabled the buyer confirms it here; otherwise both choices use
+        // the redirect, which PayPal opens on its card form rather than its
+        // sign-in because `fundingPreference` was sent as "card".
+        if (
+          cardFieldsEnabled &&
+          fundingPreference === "card" &&
+          res.subscriptionId
+        ) {
+          setCardCheckout({
+            subscriptionId: res.subscriptionId,
+            approvalUrl: res.approvalUrl ?? null,
+            planName: plan.name,
+            priceLabel: `${plan.price}${plan.priceSuffix}`,
+          });
+          setSelectedPlanForSwitch(null);
+          setConfirmingCancel(false);
           return;
         }
 
@@ -74,17 +132,7 @@ export function PricingCards({
         // show the old plan and look like the request failed. Say when it
         // takes effect instead.
         if (res.scheduled) {
-          const when = res.effectiveAt
-            ? new Date(res.effectiveAt).toLocaleDateString(undefined, {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              })
-            : "the end of your billing period";
-
-          toast.success(
-            `Switch to ${plan.name} scheduled for ${when}. You keep your current plan until then.`,
-          );
+          announceScheduled(plan.name, res.effectiveAt ?? null);
           setSelectedPlanForSwitch(null);
           setConfirmingCancel(false);
           return;
@@ -137,6 +185,11 @@ export function PricingCards({
         ? `Downgrade to ${selectedPlanForSwitch.name}`
         : `Upgrade to ${selectedPlanForSwitch.name}`;
 
+  const openSwitchDialog = (plan: FormattedPlan) => {
+    setFundingPreference("paypal");
+    setSelectedPlanForSwitch(plan);
+  };
+
   const openCancelDialog = () => {
     if (!freePlan) return;
     setConfirmingCancel(true);
@@ -180,8 +233,16 @@ export function PricingCards({
 
     if (isUpgradeTarget) {
       return {
-        headline: "As soon as PayPal checkout is approved",
-        body: `You'll be redirected to PayPal to approve the new ${target.name} subscription. Your current plan stays active until it's live, then you'll be billed ${target.price}${target.priceSuffix}.`,
+        headline:
+          fundingPreference === "card"
+            ? "As soon as your card is confirmed"
+            : "As soon as PayPal checkout is approved",
+        body:
+          fundingPreference === "card"
+            ? `You'll enter your card details ${
+                cardFieldsEnabled ? "on the next step" : "on PayPal's card form"
+              }. Your current plan stays active until the card is confirmed, then you'll be billed ${target.price}${target.priceSuffix}.`
+            : `You'll be redirected to PayPal to approve the new ${target.name} subscription. Your current plan stays active until it's live, then you'll be billed ${target.price}${target.priceSuffix}.`,
         deferred: false,
       };
     }
@@ -379,7 +440,7 @@ export function PricingCards({
                   ) : (
                     <Button
                       disabled={isPending}
-                      onClick={() => setSelectedPlanForSwitch(plan)}
+                      onClick={() => openSwitchDialog(plan)}
                       className={`h-11 w-full gap-2 whitespace-nowrap font-semibold shadow-none transition-colors ${
                         isDowngrade
                           ? "border border-border bg-background text-foreground hover:bg-muted"
@@ -510,14 +571,78 @@ export function PricingCards({
                   )}
 
                 {!isFreeTarget && !confirmingCancel && isUpgradeTarget && (
-                  <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm leading-5 text-muted-foreground">
-                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-accent" />
-                    <p>
-                      You&apos;ll be taken to PayPal to approve the new
-                      subscription. Nothing changes until you complete that
-                      step.
-                    </p>
-                  </div>
+                  <>
+                    <div className="w-full rounded-xl border border-border px-4 py-3.5">
+                      <p className="text-sm font-semibold text-foreground">
+                        How do you want to pay?
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {(
+                          [
+                            {
+                              value: "paypal" as const,
+                              icon: Wallet,
+                              label: "PayPal account",
+                              hint: "Sign in and pay with your balance or a saved card.",
+                            },
+                            {
+                              value: "card" as const,
+                              icon: CreditCard,
+                              label: "Debit or credit card",
+                              hint: cardFieldsEnabled
+                                ? "Enter your card here, without leaving this page."
+                                : "Pay by card on PayPal's secure page.",
+                            },
+                          ] as const
+                        ).map((option) => {
+                          const OptionIcon = option.icon;
+                          const isSelected = fundingPreference === option.value;
+
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              disabled={isPending}
+                              aria-pressed={isSelected}
+                              onClick={() => setFundingPreference(option.value)}
+                              className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                                isSelected
+                                  ? "border-brand-accent bg-brand-accent/5"
+                                  : "border-border bg-background hover:bg-muted/50"
+                              }`}
+                            >
+                              <OptionIcon
+                                className={`mt-0.5 h-4 w-4 shrink-0 ${
+                                  isSelected
+                                    ? "text-brand-accent"
+                                    : "text-muted-foreground"
+                                }`}
+                              />
+                              <span className="space-y-0.5">
+                                <span className="block text-sm font-semibold text-foreground">
+                                  {option.label}
+                                </span>
+                                <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                                  {option.hint}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm leading-5 text-muted-foreground">
+                      <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-accent" />
+                      <p>
+                        {fundingPreference === "card"
+                          ? cardFieldsEnabled
+                            ? "You'll enter your card on the next step without leaving this page. PayPal processes it and we only ever see the brand and last four digits. Nothing changes until the card is confirmed."
+                            : "You'll be taken to PayPal's secure checkout to pay by card. Whether PayPal offers a card form or asks you to sign in first depends on your PayPal session and the merchant's guest-checkout setting. Nothing changes until you complete that step."
+                          : "You'll be taken to PayPal to approve the new subscription. Nothing changes until you complete that step."}
+                      </p>
+                    </div>
+                  </>
                 )}
               </div>
             </AlertDialogDescription>
@@ -549,11 +674,38 @@ export function PricingCards({
               {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {confirmingCancel || isFreeTarget
                 ? "Yes, cancel subscription"
-                : "Confirm switch"}
+                : isUpgradeTarget && fundingPreference === "card"
+                  ? cardFieldsEnabled
+                    ? "Continue to card details"
+                    : "Continue to card payment"
+                  : "Confirm switch"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CardCheckoutDialog
+        // Keyed so each checkout starts from a clean form rather than
+        // inheriting the phase and errors of the one before it.
+        key={cardCheckout?.subscriptionId ?? "idle"}
+        open={cardCheckout !== null}
+        onOpenChange={(open) => {
+          if (!open) setCardCheckout(null);
+        }}
+        tenantSlug={tenantSlug}
+        target={cardCheckout}
+        onPaid={({ planName, scheduled, effectiveAt }) => {
+          setCardCheckout(null);
+
+          if (scheduled) {
+            announceScheduled(planName, effectiveAt);
+            return;
+          }
+
+          toast.success(`You're on ${planName}.`);
+          window.location.reload();
+        }}
+      />
     </>
   );
 }

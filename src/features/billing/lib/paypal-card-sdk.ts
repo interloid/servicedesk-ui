@@ -52,20 +52,7 @@ export interface PayPalSdkInstance {
   findEligibleMethods: (options?: {
     currencyCode?: string;
   }) => Promise<EligibleMethods>;
-  createCardFieldsOneTimePaymentSession?: (
-    handlers?: unknown,
-  ) => CardFieldsSession;
-  createCardFieldsSavePaymentSession?: (
-    handlers?: unknown,
-  ) => CardFieldsSession;
-  /**
-   * Not present in v6 as shipped: the SDK exposes card-fields sessions for
-   * one-time payments and for vaulting only. Probed rather than assumed so
-   * that the card path lights up on its own if PayPal adds it.
-   */
-  createCardFieldsSubscriptionSession?: (
-    handlers?: unknown,
-  ) => CardFieldsSession;
+  createCardFieldsPaymentSession?: (handlers?: unknown) => CardFieldsSession;
 }
 
 interface PayPalV6Namespace {

@@ -22,14 +22,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { env } from "@/config/env";
-
 import {
   cardFieldStyle,
   checkAdvancedCardsEligibility,
-  loadPayPalV5CardFields,
-  verifyCardFieldsBooted,
-  type V5CardFieldsInstance,
+  loadPayPalWebSdk,
+  type CardFieldsSession,
+  type PayPalSdkInstance,
 } from "../lib/paypal-card-sdk";
 import {
   confirmSubscriptionActivationAction,
@@ -97,8 +95,6 @@ function requestClientToken(tenantSlug: string) {
   if (tokenRequest?.key === tenantSlug) return tokenRequest.promise;
 
   const promise = getPayPalSdkTokenAction(tenantSlug).finally(() => {
-    // Cleared once settled: the token is short-lived, so a later checkout must
-    // mint a fresh one rather than reuse this result.
     if (tokenRequest?.key === tenantSlug) tokenRequest = null;
   });
 
@@ -108,12 +104,50 @@ function requestClientToken(tenantSlug: string) {
 }
 
 /**
- * Takes card details for an already-created subscription, when PayPal's SDK
+ * Waits for any of the session's card-field iframes to signal readiness.
+ *
+ * PayPal's v6 card fields do not expose a `getState()` probe like v5 did, so
+ * we race the session's first field render against a timeout instead. If the
+ * iframes never appear the timeout expires and the caller falls back.
+ */
+function waitForFieldRender(
+  session: CardFieldsSession,
+  isDark: boolean,
+  container: HTMLDivElement | null,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (!container) return Promise.resolve(false);
+
+  const style = cardFieldStyle(isDark);
+
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+
+    session
+      .createCardFieldsComponent({
+        type: "number",
+        placeholder: "1234 5678 9012 3456",
+        style,
+      })
+      .render(container)
+      .then(() => {
+        clearTimeout(timer);
+        resolve(true);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve(false);
+      });
+  });
+}
+
+/**
+ * Takes card details for an already-created subscription, when PayPal's v6 SDK
  * reports it can, and otherwise hands the buyer to PayPal's hosted card page.
  *
- * Eligibility is decided by the v6 SDK's `findEligibleMethods`, not by timing a
- * probe. Every non-eligible outcome is logged with its specific cause and then
- * falls back, so a buyer never lands on an error they cannot act on.
+ * v6 card fields use `createCardFieldsPaymentSession()` which creates a session
+ * bound to the subscription. The session handles card processing; on success
+ * `onApprove` fires with the subscription id.
  *
  * Card number, expiry and CVV live in PayPal-owned iframes. They never enter
  * this page's JavaScript and never reach our servers.
@@ -142,15 +176,13 @@ export function CardCheckoutDialog({
   const expiryRef = useRef<HTMLDivElement>(null);
   const cvvRef = useRef<HTMLDivElement>(null);
 
-  const fieldsRef = useRef<V5CardFieldsInstance | null>(null);
+  const sessionRef = useRef<CardFieldsSession | null>(null);
 
   const targetRef = useRef(target);
   const onPaidRef = useRef(onPaid);
   const tenantSlugRef = useRef(tenantSlug);
   const billingRef = useRef({ postalCode, country });
 
-  // Refreshed after render, not during it, so PayPal's callbacks always read
-  // current props without React seeing a ref written mid-render.
   useEffect(() => {
     targetRef.current = target;
     onPaidRef.current = onPaid;
@@ -224,7 +256,6 @@ export function CardCheckoutDialog({
       if (cancelled) return;
 
       if (!tokenResult.success || !tokenResult.sdkToken) {
-        // B: invalid/expired/undeliverable client token.
         handOff(
           "client_token",
           tokenResult.error ?? "Client token could not be created.",
@@ -234,9 +265,7 @@ export function CardCheckoutDialog({
 
       console.log("[PayPal] Client token created");
 
-      // Stage 1 -- v6 answers eligibility authoritatively. It cannot render
-      // what we need (no subscription session of any kind), so it is used for
-      // the verdict only.
+      // Stage 1 -- v6 answers eligibility authoritatively.
       const eligibility = await checkAdvancedCardsEligibility({
         clientToken: tokenResult.sdkToken,
         environment: tokenResult.environment ?? "live",
@@ -252,22 +281,16 @@ export function CardCheckoutDialog({
 
       console.log("[PayPal] advanced_cards eligible: true");
 
-      const clientId = env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
-
-      if (!clientId) {
-        handOff("config", "NEXT_PUBLIC_PAYPAL_CLIENT_ID is not set.");
-        return;
-      }
-
-      // Stage 2 -- v5 is the only build whose card fields can approve a
-      // billing agreement, via createSubscription.
-      let v5;
+      let sdk: PayPalSdkInstance;
 
       try {
-        v5 = await loadPayPalV5CardFields({
-          clientId,
-          sdkToken: tokenResult.sdkToken,
-          environment: tokenResult.environment ?? "live",
+        const paypal = await loadPayPalWebSdk(
+          tokenResult.environment ?? "live",
+        );
+        sdk = await paypal.createInstance({
+          clientToken: tokenResult.sdkToken,
+          components: ["card-fields"],
+          pageType: "checkout",
         });
       } catch (loadError) {
         handOff(
@@ -279,59 +302,103 @@ export function CardCheckoutDialog({
 
       if (cancelled) return;
 
-      const fields = v5.CardFields({
-        // The subscription already exists; PayPal is given its id so the card
-        // confirms that exact agreement rather than creating a second one.
-        createSubscription: () => Promise.resolve(subscriptionId),
-        onApprove: (data) => {
-          void finalise(
-            data.subscriptionId ?? data.subscriptionID ?? subscriptionId,
-          );
+      if (!sdk.createCardFieldsPaymentSession) {
+        handOff(
+          "session_unavailable",
+          "v6 SDK does not expose createCardFieldsPaymentSession.",
+        );
+        return;
+      }
+
+      // Create the card fields payment session linked to this subscription.
+      // onApprove fires after PayPal successfully processes the card and
+      // confirms the subscription. onError fires on decline/verification fail.
+      const session = sdk.createCardFieldsPaymentSession({
+        onApprove: (data: { subscriptionId?: string }) => {
+          void finalise(data.subscriptionId ?? subscriptionId);
         },
-        onError: (paypalError) => {
+        onError: (paypalError: unknown) => {
           console.error("[PayPal] Card payment failed:", paypalError);
           setError(
             "That card was declined or could not be verified. Check the details and try again, or pay with PayPal instead.",
           );
           setPhase("ready");
         },
-        style: cardFieldStyle(resolvedTheme === "dark"),
       });
 
-      if (!fields.isEligible()) {
-        handOff("component_unavailable", "v5 CardFields reported ineligible.");
+      // Render the number field into a temporary container to verify the
+      // session actually mounted live iframes (not dead placeholders).
+      const probeContainer = document.createElement("div");
+      probeContainer.style.height = "1px";
+      probeContainer.style.overflow = "hidden";
+      probeContainer.style.position = "absolute";
+      probeContainer.style.pointerEvents = "none";
+      document.body.appendChild(probeContainer);
+
+      const booted = await waitForFieldRender(
+        session,
+        resolvedTheme === "dark",
+        probeContainer,
+        CAPABILITY_TIMEOUT_MS,
+      );
+
+      // Clean up the probe container; the real fields render into the refs.
+      probeContainer.remove();
+
+      if (cancelled) return;
+
+      if (!booted) {
+        handOff(
+          "fields_never_initialised",
+          "Card fields mounted but never registered. This may be a merchant " +
+            "capability issue -- check that Advanced Credit and Debit Card " +
+            "Payments is enabled in your PayPal app.",
+        );
         return;
       }
 
+      console.log("[PayPal] v6 Card Fields session ready");
+      sessionRef.current = session;
+
+      // Render all four fields into their real containers.
+      const style = cardFieldStyle(resolvedTheme === "dark");
+
       const inputEvents = {
-        onChange: (state: { isFormValid: boolean }) =>
-          setFormValid(state.isFormValid),
-        onBlur: (state: { isFormValid: boolean }) =>
-          setFormValid(state.isFormValid),
+        onChange: (state: { isFormValid?: boolean }) =>
+          setFormValid(Boolean(state.isFormValid)),
+        onBlur: (state: { isFormValid?: boolean }) =>
+          setFormValid(Boolean(state.isFormValid)),
       };
 
+      const fieldsToRender: Array<{
+        ref: HTMLDivElement | null;
+        type: "name" | "number" | "expiry" | "cvv";
+        placeholder: string;
+      }> = [
+        { ref: nameRef.current, type: "name", placeholder: "Name on card" },
+        {
+          ref: numberRef.current,
+          type: "number",
+          placeholder: "1234 5678 9012 3456",
+        },
+        { ref: expiryRef.current, type: "expiry", placeholder: "MM / YY" },
+        { ref: cvvRef.current, type: "cvv", placeholder: "CVC" },
+      ];
+
       try {
-        await Promise.all([
-          nameRef.current &&
-            fields
-              .NameField({ placeholder: "Name on card", inputEvents })
-              .render(nameRef.current),
-          numberRef.current &&
-            fields
-              .NumberField({
-                placeholder: "1234 5678 9012 3456",
+        await Promise.all(
+          fieldsToRender.map((field) => {
+            if (!field.ref) return Promise.resolve();
+            return session
+              .createCardFieldsComponent({
+                type: field.type,
+                placeholder: field.placeholder,
+                style,
                 inputEvents,
               })
-              .render(numberRef.current),
-          expiryRef.current &&
-            fields
-              .ExpiryField({ placeholder: "MM / YY", inputEvents })
-              .render(expiryRef.current),
-          cvvRef.current &&
-            fields
-              .CVVField({ placeholder: "CVC", inputEvents })
-              .render(cvvRef.current),
-        ]);
+              .render(field.ref);
+          }),
+        );
       } catch (renderError) {
         handOff(
           "render_failed",
@@ -344,45 +411,19 @@ export function CardCheckoutDialog({
 
       if (cancelled) return;
 
-      // Rendering resolving is not proof the fields work: an unbound client
-      // token leaves them mounted but dead. getState() resolving is.
-      const booted = await verifyCardFieldsBooted(
-        fields,
-        CAPABILITY_TIMEOUT_MS,
-      );
-
-      if (cancelled) return;
-
-      if (!booted) {
-        handOff(
-          "fields_never_initialised",
-          "Card fields mounted but never registered. The client token is " +
-            "most likely not bound to this origin -- set PAYPAL_TOKEN_DOMAINS " +
-            "to the domain serving this page (PayPal rejects localhost).",
-        );
-        return;
-      }
-
-      console.log("[PayPal] Card Fields initialized");
-      fieldsRef.current = fields;
       setPhase("ready");
     })();
 
     return () => {
       cancelled = true;
-      // v5 owns its iframes and tears them down when the container is
-      // removed from the DOM, which Radix does on close. Only our handle is
-      // dropped here so a reopened dialog builds a fresh instance.
-      fieldsRef.current = null;
+      sessionRef.current = null;
     };
-    // `resolvedTheme` is excluded deliberately: fields are styled at mount, and
-    // tearing down a half-typed card to restyle it would lose the buyer's input.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, subscriptionId, approvalUrl, finalise]);
 
   const handleSubmit = async () => {
-    const fields = fieldsRef.current;
-    if (!fields) return;
+    const session = sessionRef.current;
+    if (!session) return;
 
     setPhase("paying");
     setError(null);
@@ -390,7 +431,7 @@ export function CardCheckoutDialog({
     const { postalCode: zip, country: countryCode } = billingRef.current;
 
     try {
-      await fields.submit({
+      const result = await session.submit("card", {
         billingAddress: {
           ...(zip.trim() ? { postalCode: zip.trim() } : {}),
           ...(COUNTRY_PATTERN.test(countryCode.trim())
@@ -398,8 +439,16 @@ export function CardCheckoutDialog({
             : {}),
         },
       });
-      // Deliberately no success handling: submit resolves once PayPal accepts
-      // the card, and onApprove is what confirms the subscription.
+
+      // Deliberately no success handling here: onApprove fires after submit
+      // succeeds and confirms the subscription. Only handle explicit failure.
+      if (result.state === "failed") {
+        console.error("[PayPal] Card submit failed:", result);
+        setError(
+          "We couldn't process that card. Check the details and try again, or pay with PayPal instead.",
+        );
+        setPhase("ready");
+      }
     } catch (submitError) {
       console.error("[PayPal] Card submit threw:", submitError);
       setError(
@@ -420,8 +469,6 @@ export function CardCheckoutDialog({
       <DialogContent
         showCloseButton={phase !== "paying"}
         className="gap-0 p-0 sm:max-w-105"
-        // PayPal's iframes manage their own focus; grabbing it back on open
-        // would blur the card number the moment the buyer starts typing.
         onOpenAutoFocus={(event) => event.preventDefault()}
       >
         <DialogHeader className="space-y-1 border-b border-border px-5 pt-5 pb-4 text-left">
@@ -431,7 +478,7 @@ export function CardCheckoutDialog({
           </DialogTitle>
           <DialogDescription className="text-xs">
             {target
-              ? `${target.planName} · ${target.priceLabel}. Your card is charged by PayPal when the subscription starts.`
+              ? `${target.planName} \u00b7 ${target.priceLabel}. Your card is charged by PayPal when the subscription starts.`
               : "Enter your card details to start the subscription."}
           </DialogDescription>
         </DialogHeader>
@@ -439,7 +486,7 @@ export function CardCheckoutDialog({
         {phase === "checking" && (
           <div className="flex items-center gap-2 px-5 py-6 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Checking how you can pay…
+            Checking how you can pay...
           </div>
         )}
 
@@ -457,12 +504,11 @@ export function CardCheckoutDialog({
                   <span className="font-mono font-semibold">
                     {handoff.code}
                   </span>
-                  {" — "}
+                  {" \u2014 "}
                   {handoff.reason}
                 </p>
               )}
             </div>
-            {/* Shown so a stalled redirect is still actionable. */}
             <div className="flex justify-end">
               <Button
                 onClick={goToPayPal}
@@ -487,7 +533,7 @@ export function CardCheckoutDialog({
             {handoff && (
               <p className="text-[11px] leading-4 text-muted-foreground">
                 <span className="font-mono font-semibold">{handoff.code}</span>
-                {" — "}
+                {" \u2014 "}
                 {handoff.reason}
               </p>
             )}
@@ -625,7 +671,7 @@ export function CardCheckoutDialog({
                   {phase === "paying" ? (
                     <>
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Confirming…
+                      Confirming...
                     </>
                   ) : (
                     <>

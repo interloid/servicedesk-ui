@@ -51,58 +51,72 @@ grant_type=client_credentials&response_type=client_token
 The browser receives only that token, passed as `data-sdk-client-token` on the
 SDK script tag. The merchant secret stays server-side.
 
-## Merchant eligibility — orders yes, subscriptions no
+## Card-funded subscriptions: not available on this merchant
 
-Advanced card processing **is** enabled on this account, but only for orders.
-Card fields for _subscriptions_ are a separately gated capability and are not
-available here. Measured directly against this client-id:
+Every documented route was tested against this account. All four are closed.
 
-| `intent`     | `data-client-token` | `data-sdk-client-token` | `getState()` |
-| ------------ | ------------------- | ----------------------- | ------------ |
-| capture      | yes                 | –                       | **boots**    |
-| capture      | –                   | yes                     | rejects      |
-| capture      | yes                 | yes                     | rejects      |
-| subscription | yes                 | yes                     | times out    |
+| Route                                                       | Result                                                                                                                                                                                             |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v6 `createCardFieldsSubscriptionSession`                    | Does not exist. v6 exposes only `createCardFieldsOneTimePaymentSession` and `createCardFieldsSavePaymentSession` — and no `createPayPalSubscriptionSession` either, with both components requested |
+| v6 `createCardFieldsSavePaymentSession` → vault → subscribe | `POST /v3/vault/setup-tokens` → **403 NOT_AUTHORIZED**; token carries only the deprecated `v1/vault/credit-card` scope                                                                             |
+| v5 `CardFields({ createSubscription })`                     | Fields mount but never register, **including on an origin the client token is bound to**                                                                                                           |
+| Hosted redirect → guest card form                           | `guestEnabled: false` on every intent (capture, capture+vault, subscription)                                                                                                                       |
+| `subscriber.payment_source.token` at creation               | Accepted but ignored; subscription still returns `APPROVAL_PENDING`                                                                                                                                |
 
-Two different tokens are involved and they are not interchangeable:
+`advanced_cards` eligibility is **true** — the merchant can process cards. That
+permits card acceptance, not origination of a card-funded billing agreement;
+the two are separate entitlements and only the first is granted here.
 
-- `data-client-token` — from `POST /v1/identity/generate-token`, a Braintree
-  style token. Card fields initialise with it.
-- `data-sdk-client-token` — from `POST /v1/oauth2/token` with
-  `response_type=client_token`, a JWT. Required by the SDK for
-  `createSubscription` (`SDK Token must be passed in for createSubscription`),
-  and its mere presence stops the card fields initialising, at any intent.
+### Hypotheses tested and rejected
 
-That is the deadlock: the token subscriptions require is the token that breaks
-the fields. The JWT this account can mint decodes to `scope: []` and
-`options: {}` — inert — and minting it with `intent=sdk_init` changes nothing,
-so it is an account entitlement rather than a request-shape problem.
+Recorded so they are not re-litigated:
 
-`isEligible()` returns `true` throughout and must not be trusted; it reports the
-funding-source flag, not this capability. The symptoms when it is wrong are
-empty grey fields that cannot be typed into, and a `getState()` that hangs or
-rejects with `Cannot read properties of undefined (reading 'getFieldValue')`.
-`CardCheckoutDialog` therefore probes `getState()` after render and falls back
-to the approval redirect.
+- _"The merchant is not enabled for advanced cards."_ Wrong — v6
+  `findEligibleMethods` returns `advanced_cards: true`.
+- _"The client token is inert because `scope`/`options` decode empty."_ Wrong —
+  that is normal for this JWT; the real scopes are in the response body.
+- _"The client token must be bound to the serving origin via `domains[]`."_
+  Wrong — with `PAYPAL_TOKEN_DOMAINS=servicedesk-ui.vercel.app` set and the app
+  served from that exact domain, v5 card fields still reported
+  `fields_never_initialised`.
+- _"`getState()` timing is a sound eligibility probe."_ Wrong — v5
+  `isEligible()` returns true regardless; `findEligibleMethods` (v6) is the
+  authoritative source. `getState()` is retained only as a liveness check.
+
+### What would unlock it
+
+One of, confirmed with PayPal per merchant account:
+
+1. **Guest checkout / unbranded card** → `guestEnabled: true`, so the existing
+   redirect shows a card form instead of a PayPal login. No code change.
+2. **Payment Method Tokens (Vault v3)** → unblocks
+   `createCardFieldsSavePaymentSession`, which already exists on this v6
+   instance: save card → `vault_id` → create the subscription with
+   `subscriber.payment_source.token` → genuine `payment_source_type = 'card'`.
 
 PayPal documents direct card subscription creation as limited to eligible
 merchants in the US and Australia, non-3DS cards only. The sandbox business
-account here is US. **A production merchant in another region should not be
-assumed to have it** — that needs confirming with PayPal per account.
+account here is US; the payer address on the live test subscription is India.
+**Do not assume the India production merchant is eligible** — verify per account.
 
-To re-check whether subscription card fields have been enabled, run the card
-fields with `intent=subscription` and a `data-sdk-client-token` and see whether
-`getState()` resolves.
+### Verified working today
+
+A real settled subscription (`ACTIVE`, $59 charged, Discover x-14 behind a
+PayPal wallet) returns **no `payment_source` key at all**. The pipeline records
+it correctly: one `payment_methods` row across two subscriptions,
+`payment_source_type = 'paypal'`, payer name/country preserved, invoices keyed
+on `paypal_txn_id`, switching applied. Nothing is invented.
 
 ## When card metadata is (still) absent
 
-`subscriber.payment_source.card` is populated only for subscriptions PayPal
-itself resolved to a card, which in practice means one confirmed through the
-card fields above — so on this account, today, **never**. It is absent for
-wallet-approved and guest-card redirect subscriptions alike: PayPal does not
-disclose the card behind a PayPal balance, a buyer's saved funding source, or a
-guest card entered in its own checkout, and no re-read or later webhook will
-ever produce one.
+`subscriber.payment_source.card` is available when PayPal creates or resolves
+the subscription with a card payment source. In our tested wallet /
+hosted-checkout flows PayPal does not expose the underlying card — so on this
+account, today, it **never** appears. It is absent for wallet-approved and
+guest-card redirect subscriptions alike: PayPal does not disclose the card
+behind a PayPal balance, a buyer's saved funding source, or a guest card
+entered in its own checkout, and no re-read or later webhook will ever produce
+one.
 
 The Payment Method Tokens API (vault) is a separate capability and is **not**
 enabled here:

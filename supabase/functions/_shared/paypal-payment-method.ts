@@ -5,11 +5,10 @@
 // ---------------
 // This project integrates PayPal through the hosted subscription approval
 // redirect (POST /v1/billing/subscriptions -> `approve` link -> paypal.com).
-// In that flow the buyer picks the funding instrument inside PayPal's own UI
-// and PayPal never discloses it back to the merchant: `subscriber.payment_source`
-// is populated ONLY for subscriptions the merchant itself created with
-// `subscriber.payment_source.card` (the Advanced Credit and Debit Card /
-// direct-card flow, which requires the raw PAN and SAQ-D compliance).
+// `subscriber.payment_source.card` is available when PayPal creates or
+// resolves the subscription with a card payment source. In our tested
+// wallet / hosted-checkout flows PayPal does not expose the underlying card,
+// so `payment_source.card` never appears there.
 //
 // So `payment_source.card` missing is the normal, expected case here, not a
 // race we can retry our way out of. This module therefore:
@@ -56,8 +55,9 @@ export interface PayPalSubscriber {
     address?: { country_code?: string };
   };
   /**
-   * Present only for card-funded subscriptions. A wallet-approved subscription
-   * omits it entirely -- PayPal does not disclose the card behind a wallet.
+   * Present when PayPal creates or resolves the subscription with a card
+   * payment source. In our tested wallet / hosted-checkout flows PayPal does
+   * not expose the card behind it, so this is absent there.
    */
   payment_source?: { card?: PayPalCard };
 }
@@ -189,8 +189,8 @@ export interface StorePaymentMethodArgs {
    * Optional authoritative re-read of the subscription, used only when the
    * event itself carried no card. Webhook payloads are point-in-time snapshots,
    * so this confirms against PayPal instead of assuming a card will turn up in
-   * some later event -- it never will, because PayPal only reports a card for
-   * subscriptions the merchant created with one.
+   * some later event -- it never will, because in our tested wallet /
+   * hosted-checkout flows PayPal does not expose the underlying card.
    */
   fetchSubscriber?: () => Promise<PayPalSubscriber | null>;
   /** Free-text label for the logs, e.g. "webhook:activated". */

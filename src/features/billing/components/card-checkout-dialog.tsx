@@ -71,7 +71,7 @@ type Phase =
 const COUNTRY_PATTERN = /^[A-Za-z]{2}$/;
 
 /** Long enough to read the handover line, short enough not to feel stuck. */
-const HANDOFF_DELAY_MS = 1200;
+const HANDOFF_DELAY_MS = 3000;
 
 /**
  * Upper bound on the whole capability probe. PayPal's SDK calls are promises we
@@ -129,7 +129,10 @@ export function CardCheckoutDialog({
 
   const [phase, setPhase] = useState<Phase>("checking");
   const [error, setError] = useState<string | null>(null);
-  const [handoffReason, setHandoffReason] = useState<string | null>(null);
+  const [handoff, setHandoff] = useState<{
+    code: string;
+    reason: string;
+  } | null>(null);
   const [formValid, setFormValid] = useState(false);
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("");
@@ -208,7 +211,7 @@ export function CardCheckoutDialog({
       }
 
       console.log("[PayPal] Falling back to hosted checkout");
-      setHandoffReason(reason);
+      setHandoff({ code, reason });
       setPhase("handing_off");
       setTimeout(() => {
         if (!cancelled) window.location.assign(approvalUrl);
@@ -442,11 +445,22 @@ export function CardCheckoutDialog({
 
         {phase === "handing_off" && (
           <div className="space-y-4 px-5 py-5">
-            <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 px-4 py-3.5">
-              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-brand-accent" />
-              <p className="text-xs leading-5 text-foreground">
-                Taking you to PayPal&apos;s secure checkout to pay by card.
-              </p>
+            <div className="space-y-2 rounded-xl border border-border bg-muted/40 px-4 py-3.5">
+              <div className="flex items-start gap-2.5">
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-brand-accent" />
+                <p className="text-xs leading-5 text-foreground">
+                  Taking you to PayPal&apos;s secure checkout to pay by card.
+                </p>
+              </div>
+              {handoff && (
+                <p className="pl-6.5 text-[11px] leading-4 text-muted-foreground">
+                  <span className="font-mono font-semibold">
+                    {handoff.code}
+                  </span>
+                  {" — "}
+                  {handoff.reason}
+                </p>
+              )}
             </div>
             {/* Shown so a stalled redirect is still actionable. */}
             <div className="flex justify-end">
@@ -467,9 +481,16 @@ export function CardCheckoutDialog({
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
               <p className="text-xs leading-5 text-amber-900 dark:text-amber-200">
                 We couldn&apos;t start card payment just now. Please try again
-                in a moment{handoffReason ? "." : "."}
+                in a moment.
               </p>
             </div>
+            {handoff && (
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                <span className="font-mono font-semibold">{handoff.code}</span>
+                {" — "}
+                {handoff.reason}
+              </p>
+            )}
             <div className="flex justify-end">
               <Button
                 variant="outline"

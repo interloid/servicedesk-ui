@@ -126,19 +126,29 @@ function StatusBanner({
   if (billingStatus === "cancelled") {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 space-y-3">
-        <div className="flex items-start space-x-3">
-          <div className="rounded-md bg-amber-500 p-1.5 text-white shrink-0 mt-0.5">
-            <Clock className="h-4 w-4" />
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start space-x-3">
+            <div className="rounded-md bg-amber-500 p-1.5 text-white shrink-0 mt-0.5">
+              <Clock className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-amber-950">
+                Cancels on {data.renewalDate}
+              </h3>
+              <p className="text-xs text-amber-800/90 mt-0.5">
+                Your subscription will end on {data.renewalDate}. You can
+                reactivate or change your plan before then.
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-sm font-bold text-amber-950">
-              Cancels on {data.renewalDate}
-            </h3>
-            <p className="text-xs text-amber-800/90 mt-0.5">
-              Your subscription will end on {data.renewalDate}. You can
-              reactivate or change your plan before then.
-            </p>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push(`/${tenantSlug}/account/plans`)}
+            className="shrink-0 text-xs font-semibold bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50 h-9 px-3.5 rounded-lg shadow-none"
+          >
+            Reactivate
+          </Button>
         </div>
       </div>
     );
@@ -197,22 +207,11 @@ export default function BillingDashboard({
   const totalSeats = data?.seats?.total ?? 0;
   const unusedSeats = data?.seats?.unused ?? 0;
   const seatPercentage = totalSeats > 0 ? (usedSeats / totalSeats) * 100 : 0;
+  const pendingUpgrade = data.pendingUpgrade ?? null;
 
-  // The payment source comes straight from what PayPal reported, so the card
-  // branch is never taken for a wallet-funded subscription -- those show the
-  // PayPal identity rather than a card that was never disclosed.
+  // The payment source comes straight from what PayPal reported.
   const paymentSourceType = data?.paymentMethod?.sourceType ?? "none";
-  const paymentType = data?.paymentMethod?.type;
-  const cardLast4 = data?.paymentMethod?.last4;
-  const cardExpiry = data?.paymentMethod?.expiry;
-  const hasCardDetails =
-    paymentSourceType === "card" &&
-    Boolean(cardLast4 && cardLast4.trim() !== "" && cardLast4 !== "N/A");
-
   const paypalEmail = data?.paymentMethod?.email;
-  // PayPal only discloses who approved the agreement, never the funding
-  // instrument behind a wallet. Showing the payer is the most specific thing
-  // this integration can truthfully put on a wallet-funded subscription.
   const paypalPayerName = data?.paymentMethod?.payerName;
   const hasPayPalWallet = paymentSourceType === "paypal";
   const isFreeTier = (data?.plan?.rate ?? "") === "$0/mo";
@@ -251,16 +250,25 @@ export default function BillingDashboard({
               Billing
             </h1>
             <p className="text-xs font-medium text-slate-500 mt-1">
-              {data.accountName} · {data.accountId}
+              {data.accountName} 
             </p>
           </div>
           <Button
             variant="outline"
-            className="w-fit text-xs font-semibold bg-brand-accent text-primary-foreground rounded-lg px-4 h-9"
+            className="w-fit text-xs font-semibold bg-brand-accent text-primary-foreground hover:bg-brand-accent/80 hover:text-primary-foreground rounded-lg px-4 h-9"
             onClick={() => router.push(`/${tenantSlug}/account/plans`)}
           >
             Change plan
           </Button>
+          {!isFreeTier && data.billingStatus !== "cancelled" && (
+            <Button
+              variant="outline"
+              className="w-fit text-xs font-semibold border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 rounded-lg px-4 h-9"
+              onClick={() => router.push(`/${tenantSlug}/account/billing/cancel`)}
+            >
+              Cancel subscription
+            </Button>
+          )}
         </div>
 
         <StatusBanner data={data} tenantSlug={tenantSlug} />
@@ -302,7 +310,7 @@ export default function BillingDashboard({
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
           <SummaryCard
             label="Current Plan"
             value={
@@ -381,53 +389,79 @@ export default function BillingDashboard({
           <SummaryCard
             label="Next Payment"
             value={
-              <>
-                {data.amountDue?.next ?? "$0.00"}
-                <span className="text-sm font-medium text-slate-500 ml-2">
-                  on {data.renewalDate}
-                </span>
-              </>
+              pendingUpgrade ? (
+                <>
+                  ${pendingUpgrade.amountDue.toFixed(2)}
+                  <span className="text-sm font-medium text-slate-500 ml-2">
+                    one-time upgrade
+                  </span>
+                </>
+              ) : (
+                <>
+                  {data.amountDue?.next ?? "$0.00"}
+                  <span className="text-sm font-medium text-slate-500 ml-2">
+                    on {data.renewalDate}
+                  </span>
+                </>
+              )
             }
             subtext={
-              <span className="inline-flex items-center gap-1.5">
-                {data.autoRenew ? (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    Auto-renew is ON
-                  </>
-                ) : (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                    Auto-renew is OFF
-                  </>
-                )}
-              </span>
+              pendingUpgrade ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  Upgrade to {pendingUpgrade.planName} awaits payment
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5">
+                  {data.autoRenew ? (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      Auto-renew is ON
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                      Auto-renew is OFF
+                    </>
+                  )}
+                </span>
+              )
             }
             action={
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-slate-400">Current billing</span>
-                <span className="text-xs text-slate-500">
-                  {data.lastPayment ? (
-                    <>
-                      {" "}
-                      Last payment: {data.lastPayment.amount} · Paid{" "}
-                      {data.lastPayment.date}
-                    </>
-                  ) : null}
-                </span>
-              </div>
+              pendingUpgrade ? (
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-slate-500">
+                    ${pendingUpgrade.planRate.toFixed(2)}/mo from your next
+                    billing cycle after this one-time payment.
+                  </span>
+                  {pendingUpgrade.proratedCredit > 0 && (
+                    <span className="text-xs text-emerald-700">
+                      Includes ${pendingUpgrade.proratedCredit.toFixed(2)}{" "}
+                      credit from your remaining{" "}
+                      {data.plan?.name ?? "current plan"} time.
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-slate-400">Current billing</span>
+                  <span className="text-xs text-slate-500">
+                    {data.lastPayment ? (
+                      <>
+                        Last payment: {data.lastPayment.amount} · Paid{" "}
+                        {data.lastPayment.date}
+                      </>
+                    ) : null}
+                  </span>
+                </div>
+              )
             }
           />
 
           <SummaryCard
             label="Payment Method"
             value={
-              hasCardDetails ? (
-                <>
-                  {paymentType}
-                  <span className="ml-2 font-medium">•••• {cardLast4}</span>
-                </>
-              ) : hasPayPalWallet ? (
+              hasPayPalWallet ? (
                 <>
                   PayPal
                   <span className="text-sm font-medium text-slate-500 ml-2">
@@ -441,18 +475,14 @@ export default function BillingDashboard({
               )
             }
             subtext={
-              hasCardDetails
-                ? cardExpiry && cardExpiry !== "N/A"
-                  ? `Expires ${cardExpiry}`
-                  : "Billed through PayPal"
-                : hasPayPalWallet
-                  ? (paypalEmail ??
-                    (paypalPayerName
-                      ? "Billed through their PayPal account"
-                      : "Billed through your PayPal account"))
-                  : isFreeTier
-                    ? "No charges for this plan"
-                    : "Add a payment method to avoid service interruptions."
+              hasPayPalWallet
+                ? (paypalEmail ??
+                  (paypalPayerName
+                    ? "Billed through their PayPal account"
+                    : "Billed through your PayPal account"))
+                : isFreeTier
+                  ? "No charges for this plan"
+                  : "Add a payment method to avoid service interruptions."
             }
             action={
               <Button
@@ -469,12 +499,12 @@ export default function BillingDashboard({
 
         {/* Seat usage */}
         <Card className="rounded-xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-none drop-shadow-none ring-0">
-          <CardHeader className="p-0 flex flex-row items-start justify-between gap-4">
-            <div>
+          <CardHeader className="p-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 space-y-0">
+            <div className="min-w-0 w-full sm:w-auto">
               <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 User seat usage
               </span>
-              <div className="mt-2 flex items-baseline gap-3">
+              <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span className="text-sm font-semibold text-slate-900">
                   {usedSeats} of {totalSeats} User seats used
                 </span>
@@ -487,7 +517,7 @@ export default function BillingDashboard({
               variant="outline"
               size="sm"
               onClick={() => router.push(`/${tenantSlug}/settings/team`)}
-              className="text-xs font-semibold text-teal-800 border-slate-200 hover:bg-teal-50 h-8 px-3.5 rounded-lg shadow-none shrink-0"
+              className="w-full sm:w-auto justify-center text-xs font-semibold text-teal-800 border-slate-200 hover:bg-teal-50 h-8 px-3.5 rounded-lg shadow-none shrink-0"
             >
               Manage seats
             </Button>
@@ -621,9 +651,6 @@ export default function BillingDashboard({
         open={isUpdatePaymentOpen}
         onOpenChange={setIsUpdatePaymentOpen}
         sourceType={paymentSourceType}
-        currentCardLast4={hasCardDetails ? cardLast4 : undefined}
-        currentCardBrand={hasCardDetails ? paymentType : undefined}
-        currentCardExpiry={hasCardDetails ? cardExpiry : undefined}
         paypalEmail={paypalEmail}
         paypalPayerName={paypalPayerName}
         invoiceId={data.suspensionReason?.invoiceId}

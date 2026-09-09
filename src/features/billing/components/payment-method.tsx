@@ -6,7 +6,6 @@ import {
   X,
   Loader2,
   ExternalLink,
-  CreditCard,
   Shield,
   Wallet,
 } from "lucide-react";
@@ -19,11 +18,6 @@ interface UpdatePaymentModalProps {
   onOpenChange: (open: boolean) => void;
   /** What PayPal reports funds this subscription. */
   sourceType?: "card" | "paypal" | "none";
-  currentCardLast4?: string;
-  /** Card brand as PayPal reported it, e.g. "VISA". */
-  currentCardBrand?: string;
-  /** "MM/YYYY", or absent when PayPal reported no expiry. */
-  currentCardExpiry?: string;
   paypalEmail?: string;
   /** Name PayPal reported for the payer, when it disclosed one. */
   paypalPayerName?: string;
@@ -37,9 +31,6 @@ export function UpdatePaymentModal({
   open,
   onOpenChange,
   sourceType = "none",
-  currentCardLast4,
-  currentCardBrand,
-  currentCardExpiry,
   paypalEmail,
   paypalPayerName,
   invoiceId,
@@ -51,7 +42,6 @@ export function UpdatePaymentModal({
   const [sentToPayPal, setSentToPayPal] = useState(false);
 
   const isWallet = sourceType === "paypal";
-  const hasCard = sourceType === "card" && Boolean(currentCardLast4);
 
   const handleUpdatePayment = async () => {
     if (!tenantSlug) {
@@ -129,27 +119,17 @@ export function UpdatePaymentModal({
             The stored method is shown here rather than described in prose so
             the customer can confirm they are about to replace the right one.
           */}
-          {(hasCard || isWallet) && (
+          {isWallet && (
             <div className="mb-5 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
               <div className="rounded-lg bg-slate-100 p-2">
-                {hasCard ? (
-                  <CreditCard className="h-4 w-4 text-slate-600" />
-                ) : (
-                  <Wallet className="h-4 w-4 text-slate-600" />
-                )}
+                <Wallet className="h-4 w-4 text-slate-600" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-semibold text-slate-900">
-                  {hasCard
-                    ? `${currentCardBrand ?? "Card"} •••• ${currentCardLast4}`
-                    : (paypalPayerName ?? "PayPal account")}
+                  {paypalPayerName ?? "PayPal account"}
                 </p>
                 <p className="truncate text-[11px] text-slate-500">
-                  {hasCard
-                    ? currentCardExpiry && currentCardExpiry !== "N/A"
-                      ? `Expires ${currentCardExpiry}`
-                      : "Billed through PayPal"
-                    : (paypalEmail ?? "Billed through your PayPal account")}
+                  {paypalEmail ?? "Billed through your PayPal account"}
                 </p>
               </div>
               <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
@@ -162,7 +142,7 @@ export function UpdatePaymentModal({
             <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
               <div className="flex items-start space-x-3">
                 <div className="rounded-lg bg-teal-100 p-2">
-                  <CreditCard className="h-5 w-5 text-teal-700" />
+                  <Wallet className="h-5 w-5 text-teal-700" />
                 </div>
                 <div className="flex-1">
                   <h3 className="text-sm font-semibold text-slate-900">
@@ -173,7 +153,7 @@ export function UpdatePaymentModal({
                   <p className="text-xs text-slate-500 mt-1">
                     {sentToPayPal
                       ? "Pick a different funding source for this subscription, then come back and select Done so we can refresh what's on file."
-                      : "A card is entered here when a subscription starts, but swapping the one behind a running agreement has to happen on PayPal's side. We'll open its automatic payments settings, where you can change the card or bank account. Your plan, workspace and subscription stay exactly as they are — nothing is re-created, and your card details never touch our servers."}
+                      : "Swapping the funding source behind a running agreement has to happen on PayPal's side. We'll open its automatic payments settings, where you can change the card or bank account. Your plan, workspace and subscription stay exactly as they are — nothing is re-created, and your card details never touch our servers."}
                   </p>
                 </div>
               </div>

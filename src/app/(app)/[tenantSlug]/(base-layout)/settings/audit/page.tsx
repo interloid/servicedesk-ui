@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 export default function AuditPage() {
   return (
     <ComingSoon
-      title="Audit log"
-      description="See a detailed history of important changes made across your workspace. Coming soon."
+      title="Audit Log"
+      description="Track and review important activities and changes across your organization, including user actions, configuration updates, and security events."
     />
   );
 }

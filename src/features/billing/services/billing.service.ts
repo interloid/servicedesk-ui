@@ -160,14 +160,16 @@ export type PlanChangeResult = {
   // period ends, so the UI can say so instead of implying it already applied.
   scheduled?: boolean;
   effectiveAt?: string | null;
+  // For upgrades: use PayPal Invoice instead of subscription
+  invoice?: boolean;
+  proratedCredit?: number | null;
+  amountDue?: number | null;
 };
 
 export async function changeTenantPlan(
   tenantSlug: string,
   newPlanCode: string,
   newPlanId?: string,
-  /** Which PayPal checkout page to open first. Does not change what is created. */
-  fundingPreference: "paypal" | "card" = "paypal",
 ): Promise<PlanChangeResult> {
   try {
     const supabase = await createSupabaseServerClient();
@@ -204,7 +206,6 @@ export async function changeTenantPlan(
       body: {
         tenantSlug,
         planId: newPlanId ?? newPlanCode,
-        fundingPreference,
       },
     });
 
@@ -247,6 +248,9 @@ export async function changeTenantPlan(
       approvalUrl: data.approvalUrl ?? null,
       scheduled: data.scheduled ?? false,
       effectiveAt: data.effectiveAt ?? null,
+      invoice: data.invoice ?? false,
+      proratedCredit: data.proratedCredit ?? null,
+      amountDue: data.amountDue ?? null,
     };
   } catch (error) {
     console.error("changeTenantPlan error:", error);
@@ -345,6 +349,87 @@ export async function abortPlanSwitch(tenantSlug: string): Promise<{
   }
 }
 
+export async function captureOrderPayment(
+  tenantSlug: string,
+  orderId: string,
+): Promise<{
+  success: boolean;
+  error?: string;
+  planName?: string;
+  subscriptionId?: string | null;
+  approvalUrl?: string | null;
+}> {
+  const supabase = await createSupabaseServerClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  if (!orderId) {
+    return { success: false, error: "Order ID is required." };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke("subscription", {
+      body: {
+        action: "capture-order",
+        tenantSlug,
+        subscriptionId: orderId,
+      },
+    });
+
+    if (error) {
+      console.error("Order capture error:", error);
+
+      let errorBody: { message?: string; error?: string } | null = null;
+
+      try {
+        errorBody = (await error.context?.json()) as {
+          message?: string;
+          error?: string;
+        } | null;
+      } catch {
+        // Ignore response parsing error
+      }
+
+      return {
+        success: false,
+        error:
+          errorBody?.message ??
+          errorBody?.error ??
+          error.message ??
+          "Failed to capture payment.",
+      };
+    }
+
+    if (!data?.success) {
+      return {
+        success: false,
+        error: data?.message ?? "Failed to capture payment.",
+      };
+    }
+
+    return {
+      success: true,
+      planName: data?.planName ?? undefined,
+      subscriptionId: data?.subscriptionId ?? null,
+      approvalUrl: data?.approvalUrl ?? null,
+    };
+  } catch (error) {
+    console.error("captureOrderPayment error:", error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Something went wrong.",
+    };
+  }
+}
+
 export async function activateTenantSubscription(
   tenantSlug: string,
   subscriptionId: string,
@@ -364,10 +449,6 @@ export async function activateTenantSubscription(
 
   if (authError || !user) {
     return { success: false, error: "Unauthorized" };
-  }
-
-  if (!subscriptionId) {
-    return { success: false, error: "Subscription ID is required." };
   }
 
   try {
@@ -418,6 +499,98 @@ export async function activateTenantSubscription(
     };
   } catch (error) {
     console.error("activateTenantSubscription error:", error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Something went wrong.",
+    };
+  }
+}
+
+export type CancelResult = {
+  success: boolean;
+  error?: string;
+  scheduled?: boolean;
+  effectiveAt?: string | null;
+};
+
+export async function cancelSubscription(
+  tenantSlug: string,
+  reason?: string,
+): Promise<CancelResult> {
+  const supabase = await createSupabaseServerClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const tenantId = await getTenantIdBySlug(tenantSlug);
+
+  if (!tenantId) {
+    return { success: false, error: "Tenant not found" };
+  }
+
+  const canManage = await canManageTenantBilling(user.id, tenantId);
+
+  if (!canManage) {
+    return {
+      success: false,
+      error: "Forbidden: you do not have billing permissions for this tenant.",
+    };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke("subscription", {
+      body: {
+        action: "cancel",
+        tenantSlug,
+        reason,
+      },
+    });
+
+    if (error) {
+      console.error("Cancel subscription error:", error);
+
+      let errorBody: { message?: string; error?: string } | null = null;
+
+      try {
+        errorBody = (await error.context?.json()) as {
+          message?: string;
+          error?: string;
+        } | null;
+      } catch {
+        // Ignore response parsing error
+      }
+
+      return {
+        success: false,
+        error:
+          errorBody?.message ??
+          errorBody?.error ??
+          error.message ??
+          "Failed to cancel subscription.",
+      };
+    }
+
+    if (!data?.success) {
+      return {
+        success: false,
+        error: data?.message ?? "Failed to cancel subscription.",
+      };
+    }
+
+    return {
+      success: true,
+      scheduled: data.scheduled ?? false,
+      effectiveAt: data.effectiveAt ?? null,
+    };
+  } catch (error) {
+    console.error("cancelSubscription error:", error);
 
     return {
       success: false,

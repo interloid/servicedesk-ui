@@ -73,6 +73,7 @@ const SHIPPED_ROUTES = new Set<string>([
   "/settings/team",
   "/settings/branding",
   "/settings/notifications",
+  "/settings/audit",
   "/account/billing",
   "/account/plans",
 ]);

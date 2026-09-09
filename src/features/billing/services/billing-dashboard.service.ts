@@ -66,6 +66,18 @@ export interface BillingDashboardData {
     effectiveAt: string;
     daysRemaining: number;
   } | null;
+  /**
+   * An immediate upgrade in progress: a one-time PayPal order was created
+   * for `newPlanRate - proratedCredit` and is awaiting the buyer's payment.
+   * Once paid, the full-rate subscription begins and the next payment is
+   * the full `newPlanRate`.
+   */
+  pendingUpgrade?: {
+    planName: string;
+    planRate: number;
+    proratedCredit: number;
+    amountDue: number;
+  } | null;
   invoices: Array<{
     id: string;
     date: string;
@@ -102,7 +114,7 @@ export async function fetchTenantBillingData(
   const { data: pendingSwitch } = await supabase
     .from("subscription_switches")
     .select(
-      "plan_id, effective_at, status, plans!subscription_switches_plan_id_fkey(name, price_month)",
+      "plan_id, effective_at, status, old_plan_id, old_current_period_end, plans!subscription_switches_plan_id_fkey(name, price_month)",
     )
     .eq("tenant_id", tenant.id)
     .in("status", ["pending", "approved"])
@@ -111,6 +123,7 @@ export async function fetchTenantBillingData(
     .single();
 
   let scheduledChange: BillingDashboardData["scheduledChange"] = null;
+
   if (pendingSwitch?.effective_at && pendingSwitch.plans) {
     const switchPlan = Array.isArray(pendingSwitch.plans)
       ? pendingSwitch.plans[0]
@@ -171,7 +184,69 @@ export async function fetchTenantBillingData(
 
   const monthlyRate = Number(plan?.price_month ?? 0);
 
+  // An immediate upgrade awaiting its one-time PayPal order payment shows a
+  // pending switch with no effective_at (it takes effect right away once the
+  // buyer pays). Surface it so the "Next payment" card can explain the
+  // one-time amount due and the subsequent full-rate subscription.
+  //
+  // Only while the upgrade is genuinely in progress: once the buyer has paid
+  // and the subscription was switched, the current subscription's plan_id
+  // matches the switch's target, so the one-time display must disappear and
+  // the card falls back to the normal full-rate next payment.
+  let pendingUpgrade: BillingDashboardData["pendingUpgrade"] = null;
+  if (
+    pendingSwitch &&
+    !pendingSwitch.effective_at &&
+    pendingSwitch.plans &&
+    ["pending", "approved"].includes(pendingSwitch.status ?? "") &&
+    sub?.plan_id !== pendingSwitch.plan_id
+  ) {
+    const switchPlan = Array.isArray(pendingSwitch.plans)
+      ? pendingSwitch.plans[0]
+      : pendingSwitch.plans;
+    const newPlanRate = Number(switchPlan?.price_month ?? 0);
+
+    if (newPlanRate > monthlyRate) {
+      const periodEnd = sub?.current_period_end
+        ? new Date(sub.current_period_end)
+        : null;
+      let credit = 0;
+      if (periodEnd && periodEnd.getTime() > Date.now() && monthlyRate > 0) {
+        const periodStart = new Date(
+          periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000,
+        );
+        const totalDays = Math.max(
+          1,
+          Math.ceil(
+            (periodEnd.getTime() - periodStart.getTime()) /
+              (24 * 60 * 60 * 1000),
+          ),
+        );
+        const remainingDays = Math.max(
+          0,
+          Math.ceil(
+            (periodEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+          ),
+        );
+        credit = (monthlyRate * remainingDays) / totalDays;
+      }
+
+      pendingUpgrade = {
+        planName: switchPlan?.name ?? "new plan",
+        planRate: newPlanRate,
+        proratedCredit: credit,
+        amountDue: Math.max(0, newPlanRate - credit),
+      };
+    }
+  }
+
   const totalAmount = monthlyRate.toFixed(2);
+
+  // The prorated credit is a one-time discount applied at upgrade time, not to
+  // the running subscription's next renewal, so the next due amount is simply
+  // the current monthly rate.
+  const nextDueAmount = monthlyRate;
+  const nextDueAmountFormatted = nextDueAmount.toFixed(2);
 
   const paypalSubId = sub?.paypal_subscription_id || "";
   const isFreePlan = paypalSubId.startsWith("FREE-") || monthlyRate === 0;
@@ -220,32 +295,18 @@ export async function fetchTenantBillingData(
   let paymentMethodData: BillingDashboardData["paymentMethod"];
 
   if (paymentMethod) {
-    // A card is only ever shown when PayPal reported one. `card_last4` is the
-    // marker: the database rejects a row typed 'card' without it, so this can
-    // never render a card that PayPal did not actually disclose.
-    const isCard =
-      paymentMethod.payment_source_type === "card" &&
-      Boolean(paymentMethod.card_last4);
-
-    const expiryMonth = paymentMethod.card_expiry_month;
-    const expiryYear = paymentMethod.card_expiry_year;
-    const expiry =
-      isCard && expiryMonth && expiryYear
-        ? `${String(expiryMonth).padStart(2, "0")}/${expiryYear}`
-        : "N/A";
-
     paymentMethodData = {
-      sourceType: isCard ? "card" : "paypal",
-      type: isCard ? (paymentMethod.card_brand ?? "Card") : "PayPal",
-      last4: isCard ? paymentMethod.card_last4 : "N/A",
-      expiry,
+      sourceType: "paypal",
+      type: "PayPal",
+      last4: "N/A",
+      expiry: "N/A",
       email: paymentMethod.paypal_email || undefined,
       payerName: paymentMethod.paypal_payer_name || undefined,
       payerCountry: paymentMethod.paypal_payer_country || undefined,
-      brand: isCard ? (paymentMethod.card_brand ?? undefined) : undefined,
-      bin: isCard ? (paymentMethod.card_bin ?? undefined) : undefined,
-      issuer: isCard ? (paymentMethod.card_issuer ?? undefined) : undefined,
-      country: isCard ? (paymentMethod.card_country ?? undefined) : undefined,
+      brand: undefined,
+      bin: undefined,
+      issuer: undefined,
+      country: undefined,
       status: paymentMethod.status || undefined,
     };
   } else {
@@ -306,7 +367,7 @@ export async function fetchTenantBillingData(
     autoRenew: !isFreePlan && !(sub?.status === "cancelled"),
     amountDue: {
       current: latestInvoicePaid ? "$0.00" : `$${totalAmount}`,
-      next: isFreePlan ? "$0.00" : `$${totalAmount}`,
+      next: isFreePlan ? "$0.00" : `$${nextDueAmountFormatted}`,
       unusedSeats: unusedSeats,
     },
     lastPayment:
@@ -315,6 +376,7 @@ export async function fetchTenantBillingData(
         : undefined,
     paymentMethod: paymentMethodData,
     scheduledChange,
+    pendingUpgrade,
     invoices,
   };
 }

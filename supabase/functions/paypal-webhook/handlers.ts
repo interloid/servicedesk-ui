@@ -324,6 +324,77 @@ export async function handleSubscriptionSuspended(event: WebhookEvent) {
     .eq("paypal_subscription_id", subscription.id);
 }
 
+async function applyRevisedUpgrade(
+  subscription: { id: string },
+  tenantId: string,
+  nextBilling?: string | null,
+) {
+  const now = new Date().toISOString();
+
+  const { data: pendingUpgrade, error: lookupError } = await admin
+    .from("subscription_switches")
+    .select("*")
+    .eq("old_paypal_subscription_id", subscription.id)
+    .eq("tenant_id", tenantId)
+    .in("status", ["pending", "approved"])
+    .is("effective_at", null)
+    .maybeSingle();
+
+  if (lookupError) {
+    console.error("Revised-upgrade switch lookup failed:", lookupError);
+    return;
+  }
+
+  if (!pendingUpgrade) {
+    return;
+  }
+
+  const { data: plan } = await admin
+    .from("plans")
+    .select("seat_limit")
+    .eq("id", pendingUpgrade.plan_id)
+    .maybeSingle();
+
+  const { error: subError } = await admin
+    .from("subscriptions")
+    .update({
+      plan_id: pendingUpgrade.plan_id,
+      paypal_subscription_id: subscription.id,
+      status: "active",
+      seats: plan?.seat_limit ?? 1,
+      current_period_end: nextBilling ?? null,
+      updated_at: now,
+    })
+    .eq("tenant_id", tenantId)
+    .eq("paypal_subscription_id", subscription.id);
+
+  if (subError) {
+    throw subError;
+  }
+
+  const { error: tenantError } = await admin
+    .from("tenants")
+    .update({ plan_id: pendingUpgrade.plan_id, updated_at: now })
+    .eq("id", tenantId);
+
+  if (tenantError) {
+    throw tenantError;
+  }
+
+  const { error: applyError } = await admin
+    .from("subscription_switches")
+    .update({ status: "applied", updated_at: now })
+    .eq("id", pendingUpgrade.id);
+
+  if (applyError) {
+    throw applyError;
+  }
+
+  console.log(
+    `[webhook] applied revised upgrade ${pendingUpgrade.id} via BILLING.SUBSCRIPTION.UPDATED for tenant ${tenantId}.`,
+  );
+}
+
 export async function handleSubscriptionUpdated(event: WebhookEvent) {
   const subscription = event.resource;
 
@@ -374,6 +445,14 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
   if (updateError) {
     console.error("Failed to sync subscription on update:", updateError);
   }
+
+  // A one-time upgrade revises the EXISTING subscription onto the new plan.
+  // PayPal fires BILLING.SUBSCRIPTION.UPDATED for that change (not ACTIVATED),
+  // so this is the webhook that must complete the plan switch. The upgrade
+  // switch is keyed on old_paypal_subscription_id (its own paypal_subscription_id
+  // keeps the order id), has no effective_at, and is still pending. If the
+  // buyer's redirect back to the app ever drops, this applies the upgrade.
+  await applyRevisedUpgrade(subscription, existingSub.tenant_id, nextBilling);
 }
 
 export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {

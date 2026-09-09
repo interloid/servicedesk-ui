@@ -7,15 +7,9 @@ import { fetchTenantBillingData } from "./services/billing-dashboard.service";
 export async function changeTenantPlanAction(
   tenantSlug: string,
   newPlan: string,
-  fundingPreference: "paypal" | "card" = "paypal",
 ) {
   try {
-    const result = await changeTenantPlan(
-      tenantSlug,
-      newPlan,
-      undefined,
-      fundingPreference,
-    );
+    const result = await changeTenantPlan(tenantSlug, newPlan);
 
     if (!result.success) {
       return {
@@ -32,6 +26,9 @@ export async function changeTenantPlanAction(
       approvalUrl: result.approvalUrl,
       scheduled: result.scheduled ?? false,
       effectiveAt: result.effectiveAt ?? null,
+      invoice: result.invoice ?? false,
+      proratedCredit: result.proratedCredit ?? null,
+      amountDue: result.amountDue ?? null,
     };
   } catch (error) {
     const message =
@@ -67,27 +64,48 @@ export async function abortPlanSwitchAction(tenantSlug: string) {
   }
 }
 
-export async function confirmSubscriptionActivationAction(
+export async function cancelSubscriptionAction(
   tenantSlug: string,
-  subscriptionId: string,
+  reason?: string,
+) {
+  try {
+    const { cancelSubscription } = await import("./services/billing.service");
+    const result = await cancelSubscription(tenantSlug, reason);
+    revalidatePath(`/${tenantSlug}/account/billing`);
+    revalidatePath(`/${tenantSlug}/account/plans`);
+    return result;
+  } catch (error) {
+    console.error("cancelSubscriptionAction error:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to cancel subscription.",
+    };
+  }
+}
+
+export async function confirmOrderPaymentAction(
+  tenantSlug: string,
+  orderId: string,
 ): Promise<{
   success: boolean;
   error?: string;
   planName?: string;
-  scheduled?: boolean;
-  effectiveAt?: string | null;
+  subscriptionId?: string | null;
+  approvalUrl?: string | null;
 }> {
-  if (!subscriptionId) {
+  if (!orderId) {
     return {
       success: false,
-      error: "Subscription ID is required.",
+      error: "Order ID is required.",
     };
   }
 
   try {
-    const { activateTenantSubscription } =
-      await import("./services/billing.service");
-    const result = await activateTenantSubscription(tenantSlug, subscriptionId);
+    const { captureOrderPayment } = await import("./services/billing.service");
+    const result = await captureOrderPayment(tenantSlug, orderId);
     revalidatePath(`/${tenantSlug}/account/billing`);
     revalidatePath(`/${tenantSlug}/account/plans`);
     return result;
@@ -99,78 +117,27 @@ export async function confirmSubscriptionActivationAction(
   }
 }
 
-/**
- * Mints the short-lived PayPal token that lets the browser render hosted card
- * fields for this tenant's checkout.
- *
- * The merchant secret stays inside the `subscription` Edge Function, which
- * only issues a token once it has re-checked that the caller may manage this
- * tenant's billing. The token is scoped to confirming a subscription and
- * expires in minutes, so it is fetched per checkout rather than cached.
- */
-export async function getPayPalSdkTokenAction(tenantSlug: string): Promise<{
+export async function confirmSubscriptionActivationAction(
+  tenantSlug: string,
+  subscriptionId: string,
+): Promise<{
   success: boolean;
   error?: string;
-  sdkToken?: string;
-  environment?: "sandbox" | "live";
+  planName?: string;
+  scheduled?: boolean;
+  effectiveAt?: string | null;
 }> {
   try {
-    const { createSupabaseServerClient } =
-      await import("@/lib/supabase/server");
-    const supabase = await createSupabaseServerClient();
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return { success: false, error: "Unauthorized" };
-    }
-
-    const { data, error } = await supabase.functions.invoke("subscription", {
-      body: { action: "sdk-token", tenantSlug },
-    });
-
-    if (error) {
-      let message: string | undefined;
-
-      try {
-        const body = (await error.context?.json()) as
-          { message?: string } | undefined;
-        message = body?.message;
-      } catch {
-        message = undefined;
-      }
-
-      console.error("[PayPal] client token action failed:", message ?? error);
-      return {
-        success: false,
-        error: message ?? "Could not start card checkout.",
-      };
-    }
-
-    if (!data?.success || !data?.sdkToken) {
-      return {
-        success: false,
-        error: data?.message ?? "Could not start card checkout.",
-      };
-    }
-
-    // The token itself is never logged -- only that one was issued.
-    return {
-      success: true,
-      sdkToken: data.sdkToken as string,
-      environment: (data.environment as "sandbox" | "live") ?? "live",
-    };
+    const { activateTenantSubscription } =
+      await import("./services/billing.service");
+    const result = await activateTenantSubscription(tenantSlug, subscriptionId);
+    revalidatePath(`/${tenantSlug}/account/billing`);
+    revalidatePath(`/${tenantSlug}/account/plans`);
+    return result;
   } catch (error) {
-    console.error("[PayPal] client token action error:", error);
     return {
       success: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Could not start card checkout.",
+      error: error instanceof Error ? error.message : "Failed to activate plan",
     };
   }
 }

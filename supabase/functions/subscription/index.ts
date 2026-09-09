@@ -4,6 +4,16 @@ import {
   type PayPalSubscriber,
 } from "../_shared/paypal-payment-method.ts";
 
+type SubscriptionSwitchRow = {
+  id: string;
+  plan_id: string;
+  paypal_subscription_id: string;
+  old_paypal_subscription_id?: string | null;
+  status: string;
+  tenant_id: string;
+  effective_at?: string | null;
+};
+
 const CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID")?.trim();
 const CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET")?.trim();
 const BASE_URL = Deno.env.get("PAYPAL_BASE_URL")?.trim();
@@ -236,6 +246,115 @@ async function getPayPalSubscription(
   return { ok: response.ok, data };
 }
 
+async function capturePaypalOrder(
+  accessToken: string,
+  orderId: string,
+): Promise<
+  | { ok: true; payerId?: string; payerEmail?: string; txnId?: string; amount?: number }
+  | { ok: false; error: string }
+> {
+  const response = await fetch(
+    `${BASE_URL}/v2/checkout/orders/${orderId}/capture`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    },
+  );
+
+  const data = (await response.json()) as Record<string, unknown>;
+
+  if (!response.ok) {
+    console.error("PayPal order capture failed:", {
+      status: response.status,
+      response: data,
+    });
+    return {
+      ok: false,
+      error: (data as { message?: string }).message || "Capture failed",
+    };
+  }
+
+  const payer = data.payer as
+    | { payer_id?: string; email_address?: string }
+    | undefined;
+
+  const purchaseUnits = data.purchase_units as
+    | Array<{
+        payments?: {
+          captures?: Array<{ id?: string; amount?: { value?: string } }>;
+        };
+      }>
+    | undefined;
+
+  const capture = purchaseUnits?.[0]?.payments?.captures?.[0];
+  const txnId = capture?.id;
+  const amount = Number(capture?.amount?.value ?? 0);
+
+  return { ok: true, payerId: payer?.payer_id, payerEmail: payer?.email_address, txnId, amount };
+}
+
+async function createPaypalOrder(
+  accessToken: string,
+  params: {
+    amount: number;
+    description: string;
+    customId: string;
+    return_url: string;
+    cancel_url: string;
+  },
+): Promise<{ ok: boolean; orderId?: string; approveUrl?: string; error?: string }> {
+  const response = await fetch(`${BASE_URL}/v2/checkout/orders`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      intent: "CAPTURE",
+      purchase_units: [
+        {
+          description: params.description,
+          custom_id: params.customId,
+          amount: {
+            currency_code: "USD",
+            value: params.amount.toFixed(2),
+          },
+        },
+      ],
+      application_context: {
+        brand_name: "ServiceDesk",
+        user_action: "PAY_NOW",
+        return_url: params.return_url,
+        cancel_url: params.cancel_url,
+      },
+    }),
+  });
+
+  const data = (await response.json()) as Record<string, unknown>;
+
+  if (!response.ok) {
+    console.error("PayPal order creation failed:", {
+      status: response.status,
+      response: data,
+    });
+    return {
+      ok: false,
+      error: (data as { message?: string }).message || "Order creation failed",
+    };
+  }
+
+  const orderId = data.id as string;
+  const links = data.links as Array<{ rel: string; href: string }> | undefined;
+  const approveUrl = links?.find((l) => l.rel === "approve")?.href;
+
+  return { ok: true, orderId, approveUrl };
+}
+
 Deno.serve(async (req) => {
   try {
     if (req.method !== "POST") {
@@ -258,13 +377,6 @@ Deno.serve(async (req) => {
     const planId = body?.planId;
     const tenantSlug = body?.tenantSlug;
     const subscriptionId = body?.subscriptionId;
-    // How the buyer wants to approve. "card" means the browser will confirm
-    // this subscription through PayPal's hosted card fields instead of the
-    // approval redirect. Either way exactly one subscription is created here,
-    // in APPROVAL_PENDING, and `approvalUrl` is always returned so the card
-    // flow has a redirect to fall back to.
-    const fundingPreference: "paypal" | "card" =
-      body?.fundingPreference === "card" ? "card" : "paypal";
 
     if (!tenantSlug) {
       return Response.json(
@@ -340,28 +452,13 @@ Deno.serve(async (req) => {
     // this tenant's subscription is never handed to someone who could not
     // change the plan anyway.
     if (action === "sdk-token") {
-      try {
-        const { token, expiresIn } = await getSdkClientToken();
-
-        return Response.json({
-          success: true,
-          sdkToken: token,
-          expiresIn,
-          environment: BASE_URL.includes("sandbox") ? "sandbox" : "live",
-        });
-      } catch (error) {
-        console.error("SDK client token mint failed:", error);
-        return Response.json(
-          {
-            success: false,
-            message:
-              error instanceof Error
-                ? error.message
-                : "Could not start card checkout.",
-          },
-          { status: 502 },
-        );
-      }
+      return Response.json(
+        {
+          success: false,
+          message: "Card payments are not supported. Please use PayPal wallet.",
+        },
+        { status: 400 },
+      );
     }
 
     if (action === "abort") {
@@ -473,22 +570,602 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Capture the one-time upgrade PayPal order, then create the real
+    // subscription for the full plan price. The buyer already paid the
+    // prorated amount via the order; the subscription's approve link is
+    // returned so they can authorize the recurring billing. From there the
+    // standard ACTIVATED webhook path switches the plan.
+    if (action === "capture-order") {
+      const orderId = subscriptionId;
+
+      if (!orderId) {
+        return Response.json(
+          { success: false, message: "Order ID is required." },
+          { status: 400 },
+        );
+      }
+
+      const { data: pendingSwitch, error: switchLookupError } = await admin
+        .from("subscription_switches")
+        .select("*")
+        .eq("paypal_subscription_id", orderId)
+        .eq("tenant_id", tenantId)
+        .in("status", ["pending", "approved"])
+        .maybeSingle();
+
+      if (switchLookupError) {
+        console.error("Order switch lookup failed:", switchLookupError);
+        return Response.json(
+          { success: false, message: "Failed to look up the upgrade." },
+          { status: 500 },
+        );
+      }
+
+      if (!pendingSwitch) {
+        // The switch may already be applied from a previous capture (PayPal can
+        // re-navigate the browser to this page). Treat that as success instead
+        // of a hard 404.
+        const { data: appliedSwitch, error: appliedLookupError } = await admin
+          .from("subscription_switches")
+          .select("*")
+          .eq("paypal_subscription_id", orderId)
+          .eq("tenant_id", tenantId)
+          .eq("status", "applied")
+          .maybeSingle();
+
+        if (appliedLookupError) {
+          console.error("Applied switch lookup failed:", appliedLookupError);
+          return Response.json(
+            { success: false, message: "Failed to look up the upgrade." },
+            { status: 500 },
+          );
+        }
+
+        if (appliedSwitch) {
+          console.log(
+            `[subscription] capture-order re-entry: order ${orderId} already applied for tenant ${tenantId}.`,
+          );
+          const { data: appliedPlan } = await admin
+            .from("plans")
+            .select("name")
+            .eq("id", appliedSwitch.plan_id)
+            .maybeSingle();
+
+          return Response.json({
+            success: true,
+            planName: appliedPlan?.name ?? undefined,
+            alreadyActivated: true,
+          });
+        }
+
+        return Response.json(
+          { success: false, message: "Upgrade not found for this tenant." },
+          { status: 404 },
+        );
+      }
+
+      const accessToken = await getAccessToken();
+
+      const captureResult = await capturePaypalOrder(accessToken, orderId);
+
+      if (!captureResult.ok) {
+        console.error("Order capture failed:", captureResult.error);
+        // If the order was already captured (e.g. a concurrent retry), the
+        // payment is in and we can proceed with the subscription update anyway.
+        const alreadyCaptured =
+          /already|ORDER_ALREADY_CAPTURED/.test(captureResult.error || "");
+        if (!alreadyCaptured) {
+          return Response.json(
+            {
+              success: false,
+              message: captureResult.error || "Payment capture failed.",
+            },
+            { status: 400 },
+          );
+        }
+        console.log(
+          `[subscription] order ${orderId} already captured, continuing upgrade.`,
+        );
+      }
+
+      const { data: plan, error: planError } = await admin
+        .from("plans")
+        .select("id, name, seat_limit, code")
+        .eq("id", pendingSwitch.plan_id)
+        .single();
+
+      if (planError || !plan) {
+        console.error("Plan lookup for subscription failed:", planError);
+        return Response.json(
+          { success: false, message: "Target plan not found." },
+          { status: 404 },
+        );
+      }
+
+      // Record the one-time upgrade payment as an invoice so the billing
+      // dashboard's "Last payment" reflects what was actually charged today.
+      const nowDateStr = new Date().toISOString();
+      if (captureResult.txnId && captureResult.amount && captureResult.amount > 0) {
+        await admin
+          .from("invoices")
+          .insert({
+            tenant_id: tenantId,
+            paypal_txn_id: captureResult.txnId,
+            amount: captureResult.amount,
+            status: "paid",
+            storage_path: null,
+            period_start: nowDateStr.substring(0, 10),
+            period_end: nowDateStr.substring(0, 10),
+            plan_name: `${plan.name} upgrade`,
+            seats: plan.seat_limit ?? 1,
+          })
+          .then(() => {}).catch((err: unknown) => {
+            console.warn("[subscription] could not record upgrade invoice:", err);
+          });
+      }
+
+      // Revise the EXISTING PayPal subscription onto the target plan. The
+      // same subscription is kept, so nothing else is created and no second,
+      // separate approval is needed: today's only charge is the captured
+      // order, and PayPal bills the full plan rate at the next cycle.
+      let existingSubscriptionId = pendingSwitch.old_paypal_subscription_id;
+
+      if (!existingSubscriptionId || existingSubscriptionId.startsWith("FREE-")) {
+        return Response.json(
+          {
+            success: false,
+            message: "No active PayPal subscription to revise.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const reviseResponse = await fetch(
+        `${BASE_URL}/v1/billing/subscriptions/${existingSubscriptionId}/revise`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            plan_id: plan.code,
+          }),
+        },
+      );
+
+      const reviseResult = await reviseResponse.json();
+
+      if (!reviseResponse.ok) {
+        console.error("PayPal subscription revise failed:", {
+          status: reviseResponse.status,
+          response: reviseResult,
+        });
+        return Response.json(
+          {
+            success: false,
+            message:
+              reviseResult?.message ??
+              "Failed to update your subscription plan.",
+          },
+          { status: 400 },
+        );
+      }
+
+      // Kept pending and still keyed on the ORDER id. If PayPal needs buyer
+      // approval for the revise, the returned link leads back to the success
+      // page with the subscription id; `activate` then finds this switch via
+      // old_paypal_subscription_id (the switch's own paypal_subscription_id
+      // stays the order id here, since that column is UNIQUE and the original
+      // signup switch already holds the real subscription id).
+      const approveLink = reviseResult?.links?.find(
+        (link: { rel: string; href: string }) => link.rel === "approve",
+      )?.href;
+
+      if (approveLink) {
+        return Response.json({
+          success: true,
+          message: "Payment received. Please confirm your plan change.",
+          planName: plan.name,
+          subscriptionId: existingSubscriptionId,
+          approvalUrl: approveLink,
+        });
+      }
+
+      // Revise applied without buyer approval. Activate the plan in the app
+      // immediately; PayPal charges the full plan rate at the next cycle.
+      const refreshed = await getPayPalSubscription(
+        accessToken,
+        existingSubscriptionId,
+      );
+      const nextBillingTime = (refreshed.data as { billing_info?: { next_billing_time?: string } } | null)
+        ?.billing_info?.next_billing_time;
+
+      const { data: activatedSub, error: activationError } = await admin
+        .from("subscriptions")
+        .update({
+          plan_id: pendingSwitch.plan_id,
+          paypal_subscription_id: existingSubscriptionId,
+          status: "active",
+          seats: plan.seat_limit ?? 1,
+          current_period_end:
+            nextBillingTime ??
+            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          updated_at: nowDateStr,
+        })
+        .eq("tenant_id", tenantId)
+        .select("id")
+        .maybeSingle();
+
+      if (activationError) {
+        console.error("Subscription activation after revise failed:", activationError);
+        return Response.json(
+          {
+            success: false,
+            message: `Failed to activate subscription: ${activationError.message}`,
+          },
+          { status: 500 },
+        );
+      }
+
+      await admin
+        .from("tenants")
+        .update({ plan_id: pendingSwitch.plan_id, updated_at: nowDateStr })
+        .eq("id", tenantId);
+
+      await admin
+        .from("subscription_switches")
+        .update({ status: "applied", updated_at: nowDateStr })
+        .eq("id", pendingSwitch.id);
+
+      await storePayPalPaymentMethod(admin, {
+        tenantId,
+        subscriptionRowId: activatedSub?.id ?? null,
+        paypalSubscriptionId: existingSubscriptionId,
+        subscriber: captureResult.payerId
+          ? ({
+              payer_id: captureResult.payerId,
+              email_address:
+                captureResult.payerEmail ?? user.email ?? undefined,
+            } as PayPalSubscriber)
+          : undefined,
+        context: "subscription:capture-order:revise",
+      });
+
+      return Response.json({
+        success: true,
+        message: "Payment received. Your new plan is active.",
+        planName: plan.name,
+        subscriptionId: existingSubscriptionId,
+      });
+    }
+
+    // Dedicated cancel action: cancels the active subscription and moves
+    // the tenant to the Free plan. If paid time remains the change is
+    // deferred to the end of the billing period.
+    if (action === "cancel") {
+      const reason = body?.reason as string | undefined;
+
+      const { data: currentSub, error: subLookupError } = await admin
+        .from("subscriptions")
+        .select(
+          "id, status, plan_id, paypal_subscription_id, current_period_end, seats",
+        )
+        .eq("tenant_id", tenantId)
+        .in("status", ["active", "trialing"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (subLookupError) {
+        console.error("Subscription lookup for cancel failed:", subLookupError);
+        return Response.json(
+          {
+            success: false,
+            message: "Failed to look up your subscription.",
+            details: subLookupError.message,
+          },
+          { status: 500 },
+        );
+      }
+
+      if (!currentSub) {
+        return Response.json(
+          { success: false, message: "No active subscription found." },
+          { status: 404 },
+        );
+      }
+
+      const paypalSubId = currentSub.paypal_subscription_id || "";
+      const isFree = paypalSubId.startsWith("FREE-");
+
+      if (isFree) {
+        return Response.json(
+          { success: false, message: "You are already on the Free plan." },
+          { status: 400 },
+        );
+      }
+
+      // Find the Free plan
+      const { data: freePlan, error: freePlanError } = await admin
+        .from("plans")
+        .select("id, price_month")
+        .eq("price_month", 0)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (freePlanError || !freePlan) {
+        console.error("Free plan lookup failed:", freePlanError);
+        return Response.json(
+          { success: false, message: "Could not find the Free plan." },
+          { status: 500 },
+        );
+      }
+
+      const { data: currentPlan } = await admin
+        .from("plans")
+        .select("price_month")
+        .eq("id", currentSub.plan_id)
+        .maybeSingle();
+
+      const periodEnd = currentSub.current_period_end
+        ? new Date(currentSub.current_period_end)
+        : null;
+
+      const hasPaidTime =
+        periodEnd !== null &&
+        periodEnd.getTime() > Date.now() &&
+        currentPlan &&
+        Number(currentPlan.price_month) > 0;
+
+      const accessToken = await getAccessToken();
+
+      // Cancel any existing pending switches first
+      await admin
+        .from("subscription_switches")
+        .update({ status: "cancelled", updated_at: new Date().toISOString() })
+        .eq("tenant_id", tenantId)
+        .in("status", ["pending", "approved"]);
+
+      if (hasPaidTime && periodEnd) {
+        // Deferred: tenant keeps the current plan until the period ends
+        const { error: cancelSwitchError } = await admin
+          .from("subscription_switches")
+          .insert({
+            tenant_id: tenantId,
+            plan_id: freePlan.id,
+            paypal_subscription_id: `FREE-${tenantId}-${Date.now()}`,
+            old_paypal_subscription_id: paypalSubId,
+            old_plan_id: currentSub.plan_id,
+            old_status: currentSub.status,
+            old_seats: currentSub.seats ?? 1,
+            old_current_period_end: currentSub.current_period_end,
+            effective_at: periodEnd.toISOString(),
+            status: "approved",
+          });
+
+        if (cancelSwitchError) {
+          console.error("Cancel switch insert failed:", cancelSwitchError);
+          return Response.json(
+            {
+              success: false,
+              message: `Failed to schedule cancellation: ${cancelSwitchError.message}`,
+            },
+            { status: 500 },
+          );
+        }
+
+        // Cancel the PayPal agreement now so it never charges again;
+        // access is governed by our subscriptions row until effective_at.
+        if (isRealAgreement(paypalSubId)) {
+          try {
+            await cancelPayPalSubscription(accessToken, paypalSubId);
+          } catch (cancelError) {
+            console.error(
+              "Failed to cancel PayPal agreement for deferred cancel:",
+              cancelError,
+            );
+          }
+        }
+
+        // Log the cancellation reason if provided
+        if (reason) {
+          await admin.from("subscription_cancellation_reasons").insert({
+            tenant_id: tenantId,
+            subscription_id: currentSub.id,
+            reason,
+            created_at: new Date().toISOString(),
+          }).then(() => {}).catch((err: unknown) => {
+            console.warn("Could not log cancellation reason:", err);
+          });
+        }
+
+        return Response.json({
+          success: true,
+          scheduled: true,
+          effectiveAt: periodEnd.toISOString(),
+          message:
+            "Subscription cancelled. Your current plan stays active until the end of the billing period.",
+        });
+      }
+
+      // Immediate: no paid time remaining — cancel now
+      if (isRealAgreement(paypalSubId)) {
+        try {
+          await cancelPayPalSubscription(accessToken, paypalSubId);
+        } catch (cancelError) {
+          console.error(
+            "Failed to cancel PayPal agreement for immediate cancel:",
+            cancelError,
+          );
+        }
+      }
+
+      const { error: updateSubError } = await admin
+        .from("subscriptions")
+        .update({
+          plan_id: freePlan.id,
+          paypal_subscription_id: `FREE-${tenantId}`,
+          status: "active",
+          seats: 1,
+          current_period_end: new Date(
+            Date.now() + 15 * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("tenant_id", tenantId);
+
+      if (updateSubError) {
+        console.error("Subscription update for cancel failed:", updateSubError);
+        return Response.json(
+          {
+            success: false,
+            message: `Failed to cancel subscription: ${updateSubError.message}`,
+          },
+          { status: 500 },
+        );
+      }
+
+      await admin
+        .from("tenants")
+        .update({ plan_id: freePlan.id, updated_at: new Date().toISOString() })
+        .eq("id", tenantId);
+
+      // Log the cancellation reason if provided
+      if (reason) {
+        await admin.from("subscription_cancellation_reasons").insert({
+          tenant_id: tenantId,
+          subscription_id: currentSub.id,
+          reason,
+          created_at: new Date().toISOString(),
+        }).then(() => {}).catch((err: unknown) => {
+          console.warn("Could not log cancellation reason:", err);
+        });
+      }
+
+      return Response.json({
+        success: true,
+        message: "Subscription cancelled. You are now on the Free plan.",
+      });
+    }
+
     if (action === "activate") {
-      if (!subscriptionId) {
+      let targetSubscriptionId = subscriptionId;
+
+      // PayPal sometimes returns to the success page without a token (e.g.
+      // the approval redirect landing twice, or a manual revisit). Fall back
+      // to the tenant's latest pending upgrade subscription so activation is
+      // still possible from the id-less return URL.
+      if (!targetSubscriptionId) {
+        const { data: latestSwitch, error: latestSwitchError } = await admin
+          .from("subscription_switches")
+          .select("paypal_subscription_id, old_paypal_subscription_id, status")
+          .eq("tenant_id", tenantId)
+          .in("status", ["pending", "approved"])
+          .is("effective_at", null)
+          .or(
+            "paypal_subscription_id.like.I-%,old_paypal_subscription_id.like.I-%",
+          )
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (latestSwitchError) {
+          console.error("Pending switch resolution failed:", latestSwitchError);
+          return Response.json(
+            { success: false, message: "Failed to resolve the plan change." },
+            { status: 500 },
+          );
+        }
+
+        if (latestSwitch) {
+          // Normal subscriptions carry the id in paypal_subscription_id; an
+          // upgrade awaiting revise approval keeps the ORDER id there and the
+          // real subscription id in old_paypal_subscription_id.
+          targetSubscriptionId =
+            latestSwitch.paypal_subscription_id?.startsWith("I-")
+              ? latestSwitch.paypal_subscription_id
+              : (latestSwitch.old_paypal_subscription_id ?? null);
+        }
+      }
+
+      if (!targetSubscriptionId) {
         return Response.json(
           { success: false, message: "Subscription ID is required." },
           { status: 400 },
         );
       }
 
-      const { data: pendingSwitch, error: switchError } = await admin
-        .from("subscription_switches")
-        .select(
-          "id, plan_id, paypal_subscription_id, old_paypal_subscription_id, status, effective_at",
-        )
-        .eq("paypal_subscription_id", subscriptionId)
-        .eq("tenant_id", tenantId)
-        .maybeSingle();
+      // Resolve the plan change for this subscription id. Order:
+      //  1. A pending/approved switch keyed on the id (normal activation).
+      //  2. A pending/approved switch whose OLD id is the subscription id
+      //     (upgrade awaiting buyer approval of a revise; the switch keeps the
+      //     ORDER id in paypal_subscription_id because that column is UNIQUE).
+      //  3. An already-applied switch keyed on the id (id-less / duplicate
+      //     returns) so we can report "already active".
+      let pendingSwitch: SubscriptionSwitchRow | null = null;
+      let switchError: { message?: string } | null = null;
+
+      const baseSelect = [
+        "id",
+        "plan_id",
+        "paypal_subscription_id",
+        "old_paypal_subscription_id",
+        "status",
+        "effective_at",
+      ];
+
+      {
+        const res = await admin
+          .from("subscription_switches")
+          .select(baseSelect.join(", ") + ", tenant_id")
+          .eq("paypal_subscription_id", targetSubscriptionId)
+          .eq("tenant_id", tenantId)
+          .in("status", ["pending", "approved"])
+          .maybeSingle();
+
+        if (res.data) {
+          pendingSwitch = res.data;
+        }
+      }
+
+      if (!pendingSwitch) {
+        const res = await admin
+          .from("subscription_switches")
+          .select(baseSelect.join(", ") + ", tenant_id")
+          .eq("old_paypal_subscription_id", targetSubscriptionId)
+          .eq("tenant_id", tenantId)
+          .in("status", ["pending", "approved"])
+          .is("effective_at", null)
+          .maybeSingle();
+
+        if (res.error) {
+          switchError = res.error;
+        }
+
+        if (res.data) {
+          pendingSwitch = res.data;
+        }
+      }
+
+      if (!pendingSwitch) {
+        const res = await admin
+          .from("subscription_switches")
+          .select(baseSelect.join(", ") + ", tenant_id")
+          .eq("paypal_subscription_id", targetSubscriptionId)
+          .eq("tenant_id", tenantId)
+          .maybeSingle();
+
+        if (res.error) {
+          switchError = res.error;
+        }
+
+        if (res.data) {
+          pendingSwitch = res.data;
+        }
+      }
 
       if (switchError) {
         console.error("Pending switch lookup failed:", switchError);
@@ -529,7 +1206,7 @@ Deno.serve(async (req) => {
       const accessToken = await getAccessToken();
       const { ok, data: paypalSub } = await getPayPalSubscription(
         accessToken,
-        pendingSwitch.paypal_subscription_id,
+        targetSubscriptionId,
       );
 
       if (!ok) {
@@ -547,7 +1224,7 @@ Deno.serve(async (req) => {
 
       if (paypalStatus !== "APPROVED" && paypalStatus !== "ACTIVE") {
         console.error("PayPal subscription not approved:", {
-          paypalSubscriptionId: pendingSwitch.paypal_subscription_id,
+          paypalSubscriptionId: targetSubscriptionId,
           status: paypalStatus,
         });
         return Response.json({
@@ -641,7 +1318,7 @@ Deno.serve(async (req) => {
         .from("subscriptions")
         .update({
           plan_id: pendingSwitch.plan_id,
-          paypal_subscription_id: pendingSwitch.paypal_subscription_id,
+          paypal_subscription_id: targetSubscriptionId,
           status: "active",
           seats: plan?.seat_limit ?? 1,
           updated_at: new Date().toISOString(),
@@ -681,7 +1358,7 @@ Deno.serve(async (req) => {
       await storePayPalPaymentMethod(admin, {
         tenantId,
         subscriptionRowId: activatedSub?.id ?? null,
-        paypalSubscriptionId: pendingSwitch.paypal_subscription_id,
+        paypalSubscriptionId: targetSubscriptionId,
         subscriber: paypalSub.subscriber as PayPalSubscriber | undefined,
         context: "subscription:activate",
       });
@@ -807,6 +1484,36 @@ Deno.serve(async (req) => {
         : null;
 
     const isFreePlan = Number(plan.price_month) === 0;
+
+    // Calculate prorated credit for upgrades
+    let proratedCredit = 0;
+    if (
+      !isDowngrade &&
+      !isFreePlan &&
+      currentPlan &&
+      periodEnd &&
+      periodEnd.getTime() > Date.now()
+    ) {
+      const oldPlanRate = Number(currentPlan.price_month);
+      const periodStart = new Date(
+        periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000,
+      );
+      const totalDays = Math.max(
+        1,
+        Math.ceil(
+          (periodEnd.getTime() - periodStart.getTime()) /
+            (24 * 60 * 60 * 1000),
+        ),
+      );
+      const remainingDays = Math.max(
+        0,
+        Math.ceil(
+          (periodEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+        ),
+      );
+      proratedCredit = (oldPlanRate * remainingDays) / totalDays;
+    }
+
     const accessToken = await getAccessToken();
 
     if (isFreePlan) {
@@ -940,6 +1647,84 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Upgrades collect the discounted amount as a true one-time PayPal order
+    // first (pay once, no auto-pay authorization page). Once the order is
+    // captured the real subscription is created and its approve link is
+    // handed to the buyer, so the standard ACTIVATED webhook path switches
+    // the plan and sets up the full-price recurring billing.
+    const isUpgrade = existingPaidSubscription && !isDowngrade && proratedCredit > 0;
+
+    if (isUpgrade) {
+      const orderAmount = Math.max(0, Number(plan.price_month) - proratedCredit);
+      const description = `ServiceDesk ${plan.name} Upgrade (one-time: $${Number(plan.price_month).toFixed(2)} - $${proratedCredit.toFixed(2)} credit)`;
+
+      const orderResult = await createPaypalOrder(accessToken, {
+        amount: orderAmount,
+        description,
+        customId: tenantId,
+        return_url: `${FRONTEND_URL}/${tenantSlug}/payment/success`,
+        cancel_url: `${FRONTEND_URL}/${tenantSlug}/payment/cancel`,
+      });
+
+      if (!orderResult.ok) {
+        console.error("PayPal order creation failed:", orderResult.error);
+        return Response.json(
+          {
+            success: false,
+            message: orderResult.error || "Failed to create payment.",
+          },
+          { status: 400 },
+        );
+      }
+
+      console.log(
+        `[subscription] order created ${orderResult.orderId} tenant=${tenantId} amount=${orderAmount}`,
+      );
+
+      await admin
+        .from("subscription_switches")
+        .update({ status: "cancelled", updated_at: new Date().toISOString() })
+        .eq("tenant_id", tenantId)
+        .in("status", ["pending", "approved"]);
+
+      const { error: switchError } = await admin
+        .from("subscription_switches")
+        .insert({
+          tenant_id: tenantId,
+          plan_id: plan.id,
+          paypal_subscription_id: orderResult.orderId || `ORDER-${Date.now()}`,
+          old_paypal_subscription_id:
+            currentSubscription?.paypal_subscription_id ?? null,
+          old_plan_id: currentSubscription?.plan_id ?? tenant.plan_id,
+          old_status: currentSubscription?.status ?? "active",
+          old_seats: currentSubscription?.seats ?? 1,
+          old_current_period_end: currentSubscription?.current_period_end ?? null,
+          effective_at: null,
+          status: "pending",
+        });
+
+      if (switchError) {
+        console.error("Pending switch insert failed:", switchError);
+        return Response.json(
+          {
+            success: false,
+            message: `Failed to record plan change: ${switchError.message}`,
+          },
+          { status: 500 },
+        );
+      }
+
+      return Response.json({
+        success: true,
+        message: "Upgrade payment created. Please complete payment to activate your new plan.",
+        subscriptionId: orderResult.orderId,
+        approvalUrl: orderResult.approveUrl,
+        proratedCredit,
+        amountDue: orderAmount,
+      });
+    }
+
+    // For downgrades or new subscriptions without credit, create PayPal subscription
     const paypalResponse = await fetch(`${BASE_URL}/v1/billing/subscriptions`, {
       method: "POST",
       headers: {
@@ -964,12 +1749,7 @@ Deno.serve(async (req) => {
         application_context: {
           brand_name: "ServiceDesk",
           user_action: "SUBSCRIBE_NOW",
-          // Only reached when the buyer follows `approvalUrl`. The card flow
-          // normally never does -- it confirms this same subscription from the
-          // hosted card fields -- but it falls back to the redirect when the
-          // SDK is unavailable, and "BILLING" then opens PayPal's card form
-          // rather than its account sign-in.
-          landing_page: fundingPreference === "card" ? "BILLING" : "LOGIN",
+          landing_page: "LOGIN",
           return_url: `${FRONTEND_URL}/${tenantSlug}/payment/success`,
           cancel_url: `${FRONTEND_URL}/${tenantSlug}/payment/cancel`,
         },
@@ -999,10 +1779,7 @@ Deno.serve(async (req) => {
     }
 
     console.log(
-      `[subscription] created ${paypalSubscription.id} tenant=${tenantId} ` +
-        `funding_preference=${fundingPreference} landing_page=${
-          fundingPreference === "card" ? "BILLING" : "LOGIN"
-        }`,
+      `[subscription] created ${paypalSubscription.id} tenant=${tenantId}`,
     );
 
     const approvalUrl = paypalSubscription.links?.find(
@@ -1061,6 +1838,8 @@ Deno.serve(async (req) => {
       subscriptionId: paypalSubscription.id,
       approvalUrl,
       effectiveAt: deferUntil?.toISOString() ?? null,
+      proratedCredit,
+      amountDue: 0,
     });
   } catch (error) {
     console.error("Subscription Edge Function Error:", error);

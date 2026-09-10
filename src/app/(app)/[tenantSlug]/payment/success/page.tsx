@@ -33,6 +33,7 @@ function PaymentSuccessContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const [countdown, setCountdown] = useState(5);
+  const [paypalCountdown, setPaypalCountdown] = useState(10);
   const [planName, setPlanName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const subscriptionId = searchParams.get("subscription_id");
@@ -101,6 +102,23 @@ function PaymentSuccessContent() {
       cancelled = true;
     };
   }, [tenantSlug, missingPaymentId, paymentId]);
+
+  useEffect(() => {
+    if (checking || !authorizing || !approval) return;
+
+    const timer = setInterval(() => {
+      setPaypalCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          window.location.assign(approval.url);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [checking, authorizing, approval]);
 
   useEffect(() => {
     if (checking || authorizing) return;
@@ -190,6 +208,16 @@ function PaymentSuccessContent() {
             </div>
           </div>
 
+          {!checking && authorizing && paypalCountdown > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Redirecting to PayPal in{" "}
+              <span className="font-bold text-foreground">
+                {paypalCountdown}
+              </span>{" "}
+              seconds...
+            </p>
+          )}
+
           {!checking && !authorizing && (
             <p className="text-xs text-muted-foreground">
               Redirecting to your account plan in{" "}
@@ -209,7 +237,7 @@ function PaymentSuccessContent() {
             className="h-9 w-full bg-brand-accent hover:bg-brand-accent/90"
           >
             {authorizing
-              ? "Continue to PayPal to confirm"
+              ? `Continue to PayPal to confirm (${paypalCountdown}s)`
               : "Go to Account & Plan Immediately"}
           </Button>
         </CardFooter>

@@ -861,65 +861,14 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     return;
   }
 
-  // The invoice row is normally inserted by `capture-order` around the same
-  // moment the order is captured. A webhook can still beat that call back to
-  // the browser (or the row's insert silently failed), so instead of failing
-  // every delivery until PayPal gives up, create the one_time row here from
-  // the capture itself and let the normal PDF/email path below finish it.
+  // The one-time upgrade invoice row is created by `capture-order` (keyed on
+  // the PayPal transaction id). If no row exists here, this is a stray event
+  // with nothing to finalize — skip rather than invent an invoice.
   if (!invoice) {
-    const customTenantId = String(resource.custom_id ?? "");
-
-    if (!customTenantId) {
-      throw new Error(
-        `No invoice row for captured txn ${txnId} (${eventLabel}) and no custom_id to reconstruct one; retry.`,
-      );
-    }
-
-    const nowDateStr = new Date().toISOString();
-    const { error: createError } = await admin
-      .from("invoices")
-      .insert({
-        tenant_id: customTenantId,
-        paypal_txn_id: txnId,
-        amount: Number.isFinite(capturedAmount ?? NaN)
-          ? (capturedAmount as number)
-          : 0,
-        status: "paid",
-        invoice_type: "one_time",
-        currency,
-        subtotal: Number.isFinite(capturedAmount ?? NaN)
-          ? (capturedAmount as number)
-          : 0,
-        tax: 0,
-        amount_paid: Number.isFinite(capturedAmount ?? NaN)
-          ? (capturedAmount as number)
-          : 0,
-        balance_due: 0,
-        payment_method: "PayPal",
-        paid_at: nowDateStr,
-        period_start: nowDateStr.substring(0, 10),
-        period_end: nowDateStr.substring(0, 10),
-      })
-      .select()
-      .single();
-
-    if (createError) {
-      throw createError;
-    }
-
-    const { data: recheck } = await admin
-      .from("invoices")
-      .select("*")
-      .eq("paypal_txn_id", txnId)
-      .maybeSingle();
-
-    if (!recheck) {
-      throw new Error(
-        `Invoice row for captured txn ${txnId} (${eventLabel}) could not be read back; retry.`,
-      );
-    }
-
-    invoice = recheck;
+    console.log(
+      `[webhook] no invoice row for txn ${txnId} (${eventLabel}); skipping (one-time upgrade capture).`,
+    );
+    return;
   }
 
   const tenantId = invoice.tenant_id;

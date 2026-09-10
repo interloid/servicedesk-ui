@@ -2,6 +2,7 @@
 
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Check,
   Info,
@@ -46,6 +47,7 @@ export function PricingCards({
   plans,
   billingData,
 }: PricingCardsProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [loadingPlanCode, setLoadingPlanCode] = useState<string | null>(null);
   const [selectedPlanForSwitch, setSelectedPlanForSwitch] =
@@ -158,8 +160,7 @@ export function PricingCards({
   };
 
   const openCancelDialog = () => {
-    if (!freePlan) return;
-    setDowngradeTarget(freePlan);
+    router.push(`/${tenantSlug}/account/billing/cancel`);
   };
 
   const usedSeats = billingData?.seats?.used ?? 0;

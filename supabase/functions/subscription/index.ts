@@ -771,12 +771,14 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Record the one-time upgrade payment as an invoice so the billing
-      // dashboard's "Last payment" reflects what was actually charged today.
-      // The invoice is typed one_time so the PDF describes it as a one-time
-      // upgrade charge (never "recurring"), and the upcoming billing panel is
-      // informational only -- the next monthly charge is NOT part of this total.
       const nowDateStr = new Date().toISOString();
+
+      // Record the one-time upgrade payment as an invoice — the user is
+      // actually charged this amount today (the prorated delta Pro->Business).
+      // The row is keyed on the PayPal transaction id so retries / re-visits
+      // can never create a duplicate. Typed one_time so the PDF describes it
+      // as a one-time upgrade charge; the "upcoming billing" panel is purely
+      // informational and is NOT part of this total.
       if (
         captureResult.txnId &&
         captureResult.amount &&
@@ -790,34 +792,38 @@ Deno.serve(async (req) => {
 
         await admin
           .from("invoices")
-          .insert({
-            tenant_id: tenantId,
-            paypal_txn_id: captureResult.txnId,
-            amount: captureResult.amount,
-            status: "paid",
-            storage_path: null,
-            period_start: nowDateStr.substring(0, 10),
-            period_end: nowDateStr.substring(0, 10),
-            plan_name: plan.name,
-            seats: plan.seat_limit ?? 1,
-
-            invoice_type: "one_time",
-            currency: captureResult.currency ?? "USD",
-            subtotal: captureResult.amount,
-            tax: 0,
-            amount_paid: captureResult.amount,
-            balance_due: 0,
-            payment_method: "PayPal",
-            paid_at: nowDateStr,
-            billing_email: captureResult.payerEmail ?? user.email ?? undefined,
-            paypal_subscription_id: upgradeSub?.paypal_subscription_id ?? null,
-            next_billing_date: upgradeSub?.current_period_end ?? null,
-            next_billing_amount: Number(plan.price_month ?? 0),
-          })
+          .upsert(
+            {
+              tenant_id: tenantId,
+              paypal_txn_id: captureResult.txnId,
+              amount: captureResult.amount,
+              status: "paid",
+              storage_path: null,
+              period_start: nowDateStr.substring(0, 10),
+              period_end: nowDateStr.substring(0, 10),
+              plan_name: plan.name,
+              seats: plan.seat_limit ?? 1,
+              invoice_type: "one_time",
+              currency: captureResult.currency ?? "USD",
+              subtotal: captureResult.amount,
+              tax: 0,
+              amount_paid: captureResult.amount,
+              balance_due: 0,
+              payment_method: "PayPal",
+              paid_at: nowDateStr,
+              billing_email:
+                captureResult.payerEmail ?? user.email ?? undefined,
+              paypal_subscription_id:
+                upgradeSub?.paypal_subscription_id ?? null,
+              next_billing_date: upgradeSub?.current_period_end ?? null,
+              next_billing_amount: Number(plan.price_month ?? 0),
+            },
+            { onConflict: "paypal_txn_id", ignoreDuplicates: true },
+          )
           .then(() => {})
           .catch((err: unknown) => {
             console.warn(
-              "[subscription] could not record upgrade invoice:",
+              "[subscription] could not record one-time upgrade invoice:",
               err,
             );
           });
@@ -864,6 +870,7 @@ Deno.serve(async (req) => {
       const createReplacementSubscription = async (
         reason: string,
       ): Promise<Response> => {
+        const nowDateStr = new Date().toISOString();
         console.log(
           `[subscription] creating replacement for upgrade (${tenantId}): ${reason}.`,
         );
@@ -874,6 +881,19 @@ Deno.serve(async (req) => {
           .eq("id", tenantId)
           .maybeSingle();
         const tenantSlug = tenantRow?.slug ?? "";
+
+        // Align the replacement subscription's first charge to the original
+        // billing cycle end so the user is NOT billed twice today (once for
+        // the one-time upgrade and once for the full new plan rate).
+        const { data: originalSub } = await admin
+          .from("subscriptions")
+          .select("current_period_end")
+          .eq("tenant_id", tenantId)
+          .maybeSingle();
+
+        const startDate =
+          originalSub?.current_period_end ??
+          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
         const subCreateResponse = await fetch(
           `${BASE_URL}/v1/billing/subscriptions`,
@@ -892,6 +912,7 @@ Deno.serve(async (req) => {
                 name: { given_name: "Valued", surname: "Customer" },
                 address: { country_code: "US" },
               },
+              start_date: startDate,
               payment_schedule: {
                 setup_fee: { value: "0.00", currency_code: "USD" },
               },

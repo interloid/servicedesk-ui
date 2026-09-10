@@ -8,7 +8,6 @@ import {
   CalendarClock,
   Check,
   Loader2,
-  MessageSquare,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -17,15 +16,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { cancelSubscriptionAction } from "../billing-actions";
 import { BillingDashboardData } from "../services/billing-dashboard.service";
-
-const CANCEL_REASONS = [
-  "Too expensive",
-  "Not using it enough",
-  "Missing features I need",
-  "Switching to a different tool",
-  "Budget constraints",
-  "Other",
-];
 
 interface CancelSubscriptionProps {
   tenantSlug: string;
@@ -38,9 +28,7 @@ export default function CancelSubscription({
 }: CancelSubscriptionProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [step, setStep] = useState<"reason" | "confirm">("reason");
-  const [selectedReason, setSelectedReason] = useState<string>("");
-  const [customReason, setCustomReason] = useState("");
+  const [step, setStep] = useState<"confirm" | "final">("confirm");
   const [error, setError] = useState<string | null>(null);
 
   const plan = billingData.plan;
@@ -52,16 +40,11 @@ export default function CancelSubscription({
   const hasScheduledChange = scheduledChange !== null;
 
   const handleCancel = () => {
-    const reason = selectedReason === "Other" ? customReason : selectedReason;
-
     startTransition(async () => {
       setError(null);
 
       try {
-        const result = await cancelSubscriptionAction(
-          tenantSlug,
-          reason || undefined,
-        );
+        const result = await cancelSubscriptionAction(tenantSlug);
 
         if (!result.success) {
           setError(result.error || "Failed to cancel subscription.");
@@ -191,8 +174,7 @@ export default function CancelSubscription({
             Cancel subscription
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            We&apos;re sorry to see you go. Please let us know why you&apos;re
-            cancelling.
+            Please review what you&apos;ll lose before confirming.
           </p>
         </div>
 
@@ -216,80 +198,33 @@ export default function CancelSubscription({
           </div>
         </Card>
 
-        {step === "reason" && (
+        {step === "confirm" && (
           <>
             {/* What you'll lose */}
-            <Card className="p-5">
-              <h3 className="text-sm font-bold text-foreground">
-                What you&apos;ll lose when your plan ends:
-              </h3>
-              <ul className="mt-3 space-y-2">
-                <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                  Access to premium features
-                </li>
-                <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                  {seats.total} agent seats (Free plan includes limited seats)
-                </li>
-                <li className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                  Priority support
-                </li>
-              </ul>
-            </Card>
-
-            {/* Reason selection */}
-            <Card className="p-5">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-bold text-foreground">
-                  Why are you cancelling?
-                </h3>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Optional — your feedback helps us improve.
-              </p>
-
-              <div className="mt-4 space-y-2">
-                {CANCEL_REASONS.map((reason) => (
-                  <button
-                    key={reason}
-                    type="button"
-                    onClick={() => setSelectedReason(reason)}
-                    className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
-                      selectedReason === reason
-                        ? "border-brand-accent bg-brand-accent/5"
-                        : "border-border hover:bg-muted/50"
-                    }`}
-                  >
-                    <div
-                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                        selectedReason === reason
-                          ? "border-brand-accent bg-brand-accent"
-                          : "border-muted-foreground"
-                      }`}
-                    >
-                      {selectedReason === reason && (
-                        <Check className="h-3 w-3 text-primary-foreground" />
-                      )}
-                    </div>
-                    {reason}
-                  </button>
-                ))}
-              </div>
-
-              {selectedReason === "Other" && (
-                <div className="mt-3">
-                  <textarea
-                    value={customReason}
-                    onChange={(e) => setCustomReason(e.target.value)}
-                    placeholder="Please tell us more..."
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:border-brand-accent focus:outline-none focus:ring-1 focus:ring-brand-accent"
-                    rows={3}
-                  />
+            <Card className="border-red-200 bg-red-50/50 p-5">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+                <div>
+                  <h3 className="text-sm font-bold text-red-900">
+                    What you&apos;ll lose when your plan ends:
+                  </h3>
+                  <ul className="mt-3 space-y-2">
+                    <li className="flex items-start gap-2 text-sm text-red-800/80">
+                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                      Access to premium features
+                    </li>
+                    <li className="flex items-start gap-2 text-sm text-red-800/80">
+                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                      {seats.total} agent seats (Free plan includes limited
+                      seats)
+                    </li>
+                    <li className="flex items-start gap-2 text-sm text-red-800/80">
+                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                      Priority support
+                    </li>
+                  </ul>
                 </div>
-              )}
+              </div>
             </Card>
 
             {error && (
@@ -307,7 +242,7 @@ export default function CancelSubscription({
                 Keep my plan
               </Button>
               <Button
-                onClick={() => setStep("confirm")}
+                onClick={() => setStep("final")}
                 disabled={isPending}
                 className="bg-red-600 text-white hover:bg-red-700"
               >
@@ -317,7 +252,7 @@ export default function CancelSubscription({
           </>
         )}
 
-        {step === "confirm" && (
+        {step === "final" && (
           <>
             <Card className="border-red-200 bg-red-50/50 p-5">
               <div className="flex items-start gap-3">
@@ -351,7 +286,7 @@ export default function CancelSubscription({
             <div className="flex items-center justify-between gap-3">
               <Button
                 variant="outline"
-                onClick={() => setStep("reason")}
+                onClick={() => setStep("confirm")}
                 disabled={isPending}
               >
                 Go back

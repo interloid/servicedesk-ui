@@ -205,34 +205,6 @@ export function DowngradeDialog({
                   </div>
                 </div>
               )}
-
-              {isFreeTarget && (
-                <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 dark:border-red-900/50 dark:bg-red-950/30">
-                  <div className="flex items-start gap-3">
-                    <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
-                    <div className="space-y-1 text-sm leading-5">
-                      <p className="font-semibold text-red-900 dark:text-red-200">
-                        What you&apos;ll lose when your plan ends
-                      </p>
-                      <ul className="mt-2 space-y-1.5 text-sm text-red-800/90 dark:text-red-300/90">
-                        <li className="flex items-start gap-2">
-                          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                          Access to premium features
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                          {totalSeats} agent seats (the Free plan includes{" "}
-                          {targetSeatLimit})
-                        </li>
-                        <li className="flex items-start gap-2">
-                          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                          Priority support
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -258,7 +230,7 @@ export function DowngradeDialog({
             }`}
           >
             {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {isFreeTarget ? "Yes, downgrade to Free" : "Confirm downgrade"}
+            Confirm downgrade
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

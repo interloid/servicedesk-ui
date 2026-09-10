@@ -260,63 +260,116 @@ async function capturePaypalOrder(
     }
   | { ok: false; error: string; issue?: string }
 > {
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+
+  const readOrder = async (): Promise<Record<string, unknown>> => {
+    const response = await fetch(`${BASE_URL}/v2/checkout/orders/${orderId}`, {
+      headers,
+    });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    return await response.json().catch(() => ({}));
+  };
+
+  const parseCompletedOrder = (
+    data: Record<string, unknown>,
+  ): {
+    payerId?: string;
+    payerEmail?: string;
+    txnId?: string;
+    amount?: number;
+    currency?: string;
+  } => {
+    const payer = data.payer as
+      { payer_id?: string; email_address?: string } | undefined;
+
+    const purchaseUnits = data.purchase_units as
+      | Array<{
+          payments?: {
+            captures?: Array<{
+              id?: string;
+              amount?: { value?: string; currency?: string };
+            }>;
+          };
+        }>
+      | undefined;
+
+    const captures = purchaseUnits?.[0]?.payments?.captures;
+    const capture = captures?.find((c) => c?.id) ?? captures?.[0];
+
+    return {
+      payerId: payer?.payer_id,
+      payerEmail: payer?.email_address,
+      txnId: capture?.id,
+      amount: Number(capture?.amount?.value ?? 0),
+      currency: capture?.amount?.currency ?? "USD",
+    };
+  };
+
+  // Capturing an order that is already COMPLETED fails with PayPal's generic
+  // "could not be performed... failed business validation" error. The browser
+  // can land on /payment/success twice (refresh, double submit, PayPal
+  // re-navigation), so resolve existing captures up front instead of retrying
+  // the POST.
+  const existingOrder = await readOrder();
+
+  if (String(existingOrder.status ?? "").toUpperCase() === "COMPLETED") {
+    console.log(
+      `[subscription] order ${orderId} already completed; treating as captured.`,
+    );
+    return { ok: true, ...parseCompletedOrder(existingOrder) };
+  }
+
   const response = await fetch(
     `${BASE_URL}/v2/checkout/orders/${orderId}/capture`,
     {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers,
     },
   );
 
-  const data = (await response.json()) as Record<string, unknown>;
+  const data = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
 
-  if (!response.ok) {
-    console.error("PayPal order capture failed:", {
-      status: response.status,
-      response: data,
-    });
-    const details = Array.isArray(data.details) ? data.details : [];
-    const firstDetail = details[0] as { issue?: string } | undefined;
-    return {
-      ok: false,
-      issue: firstDetail?.issue,
-      error:
-        firstDetail?.issue ??
-        (data as { message?: string }).message ??
-        "Capture failed",
-    };
+  if (response.ok) {
+    return { ok: true, ...parseCompletedOrder(data) };
   }
 
-  const payer = data.payer as
-    { payer_id?: string; email_address?: string } | undefined;
+  // A capture can complete between our GET and this POST (parallel webhook
+  // delivery or double submit). Re-check once; if the order is COMPLETED now,
+  // the money is in and this must surface as success, never as a validation
+  // error on the redeem page.
+  const recheckOrder = await readOrder();
 
-  const purchaseUnits = data.purchase_units as
-    | Array<{
-        payments?: {
-          captures?: Array<{
-            id?: string;
-            amount?: { value?: string; currency?: string };
-          }>;
-        };
-      }>
-    | undefined;
+  if (String(recheckOrder.status ?? "").toUpperCase() === "COMPLETED") {
+    console.log(
+      `[subscription] order ${orderId} completed between checks; treating as captured.`,
+    );
+    return { ok: true, ...parseCompletedOrder(recheckOrder) };
+  }
 
-  const capture = purchaseUnits?.[0]?.payments?.captures?.[0];
-  const txnId = capture?.id;
-  const amount = Number(capture?.amount?.value ?? 0);
-  const currency = capture?.amount?.currency ?? "USD";
-
+  console.error("PayPal order capture failed:", {
+    status: response.status,
+    response: data,
+  });
+  const details = Array.isArray(data.details) ? data.details : [];
+  const firstDetail = details[0] as { issue?: string } | undefined;
   return {
-    ok: true,
-    payerId: payer?.payer_id,
-    payerEmail: payer?.email_address,
-    txnId,
-    amount,
-    currency,
+    ok: false,
+    issue: firstDetail?.issue,
+    error:
+      firstDetail?.issue ??
+      (data as { message?: string }).message ??
+      "Capture failed",
   };
 }
 
@@ -802,9 +855,17 @@ Deno.serve(async (req) => {
         ? String(existingLookup.data.status ?? "").toUpperCase()
         : "";
 
-      if (existingPaypalStatus !== "ACTIVE") {
+      // Create a replacement subscription for the captured upgrade. Used when
+      // the current agreement has nothing to revise (not ACTIVE) OR when a
+      // revise is impossible because the current and target plans live on
+      // different PayPal products (PLAN_PRODUCT_NOT_COMPATIBLE). The upgrade
+      // value was already captured from the one-time order, so the replacement
+      // carries a zero setup fee and PayPal bills the full rate next cycle.
+      const createReplacementSubscription = async (
+        reason: string,
+      ): Promise<Response> => {
         console.log(
-          `[subscription] existing sub ${existingSubscriptionId} is "${existingPaypalStatus || "UNKNOWN"}"; creating replacement for upgrade (${tenantId}).`,
+          `[subscription] creating replacement for upgrade (${tenantId}): ${reason}.`,
         );
 
         const { data: tenantRow } = await admin
@@ -895,6 +956,75 @@ Deno.serve(async (req) => {
           );
         }
 
+        // When the old agreement is still ACTIVE (the revise-fail path, e.g.
+        // PLAN_PRODUCT_NOT_COMPATIBLE), it now has a sibling replacement here.
+        // Leaving both active would bill the tenant twice next cycle, so cancel
+        // the old agreement. Its state is re-read right before the call: a
+        // cancel that already happened (webhook, buyer action, an earlier
+        // fallback) must not be re-attempted on PayPal.
+        if (existingPaypalStatus === "ACTIVE") {
+          const freshLookup = await getPayPalSubscription(
+            accessToken,
+            existingSubscriptionId,
+          );
+          const freshStatus = freshLookup.ok
+            ? String(freshLookup.data.status ?? "").toUpperCase()
+            : existingPaypalStatus;
+
+          const syncSubscriptionStatus = async (): Promise<void> => {
+            const { error } = await admin
+              .from("subscriptions")
+              .update({ status: "cancelled", updated_at: nowDateStr })
+              .eq("paypal_subscription_id", existingSubscriptionId);
+
+            if (error) {
+              console.warn(
+                "Could not sync old agreement status to the dashboard:",
+                error,
+              );
+            }
+          };
+
+          if (
+            !["ACTIVE", "APPROVAL_PENDING", "SUSPENDED"].includes(freshStatus)
+          ) {
+            console.log(
+              `[subscription] old agreement ${existingSubscriptionId} is already "${freshStatus}"; skipping cancel.`,
+            );
+            await syncSubscriptionStatus();
+          } else {
+            const cancelRes = await fetch(
+              `${BASE_URL}/v1/billing/subscriptions/${existingSubscriptionId}/cancel`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
+                body: JSON.stringify({
+                  reason:
+                    "Upgraded to a plan on a different PayPal product; replaced by " +
+                    replacementSubId,
+                }),
+              },
+            );
+
+            if (cancelRes.ok) {
+              console.log(
+                `[subscription] cancelled old agreement ${existingSubscriptionId} after replacement (${tenantId}).`,
+              );
+              await syncSubscriptionStatus();
+            } else {
+              const cancelBody = await cancelRes.json().catch(() => ({}));
+              console.warn("Old agreement cancel after replacement failed:", {
+                status: cancelRes.status,
+                response: cancelBody,
+              });
+            }
+          }
+        }
+
         console.log(
           `[subscription] replacement subscription ${replacementSubId} created (zero setup fee) for upgrade to ${plan.name}.`,
         );
@@ -910,6 +1040,12 @@ Deno.serve(async (req) => {
             subCreateResult.links?.find((l) => l.rel === "approve")?.href ??
             null,
         });
+      };
+
+      if (existingPaypalStatus !== "ACTIVE") {
+        return await createReplacementSubscription(
+          `status "${existingPaypalStatus || "UNKNOWN"}"`,
+        );
       }
 
       const reviseResponse = await fetch(
@@ -934,14 +1070,16 @@ Deno.serve(async (req) => {
           status: reviseResponse.status,
           response: reviseResult,
         });
-        return Response.json(
-          {
-            success: false,
-            message:
-              reviseResult?.message ??
-              "Failed to update your subscription plan.",
-          },
-          { status: 400 },
+        // The current and target plans may live on different PayPal products
+        // (PLAN_PRODUCT_NOT_COMPATIBLE), which a revise cannot bridge even for
+        // an ACTIVE agreement. The upgrade value was already captured from the
+        // one-time order, so create a replacement subscription with a zero
+        // setup fee instead of failing after the money is in.
+        const details = Array.isArray(reviseResult?.details)
+          ? (reviseResult.details as Array<{ issue?: string }>)
+          : [];
+        return await createReplacementSubscription(
+          `revise ${reviseResponse.status} ${details[0]?.issue ?? ""}`.trim(),
         );
       }
 
@@ -1912,20 +2050,23 @@ Deno.serve(async (req) => {
               },
             );
             if (!reviseRes.ok) {
-              console.error(
-                "Paid downgrade immediate revise not applied:",
-                { status: reviseRes.status },
-              );
+              console.error("Paid downgrade immediate revise not applied:", {
+                status: reviseRes.status,
+              });
             }
           } catch (reviseError) {
-            console.error("Paid downgrade immediate revise failed:", reviseError);
+            console.error(
+              "Paid downgrade immediate revise failed:",
+              reviseError,
+            );
           }
         }
 
         return Response.json({
           success: true,
           message: `Plan changed to ${plan.name}.`,
-          subscriptionId: existingPaidSubscription?.paypal_subscription_id ?? null,
+          subscriptionId:
+            existingPaidSubscription?.paypal_subscription_id ?? null,
           approvalUrl: null,
         });
       }
@@ -2018,9 +2159,10 @@ Deno.serve(async (req) => {
       existingPaidSubscription && !isDowngrade && proratedCredit > 0;
 
     if (isUpgrade) {
-      const orderAmount = Math.round(
-        Math.max(0, Number(plan.price_month) - proratedCredit) * 100,
-      ) / 100;
+      const orderAmount =
+        Math.round(
+          Math.max(0, Number(plan.price_month) - proratedCredit) * 100,
+        ) / 100;
       const description = `ServiceDesk ${plan.name} Upgrade (one-time: $${Number(plan.price_month).toFixed(2)} - $${proratedCredit.toFixed(2)} credit)`;
 
       const orderResult = await createPaypalOrder(accessToken, {

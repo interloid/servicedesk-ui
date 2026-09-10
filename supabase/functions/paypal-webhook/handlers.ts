@@ -95,8 +95,7 @@ async function resolveInvoiceRecipients(
       recipients.push({
         email,
         name:
-          (member?.users?.full_name as string | undefined)?.trim() ||
-          "there",
+          (member?.users?.full_name as string | undefined)?.trim() || "there",
       });
     }
   }
@@ -765,9 +764,7 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   // the verified+active billing admin, with a short-lived download link. Email
   // failures must not fail payment processing.
   try {
-    const recipients = await resolveInvoiceRecipients(
-      subscription.tenant_id,
-    );
+    const recipients = await resolveInvoiceRecipients(subscription.tenant_id);
 
     if (recipients.length === 0) {
       console.warn(
@@ -848,7 +845,7 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     eventLabel = txnId;
   }
 
-  let { data: invoice, error: invoiceError } = await admin
+  const { data: invoiceRow, error: invoiceError } = await admin
     .from("invoices")
     .select("*")
     .eq("paypal_txn_id", txnId)
@@ -857,6 +854,8 @@ export async function handleOrderCompleted(event: WebhookEvent) {
   if (invoiceError) {
     throw invoiceError;
   }
+
+  let invoice = invoiceRow;
 
   if (invoice?.storage_path) {
     return;
@@ -877,7 +876,7 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     }
 
     const nowDateStr = new Date().toISOString();
-    const { data: created, error: createError } = await admin
+    const { error: createError } = await admin
       .from("invoices")
       .insert({
         tenant_id: customTenantId,
@@ -946,9 +945,17 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     ? tenantSub?.plans?.[0]
     : tenantSub?.plans;
 
+  // For the "Upcoming billing" panel, prefer the values recorded on the row
+  // itself (set at capture time from the TARGET plan). The live subscription
+  // row lags an upgrade by a full switch cycle, so extrapolating from it would
+  // show yesterday's rate on an invoice for today's upgrade.
+  const nextBillingAmount = Number(
+    invoice.next_billing_amount ?? tenantPlan?.price_month ?? 0,
+  );
   const nextBillingDate =
-    tenantSub?.current_period_end ?? addMonths(new Date().toISOString());
-  const nextBillingAmount = Number(tenantPlan?.price_month ?? 0);
+    invoice.next_billing_date ??
+    tenantSub?.current_period_end ??
+    addMonths(new Date().toISOString());
 
   const { data: billingMethod } = await admin
     .from("payment_methods")
@@ -1069,38 +1076,32 @@ export async function handlePaymentDenied(event: WebhookEvent) {
       return;
     }
 
-    const { error: invError } = await admin
-      .from("invoices")
-      .insert({
-        tenant_id: subscription.tenant_id,
-        paypal_txn_id: payment.id ?? null,
-        paypal_event_id: event.id ?? null,
-        amount,
-        currency: "USD",
-        status: "failed",
-        invoice_type: "recurring",
-        subscription_id: subscription.id,
-        paypal_subscription_id:
-          subscription.paypal_subscription_id ??
-          payment.billing_agreement_id,
-        subtotal: amount,
-        tax: 0,
-        amount_paid: 0,
-        balance_due: amount,
-        payment_method: "PayPal",
-        plan_name: plan?.name ?? null,
-        seats: subscription.seats ?? null,
-        period_start: now.substring(0, 10),
-        period_end: subscription.current_period_end
-          ? subscription.current_period_end.substring(0, 10)
-          : addMonths(now).substring(0, 10),
-      });
+    const { error: invError } = await admin.from("invoices").insert({
+      tenant_id: subscription.tenant_id,
+      paypal_txn_id: payment.id ?? null,
+      paypal_event_id: event.id ?? null,
+      amount,
+      currency: "USD",
+      status: "failed",
+      invoice_type: "recurring",
+      subscription_id: subscription.id,
+      paypal_subscription_id:
+        subscription.paypal_subscription_id ?? payment.billing_agreement_id,
+      subtotal: amount,
+      tax: 0,
+      amount_paid: 0,
+      balance_due: amount,
+      payment_method: "PayPal",
+      plan_name: plan?.name ?? null,
+      seats: subscription.seats ?? null,
+      period_start: now.substring(0, 10),
+      period_end: subscription.current_period_end
+        ? subscription.current_period_end.substring(0, 10)
+        : addMonths(now).substring(0, 10),
+    });
 
     if (invError && invError.code !== "23505") {
-      console.error(
-        "Failed to record denied payment as an invoice:",
-        invError,
-      );
+      console.error("Failed to record denied payment as an invoice:", invError);
     } else if (invError && invError.code === "23505") {
       console.log(
         `Denied payment event ${event.id} already recorded; skipping duplicate.`,

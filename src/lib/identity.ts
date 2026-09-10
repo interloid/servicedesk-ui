@@ -45,7 +45,7 @@ export async function getShellIdentity(
 
   const { data: tenantData, error: tenantError } = await supabase
     .from("tenants")
-    .select("id, name")
+    .select("id, name, plan_id")
     .eq("id", tenantId)
     .single();
 
@@ -95,6 +95,27 @@ export async function getShellIdentity(
     plan = planData ?? null;
   }
 
+  // No active subscription row yet (upgrade awaiting approval, agreement
+  // between cancel and replacement, trialing tenant): fall back to the plan
+  // assigned on the tenant row so the shell never advertises "Free plan" for
+  // a tenant that actually owns a paid plan.
+  if (!plan && tenantData?.plan_id) {
+    const { data: tenantPlan, error: tenantPlanError } = await supabase
+      .from("plans")
+      .select("id, name, seat_limit")
+      .eq("id", tenantData.plan_id)
+      .single();
+
+    if (tenantPlanError) {
+      console.error(
+        "[identity] tenant plan lookup failed:",
+        tenantPlanError.message,
+      );
+    } else if (tenantPlan) {
+      plan = tenantPlan;
+    }
+  }
+
   const { count: memberCount, error: memberError } = await supabase
     .from("memberships")
     .select("id", {
@@ -109,7 +130,7 @@ export async function getShellIdentity(
   }
 
   const planName = plan?.name ?? "Free";
-  const seatLimit = subscription?.seats ?? 0;
+  const seatLimit = subscription?.seats ?? plan?.seat_limit ?? 0;
   const seatsUsed = memberCount ?? 0;
 
   const planSummary =

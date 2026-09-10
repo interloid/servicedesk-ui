@@ -164,20 +164,25 @@ export async function fetchTenantBillingData(
   ).length;
   const regularCount = usedSeats - adminCount;
 
-  const plan = sub?.plans;
+  let plan = sub?.plans;
 
-  let planSeatLimit: number | undefined = plan?.seat_limit;
-
-  // No active subscription: fall back to the tenant's assigned plan rather
-  // than guessing a seat count, so limits always match the plans config.
-  if (!sub && tenant.plan_id) {
+  // No active subscription row (upgrade awaiting approval, agreement between
+  // cancel and replacement): the plan card must still reflect the tenant's
+  // actual plan, not fall back to "Free". The assignment on the tenants row
+  // is the same source the plans page uses.
+  if (!plan && tenant.plan_id) {
     const { data: tenantPlan } = await supabase
       .from("plans")
-      .select("seat_limit")
+      .select("name, price_month, seat_limit")
       .eq("id", tenant.plan_id)
       .single();
-    planSeatLimit = tenantPlan?.seat_limit;
+
+    if (tenantPlan) {
+      plan = tenantPlan as unknown as typeof plan;
+    }
   }
+
+  const planSeatLimit: number | undefined = plan?.seat_limit;
 
   const totalSeats = sub?.seats ?? planSeatLimit ?? 0;
   const unusedSeats = Math.max(0, totalSeats - usedSeats);

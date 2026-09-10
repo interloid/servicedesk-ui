@@ -25,6 +25,8 @@ interface DowngradeDialogProps {
   usedSeats: number;
   totalSeats: number;
   renewalDate: string | null;
+  /** Target plan name of an already-scheduled change, if any ("already downgraded"). */
+  scheduledToPlan?: string | null;
 }
 
 export function DowngradeDialog({
@@ -36,6 +38,7 @@ export function DowngradeDialog({
   usedSeats,
   totalSeats,
   renewalDate,
+  scheduledToPlan,
 }: DowngradeDialogProps) {
   const [isPending, startTransition] = useTransition();
 
@@ -70,6 +73,18 @@ export function DowngradeDialog({
 
   const handleConfirm = () => {
     if (!targetPlan) return;
+
+    if (
+      scheduledToPlan &&
+      targetPlan.name.trim().toLowerCase() ===
+        scheduledToPlan.trim().toLowerCase()
+    ) {
+      toast.info(
+        `You've already scheduled the downgrade to ${targetPlan.name}.`,
+      );
+      onOpenChange(false);
+      return;
+    }
 
     startTransition(async () => {
       try {

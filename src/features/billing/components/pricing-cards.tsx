@@ -69,6 +69,17 @@ export function PricingCards({
   };
 
   const executePlanSwitch = (plan: FormattedPlan) => {
+    const scheduledToName = billingData?.scheduledChange?.planName
+      ? billingData.scheduledChange.planName.trim().toLowerCase()
+      : "";
+
+    if (scheduledToName && plan.name.trim().toLowerCase() === scheduledToName) {
+      toast.info(`You've already scheduled the switch to ${plan.name}.`);
+      setSelectedPlanForSwitch(null);
+      setDowngradeTarget(null);
+      return;
+    }
+
     setLoadingPlanCode(plan.id);
 
     startTransition(async () => {
@@ -555,6 +566,7 @@ export function PricingCards({
         usedSeats={usedSeats}
         totalSeats={totalSeats}
         renewalDate={renewalDate}
+        scheduledToPlan={billingData?.scheduledChange?.planName ?? null}
       />
     </>
   );

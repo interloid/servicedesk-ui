@@ -254,8 +254,10 @@ async function applySwitch(
   // a genuinely different, cheaper agreement confirmed live is the old one
   // retired -- and only then can a failure leave the tenant unbilled, so the
   // cancellation happens after the new row is written.
-  if (isRealAgreement(pendingSwitch.old_paypal_subscription_id) &&
-      !isPaidReviseSwitch) {
+  if (
+    isRealAgreement(pendingSwitch.old_paypal_subscription_id) &&
+    !isPaidReviseSwitch
+  ) {
     try {
       await cancelSubscription(
         token,
@@ -276,14 +278,15 @@ async function applySwitch(
   // Nothing is charged for a free plan, so there are no transactions. A paid
   // downgrade keeps billing on the same (revised) agreement -- no new
   // transactions exist to backfill either.
-  const invoices = isFreeSwitch || isPaidReviseSwitch
-    ? 0
-    : await backfillInvoices(
-        token,
-        pendingSwitch.tenant_id,
-        pendingSwitch.paypal_subscription_id,
-        nextBilling,
-      );
+  const invoices =
+    isFreeSwitch || isPaidReviseSwitch
+      ? 0
+      : await backfillInvoices(
+          token,
+          pendingSwitch.tenant_id,
+          pendingSwitch.paypal_subscription_id,
+          nextBilling,
+        );
 
   return invoices;
 }

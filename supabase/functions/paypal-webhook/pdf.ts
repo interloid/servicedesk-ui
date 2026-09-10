@@ -187,7 +187,8 @@ export async function generateInvoicePdf(
     "",
   );
 
-  const isOneTime = String(invoice.invoice_type || "").toLowerCase() === "one_time";
+  const isOneTime =
+    String(invoice.invoice_type || "").toLowerCase() === "one_time";
 
   // ── Calculations (totals are ALWAYS the current charge only) ──────────────
   const subtotal = Number(invoice.subtotal ?? invoice.amount ?? 0);
@@ -253,7 +254,12 @@ export async function generateInvoicePdf(
 
   drawTextRight(`# ${invoiceNumber}`, right, y - 50, 11, bold, brandDark);
 
-  drawTextRight(`Invoice date: ${formatDate(invoice.created_at)}`, right, y - 65, 9);
+  drawTextRight(
+    `Invoice date: ${formatDate(invoice.created_at)}`,
+    right,
+    y - 65,
+    9,
+  );
 
   y -= 90;
 
@@ -267,7 +273,13 @@ export async function generateInvoicePdf(
 
   drawLabel("Bill To", col1X, y);
 
-  drawText(subscription.tenant_name || "Tenant Account", col1X, y - 17, 11, bold);
+  drawText(
+    subscription.tenant_name || "Tenant Account",
+    col1X,
+    y - 17,
+    11,
+    bold,
+  );
 
   let customerY = y - 31;
 
@@ -315,11 +327,7 @@ export async function generateInvoicePdf(
   detailsLine("Transaction ID", invoice.paypal_txn_id || "-", true);
 
   if (invoice.paypal_subscription_id) {
-    detailsLine(
-      "PayPal subscription ID",
-      invoice.paypal_subscription_id,
-      true,
-    );
+    detailsLine("PayPal subscription ID", invoice.paypal_subscription_id, true);
   }
 
   y -= 62;
@@ -347,9 +355,7 @@ export async function generateInvoicePdf(
 
   y -= 40;
 
-  const chargeTitle = isOneTime
-    ? `${planName} Upgrade`
-    : planName;
+  const chargeTitle = isOneTime ? `${planName} Upgrade` : planName;
 
   const chargeType = isOneTime
     ? "One-time charge"
@@ -357,11 +363,17 @@ export async function generateInvoicePdf(
 
   drawText(`${chargeTitle} – ${chargeType}`, left + 15, y, 10, bold);
 
-  const seatText = subscription.seats !== undefined
-    ? `${subscription.seats} ${subscription.seats === 1 ? "agent seat" : "agent seats"}`
-    : "";
+  const seatText =
+    subscription.seats !== undefined
+      ? `${subscription.seats} ${subscription.seats === 1 ? "agent seat" : "agent seats"}`
+      : "";
 
-  const subLine = [seatText, isOneTime ? "Not part of your monthly subscription" : "Billed automatically every month"]
+  const subLine = [
+    seatText,
+    isOneTime
+      ? "Not part of your monthly subscription"
+      : "Billed automatically every month",
+  ]
     .filter(Boolean)
     .join(" · ");
 
@@ -472,13 +484,7 @@ export async function generateInvoicePdf(
         bold,
       );
     } else {
-      drawTextRight(
-        "Next recurring amount: —",
-        right - 15,
-        y - 30,
-        9,
-        bold,
-      );
+      drawTextRight("Next recurring amount: —", right - 15, y - 30, 9, bold);
     }
 
     drawText(
@@ -507,9 +513,7 @@ export async function generateInvoicePdf(
   });
 
   const paymentMethod =
-    invoice.payment_method ||
-    subscription.billing_cycle ||
-    "PayPal";
+    invoice.payment_method || subscription.billing_cycle || "PayPal";
 
   if (isPaid) {
     page.drawText("Payment completed", {

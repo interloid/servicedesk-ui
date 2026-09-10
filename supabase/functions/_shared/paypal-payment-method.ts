@@ -21,6 +21,7 @@
 // The three call sites build their Supabase client from different import
 // specifiers, so the client is accepted structurally instead of by type.
 // deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural client (see deno note)
 export type AdminClient = { from: (table: string) => any };
 
 export interface PayPalCard {

@@ -1,0 +1,252 @@
+"use client";
+
+import React, { useTransition } from "react";
+import { CalendarClock, Loader2, X, XCircle, Zap } from "lucide-react";
+import { toast } from "sonner";
+import { FormattedPlan } from "../types";
+import { changeTenantPlanAction } from "../billing-actions";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+interface DowngradeDialogProps {
+  tenantSlug: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  targetPlan: FormattedPlan | null;
+  currentPlan: FormattedPlan | null;
+  usedSeats: number;
+  totalSeats: number;
+  renewalDate: string | null;
+}
+
+export function DowngradeDialog({
+  tenantSlug,
+  open,
+  onOpenChange,
+  targetPlan,
+  currentPlan,
+  usedSeats,
+  totalSeats,
+  renewalDate,
+}: DowngradeDialogProps) {
+  const [isPending, startTransition] = useTransition();
+
+  const isFreeTarget = targetPlan?.priceValue === 0;
+  const targetSeatLimit = targetPlan?.seatLimit ?? 0;
+  const seatsAtRisk = targetPlan ? Math.max(0, usedSeats - targetSeatLimit) : 0;
+
+  const currentPlanLabel = currentPlan?.name ?? "your current plan";
+  const targetName = targetPlan?.name ?? "";
+  const targetPrice = targetPlan?.price ?? "";
+  const targetSuffix = targetPlan?.priceSuffix ?? "";
+
+  const timing = (() => {
+    if (!targetPlan) return { headline: "", body: "", deferred: false };
+
+    return renewalDate
+      ? {
+          headline: "End of billing period",
+          body: isFreeTarget
+            ? `You keep ${currentPlanLabel} — including its features and agent seats — until ${renewalDate}. No further charges are made, and the switch to the Free plan applies when your billing period ends.`
+            : `You keep ${currentPlanLabel} — including its features and agent seats — until ${renewalDate}. From the next billing cycle you'll be billed the ${targetName} rate of ${targetPrice}${targetSuffix}.`,
+          deferred: true,
+        }
+      : {
+          headline: "Immediately",
+          body: isFreeTarget
+            ? "It takes effect right now, and no further charges will be made."
+            : `It takes effect right now. From your next billing cycle you'll be billed the ${targetName} rate of ${targetPrice}${targetSuffix}.`,
+          deferred: false,
+        };
+  })();
+
+  const handleConfirm = () => {
+    if (!targetPlan) return;
+
+    startTransition(async () => {
+      try {
+        const res = await changeTenantPlanAction(tenantSlug, targetPlan.id);
+
+        if (!res.success) {
+          toast.error(res.error || "Failed to switch plan.");
+          return;
+        }
+
+        if (res.approvalUrl) {
+          window.location.assign(res.approvalUrl);
+          return;
+        }
+
+        if (res.scheduled) {
+          const when = res.effectiveAt
+            ? new Date(res.effectiveAt).toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })
+            : (renewalDate ?? "the end of your billing period");
+          toast.success(
+            `Downgrade to ${targetPlan.name} scheduled for ${when}. You keep your current plan until then.`,
+          );
+          onOpenChange(false);
+          return;
+        }
+
+        onOpenChange(false);
+        window.location.reload();
+      } catch (error) {
+        console.error("Downgrade error:", error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Something went wrong while downgrading the plan.",
+        );
+      }
+    });
+  };
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !isPending) onOpenChange(false);
+      }}
+    >
+      <AlertDialogContent
+        className="
+            w-[calc(100%-2rem)]
+            data-[size=default]:max-w-110
+            data-[size=default]:sm:max-w-125
+            rounded-2xl
+            border
+            border-border
+            bg-background
+            p-0
+            shadow-xl
+            overflow-hidden
+          "
+      >
+        <AlertDialogHeader className="relative px-6 pt-5 pb-4">
+          <button
+            type="button"
+            onClick={() => {
+              if (!isPending) onOpenChange(false);
+            }}
+            disabled={isPending}
+            className="absolute right-5 top-5 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+
+          <AlertDialogTitle className="pr-10 text-xl font-bold text-foreground">
+            Downgrade to {targetName}?
+          </AlertDialogTitle>
+
+          <AlertDialogDescription asChild>
+            <div className="mt-4 space-y-3">
+              <div className="w-full rounded-xl border border-brand-accent/20 bg-brand-accent/3 px-4 py-3.5">
+                <div className="flex items-start gap-3">
+                  {timing.deferred ? (
+                    <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
+                  ) : (
+                    <Zap className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
+                  )}
+
+                  <div className="space-y-1 text-sm leading-5 text-foreground">
+                    <p className="font-semibold">
+                      Takes effect: {timing.headline}
+                    </p>
+                    <p className="font-normal text-muted-foreground">
+                      {timing.body}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {targetPlan && seatsAtRisk > 0 && (
+                <div className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 dark:border-amber-900/50 dark:bg-amber-950/30">
+                  <div className="flex items-start gap-3">
+                    <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <div className="space-y-1 text-sm leading-5">
+                      <p className="font-semibold text-amber-900 dark:text-amber-200">
+                        Agent seat usage: {usedSeats} of {totalSeats} seats
+                      </p>
+                      <p className="font-normal text-amber-800/90 dark:text-amber-300/90">
+                        {targetPlan.name} includes {targetSeatLimit} agent
+                        seats. You&apos;ll need to free up {seatsAtRisk} seat
+                        {seatsAtRisk === 1 ? "" : "s"} before this change
+                        applies.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isFreeTarget && (
+                <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3.5 dark:border-red-900/50 dark:bg-red-950/30">
+                  <div className="flex items-start gap-3">
+                    <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
+                    <div className="space-y-1 text-sm leading-5">
+                      <p className="font-semibold text-red-900 dark:text-red-200">
+                        What you&apos;ll lose when your plan ends
+                      </p>
+                      <ul className="mt-2 space-y-1.5 text-sm text-red-800/90 dark:text-red-300/90">
+                        <li className="flex items-start gap-2">
+                          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          Access to premium features
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          {totalSeats} agent seats (the Free plan includes{" "}
+                          {targetSeatLimit})
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          Priority support
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <AlertDialogFooter className="mx-0 mb-0 border-t border-border px-4 py-4">
+          <AlertDialogCancel
+            disabled={isPending}
+            className="mt-0 h-10 rounded-xl border-border bg-background px-5 font-semibold text-foreground hover:bg-muted"
+          >
+            Keep my plan
+          </AlertDialogCancel>
+
+          <AlertDialogAction
+            disabled={isPending}
+            onClick={(e) => {
+              e.preventDefault();
+              handleConfirm();
+            }}
+            className={`h-10 rounded-xl px-5 font-semibold shadow-none transition-colors ${
+              isFreeTarget
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "bg-brand-accent text-primary-foreground hover:bg-brand-accent/90"
+            }`}
+          >
+            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isFreeTarget ? "Yes, downgrade to Free" : "Confirm downgrade"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}

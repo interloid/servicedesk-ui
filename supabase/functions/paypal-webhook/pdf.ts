@@ -5,19 +5,23 @@ interface Invoice {
   created_at?: string;
   updated_at?: string;
   paypal_txn_id?: string;
+  paypal_subscription_id?: string;
+  invoice_number?: string;
+  invoice_type?: string;
   status?: string;
   period_start?: string;
   period_end?: string;
   amount?: number;
 
-  // Optional billing information. Not stored in the database yet, so the PDF
-  // only renders these when the caller provides them.
+  // Billing context. Backed by invoices columns where available; the caller can
+  // also pass them at render time so legacy rows render identically.
   currency?: string;
   subtotal?: number;
   tax?: number;
   amount_paid?: number;
   balance_due?: number;
   payment_method?: string;
+  paid_at?: string;
 }
 
 interface Subscription {
@@ -28,9 +32,15 @@ interface Subscription {
   billing_cycle?: string;
   seats?: number;
 
-  // Optional customer information (not stored yet).
+  // Billing email / address shown under Bill To (best effort; address is only
+  // rendered when the tenant has one).
   tenant_email?: string;
   tenant_address?: string;
+
+  // Informational "Upcoming billing" panel -- never part of this invoice's
+  // subtotal, tax, total or amount paid.
+  next_billing_date?: string;
+  next_billing_amount?: number;
 }
 
 export async function generateInvoicePdf(
@@ -104,6 +114,29 @@ export async function generateInvoicePdf(
     });
   };
 
+  const drawText = (
+    text: string,
+    x: number,
+    y: number,
+    size: number,
+    f = font,
+    color = textPrimary,
+  ) => {
+    page.drawText(text, { x, y, size, font: f, color });
+  };
+
+  const drawTextRight = (
+    text: string,
+    x: number,
+    y: number,
+    size: number,
+    f = font,
+    color = textPrimary,
+  ) => {
+    const textWidth = f.widthOfTextAtSize(text, size);
+    page.drawText(text, { x: x - textWidth, y, size, font: f, color });
+  };
+
   const drawLine = (y: number) => {
     page.drawLine({
       start: { x: left, y },
@@ -113,8 +146,7 @@ export async function generateInvoicePdf(
     });
   };
 
-  // Status maps to the invoice_status enum:
-  //   pending, paid, failed, refunded
+  // Status maps to the invoice_status enum: pending, paid, failed, refunded.
   const status = String(invoice.status || "pending").toLowerCase();
 
   const isPaid = status === "paid";
@@ -144,7 +176,42 @@ export async function generateInvoicePdf(
       ? failedText
       : warningText;
 
-  let y = height - 52;
+  const invoiceNumber =
+    invoice.invoice_number ||
+    (invoice.id
+      ? `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
+      : "-");
+
+  const planName = String(subscription.plan_name || "ServiceDesk").replace(
+    /\s+upgrade$/i,
+    "",
+  );
+
+  const isOneTime = String(invoice.invoice_type || "").toLowerCase() === "one_time";
+
+  // ── Calculations (totals are ALWAYS the current charge only) ──────────────
+  const subtotal = Number(invoice.subtotal ?? invoice.amount ?? 0);
+  const tax = Number(invoice.tax ?? 0);
+  const total = Number(
+    invoice.amount !== undefined ? invoice.amount : subtotal + tax,
+  );
+  const amountPaid = Number(
+    invoice.amount_paid !== undefined
+      ? invoice.amount_paid
+      : isPaid || isRefunded
+        ? total
+        : 0,
+  );
+  const balanceDue = Number(
+    invoice.balance_due !== undefined
+      ? invoice.balance_due
+      : Math.max(total - amountPaid, 0),
+  );
+  const taxPct = subtotal > 0 ? (tax / subtotal) * 100 : 0;
+  const taxPctLabel = `${Number.isInteger(taxPct) ? taxPct : taxPct.toFixed(2)}%`;
+
+  // ── Header ────────────────────────────────────────────────────────────────
+  let y = height - 48;
 
   page.drawText("ServiceDesk", {
     x: left,
@@ -162,255 +229,159 @@ export async function generateInvoicePdf(
     color: textMuted,
   });
 
-  page.drawText("INVOICE", {
-    x: right - 105,
-    y: y + 2,
-    size: 20,
-    font: bold,
-    color: brandTeal,
-  });
+  drawTextRight("INVOICE", right, y + 2, 20, bold, brandTeal);
 
-  const invoiceId = String(invoice.id || "")
-    .replace(/-/g, "")
-    .slice(0, 8)
-    .toUpperCase();
-  const invoiceNumber = invoiceId ? `INV-${invoiceId}` : "-";
-
-  page.drawText(`# ${invoiceNumber}`, {
-    x: right - 105,
-    y: y - 17,
-    size: 9,
-    font,
-    color: textMuted,
-  });
-
-  y -= 55;
-
-  drawLine(y);
-
-  y -= 28;
-
-  const badgeWidth = isFailed ? 115 : isPending ? 75 : isRefunded ? 90 : 55;
+  // Prominent PAYMENT STATUS badge right under the title, above the number.
+  const badgeWidth = font.widthOfTextAtSize(statusLabel, 9) + 22;
+  const badgeHeight = 20;
 
   page.drawRectangle({
     x: right - badgeWidth,
-    y: y - 4,
+    y: y - 24,
     width: badgeWidth,
-    height: 22,
+    height: badgeHeight,
     color: statusBackground,
   });
 
   page.drawText(statusLabel, {
-    x: right - badgeWidth + 10,
-    y: y + 3,
-    size: 8,
+    x: right - badgeWidth + 11,
+    y: y - 20,
+    size: 9,
     font: bold,
     color: statusColor,
   });
 
-  y -= 55;
+  drawTextRight(`# ${invoiceNumber}`, right, y - 50, 11, bold, brandDark);
+
+  drawTextRight(`Invoice date: ${formatDate(invoice.created_at)}`, right, y - 65, 9);
+
+  y -= 90;
+
+  drawLine(y);
+
+  // ── Bill To (left) ────────────────────────────────────────────────────────
+  y -= 32;
 
   const col1X = left;
-  const col2X = 320;
+  const col2X = 295;
 
   drawLabel("Bill To", col1X, y);
 
-  page.drawText(subscription.tenant_name || "Tenant Account", {
-    x: col1X,
-    y: y - 17,
-    size: 11,
-    font: bold,
-    color: textPrimary,
-  });
+  drawText(subscription.tenant_name || "Tenant Account", col1X, y - 17, 11, bold);
 
-  let customerY = y - 32;
+  let customerY = y - 31;
 
   if (subscription.tenant_email) {
-    page.drawText(subscription.tenant_email, {
-      x: col1X,
-      y: customerY,
-      size: 9,
-      font,
-      color: textMuted,
-    });
-
+    drawText(subscription.tenant_email, col1X, customerY, 9, font, textMuted);
     customerY -= 14;
   }
 
   if (subscription.tenant_address) {
-    page.drawText(subscription.tenant_address, {
-      x: col1X,
-      y: customerY,
-      size: 9,
-      font,
-      color: textMuted,
-    });
-
+    drawText(subscription.tenant_address, col1X, customerY, 9, font, textMuted);
     customerY -= 14;
   }
 
-  page.drawText(`Tenant ID: ${subscription.tenant_id || "-"}`, {
-    x: col1X,
-    y: customerY,
-    size: 8,
-    font,
-    color: textMuted,
-  });
+  drawText(`Tenant ID: ${subscription.tenant_id || "-"}`, col1X, customerY, 8);
 
+  // ── Invoice Details (right) ───────────────────────────────────────────────
   drawLabel("Invoice Details", col2X, y);
 
-  page.drawText(`Invoice date: ${formatDate(invoice.created_at)}`, {
-    x: col2X,
-    y: y - 17,
-    size: 9,
-    font,
-    color: textPrimary,
-  });
-
-  page.drawText(
-    `Billing period: ${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`,
-    {
+  let detailsY = y - 17;
+  const detailsLine = (label: string, value: string, small = false) => {
+    page.drawText(`${label}: `, {
       x: col2X,
-      y: y - 32,
-      size: 9,
-      font,
-      color: textPrimary,
-    },
-  );
-
-  page.drawText(`Payment method: ${invoice.payment_method || "PayPal"}`, {
-    x: col2X,
-    y: y - 47,
-    size: 9,
-    font,
-    color: textPrimary,
-  });
-
-  if (invoice.paypal_txn_id) {
-    page.drawText(`Transaction ID: ${invoice.paypal_txn_id}`, {
-      x: col2X,
-      y: y - 62,
-      size: 8,
+      y: detailsY,
+      size: small ? 8 : 9,
       font,
       color: textMuted,
     });
-  }
+    page.drawText(value, {
+      x: col2X + font.widthOfTextAtSize(`${label}: `, small ? 8 : 9),
+      y: detailsY,
+      size: small ? 8 : 9,
+      font,
+      color: textPrimary,
+    });
+    detailsY -= small ? 14 : 16;
+  };
 
-  y -= 105;
+  detailsLine("Invoice date", formatDate(invoice.created_at));
+  detailsLine(
+    "Billing period",
+    `${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`,
+  );
+  detailsLine("Currency", currency);
+  detailsLine("Payment method", invoice.payment_method || "PayPal");
+  detailsLine("Transaction ID", invoice.paypal_txn_id || "-", true);
 
-  drawLine(y);
-
-  y -= 25;
-
-  drawLabel("Subscription", left, y);
-
-  page.drawText(subscription.plan_name || "ServiceDesk Subscription", {
-    x: left,
-    y: y - 18,
-    size: 11,
-    font: bold,
-    color: textPrimary,
-  });
-
-  const subscriptionDetails: string[] = [];
-
-  if (subscription.billing_cycle) {
-    subscriptionDetails.push(subscription.billing_cycle);
-  }
-
-  if (subscription.seats !== undefined) {
-    subscriptionDetails.push(
-      `${subscription.seats} ${
-        subscription.seats === 1 ? "agent seat" : "agent seats"
-      }`,
+  if (invoice.paypal_subscription_id) {
+    detailsLine(
+      "PayPal subscription ID",
+      invoice.paypal_subscription_id,
+      true,
     );
   }
 
-  if (subscriptionDetails.length > 0) {
-    page.drawText(subscriptionDetails.join(" · "), {
-      x: left,
-      y: y - 33,
-      size: 9,
-      font,
-      color: textMuted,
-    });
-  }
-
-  y -= 65;
-
-  page.drawRectangle({
-    x: left,
-    y: y - 28,
-    width: contentWidth,
-    height: 28,
-    color: bgLight,
-  });
-
-  drawLabel("Description", left + 15, y - 18);
-  drawLabel("Billing Period", 260, y - 18);
-  drawLabel("Amount", right - 70, y - 18);
-
-  y -= 55;
-
-  page.drawText(
-    subscription.plan_name
-      ? `${subscription.plan_name} Subscription`
-      : "ServiceDesk Subscription",
-    {
-      x: left + 15,
-      y,
-      size: 10,
-      font: bold,
-      color: textPrimary,
-    },
-  );
-
-  page.drawText(
-    `${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`,
-    {
-      x: 260,
-      y,
-      size: 9,
-      font,
-      color: textMuted,
-    },
-  );
-
-  const amount = Number(invoice.amount ?? 0);
-
-  page.drawText(formatMoney(amount), {
-    x: right - 70,
-    y,
-    size: 10,
-    font: bold,
-    color: textPrimary,
-  });
-
-  y -= 30;
+  y -= 62;
 
   drawLine(y);
 
-  y -= 30;
+  // ── Charge details ────────────────────────────────────────────────────────
+  y -= 40;
 
-  const totalsX = width - 240;
+  drawLabel("Charge Details", left, y);
+
+  y -= 22;
+
+  page.drawRectangle({
+    x: left,
+    y: y - 24,
+    width: contentWidth,
+    height: 24,
+    color: bgLight,
+  });
+
+  drawLabel("Description", left + 15, y - 16);
+  drawLabel("Billing period", 250, y - 16);
+  drawLabel("Amount", right - 70, y - 16);
+
+  y -= 40;
+
+  const chargeTitle = isOneTime
+    ? `${planName} Upgrade`
+    : planName;
+
+  const chargeType = isOneTime
+    ? "One-time charge"
+    : "Recurring subscription charge";
+
+  drawText(`${chargeTitle} – ${chargeType}`, left + 15, y, 10, bold);
+
+  const seatText = subscription.seats !== undefined
+    ? `${subscription.seats} ${subscription.seats === 1 ? "agent seat" : "agent seats"}`
+    : "";
+
+  const subLine = [seatText, isOneTime ? "Not part of your monthly subscription" : "Billed automatically every month"]
+    .filter(Boolean)
+    .join(" · ");
+
+  drawText(subLine, left + 15, y - 14, 8, font, textMuted);
+
+  const periodText = `${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`;
+  const periodWidth = font.widthOfTextAtSize(periodText, 9);
+  drawText(periodText, 250, y, 9);
+
+  drawTextRight(formatMoney(total), right - 5, y + 3, 10, bold);
+
+  y -= 34;
+
+  drawLine(y);
+
+  // ── Amount summary (Subtotal, Tax, Total, Amount paid, Balance due) ───────
+  y -= 24;
+
+  const totalsX = width - 250;
   const valueX = right - 5;
-
-  const total =
-    invoice.amount !== undefined
-      ? invoice.amount
-      : (invoice.subtotal ?? 0) + Number(invoice.tax ?? 0);
-
-  const amountPaid =
-    invoice.amount_paid !== undefined
-      ? invoice.amount_paid
-      : isPaid || isRefunded
-        ? total
-        : 0;
-
-  const balanceDue =
-    invoice.balance_due !== undefined
-      ? invoice.balance_due
-      : Math.max(total - amountPaid, 0);
 
   const drawTotalRow = (
     label: string,
@@ -438,26 +409,19 @@ export async function generateInvoicePdf(
     });
   };
 
-  // Subtotal and Tax are only shown when the caller provides them; the
-  // invoices table does not store them yet, so rendering fake "$0.00" rows
-  // would misrepresent the actual PayPal charges.
-  if (invoice.subtotal !== undefined) {
-    drawTotalRow("Subtotal", formatMoney(invoice.subtotal), y);
-    y -= 20;
-  }
+  drawTotalRow("Subtotal", formatMoney(subtotal), y);
+  y -= 20;
 
-  if (invoice.tax !== undefined) {
-    drawTotalRow("Tax", formatMoney(Number(invoice.tax)), y);
-    y -= 12;
-  }
+  drawTotalRow(`Tax (${taxPctLabel})`, formatMoney(tax), y);
+  y -= 14;
 
   drawLine(y);
 
-  y -= 25;
+  y -= 24;
 
   drawTotalRow("Total", formatMoney(total), y, 14, brandDark);
 
-  y -= 23;
+  y -= 24;
 
   drawTotalRow(
     "Amount paid",
@@ -477,17 +441,75 @@ export async function generateInvoicePdf(
     balanceDue > 0 ? failedText : paidText,
   );
 
-  y -= 50;
+  // ── Upcoming billing (informational, never added to this invoice) ─────────
+  if (subscription.next_billing_date) {
+    y -= 32;
 
-  const paymentBoxHeight = 58;
+    page.drawRectangle({
+      x: left,
+      y: y - 58,
+      width: contentWidth,
+      height: 58,
+      color: bgLight,
+    });
+
+    drawLabel("Upcoming Billing", left + 15, y - 14);
+
+    drawText(
+      `Next billing date: ${formatDate(subscription.next_billing_date)}`,
+      left + 15,
+      y - 30,
+      9,
+      bold,
+    );
+
+    if (subscription.next_billing_amount !== undefined) {
+      drawTextRight(
+        `Next recurring amount: ${formatMoney(subscription.next_billing_amount)}/month`,
+        right - 15,
+        y - 30,
+        9,
+        bold,
+      );
+    } else {
+      drawTextRight(
+        "Next recurring amount: —",
+        right - 15,
+        y - 30,
+        9,
+        bold,
+      );
+    }
+
+    drawText(
+      "This is informational only and is not included in any amount on this invoice.",
+      left + 15,
+      y - 44,
+      7,
+      font,
+      textMuted,
+    );
+
+    y -= 82;
+  }
+
+  // ── Payment information ───────────────────────────────────────────────────
+  y -= 26;
+
+  const paymentBoxHeight = isFailed ? 72 : 66;
 
   page.drawRectangle({
     x: left,
     y: y - paymentBoxHeight,
     width: contentWidth,
     height: paymentBoxHeight,
-    color: isPaid ? paidBg : bgLight,
+    color: isPaid ? paidBg : isFailed ? failedBg : bgLight,
   });
+
+  const paymentMethod =
+    invoice.payment_method ||
+    subscription.billing_cycle ||
+    "PayPal";
 
   if (isPaid) {
     page.drawText("Payment completed", {
@@ -498,20 +520,34 @@ export async function generateInvoicePdf(
       color: paidText,
     });
 
+    page.drawText(`Provider: ${paymentMethod}`, {
+      x: left + 15,
+      y: y - 38,
+      size: 9,
+      font,
+      color: textMuted,
+    });
+
+    page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
+      x: left + 15,
+      y: y - 52,
+      size: 8,
+      font,
+      color: textMuted,
+    });
+
     page.drawText(
-      `Paid on ${formatDate(invoice.created_at)}${
-        invoice.payment_method ? ` · ${invoice.payment_method}` : ""
-      }`,
+      `Paid on ${formatDate(invoice.paid_at || invoice.created_at)}`,
       {
         x: left + 15,
-        y: y - 37,
+        y: y - 62,
         size: 9,
         font,
-        color: textMuted,
+        color: paidText,
       },
     );
-  } else if (isRefunded) {
-    page.drawText("Payment refunded", {
+  } else if (isFailed) {
+    page.drawText("Payment failed", {
       x: left + 15,
       y: y - 20,
       size: 10,
@@ -519,18 +555,29 @@ export async function generateInvoicePdf(
       color: failedText,
     });
 
-    page.drawText(
-      `Refunded on ${formatDate(invoice.updated_at || invoice.created_at)}${
-        invoice.payment_method ? ` · ${invoice.payment_method}` : ""
-      }`,
-      {
-        x: left + 15,
-        y: y - 37,
-        size: 9,
-        font,
-        color: textMuted,
-      },
-    );
+    page.drawText(`Provider: ${paymentMethod}`, {
+      x: left + 15,
+      y: y - 38,
+      size: 9,
+      font,
+      color: textMuted,
+    });
+
+    page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
+      x: left + 15,
+      y: y - 52,
+      size: 8,
+      font,
+      color: textMuted,
+    });
+
+    page.drawText("Status: PAYMENT FAILED", {
+      x: left + 15,
+      y: y - 62,
+      size: 9,
+      font,
+      color: failedText,
+    });
   } else {
     page.drawText(statusLabel, {
       x: left + 15,
@@ -540,16 +587,33 @@ export async function generateInvoicePdf(
       color: statusColor,
     });
 
+    page.drawText(`Provider: ${paymentMethod}`, {
+      x: left + 15,
+      y: y - 38,
+      size: 9,
+      font,
+      color: textMuted,
+    });
+
+    page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
+      x: left + 15,
+      y: y - 52,
+      size: 8,
+      font,
+      color: textMuted,
+    });
+
     page.drawText("Please refer to your billing account for payment details.", {
       x: left + 15,
-      y: y - 37,
+      y: y - 62,
       size: 9,
       font,
       color: textMuted,
     });
   }
 
-  y -= 105;
+  // ── Footer ────────────────────────────────────────────────────────────────
+  y -= paymentBoxHeight + 30;
 
   drawLine(y);
 
@@ -583,27 +647,31 @@ export async function generateInvoicePdf(
     color: brandTeal,
   });
 
-  const footerText = "ServiceDesk · Help Desk & Ticket Management Platform";
+  const footerCompany =
+    "ServiceDesk, Inc. · 1 Market Plaza, Suite 300 · San Francisco, CA 94105";
+  const footerCompanyWidth = font.widthOfTextAtSize(footerCompany, 7);
 
-  const footerWidth = font.widthOfTextAtSize(footerText, 8);
-
-  page.drawText(footerText, {
-    x: right - footerWidth,
-    y: y + 14,
-    size: 8,
-    font,
-    color: textMuted,
-  });
-
-  page.drawText("This invoice was generated electronically.", {
-    x:
-      right -
-      font.widthOfTextAtSize("This invoice was generated electronically.", 8),
+  page.drawText(footerCompany, {
+    x: left,
     y,
-    size: 8,
+    size: 7,
     font,
     color: textMuted,
   });
+
+  const websiteLeft = left + footerCompanyWidth + 14;
+
+  page.drawText("www.servicedesk.com", {
+    x: websiteLeft,
+    y,
+    size: 7,
+    font,
+    color: brandTeal,
+  });
+
+  const footerText = "This invoice was generated electronically.";
+
+  drawTextRight(footerText, right, y - 13, 8, font, textMuted);
 
   return await pdf.save();
 }

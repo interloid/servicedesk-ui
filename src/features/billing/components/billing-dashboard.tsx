@@ -250,7 +250,7 @@ export default function BillingDashboard({
               Billing
             </h1>
             <p className="text-xs font-medium text-slate-500 mt-1">
-              {data.accountName} 
+              {data.accountName}
             </p>
           </div>
           <Button
@@ -264,7 +264,9 @@ export default function BillingDashboard({
             <Button
               variant="outline"
               className="w-fit text-xs font-semibold border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 rounded-lg px-4 h-9"
-              onClick={() => router.push(`/${tenantSlug}/account/billing/cancel`)}
+              onClick={() =>
+                router.push(`/${tenantSlug}/account/billing/cancel`)
+              }
             >
               Cancel subscription
             </Button>
@@ -444,7 +446,9 @@ export default function BillingDashboard({
                 </div>
               ) : (
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">Current billing</span>
+                  <span className="text-xs text-slate-400">
+                    Current billing
+                  </span>
                   <span className="text-xs text-slate-500">
                     {data.lastPayment ? (
                       <>
@@ -588,7 +592,7 @@ export default function BillingDashboard({
                         className="hover:bg-slate-50/50 border-slate-100"
                       >
                         <TableCell className="px-6 py-3.5 font-semibold text-slate-900 text-left whitespace-nowrap">
-                          INV-{inv.id}
+                          {inv.id}
                         </TableCell>
                         <TableCell className="px-6 py-3.5 text-slate-500 text-left whitespace-nowrap">
                           {inv.date}

@@ -2,13 +2,7 @@
 
 import { useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import {
-  X,
-  Loader2,
-  ExternalLink,
-  Shield,
-  Wallet,
-} from "lucide-react";
+import { X, Loader2, ExternalLink, Shield, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { updatePaymentMethodAction } from "../billing-actions";

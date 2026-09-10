@@ -19,6 +19,15 @@ import {
   confirmSubscriptionActivationAction,
 } from "@/features/billing/billing-actions";
 
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
 function PaymentSuccessContent() {
   const router = useRouter();
   const params = useParams();
@@ -32,6 +41,11 @@ function PaymentSuccessContent() {
   const missingPaymentId = !paymentId;
   const [checking, setChecking] = useState(true);
   const [authorizing, setAuthorizing] = useState(false);
+  const [approval, setApproval] = useState<{
+    url: string;
+    planName: string;
+    nextBilling: number;
+  } | null>(null);
   const confirmedRef = useRef(false);
   const tenantSlug = params.tenantSlug as string;
   const targetRedirectUrl = `/${tenantSlug}/account/plans`;
@@ -65,7 +79,11 @@ function PaymentSuccessContent() {
 
         if (isOrderLike && "approvalUrl" in res && res.approvalUrl) {
           setAuthorizing(true);
-          window.location.assign(res.approvalUrl);
+          setApproval({
+            url: res.approvalUrl as string,
+            planName: res.planName ?? "your new plan",
+            nextBilling: Number(res.nextBilling ?? 0),
+          });
           return;
         }
 
@@ -85,7 +103,7 @@ function PaymentSuccessContent() {
   }, [tenantSlug, missingPaymentId, paymentId]);
 
   useEffect(() => {
-    if (checking) return;
+    if (checking || authorizing) return;
 
     const timer = setInterval(() => {
       setCountdown((prev) => {
@@ -99,7 +117,7 @@ function PaymentSuccessContent() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [checking, router, targetRedirectUrl]);
+  }, [checking, authorizing, router, targetRedirectUrl]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/40 p-4">
@@ -124,8 +142,8 @@ function PaymentSuccessContent() {
                     : "Payment Successful!"}
           </CardTitle>
           <CardDescription className="text-sm text-muted-foreground">
-            {authorizing
-              ? "Your one-time payment is confirmed. We're taking you to PayPal to authorize your recurring subscription — no charge now, billing starts with your next cycle."
+            {authorizing && approval
+              ? `Your one-time payment is received. Your recurring ${approval.planName} subscription is ready — ${formatMoney(approval.nextBilling)}/month from your next cycle, nothing charged today. Complete one final step with PayPal.`
               : checking
                 ? "Confirming with PayPal..."
                 : error
@@ -140,10 +158,16 @@ function PaymentSuccessContent() {
           <div className="rounded-lg border bg-muted/50 p-4 text-left space-y-3">
             <div className="flex justify-between items-center text-xs">
               <span className="text-muted-foreground font-medium">
-                {authorizing ? "Subscription setup" : "Subscription ID"}
+                {authorizing
+                  ? "Recurring (starting next month)"
+                  : "Subscription ID"}
               </span>
               <span className="font-mono font-semibold text-foreground">
-                {paymentId ? (authorizing ? "One-time payment captured" : paymentId) : "—"}
+                {authorizing && approval
+                  ? `${formatMoney(approval.nextBilling)}/month`
+                  : paymentId
+                    ? paymentId
+                    : "—"}
               </span>
             </div>
             <div className="flex justify-between items-center text-xs">
@@ -178,15 +202,14 @@ function PaymentSuccessContent() {
         <CardFooter>
           <Button
             onClick={() =>
-              authorizing
-                ? undefined
+              authorizing && approval
+                ? window.location.assign(approval.url)
                 : router.push(targetRedirectUrl)
             }
-            disabled={authorizing}
             className="h-9 w-full bg-brand-accent hover:bg-brand-accent/90"
           >
             {authorizing
-              ? "Redirecting to PayPal..."
+              ? "Continue to PayPal to confirm"
               : "Go to Account & Plan Immediately"}
           </Button>
         </CardFooter>

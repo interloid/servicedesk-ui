@@ -9,6 +9,7 @@ import {
   handleSubscriptionUpdated,
   handleSubscriptionPaymentFailed,
   handlePaymentCompleted,
+  handleOrderCompleted,
   handlePaymentDenied,
   handlePaymentRefunded,
 } from "./handlers.ts";
@@ -68,6 +69,15 @@ serve(async (req) => {
 
       case "PAYMENT.SALE.COMPLETED":
         await handlePaymentCompleted(event);
+        break;
+
+      case "CHECKOUT.ORDER.COMPLETED":
+        await handleOrderCompleted(event);
+        break;
+
+      // Sandbox emits capture-level events for one-time (upgrade) orders.
+      case "PAYMENT.CAPTURE.COMPLETED":
+        await handleOrderCompleted(event);
         break;
 
       case "PAYMENT.SALE.DENIED":

@@ -358,6 +358,7 @@ export async function captureOrderPayment(
   planName?: string;
   subscriptionId?: string | null;
   approvalUrl?: string | null;
+  nextBilling?: number;
 }> {
   const supabase = await createSupabaseServerClient();
 
@@ -419,6 +420,8 @@ export async function captureOrderPayment(
       planName: data?.planName ?? undefined,
       subscriptionId: data?.subscriptionId ?? null,
       approvalUrl: data?.approvalUrl ?? null,
+      nextBilling:
+        typeof data?.nextBilling === "number" ? data.nextBilling : undefined,
     };
   } catch (error) {
     console.error("captureOrderPayment error:", error);

@@ -11,5 +11,7 @@ export default async function Page({ params }: PageProps) {
   const billingData = await fetchTenantBillingData(tenantSlug);
   if (!billingData) return notFound();
 
-  return <CancelSubscription tenantSlug={tenantSlug} billingData={billingData} />;
+  return (
+    <CancelSubscription tenantSlug={tenantSlug} billingData={billingData} />
+  );
 }

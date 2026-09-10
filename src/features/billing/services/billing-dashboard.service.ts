@@ -184,6 +184,21 @@ export async function fetchTenantBillingData(
 
   const monthlyRate = Number(plan?.price_month ?? 0);
 
+  // A pending switch with an effective date is a scheduled change: the tenant
+  // keeps the current plan (and its charges) until effective_at, then moves to
+  // the target plan. A scheduled downgrade to Free means the subscription is
+  // effectively cancelled -- no further charges are made -- so the dashboard
+  // must stop advertising auto-renewal and the full-rate next payment.
+  const switchPlan = pendingSwitch?.plans
+    ? Array.isArray(pendingSwitch.plans)
+      ? pendingSwitch.plans[0]
+      : pendingSwitch.plans
+    : null;
+  const switchPlanRate = Number(switchPlan?.price_month ?? 0);
+  const hasScheduledSwitch =
+    !!pendingSwitch?.effective_at && switchPlan !== null;
+  const isScheduledFree = hasScheduledSwitch && switchPlanRate === 0;
+
   // An immediate upgrade awaiting its one-time PayPal order payment shows a
   // pending switch with no effective_at (it takes effect right away once the
   // buyer pays). Surface it so the "Next payment" card can explain the
@@ -224,18 +239,17 @@ export async function fetchTenantBillingData(
         );
         const remainingDays = Math.max(
           0,
-          Math.ceil(
-            (periodEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000),
-          ),
+          Math.ceil((periodEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
         );
-        credit = (monthlyRate * remainingDays) / totalDays;
+        credit =
+          Math.round((monthlyRate * remainingDays * 100) / totalDays) / 100;
       }
 
       pendingUpgrade = {
         planName: switchPlan?.name ?? "new plan",
         planRate: newPlanRate,
         proratedCredit: credit,
-        amountDue: Math.max(0, newPlanRate - credit),
+        amountDue: Math.round(Math.max(0, newPlanRate - credit) * 100) / 100,
       };
     }
   }
@@ -244,8 +258,9 @@ export async function fetchTenantBillingData(
 
   // The prorated credit is a one-time discount applied at upgrade time, not to
   // the running subscription's next renewal, so the next due amount is simply
-  // the current monthly rate.
-  const nextDueAmount = monthlyRate;
+  // the current monthly rate -- unless a switch is scheduled, in which case it
+  // is the target plan's rate (Free = nothing further is charged).
+  const nextDueAmount = hasScheduledSwitch ? switchPlanRate : monthlyRate;
   const nextDueAmountFormatted = nextDueAmount.toFixed(2);
 
   const paypalSubId = sub?.paypal_subscription_id || "";
@@ -274,10 +289,19 @@ export async function fetchTenantBillingData(
         pdfUrl = signedData?.signedUrl || undefined;
       }
 
-      const description = `${inv.plan_name ?? plan?.name ?? "ServiceDesk"} · Monthly`;
+      const isOneTime = inv.invoice_type === "one_time";
+      const description = `${inv.plan_name ?? plan?.name ?? "ServiceDesk"} · ${
+        isOneTime ? "One-time upgrade" : "Monthly"
+      }`;
+      const statusLabel =
+        inv.status === "paid"
+          ? "Paid"
+          : inv.status === "failed"
+            ? "Failed"
+            : "Unpaid";
 
       return {
-        id: inv.invoice_number || inv.id.slice(0, 8).toUpperCase(),
+        id: inv.invoice_number || `INV-${inv.id.slice(0, 8).toUpperCase()}`,
         date: new Date(inv.period_start).toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
@@ -286,7 +310,7 @@ export async function fetchTenantBillingData(
         description,
         seats: inv.seats ?? (totalSeats > 0 ? totalSeats : 0),
         amount: `$${amountNum.toFixed(2)}`,
-        status: inv.status === "paid" ? "Paid" : "Unpaid",
+        status: statusLabel,
         pdfUrl,
       };
     }),
@@ -328,6 +352,8 @@ export async function fetchTenantBillingData(
     billingStatus = "past_due";
   } else if (sub?.status === "cancelled") {
     billingStatus = "cancelled";
+  } else if (isScheduledFree) {
+    billingStatus = "cancelled";
   }
 
   const renewalRaw =
@@ -364,7 +390,8 @@ export async function fetchTenantBillingData(
         })
       : "N/A",
     renewalDateRaw: renewalRaw,
-    autoRenew: !isFreePlan && !(sub?.status === "cancelled"),
+    autoRenew:
+      !isFreePlan && !(sub?.status === "cancelled") && !isScheduledFree,
     amountDue: {
       current: latestInvoicePaid ? "$0.00" : `$${totalAmount}`,
       next: isFreePlan ? "$0.00" : `$${nextDueAmountFormatted}`,

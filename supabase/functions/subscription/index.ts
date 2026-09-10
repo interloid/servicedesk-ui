@@ -250,8 +250,15 @@ async function capturePaypalOrder(
   accessToken: string,
   orderId: string,
 ): Promise<
-  | { ok: true; payerId?: string; payerEmail?: string; txnId?: string; amount?: number }
-  | { ok: false; error: string }
+  | {
+      ok: true;
+      payerId?: string;
+      payerEmail?: string;
+      txnId?: string;
+      amount?: number;
+      currency?: string;
+    }
+  | { ok: false; error: string; issue?: string }
 > {
   const response = await fetch(
     `${BASE_URL}/v2/checkout/orders/${orderId}/capture`,
@@ -272,20 +279,28 @@ async function capturePaypalOrder(
       status: response.status,
       response: data,
     });
+    const details = Array.isArray(data.details) ? data.details : [];
+    const firstDetail = details[0] as { issue?: string } | undefined;
     return {
       ok: false,
-      error: (data as { message?: string }).message || "Capture failed",
+      issue: firstDetail?.issue,
+      error:
+        firstDetail?.issue ??
+        (data as { message?: string }).message ??
+        "Capture failed",
     };
   }
 
   const payer = data.payer as
-    | { payer_id?: string; email_address?: string }
-    | undefined;
+    { payer_id?: string; email_address?: string } | undefined;
 
   const purchaseUnits = data.purchase_units as
     | Array<{
         payments?: {
-          captures?: Array<{ id?: string; amount?: { value?: string } }>;
+          captures?: Array<{
+            id?: string;
+            amount?: { value?: string; currency?: string };
+          }>;
         };
       }>
     | undefined;
@@ -293,8 +308,16 @@ async function capturePaypalOrder(
   const capture = purchaseUnits?.[0]?.payments?.captures?.[0];
   const txnId = capture?.id;
   const amount = Number(capture?.amount?.value ?? 0);
+  const currency = capture?.amount?.currency ?? "USD";
 
-  return { ok: true, payerId: payer?.payer_id, payerEmail: payer?.email_address, txnId, amount };
+  return {
+    ok: true,
+    payerId: payer?.payer_id,
+    payerEmail: payer?.email_address,
+    txnId,
+    amount,
+    currency,
+  };
 }
 
 async function createPaypalOrder(
@@ -306,7 +329,12 @@ async function createPaypalOrder(
     return_url: string;
     cancel_url: string;
   },
-): Promise<{ ok: boolean; orderId?: string; approveUrl?: string; error?: string }> {
+): Promise<{
+  ok: boolean;
+  orderId?: string;
+  approveUrl?: string;
+  error?: string;
+}> {
   const response = await fetch(`${BASE_URL}/v2/checkout/orders`, {
     method: "POST",
     headers: {
@@ -570,11 +598,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Capture the one-time upgrade PayPal order, then create the real
-    // subscription for the full plan price. The buyer already paid the
-    // prorated amount via the order; the subscription's approve link is
-    // returned so they can authorize the recurring billing. From there the
-    // standard ACTIVATED webhook path switches the plan.
+    // Capture the one-time upgrade PayPal order, then put the buyer onto the
+    // target plan for recurring billing WITHOUT charging them again today:
+    //   - existing agreement ACTIVE  -> revise it onto the new plan (no second
+    //     subscription), PayPal bills the full rate at the next cycle.
+    //   - agreement CANCELLED/etc.   -> it cannot be revised, so create a
+    //     replacement subscription with a zero setup fee (the order already
+    //     covered today's upgrade delta) and hand back its approve link. The
+    //     standard ACTIVATED webhook / activate path then switches the plan.
     if (action === "capture-order") {
       const orderId = subscriptionId;
 
@@ -649,11 +680,16 @@ Deno.serve(async (req) => {
       const captureResult = await capturePaypalOrder(accessToken, orderId);
 
       if (!captureResult.ok) {
-        console.error("Order capture failed:", captureResult.error);
-        // If the order was already captured (e.g. a concurrent retry), the
-        // payment is in and we can proceed with the subscription update anyway.
+        console.error("Order capture failed:", {
+          issue: captureResult.issue,
+          error: captureResult.error,
+          orderId,
+        });
+        // If the order was already captured (e.g. a double submit or a retry
+        // after a refresh), the money is in and we proceed with the upgrade.
         const alreadyCaptured =
-          /already|ORDER_ALREADY_CAPTURED/.test(captureResult.error || "");
+          captureResult.issue === "ORDER_ALREADY_CAPTURED" ||
+          /already/i.test(captureResult.error || "");
         if (!alreadyCaptured) {
           return Response.json(
             {
@@ -670,7 +706,7 @@ Deno.serve(async (req) => {
 
       const { data: plan, error: planError } = await admin
         .from("plans")
-        .select("id, name, seat_limit, code")
+        .select("id, name, seat_limit, code, price_month")
         .eq("id", pendingSwitch.plan_id)
         .single();
 
@@ -684,8 +720,21 @@ Deno.serve(async (req) => {
 
       // Record the one-time upgrade payment as an invoice so the billing
       // dashboard's "Last payment" reflects what was actually charged today.
+      // The invoice is typed one_time so the PDF describes it as a one-time
+      // upgrade charge (never "recurring"), and the upcoming billing panel is
+      // informational only -- the next monthly charge is NOT part of this total.
       const nowDateStr = new Date().toISOString();
-      if (captureResult.txnId && captureResult.amount && captureResult.amount > 0) {
+      if (
+        captureResult.txnId &&
+        captureResult.amount &&
+        captureResult.amount > 0
+      ) {
+        const { data: upgradeSub } = await admin
+          .from("subscriptions")
+          .select("paypal_subscription_id, current_period_end")
+          .eq("tenant_id", tenantId)
+          .maybeSingle();
+
         await admin
           .from("invoices")
           .insert({
@@ -696,11 +745,28 @@ Deno.serve(async (req) => {
             storage_path: null,
             period_start: nowDateStr.substring(0, 10),
             period_end: nowDateStr.substring(0, 10),
-            plan_name: `${plan.name} upgrade`,
+            plan_name: plan.name,
             seats: plan.seat_limit ?? 1,
+
+            invoice_type: "one_time",
+            currency: captureResult.currency ?? "USD",
+            subtotal: captureResult.amount,
+            tax: 0,
+            amount_paid: captureResult.amount,
+            balance_due: 0,
+            payment_method: "PayPal",
+            paid_at: nowDateStr,
+            billing_email: captureResult.payerEmail ?? user.email ?? undefined,
+            paypal_subscription_id: upgradeSub?.paypal_subscription_id ?? null,
+            next_billing_date: upgradeSub?.current_period_end ?? null,
+            next_billing_amount: Number(plan.price_month ?? 0),
           })
-          .then(() => {}).catch((err: unknown) => {
-            console.warn("[subscription] could not record upgrade invoice:", err);
+          .then(() => {})
+          .catch((err: unknown) => {
+            console.warn(
+              "[subscription] could not record upgrade invoice:",
+              err,
+            );
           });
       }
 
@@ -708,9 +774,12 @@ Deno.serve(async (req) => {
       // same subscription is kept, so nothing else is created and no second,
       // separate approval is needed: today's only charge is the captured
       // order, and PayPal bills the full plan rate at the next cycle.
-      let existingSubscriptionId = pendingSwitch.old_paypal_subscription_id;
+      const existingSubscriptionId = pendingSwitch.old_paypal_subscription_id;
 
-      if (!existingSubscriptionId || existingSubscriptionId.startsWith("FREE-")) {
+      if (
+        !existingSubscriptionId ||
+        existingSubscriptionId.startsWith("FREE-")
+      ) {
         return Response.json(
           {
             success: false,
@@ -718,6 +787,129 @@ Deno.serve(async (req) => {
           },
           { status: 400 },
         );
+      }
+
+      // PayPal can only revise a subscription whose status is ACTIVE. If the
+      // current agreement is CANCELLED/EXPIRED/SUSPENDED/APPROVAL_PENDING
+      // there is nothing to revise, so create a replacement subscription: the
+      // upgrade value was already captured from the one-time order, so it
+      // carries a zero setup fee and PayPal bills the full rate next cycle.
+      const existingLookup = await getPayPalSubscription(
+        accessToken,
+        existingSubscriptionId,
+      );
+      const existingPaypalStatus = existingLookup.ok
+        ? String(existingLookup.data.status ?? "").toUpperCase()
+        : "";
+
+      if (existingPaypalStatus !== "ACTIVE") {
+        console.log(
+          `[subscription] existing sub ${existingSubscriptionId} is "${existingPaypalStatus || "UNKNOWN"}"; creating replacement for upgrade (${tenantId}).`,
+        );
+
+        const { data: tenantRow } = await admin
+          .from("tenants")
+          .select("slug")
+          .eq("id", tenantId)
+          .maybeSingle();
+        const tenantSlug = tenantRow?.slug ?? "";
+
+        const subCreateResponse = await fetch(
+          `${BASE_URL}/v1/billing/subscriptions`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              plan_id: plan.code,
+              custom_id: tenantId,
+              subscriber: {
+                email_address: captureResult.payerEmail ?? user.email ?? "",
+                name: { given_name: "Valued", surname: "Customer" },
+                address: { country_code: "US" },
+              },
+              payment_schedule: {
+                setup_fee: { value: "0.00", currency_code: "USD" },
+              },
+              application_context: {
+                brand_name: "ServiceDesk",
+                user_action: "SUBSCRIBE_NOW",
+                landing_page: "LOGIN",
+                return_url: `${FRONTEND_URL}/${tenantSlug}/payment/success`,
+                cancel_url: `${FRONTEND_URL}/${tenantSlug}/payment/cancel`,
+              },
+            }),
+          },
+        );
+
+        const subCreateResult = (await subCreateResponse.json()) as {
+          id?: string;
+          status?: string;
+          message?: string;
+          links?: { rel: string; href: string }[];
+        };
+
+        if (!subCreateResponse.ok || !subCreateResult.id) {
+          console.error("Replacement subscription creation failed:", {
+            status: subCreateResponse.status,
+            response: subCreateResult,
+          });
+          return Response.json(
+            {
+              success: false,
+              message:
+                subCreateResult.message ??
+                "Failed to set up your new subscription. No charge was made for it; please try again.",
+            },
+            { status: 400 },
+          );
+        }
+
+        const replacementSubId = subCreateResult.id;
+
+        // The UNIQUE column currently holds the captured ORDER id; switching it
+        // to the fresh subscription id cannot collide with the original signup
+        // switch, and it puts the activation on the standard approval -> webhook
+        // -> activate path (which updates the subscriptions row by tenant_id).
+        const { error: rekeyError } = await admin
+          .from("subscription_switches")
+          .update({
+            paypal_subscription_id: replacementSubId,
+            status: "pending",
+            updated_at: nowDateStr,
+          })
+          .eq("id", pendingSwitch.id);
+
+        if (rekeyError) {
+          console.error("Switch rekey to replacement sub failed:", rekeyError);
+          return Response.json(
+            {
+              success: false,
+              message:
+                "Payment received, but we could not finalize your plan. Please contact support.",
+            },
+            { status: 500 },
+          );
+        }
+
+        console.log(
+          `[subscription] replacement subscription ${replacementSubId} created (zero setup fee) for upgrade to ${plan.name}.`,
+        );
+
+        return Response.json({
+          success: true,
+          message:
+            "Payment received. Please confirm your new subscription to activate the plan.",
+          planName: plan.name,
+          nextBilling: Number(plan.price_month ?? 0),
+          subscriptionId: replacementSubId,
+          approvalUrl:
+            subCreateResult.links?.find((l) => l.rel === "approve")?.href ??
+            null,
+        });
       }
 
       const reviseResponse = await fetch(
@@ -768,6 +960,7 @@ Deno.serve(async (req) => {
           success: true,
           message: "Payment received. Please confirm your plan change.",
           planName: plan.name,
+          nextBilling: Number(plan.price_month ?? 0),
           subscriptionId: existingSubscriptionId,
           approvalUrl: approveLink,
         });
@@ -779,8 +972,11 @@ Deno.serve(async (req) => {
         accessToken,
         existingSubscriptionId,
       );
-      const nextBillingTime = (refreshed.data as { billing_info?: { next_billing_time?: string } } | null)
-        ?.billing_info?.next_billing_time;
+      const nextBillingTime = (
+        refreshed.data as {
+          billing_info?: { next_billing_time?: string };
+        } | null
+      )?.billing_info?.next_billing_time;
 
       const { data: activatedSub, error: activationError } = await admin
         .from("subscriptions")
@@ -799,7 +995,10 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (activationError) {
-        console.error("Subscription activation after revise failed:", activationError);
+        console.error(
+          "Subscription activation after revise failed:",
+          activationError,
+        );
         return Response.json(
           {
             success: false,
@@ -837,6 +1036,7 @@ Deno.serve(async (req) => {
         success: true,
         message: "Payment received. Your new plan is active.",
         planName: plan.name,
+        nextBilling: Number(plan.price_month ?? 0),
         subscriptionId: existingSubscriptionId,
       });
     }
@@ -972,14 +1172,18 @@ Deno.serve(async (req) => {
 
         // Log the cancellation reason if provided
         if (reason) {
-          await admin.from("subscription_cancellation_reasons").insert({
-            tenant_id: tenantId,
-            subscription_id: currentSub.id,
-            reason,
-            created_at: new Date().toISOString(),
-          }).then(() => {}).catch((err: unknown) => {
-            console.warn("Could not log cancellation reason:", err);
-          });
+          await admin
+            .from("subscription_cancellation_reasons")
+            .insert({
+              tenant_id: tenantId,
+              subscription_id: currentSub.id,
+              reason,
+              created_at: new Date().toISOString(),
+            })
+            .then(() => {})
+            .catch((err: unknown) => {
+              console.warn("Could not log cancellation reason:", err);
+            });
         }
 
         return Response.json({
@@ -1035,14 +1239,18 @@ Deno.serve(async (req) => {
 
       // Log the cancellation reason if provided
       if (reason) {
-        await admin.from("subscription_cancellation_reasons").insert({
-          tenant_id: tenantId,
-          subscription_id: currentSub.id,
-          reason,
-          created_at: new Date().toISOString(),
-        }).then(() => {}).catch((err: unknown) => {
-          console.warn("Could not log cancellation reason:", err);
-        });
+        await admin
+          .from("subscription_cancellation_reasons")
+          .insert({
+            tenant_id: tenantId,
+            subscription_id: currentSub.id,
+            reason,
+            created_at: new Date().toISOString(),
+          })
+          .then(() => {})
+          .catch((err: unknown) => {
+            console.warn("Could not log cancellation reason:", err);
+          });
       }
 
       return Response.json({
@@ -1501,17 +1709,15 @@ Deno.serve(async (req) => {
       const totalDays = Math.max(
         1,
         Math.ceil(
-          (periodEnd.getTime() - periodStart.getTime()) /
-            (24 * 60 * 60 * 1000),
+          (periodEnd.getTime() - periodStart.getTime()) / (24 * 60 * 60 * 1000),
         ),
       );
       const remainingDays = Math.max(
         0,
-        Math.ceil(
-          (periodEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000),
-        ),
+        Math.ceil((periodEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
       );
-      proratedCredit = (oldPlanRate * remainingDays) / totalDays;
+      proratedCredit =
+        Math.round((oldPlanRate * remainingDays * 100) / totalDays) / 100;
     }
 
     const accessToken = await getAccessToken();
@@ -1647,15 +1853,174 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Paid downgrades (Business -> Pro): never open a PayPal checkout. The new
+    // plan starts at the end of the paid period (or immediately if no paid
+    // time is left) and the existing PayPal agreement is best-effort REVISED
+    // onto the cheaper plan so the next billing cycle charges the lower rate.
+    // No new agreement and no approval page; if PayPal would require approval
+    // to revise, we skip it and the scheduled switch still governs access.
+    if (!isFreePlan && isDowngrade) {
+      const placeholder = `PAID-${tenantId}-${Date.now()}`;
+
+      if (!deferUntil) {
+        const { error: downgradeSubError } = await admin
+          .from("subscriptions")
+          .update({
+            plan_id: plan.id,
+            paypal_subscription_id:
+              existingPaidSubscription?.paypal_subscription_id ?? placeholder,
+            status: "active",
+            seats: plan.seat_limit ?? 1,
+            current_period_end: new Date(
+              Date.now() + 30 * 24 * 60 * 60 * 1000,
+            ).toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("tenant_id", tenantId);
+
+        if (downgradeSubError) {
+          console.error(
+            "Paid downgrade immediate apply failed:",
+            downgradeSubError,
+          );
+          return Response.json(
+            {
+              success: false,
+              message: `Failed to apply the plan change: ${downgradeSubError.message}`,
+            },
+            { status: 400 },
+          );
+        }
+
+        await admin
+          .from("tenants")
+          .update({ plan_id: plan.id, updated_at: new Date().toISOString() })
+          .eq("id", tenantId);
+
+        if (existingPaidSubscription?.paypal_subscription_id) {
+          try {
+            const reviseRes = await fetch(
+              `${BASE_URL}/v1/billing/subscriptions/${existingPaidSubscription.paypal_subscription_id}/revise`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "Content-Type": "application/json",
+                  Accept: "application/json",
+                },
+                body: JSON.stringify({ plan_id: plan.code }),
+              },
+            );
+            if (!reviseRes.ok) {
+              console.error(
+                "Paid downgrade immediate revise not applied:",
+                { status: reviseRes.status },
+              );
+            }
+          } catch (reviseError) {
+            console.error("Paid downgrade immediate revise failed:", reviseError);
+          }
+        }
+
+        return Response.json({
+          success: true,
+          message: `Plan changed to ${plan.name}.`,
+          subscriptionId: existingPaidSubscription?.paypal_subscription_id ?? null,
+          approvalUrl: null,
+        });
+      }
+
+      await admin
+        .from("subscription_switches")
+        .update({ status: "cancelled", updated_at: new Date().toISOString() })
+        .eq("tenant_id", tenantId)
+        .in("status", ["pending", "approved"]);
+
+      const { error: paidSwitchError } = await admin
+        .from("subscription_switches")
+        .insert({
+          tenant_id: tenantId,
+          plan_id: plan.id,
+          // UNIQUE column: cannot reuse the real agreement id (the signup
+          // switch already holds it), so a placeholder is used. The REAL
+          // agreement stays in subscriptions and is what keeps billing.
+          paypal_subscription_id: placeholder,
+          old_paypal_subscription_id:
+            currentSubscription?.paypal_subscription_id ?? null,
+          old_plan_id: currentSubscription?.plan_id ?? tenant.plan_id,
+          old_status: currentSubscription?.status ?? "active",
+          old_seats: currentSubscription?.seats ?? 1,
+          old_current_period_end:
+            currentSubscription?.current_period_end ?? null,
+          effective_at: deferUntil.toISOString(),
+          status: "approved",
+        });
+
+      if (paidSwitchError) {
+        console.error(
+          "Scheduled paid-downgrade switch insert failed:",
+          paidSwitchError,
+        );
+        return Response.json(
+          {
+            success: false,
+            message: `Failed to schedule plan change: ${paidSwitchError.message}`,
+          },
+          { status: 500 },
+        );
+      }
+
+      if (existingPaidSubscription?.paypal_subscription_id) {
+        try {
+          const reviseRes = await fetch(
+            `${BASE_URL}/v1/billing/subscriptions/${existingPaidSubscription.paypal_subscription_id}/revise`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              body: JSON.stringify({ plan_id: plan.code }),
+            },
+          );
+          if (!reviseRes.ok) {
+            console.error(
+              "Paid downgrade revise not applied (switch still scheduled):",
+              { status: reviseRes.status },
+            );
+          }
+        } catch (reviseError) {
+          console.error(
+            "Paid downgrade revise failed (switch still scheduled):",
+            reviseError,
+          );
+        }
+      }
+
+      return Response.json({
+        success: true,
+        scheduled: true,
+        effectiveAt: deferUntil.toISOString(),
+        message:
+          "Plan change scheduled. Your current plan stays active until the end of the billing period.",
+        subscriptionId: null,
+        approvalUrl: null,
+      });
+    }
+
     // Upgrades collect the discounted amount as a true one-time PayPal order
     // first (pay once, no auto-pay authorization page). Once the order is
     // captured the real subscription is created and its approve link is
     // handed to the buyer, so the standard ACTIVATED webhook path switches
     // the plan and sets up the full-price recurring billing.
-    const isUpgrade = existingPaidSubscription && !isDowngrade && proratedCredit > 0;
+    const isUpgrade =
+      existingPaidSubscription && !isDowngrade && proratedCredit > 0;
 
     if (isUpgrade) {
-      const orderAmount = Math.max(0, Number(plan.price_month) - proratedCredit);
+      const orderAmount = Math.round(
+        Math.max(0, Number(plan.price_month) - proratedCredit) * 100,
+      ) / 100;
       const description = `ServiceDesk ${plan.name} Upgrade (one-time: $${Number(plan.price_month).toFixed(2)} - $${proratedCredit.toFixed(2)} credit)`;
 
       const orderResult = await createPaypalOrder(accessToken, {
@@ -1698,7 +2063,8 @@ Deno.serve(async (req) => {
           old_plan_id: currentSubscription?.plan_id ?? tenant.plan_id,
           old_status: currentSubscription?.status ?? "active",
           old_seats: currentSubscription?.seats ?? 1,
-          old_current_period_end: currentSubscription?.current_period_end ?? null,
+          old_current_period_end:
+            currentSubscription?.current_period_end ?? null,
           effective_at: null,
           status: "pending",
         });
@@ -1716,7 +2082,8 @@ Deno.serve(async (req) => {
 
       return Response.json({
         success: true,
-        message: "Upgrade payment created. Please complete payment to activate your new plan.",
+        message:
+          "Upgrade payment created. Please complete payment to activate your new plan.",
         subscriptionId: orderResult.orderId,
         approvalUrl: orderResult.approveUrl,
         proratedCredit,

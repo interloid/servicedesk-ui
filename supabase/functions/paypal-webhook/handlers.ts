@@ -10,8 +10,11 @@ import {
 } from "../_shared/paypal-payment-method.ts";
 
 interface WebhookEvent {
+  id?: string;
+  event_type?: string;
   resource: Record<string, unknown> & {
     id?: string;
+    create_time?: string;
     billing_info?: { next_billing_time?: string };
     billing_agreement_id?: string;
     seller_receivable_breakdown?: unknown;
@@ -41,6 +44,64 @@ const admin = createClient(
 
 function isRealAgreement(id?: string | null): boolean {
   return Boolean(id && !id.startsWith("FREE-"));
+}
+
+function addMonths(iso: string, months = 1): string {
+  const date = new Date(iso);
+
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString();
+  }
+
+  date.setMonth(date.getMonth() + months);
+
+  return date.toISOString();
+}
+
+interface InvoiceRecipient {
+  email: string;
+  name: string;
+}
+
+// resolves the invoice email recipients for a tenant:
+//   - the first active tenant_admin is always a recipient (mandatory)
+//   - the first active billing_admin is added when present (a billing_admin
+//     only becomes active after signing in, i.e. confirming their email)
+// If the tenant could not activate even one admin, no recipients are returned
+// and the caller skips delivery with a warning.
+async function resolveInvoiceRecipients(
+  tenantId: string,
+): Promise<InvoiceRecipient[]> {
+  const { data: members, error: membersError } = await admin
+    .from("memberships")
+    .select("role, users!memberships_user_id_fkey(full_name, email)")
+    .eq("tenant_id", tenantId)
+    .in("role", ["tenant_admin", "billing_admin"])
+    .eq("status", "active")
+    .order("created_at", { ascending: true });
+
+  if (membersError) {
+    throw membersError;
+  }
+
+  const recipients: InvoiceRecipient[] = [];
+  const seen = new Set<string>();
+
+  for (const role of ["tenant_admin", "billing_admin"]) {
+    const member = (members ?? []).find((m) => m.role === role);
+    const email = (member?.users?.email as string | undefined)?.trim();
+    if (email && !seen.has(email)) {
+      seen.add(email);
+      recipients.push({
+        email,
+        name:
+          (member?.users?.full_name as string | undefined)?.trim() ||
+          "there",
+      });
+    }
+  }
+
+  return recipients;
 }
 
 async function restoreSubscriptionFromSwitch(
@@ -497,7 +558,7 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   // email the customer a second copy.
   const { data: alreadyInvoiced, error: existingInvoiceError } = await admin
     .from("invoices")
-    .select("id")
+    .select("id, storage_path")
     .eq("paypal_txn_id", payment.id)
     .maybeSingle();
 
@@ -505,7 +566,11 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     throw existingInvoiceError;
   }
 
-  if (alreadyInvoiced) {
+  // Only short-circuit when the delivery actually finished: if the PDF upload
+  // or email failed on a previous attempt the row exists but its storage_path
+  // is still null, and skipping here would leave the invoice without a PDF or
+  // an email for good. That case falls through and re-publishes the same row.
+  if (alreadyInvoiced?.storage_path) {
     console.log(
       `Sale ${payment.id} already invoiced as ${alreadyInvoiced.id}; skipping duplicate delivery.`,
     );
@@ -514,7 +579,7 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   const { data: subscription, error } = await admin
     .from("subscriptions")
-    .select("*, plans(name), tenants(name)")
+    .select("*, plans(name, price_month), tenants(name)")
     .eq("paypal_subscription_id", subscriptionId)
     .single();
 
@@ -522,51 +587,144 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     throw new Error("Subscription not found.");
   }
 
-  const { data: insertedInvoice, error: invoiceError } = await admin
+  const plan = Array.isArray(subscription.plans)
+    ? subscription.plans?.[0]
+    : subscription.plans;
+  const tenant = Array.isArray(subscription.tenants)
+    ? subscription.tenants?.[0]
+    : subscription.tenants;
+
+  const amount = Number(payment.amount?.total ?? 0);
+  const currency = payment.amount?.currency ?? "USD";
+  const paidAt = payment.create_time || new Date().toISOString();
+  const periodStart = (paidAt || "").substring(0, 10);
+  const periodEnd = subscription.current_period_end
+    ? subscription.current_period_end.substring(0, 10)
+    : addMonths(paidAt).substring(0, 10);
+
+  const nextBillingDate = subscription.current_period_end
+    ? subscription.current_period_end
+    : addMonths(paidAt);
+  const nextBillingAmount = Number(plan?.price_month ?? 0);
+
+  // Billing email for the PDF "Bill To" block: the tenant's default payment
+  // method reports the email PayPal holds for the agreement.
+  const { data: billingMethod } = await admin
+    .from("payment_methods")
+    .select("paypal_email")
+    .eq("tenant_id", subscription.tenant_id)
+    .eq("is_default", true)
+    .maybeSingle();
+  const billingEmail = billingMethod?.paypal_email || undefined;
+
+  // A denied attempt recorded a FAILED invoice for this subscription; the
+  // successful retry finalizes that same line instead of creating a duplicate
+  // and counts as the "later collected" flip, per the payment lifecycle.
+  const { data: failedInvoice } = await admin
     .from("invoices")
-    .insert({
-      tenant_id: subscription.tenant_id,
+    .select("id")
+    .eq("subscription_id", subscription.id)
+    .eq("status", "failed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-      paypal_txn_id: payment.id,
+  let insertedInvoice: { id: string } | null = null;
 
-      amount: Number(payment.amount.total),
+  if (alreadyInvoiced && !alreadyInvoiced.storage_path) {
+    // Re-publishing a partially finished delivery: the row is already there, so
+    // skip the flip/insert and just regenerate the PDF + email below.
+    insertedInvoice = { id: alreadyInvoiced.id };
+  } else if (failedInvoice) {
+    const { error: flipError } = await admin
+      .from("invoices")
+      .update({
+        paypal_txn_id: payment.id,
+        amount,
+        currency,
+        status: "paid",
+        subtotal: amount,
+        tax: 0,
+        amount_paid: amount,
+        balance_due: 0,
+        payment_method: "PayPal",
+        paid_at: paidAt,
+        period_start: periodStart,
+        period_end: periodEnd,
+        plan_name: plan?.name ?? null,
+        seats: subscription.seats ?? null,
+        next_billing_date: nextBillingDate,
+        next_billing_amount: nextBillingAmount,
+        billing_email: billingEmail ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", failedInvoice.id);
 
-      status: "paid",
-
-      plan_name:
-        (Array.isArray(subscription.plans)
-          ? subscription.plans?.[0]?.name
-          : subscription.plans?.name) ?? null,
-
-      seats: subscription.seats ?? null,
-
-      period_start: subscription.created_at
-        ? subscription.created_at.substring(0, 10)
-        : new Date().toISOString().substring(0, 10),
-
-      period_end: subscription.current_period_end
-        ? subscription.current_period_end.substring(0, 10)
-        : (() => {
-            const date = new Date();
-            date.setMonth(date.getMonth() + 1);
-            return date.toISOString().substring(0, 10);
-          })(),
-    })
-    .select()
-    .single();
-
-  if (invoiceError) {
-    // A concurrent delivery inserted it between the check above and here. The
-    // unique key on paypal_txn_id did its job: nothing left to do.
-    if (invoiceError.code === "23505") {
-      console.log(
-        `Sale ${payment.id} was invoiced concurrently; skipping duplicate delivery.`,
-      );
-      return;
+    if (flipError) {
+      throw flipError;
     }
 
-    throw invoiceError;
+    console.log(
+      `[webhook] finalized previously failed invoice ${failedInvoice.id} for sale ${payment.id}.`,
+    );
+
+    insertedInvoice = { id: failedInvoice.id };
+  } else {
+    const { data, error: invoiceError } = await admin
+      .from("invoices")
+      .insert({
+        tenant_id: subscription.tenant_id,
+
+        paypal_txn_id: payment.id,
+
+        paypal_event_id: event.id ?? null,
+
+        amount,
+        currency,
+        status: "paid",
+
+        invoice_type: "recurring",
+        subscription_id: subscription.id,
+        paypal_subscription_id:
+          subscription.paypal_subscription_id ?? subscriptionId,
+        subtotal: amount,
+        tax: 0,
+        amount_paid: amount,
+        balance_due: 0,
+        payment_method: "PayPal",
+        paid_at: paidAt,
+        billing_email: billingEmail ?? null,
+
+        plan_name: plan?.name ?? null,
+
+        seats: subscription.seats ?? null,
+
+        period_start: periodStart,
+
+        period_end: periodEnd,
+
+        next_billing_date: nextBillingDate,
+        next_billing_amount: nextBillingAmount,
+      })
+      .select()
+      .single();
+
+    if (invoiceError) {
+      // A concurrent delivery inserted it between the check above and here. The
+      // unique key on paypal_txn_id did its job: nothing left to do.
+      if (invoiceError.code === "23505") {
+        console.log(
+          `Sale ${payment.id} was invoiced concurrently; skipping duplicate delivery.`,
+        );
+        return;
+      }
+
+      throw invoiceError;
+    }
+
+    insertedInvoice = data;
   }
+
   const { data: invoice, error: fetchError } = await admin
     .from("invoices")
     .select("*")
@@ -577,19 +735,11 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     throw fetchError;
   }
 
-  const plan = Array.isArray(subscription.plans)
-    ? subscription.plans?.[0]
-    : subscription.plans;
-  const tenant = Array.isArray(subscription.tenants)
-    ? subscription.tenants?.[0]
-    : subscription.tenants;
-
-  // PayPal is the only payment provider, and the currency comes from the
-  // PayPal payload (the invoices table does not store either yet).
+  // PayPal is the only payment provider; currency comes from the payload.
   const pdf = await generateInvoicePdf(
     {
       ...invoice,
-      currency: payment.amount.currency ?? "USD",
+      currency,
       payment_method: "PayPal",
     },
     {
@@ -597,6 +747,9 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
       tenant_id: subscription.tenant_id,
       plan_name: plan?.name,
       seats: subscription.seats,
+      tenant_email: billingEmail,
+      next_billing_date: nextBillingDate,
+      next_billing_amount: nextBillingAmount,
     },
   );
 
@@ -608,55 +761,267 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   await updateInvoiceStorage(invoice.id, storagePath);
 
-  // Email the invoice to the tenant's billing admin with a short-lived
-  // download link. Email failures must not fail payment processing.
+  // Email the invoice to the tenant admin (mandatory) and, when one exists,
+  // the verified+active billing admin, with a short-lived download link. Email
+  // failures must not fail payment processing.
   try {
-    const { data: billingMember, error: memberError } = await admin
-      .from("memberships")
-      .select("user_id, users!memberships_user_id_fkey(full_name, email)")
-      .eq("tenant_id", subscription.tenant_id)
-      .in("role", ["tenant_admin", "billing_admin"])
-      .eq("status", "active")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
+    const recipients = await resolveInvoiceRecipients(
+      subscription.tenant_id,
+    );
 
-    if (memberError) {
-      throw memberError;
-    }
-
-    const customerEmail = billingMember?.users?.email as string | undefined;
-
-    if (customerEmail) {
-      const invoiceNumber = invoice.id
-        ? `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
-        : "-";
+    if (recipients.length === 0) {
+      console.warn(
+        `No active tenant/billing admin found for tenant ${subscription.tenant_id}; invoice email skipped.`,
+      );
+    } else {
+      const invoiceNumber =
+        invoice.invoice_number ||
+        (invoice.id
+          ? `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
+          : "-");
       const signedUrl = await getInvoiceSignedUrl(storagePath);
 
-      await sendInvoiceEmail({
-        customerEmail,
-        customerName:
-          (billingMember?.users?.full_name as string | undefined) ??
-          tenant?.name ??
-          "there",
-        invoiceNumber,
-        amount: Number(invoice.amount ?? payment.amount.total ?? 0),
-        currency: payment.amount.currency ?? "USD",
-        signedUrl,
-      });
-    } else {
-      console.warn(
-        `No billing admin email found for tenant ${subscription.tenant_id}; invoice email skipped.`,
-      );
+      for (const recipient of recipients) {
+        await sendInvoiceEmail({
+          customerEmail: recipient.email,
+          customerName: recipient.name ?? tenant?.name ?? "there",
+          invoiceNumber,
+          amount: Number(invoice.amount ?? amount ?? 0),
+          currency,
+          signedUrl,
+        });
+      }
     }
   } catch (emailError) {
     console.error("Failed to send invoice email:", emailError);
   }
 }
 
+// Attach a PDF + email to the invoice row recorded by `capture-order` for a
+// one-time UPGRADE payment. In the sandbox the order's webhook event is
+// PAYMENT.CAPTURE.COMPLETED (resource = the capture), while real environments
+// can also deliver CHECKOUT.ORDER.COMPLETED (resource = the order). Both are
+// routed through this handler, and the invoice is found by its UNIQUE
+// paypal_txn_id so no custom_id plumbing is needed.
+export async function handleOrderCompleted(event: WebhookEvent) {
+  const resource = event.resource as Record<string, unknown> & {
+    id?: string;
+    custom_id?: string;
+    status?: string;
+    amount?: { value?: string; currency?: string };
+    purchase_units?: Array<{
+      payments?: {
+        captures?: Array<{
+          id?: string;
+          status?: string;
+          amount?: { value?: string; currency?: string };
+        }>;
+      };
+    }>;
+  };
+
+  let txnId: string;
+  let currency = "USD";
+  let eventLabel = "order";
+  let capturedAmount: number | null = null;
+
+  if (event.event_type === "CHECKOUT.ORDER.COMPLETED") {
+    const capture = resource.purchase_units?.[0]?.payments?.captures?.[0];
+    if (!resource.id || !capture?.id || capture.status !== "COMPLETED") {
+      return;
+    }
+    txnId = capture.id;
+    currency = capture.amount?.currency ?? "USD";
+    capturedAmount = Number(capture.amount?.value ?? NaN);
+    eventLabel = resource.id;
+  } else {
+    // PAYMENT.CAPTURE.COMPLETED: the resource is the capture itself.
+    if (String(resource.status ?? "").toUpperCase() !== "COMPLETED") {
+      return;
+    }
+    if (!resource.id) {
+      throw new Error("Webhook missing capture id.");
+    }
+    txnId = resource.id;
+    currency = resource.amount?.currency ?? "USD";
+    capturedAmount = Number(resource.amount?.value ?? NaN);
+    eventLabel = txnId;
+  }
+
+  let { data: invoice, error: invoiceError } = await admin
+    .from("invoices")
+    .select("*")
+    .eq("paypal_txn_id", txnId)
+    .maybeSingle();
+
+  if (invoiceError) {
+    throw invoiceError;
+  }
+
+  if (invoice?.storage_path) {
+    return;
+  }
+
+  // The invoice row is normally inserted by `capture-order` around the same
+  // moment the order is captured. A webhook can still beat that call back to
+  // the browser (or the row's insert silently failed), so instead of failing
+  // every delivery until PayPal gives up, create the one_time row here from
+  // the capture itself and let the normal PDF/email path below finish it.
+  if (!invoice) {
+    const customTenantId = String(resource.custom_id ?? "");
+
+    if (!customTenantId) {
+      throw new Error(
+        `No invoice row for captured txn ${txnId} (${eventLabel}) and no custom_id to reconstruct one; retry.`,
+      );
+    }
+
+    const nowDateStr = new Date().toISOString();
+    const { data: created, error: createError } = await admin
+      .from("invoices")
+      .insert({
+        tenant_id: customTenantId,
+        paypal_txn_id: txnId,
+        amount: Number.isFinite(capturedAmount ?? NaN)
+          ? (capturedAmount as number)
+          : 0,
+        status: "paid",
+        invoice_type: "one_time",
+        currency,
+        subtotal: Number.isFinite(capturedAmount ?? NaN)
+          ? (capturedAmount as number)
+          : 0,
+        tax: 0,
+        amount_paid: Number.isFinite(capturedAmount ?? NaN)
+          ? (capturedAmount as number)
+          : 0,
+        balance_due: 0,
+        payment_method: "PayPal",
+        paid_at: nowDateStr,
+        period_start: nowDateStr.substring(0, 10),
+        period_end: nowDateStr.substring(0, 10),
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      throw createError;
+    }
+
+    const { data: recheck } = await admin
+      .from("invoices")
+      .select("*")
+      .eq("paypal_txn_id", txnId)
+      .maybeSingle();
+
+    if (!recheck) {
+      throw new Error(
+        `Invoice row for captured txn ${txnId} (${eventLabel}) could not be read back; retry.`,
+      );
+    }
+
+    invoice = recheck;
+  }
+
+  const tenantId = invoice.tenant_id;
+
+  const { data: tenant } = await admin
+    .from("tenants")
+    .select("name")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  // For the "Upcoming billing" panel, read the tenant's live subscription: the
+  // next recurring charge date and the target plan's monthly rate. Never part
+  // of the upgrade invoice totals.
+  const { data: tenantSub } = await admin
+    .from("subscriptions")
+    .select(
+      "paypal_subscription_id, current_period_end, seats, plan_id, plans(name, price_month)",
+    )
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  const tenantPlan = Array.isArray(tenantSub?.plans)
+    ? tenantSub?.plans?.[0]
+    : tenantSub?.plans;
+
+  const nextBillingDate =
+    tenantSub?.current_period_end ?? addMonths(new Date().toISOString());
+  const nextBillingAmount = Number(tenantPlan?.price_month ?? 0);
+
+  const { data: billingMethod } = await admin
+    .from("payment_methods")
+    .select("paypal_email")
+    .eq("tenant_id", tenantId)
+    .eq("is_default", true)
+    .maybeSingle();
+  const billingEmail =
+    invoice.billing_email || billingMethod?.paypal_email || undefined;
+
+  const pdf = await generateInvoicePdf(
+    {
+      ...invoice,
+      currency,
+      payment_method: "PayPal",
+    },
+    {
+      tenant_name: (tenant as { name?: string } | null)?.name,
+      tenant_id: tenantId,
+      plan_name: invoice.plan_name,
+      seats: invoice.seats,
+      tenant_email: billingEmail,
+      next_billing_date: nextBillingDate,
+      next_billing_amount: nextBillingAmount,
+    },
+  );
+
+  const storagePath = await uploadInvoicePdf(tenantId, invoice.id, pdf);
+
+  await updateInvoiceStorage(invoice.id, storagePath);
+
+  console.log(
+    `[webhook] generated invoice PDF for txn ${txnId} (${eventLabel}) tenant ${tenantId}.`,
+  );
+
+  // Email the upgrade invoice to the tenant admin (mandatory) and, when one
+  // exists, the verified+active billing admin, with a short-lived download link.
+  try {
+    const recipients = await resolveInvoiceRecipients(tenantId);
+
+    if (recipients.length === 0) {
+      console.warn(
+        `No active tenant/billing admin found for tenant ${tenantId}; invoice email skipped.`,
+      );
+    } else {
+      const invoiceNumber =
+        invoice.invoice_number ||
+        (invoice.id
+          ? `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
+          : "-");
+      const signedUrl = await getInvoiceSignedUrl(storagePath);
+
+      for (const recipient of recipients) {
+        await sendInvoiceEmail({
+          customerEmail: recipient.email,
+          customerName: recipient.name ?? tenant?.name ?? "there",
+          invoiceNumber,
+          amount: Number(invoice.amount ?? 0),
+          currency,
+          signedUrl,
+        });
+      }
+    }
+  } catch (emailError) {
+    console.error("Failed to send upgrade invoice email:", emailError);
+  }
+}
+
 export async function handlePaymentDenied(event: WebhookEvent) {
   const payment = event.resource;
 
+  // Mark the subscription past-due (existing behaviour) so the billing
+  // dashboard surfaces the collection problem immediately.
   await admin
     .from("subscriptions")
     .update({
@@ -665,6 +1030,83 @@ export async function handlePaymentDenied(event: WebhookEvent) {
       updated_at: new Date().toISOString(),
     })
     .eq("paypal_subscription_id", payment.billing_agreement_id);
+
+  // Also record the failed collection as a FAILED invoice (never PAID). A
+  // denied payment may not carry full sale details, so the monthly plan rate
+  // is used for the amount. The event id is stored for idempotency. When the
+  // money later lands, handlePaymentCompleted flips this line to PAID.
+  const { data: subscription } = await admin
+    .from("subscriptions")
+    .select(
+      "id, tenant_id, paypal_subscription_id, current_period_end, seats, plans(name, price_month)",
+    )
+    .eq("paypal_subscription_id", payment.billing_agreement_id)
+    .maybeSingle();
+
+  if (subscription) {
+    const plan = Array.isArray(subscription.plans)
+      ? subscription.plans?.[0]
+      : subscription.plans;
+    const now = new Date().toISOString();
+    const amount = Number(plan?.price_month ?? 0);
+
+    // The FAILED row's natural key (per billing cycle) beats the partial unique
+    // index on paypal_event_id, which only guards when event.id is actually
+    // set. PayPal can redeliver a SALE.DENIED or send another denial for the
+    // same cycle; never stack a second FAILED line for the same period.
+    const { data: existingFailed } = await admin
+      .from("invoices")
+      .select("id")
+      .eq("subscription_id", subscription.id)
+      .eq("status", "failed")
+      .eq("period_start", now.substring(0, 10))
+      .maybeSingle();
+
+    if (existingFailed) {
+      console.log(
+        `Denied payment for cycle ${now.substring(0, 10)} already recorded as failed invoice ${existingFailed.id}; skipping duplicate.`,
+      );
+      return;
+    }
+
+    const { error: invError } = await admin
+      .from("invoices")
+      .insert({
+        tenant_id: subscription.tenant_id,
+        paypal_txn_id: payment.id ?? null,
+        paypal_event_id: event.id ?? null,
+        amount,
+        currency: "USD",
+        status: "failed",
+        invoice_type: "recurring",
+        subscription_id: subscription.id,
+        paypal_subscription_id:
+          subscription.paypal_subscription_id ??
+          payment.billing_agreement_id,
+        subtotal: amount,
+        tax: 0,
+        amount_paid: 0,
+        balance_due: amount,
+        payment_method: "PayPal",
+        plan_name: plan?.name ?? null,
+        seats: subscription.seats ?? null,
+        period_start: now.substring(0, 10),
+        period_end: subscription.current_period_end
+          ? subscription.current_period_end.substring(0, 10)
+          : addMonths(now).substring(0, 10),
+      });
+
+    if (invError && invError.code !== "23505") {
+      console.error(
+        "Failed to record denied payment as an invoice:",
+        invError,
+      );
+    } else if (invError && invError.code === "23505") {
+      console.log(
+        `Denied payment event ${event.id} already recorded; skipping duplicate.`,
+      );
+    }
+  }
 }
 
 export async function handlePaymentRefunded(event: WebhookEvent) {

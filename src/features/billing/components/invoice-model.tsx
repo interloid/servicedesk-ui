@@ -80,7 +80,7 @@ export default function InvoiceModal({
       <DialogContent className="max-w-105 rounded-2xl p-6 border-none shadow-xl">
         <DialogHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
           <DialogTitle className="text-xl font-bold text-slate-900">
-            Invoice INV-{invoice?.id || "Details"}
+            Invoice {invoice?.id || "Details"}
           </DialogTitle>
         </DialogHeader>
 

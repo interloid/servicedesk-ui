@@ -58,7 +58,10 @@ export default function CancelSubscription({
       setError(null);
 
       try {
-        const result = await cancelSubscriptionAction(tenantSlug, reason || undefined);
+        const result = await cancelSubscriptionAction(
+          tenantSlug,
+          reason || undefined,
+        );
 
         if (!result.success) {
           setError(result.error || "Failed to cancel subscription.");
@@ -70,7 +73,9 @@ export default function CancelSubscription({
             `Subscription cancelled. Your ${plan.name} plan stays active until ${renewalDate}.`,
           );
         } else {
-          toast.success("Subscription cancelled. You are now on the Free plan.");
+          toast.success(
+            "Subscription cancelled. You are now on the Free plan.",
+          );
         }
 
         router.push(`/${tenantSlug}/account/billing`);
@@ -105,7 +110,8 @@ export default function CancelSubscription({
               You are already on the Free plan
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              No subscription to cancel. You can upgrade anytime from the plans page.
+              No subscription to cancel. You can upgrade anytime from the plans
+              page.
             </p>
             <Button
               onClick={() => router.push(`/${tenantSlug}/account/plans`)}
@@ -140,12 +146,18 @@ export default function CancelSubscription({
                   Plan change already scheduled
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  You have a pending switch to {scheduledChange.planName} effective{" "}
-                  {new Date(scheduledChange.effectiveAt).toLocaleDateString("en-US", {
-                    month: "long",
-                    day: "numeric",
-                    year: "numeric",
-                  })}. Cancel that change first before cancelling your subscription.
+                  You have a pending switch to {scheduledChange.planName}{" "}
+                  effective{" "}
+                  {new Date(scheduledChange.effectiveAt).toLocaleDateString(
+                    "en-US",
+                    {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    },
+                  )}
+                  . Cancel that change first before cancelling your
+                  subscription.
                 </p>
                 <Button
                   onClick={() => router.push(`/${tenantSlug}/account/billing`)}
@@ -195,7 +207,10 @@ export default function CancelSubscription({
                 {plan.rate} · Renews {renewalDate}
               </p>
             </div>
-            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700">
+            <Badge
+              variant="secondary"
+              className="bg-emerald-50 text-emerald-700"
+            >
               Active
             </Badge>
           </div>
@@ -315,8 +330,9 @@ export default function CancelSubscription({
                     Your {plan.name} subscription will be cancelled.{" "}
                     {renewalDate !== "N/A" ? (
                       <>
-                        You&apos;ll keep access until <strong>{renewalDate}</strong>,
-                        then your account will move to the Free plan.
+                        You&apos;ll keep access until{" "}
+                        <strong>{renewalDate}</strong>, then your account will
+                        move to the Free plan.
                       </>
                     ) : (
                       <>Your account will move to the Free plan immediately.</>

@@ -95,6 +95,7 @@ export async function confirmOrderPaymentAction(
   planName?: string;
   subscriptionId?: string | null;
   approvalUrl?: string | null;
+  nextBilling?: number;
 }> {
   if (!orderId) {
     return {

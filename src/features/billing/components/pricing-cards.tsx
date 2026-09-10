@@ -3,8 +3,6 @@
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle,
-  CalendarClock,
   Check,
   Info,
   Layers,
@@ -19,6 +17,7 @@ import { toast } from "sonner";
 import { changeTenantPlanAction } from "../billing-actions";
 import { BillingDashboardData } from "../services/billing-dashboard.service";
 import { tenantPath } from "@/lib/tenancy";
+import { DowngradeDialog } from "./downgrade-dialog";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,7 +50,9 @@ export function PricingCards({
   const [loadingPlanCode, setLoadingPlanCode] = useState<string | null>(null);
   const [selectedPlanForSwitch, setSelectedPlanForSwitch] =
     useState<FormattedPlan | null>(null);
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [downgradeTarget, setDowngradeTarget] = useState<FormattedPlan | null>(
+    null,
+  );
 
   const announceScheduled = (planName: string, effectiveAt: string | null) => {
     const when = effectiveAt
@@ -90,12 +91,10 @@ export function PricingCards({
         if (res.scheduled) {
           announceScheduled(plan.name, res.effectiveAt ?? null);
           setSelectedPlanForSwitch(null);
-          setConfirmingCancel(false);
           return;
         }
 
         setSelectedPlanForSwitch(null);
-        setConfirmingCancel(false);
         window.location.reload();
       } catch (error) {
         console.error("Plan switch error:", error);
@@ -119,8 +118,6 @@ export function PricingCards({
         (p.code || "").trim().toLowerCase() === activeTarget,
     ) ?? null;
 
-  const currentPlanLabel = currentPlan?.name ?? "your current plan";
-
   // plans.code holds PayPal plan ids (P-.. / F-..), so rank plans by monthly
   // price rather than by matching names inside the code.
   const currentPrice = currentPlan?.priceValue ?? null;
@@ -142,13 +139,16 @@ export function PricingCards({
         : `Upgrade to ${selectedPlanForSwitch.name}`;
 
   const openSwitchDialog = (plan: FormattedPlan) => {
+    if (currentPrice !== null && plan.priceValue < currentPrice) {
+      setDowngradeTarget(plan);
+      return;
+    }
     setSelectedPlanForSwitch(plan);
   };
 
   const openCancelDialog = () => {
     if (!freePlan) return;
-    setConfirmingCancel(true);
-    setSelectedPlanForSwitch(freePlan);
+    setDowngradeTarget(freePlan);
   };
 
   const usedSeats = billingData?.seats?.used ?? 0;
@@ -165,68 +165,47 @@ export function PricingCards({
     if (!renewalDateRaw || currentPlanRate <= 0) return 0;
     const periodEnd = new Date(renewalDateRaw);
     const now = new Date();
-    const periodStart = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const totalDays = Math.max(1, Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (24 * 60 * 60 * 1000)));
-    const remainingDays = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
-    return (currentPlanRate * remainingDays) / totalDays;
+    const periodStart = new Date(
+      periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000,
+    );
+    const totalDays = Math.max(
+      1,
+      Math.ceil(
+        (periodEnd.getTime() - periodStart.getTime()) / (24 * 60 * 60 * 1000),
+      ),
+    );
+    const remainingDays = Math.max(
+      0,
+      Math.ceil((periodEnd.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
+    );
+    return (
+      Math.round((currentPlanRate * remainingDays * 100) / totalDays) / 100
+    );
   })();
 
   const target = selectedPlanForSwitch;
-  const isFreeTarget = target?.priceValue === 0;
   const isUpgradeTarget =
     currentPrice !== null &&
     target !== null &&
     target.priceValue > currentPrice;
-  const freeSeatLimit = freePlan?.seatLimit ?? 0;
-  const targetSeatLimit = target?.seatLimit ?? 0;
-  const seatsAtRisk = target ? Math.max(0, usedSeats - targetSeatLimit) : 0;
-  const seatsAtRiskForFree = Math.max(0, usedSeats - freeSeatLimit);
 
   // Calculate the actual amount user will pay after prorated credit
-  const upgradeAmount = isUpgradeTarget && target
-    ? Math.max(0, target.priceValue - proratedCredit)
-    : 0;
+  const upgradeAmount =
+    isUpgradeTarget && target
+      ? Math.round(Math.max(0, target.priceValue - proratedCredit) * 100) / 100
+      : 0;
 
   const dialogTiming = (() => {
     if (!target) return { headline: "", body: "", deferred: false };
 
-    if (confirmingCancel || isFreeTarget) {
-      return renewalDate
-        ? {
-            headline: "End of billing period",
-            body: `You keep ${currentPlanLabel} — including its features and agent seats — until ${renewalDate}. No further charges are made, and the switch to the Free plan applies when your billing period ends.`,
-            deferred: true,
-          }
-        : {
-            headline: "Immediately",
-            body: "It takes effect right now, and no further charges will be made.",
-            deferred: false,
-          };
-    }
-
-    if (isUpgradeTarget) {
-      const hasCredit = proratedCredit > 0;
-      return {
-        headline: "As soon as PayPal checkout is approved",
-        body: hasCredit
-          ? `You'll pay $${upgradeAmount.toFixed(2)} today ($${target.priceValue.toFixed(2)} minus your $${proratedCredit.toFixed(2)} credit for unused ${currentPlan?.name ?? "current plan"} time). This one-time payment unlocks ${target.name} now, and from next month you'll be billed the full ${target.price}${target.priceSuffix}.`
-          : `You'll be redirected to PayPal to approve the new ${target.name} subscription. Your current plan stays active until it's live, then you'll be billed ${target.price}${target.priceSuffix}.`,
-        deferred: false,
-      };
-    }
-
-    // Downgrade to a paid (cheaper) plan.
-    return renewalDate
-      ? {
-          headline: "End of billing period",
-          body: `You keep ${currentPlanLabel} — including its features and agent seats — until ${renewalDate}. From the next billing cycle you'll be billed the ${target.name} rate of ${target.price}${target.priceSuffix}.`,
-          deferred: true,
-        }
-      : {
-          headline: "Immediately",
-          body: `It takes effect right now. From your next billing cycle you'll be billed the ${target.name} rate of ${target.price}${target.priceSuffix}.`,
-          deferred: false,
-        };
+    const hasCredit = proratedCredit > 0;
+    return {
+      headline: "As soon as PayPal checkout is approved",
+      body: hasCredit
+        ? `You'll pay $${upgradeAmount.toFixed(2)} today ($${target.priceValue.toFixed(2)} minus your $${proratedCredit.toFixed(2)} credit for unused ${currentPlan?.name ?? "current plan"} time). This one-time payment unlocks ${target.name} now, and from next month you'll be billed the full ${target.price}${target.priceSuffix}.`
+        : `You'll be redirected to PayPal to approve the new ${target.name} subscription. Your current plan stays active until it's live, then you'll be billed ${target.price}${target.priceSuffix}.`,
+      deferred: false,
+    };
   })();
 
   const manageBillingHref = tenantPath(tenantSlug, "/account/billing");
@@ -433,7 +412,6 @@ export function PricingCards({
         onOpenChange={(open) => {
           if (!open && !isPending) {
             setSelectedPlanForSwitch(null);
-            setConfirmingCancel(false);
           }
         }}
       >
@@ -457,7 +435,6 @@ export function PricingCards({
               onClick={() => {
                 if (!isPending) {
                   setSelectedPlanForSwitch(null);
-                  setConfirmingCancel(false);
                 }
               }}
               disabled={isPending}
@@ -468,20 +445,14 @@ export function PricingCards({
             </button>
 
             <AlertDialogTitle className="pr-10 text-xl font-bold text-foreground">
-              {confirmingCancel || isFreeTarget
-                ? `Cancel your subscription and move to the Free plan?`
-                : `${selectedSwitchLabel}?`}
+              {selectedSwitchLabel}?
             </AlertDialogTitle>
 
             <AlertDialogDescription asChild>
               <div className="mt-4 space-y-3">
                 <div className="w-full rounded-xl border border-brand-accent/20 bg-brand-accent/3 px-4 py-3.5">
                   <div className="flex items-start gap-3">
-                    {dialogTiming.deferred ? (
-                      <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
-                    ) : (
-                      <Zap className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
-                    )}
+                    <Zap className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
 
                     <div className="space-y-1 text-sm leading-5 text-foreground">
                       <p className="font-semibold">
@@ -494,51 +465,7 @@ export function PricingCards({
                   </div>
                 </div>
 
-                {(confirmingCancel || isFreeTarget) &&
-                  seatsAtRiskForFree > 0 && (
-                    <div className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 dark:border-amber-900/50 dark:bg-amber-950/30">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
-                        <div className="space-y-1 text-sm leading-5">
-                          <p className="font-semibold text-amber-900 dark:text-amber-200">
-                            Agent seat usage: {usedSeats} of {totalSeats} seats
-                          </p>
-                          <p className="font-normal text-amber-800/90 dark:text-amber-300/90">
-                            The Free plan includes {freeSeatLimit} agent seats.
-                            You&apos;ll need to free up {seatsAtRiskForFree}{" "}
-                            seat
-                            {seatsAtRiskForFree === 1 ? "" : "s"} before this
-                            change applies.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                {!confirmingCancel &&
-                  !isFreeTarget &&
-                  isDowngradeLike(target, currentPrice) &&
-                  seatsAtRisk > 0 && (
-                    <div className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 dark:border-amber-900/50 dark:bg-amber-950/30">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
-                        <div className="space-y-1 text-sm leading-5">
-                          <p className="font-semibold text-amber-900 dark:text-amber-200">
-                            Agent seat usage: {usedSeats} of {totalSeats} seats
-                          </p>
-                          <p className="font-normal text-amber-800/90 dark:text-amber-300/90">
-                            {target?.name} includes {targetSeatLimit} agent
-                            seats. You&apos;ll need to free up {seatsAtRisk}{" "}
-                            seat
-                            {seatsAtRisk === 1 ? "" : "s"} before this change
-                            applies.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                {!isFreeTarget && !confirmingCancel && isUpgradeTarget && (
+                {isUpgradeTarget && (
                   <>
                     {proratedCredit > 0 && (
                       <div className="w-full rounded-xl border border-border px-4 py-3.5">
@@ -580,7 +507,9 @@ export function PricingCards({
                     <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm leading-5 text-muted-foreground">
                       <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-accent" />
                       <p>
-                        You&apos;ll be taken to PayPal to approve the new subscription. Nothing changes until you complete that step.
+                        You&apos;ll be taken to PayPal to approve the new
+                        subscription. Nothing changes until you complete that
+                        step.
                       </p>
                     </div>
                   </>
@@ -594,7 +523,7 @@ export function PricingCards({
               disabled={isPending}
               className="mt-0 h-10 rounded-xl border-border bg-background px-5 font-semibold text-foreground hover:bg-muted"
             >
-              {confirmingCancel || isFreeTarget ? "Keep my plan" : "Cancel"}
+              Cancel
             </AlertDialogCancel>
 
             <AlertDialogAction
@@ -606,32 +535,27 @@ export function PricingCards({
                   executePlanSwitch(selectedPlanForSwitch);
                 }
               }}
-              className={`h-10 rounded-xl px-5 font-semibold shadow-none transition-colors ${
-                confirmingCancel || isFreeTarget
-                  ? "bg-red-600 text-white hover:bg-red-700"
-                  : "bg-brand-accent text-primary-foreground hover:bg-brand-accent/90"
-              }`}
+              className="h-10 rounded-xl bg-brand-accent px-5 font-semibold text-primary-foreground shadow-none transition-colors hover:bg-brand-accent/90"
             >
               {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {confirmingCancel || isFreeTarget
-                ? "Yes, cancel subscription"
-                : "Confirm switch"}
+              Confirm switch
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
-  );
-}
 
-function isDowngradeLike(
-  target: FormattedPlan | null,
-  currentPrice: number | null,
-): boolean {
-  return (
-    target !== null &&
-    target.priceValue > 0 &&
-    currentPrice !== null &&
-    target.priceValue < currentPrice
+      <DowngradeDialog
+        tenantSlug={tenantSlug}
+        open={Boolean(downgradeTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDowngradeTarget(null);
+        }}
+        targetPlan={downgradeTarget}
+        currentPlan={currentPlan}
+        usedSeats={usedSeats}
+        totalSeats={totalSeats}
+        renewalDate={renewalDate}
+      />
+    </>
   );
 }

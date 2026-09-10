@@ -6,6 +6,13 @@
 // the backstop for a webhook that was missed, retried past its window, or
 // arrived while the database was unavailable.
 //
+// Paid downgrades (Business -> Pro) never create a new agreement: the existing
+// one was best-effort revised onto the cheaper plan at request time, and the
+// switch carries a "PAID-{tenant}-{timestamp}" placeholder in the UNIQUE
+// paypal_subscription_id column. Applying it is a pure database change -- the
+// real agreement id stays on the subscriptions row, is not cancelled, and no
+// invoices are backfilled (billing continues on the same agreement).
+//
 // PayPal is the source of truth: nothing is applied here unless PayPal already
 // reports the new agreement as ACTIVE. The job is idempotent -- it only selects
 // switches that are still pending/approved, and invoice writes collide on the
@@ -141,6 +148,8 @@ async function backfillInvoices(
     if (String(txn?.status ?? "").toUpperCase() !== "COMPLETED") continue;
 
     const gross = txn?.amount_with_breakdown?.gross_amount?.value;
+    const grossCurrency =
+      txn?.amount_with_breakdown?.gross_amount?.currency_code;
     if (!txn?.id || gross === undefined) continue;
 
     const paidAt = txn.time ? String(txn.time).substring(0, 10) : null;
@@ -155,6 +164,18 @@ async function backfillInvoices(
         period_end: periodEnd
           ? periodEnd.substring(0, 10)
           : new Date().toISOString().substring(0, 10),
+
+        // Self-contained billing context so backfilled rows render complete
+        // PDFs identically to webhook-created invoices.
+        invoice_type: "recurring",
+        paypal_subscription_id: paypalSubscriptionId,
+        currency: grossCurrency ?? "USD",
+        subtotal: Number(gross),
+        tax: 0,
+        amount_paid: Number(gross),
+        balance_due: 0,
+        payment_method: "PayPal",
+        paid_at: txn.time ?? null,
       },
       { onConflict: "paypal_txn_id", ignoreDuplicates: true },
     );
@@ -174,6 +195,7 @@ async function applySwitch(
   token: string,
   pendingSwitch: SubscriptionSwitch,
   paypalSub: Record<string, unknown> | null,
+  oldPaypalSub?: Record<string, unknown> | null,
 ) {
   const now = new Date().toISOString();
 
@@ -181,11 +203,21 @@ async function applySwitch(
   // no billing cycle to read. Mirror the immediate Free path's 15-day window.
   const isFreeSwitch = pendingSwitch.paypal_subscription_id.startsWith("FREE-");
 
+  // A paid downgrade revises the existing agreement; billing continues on it,
+  // so the next cycle comes from the old agreement (or a 30-day fallback).
+  const isPaidReviseSwitch =
+    pendingSwitch.paypal_subscription_id.startsWith("PAID-");
+
   const billingInfo = paypalSub?.billing_info as
+    { next_billing_time?: string } | undefined;
+  const oldBillingInfo = oldPaypalSub?.billing_info as
     { next_billing_time?: string } | undefined;
   const nextBilling = isFreeSwitch
     ? new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString()
-    : (billingInfo?.next_billing_time ?? null);
+    : isPaidReviseSwitch
+      ? (oldBillingInfo?.next_billing_time ??
+        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString())
+      : (billingInfo?.next_billing_time ?? null);
 
   const { data: plan } = await admin
     .from("plans")
@@ -197,7 +229,11 @@ async function applySwitch(
     .from("subscriptions")
     .update({
       plan_id: pendingSwitch.plan_id,
-      paypal_subscription_id: pendingSwitch.paypal_subscription_id,
+      // A paid downgrade keeps the (revised) real agreement; only Free and
+      // pure placeholders ever go into the subscriptions row.
+      paypal_subscription_id: isPaidReviseSwitch
+        ? pendingSwitch.old_paypal_subscription_id
+        : pendingSwitch.paypal_subscription_id,
       status: "active",
       seats: plan?.seat_limit ?? 1,
       current_period_end: nextBilling,
@@ -214,9 +250,12 @@ async function applySwitch(
 
   if (tenantError) throw tenantError;
 
-  // The old, more expensive agreement is only cancelled once the new one is
-  // confirmed live, so a failure here can never leave the tenant unbilled.
-  if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
+  // A paid downgrade revises the same agreement (never cancels it). Only when
+  // a genuinely different, cheaper agreement confirmed live is the old one
+  // retired -- and only then can a failure leave the tenant unbilled, so the
+  // cancellation happens after the new row is written.
+  if (isRealAgreement(pendingSwitch.old_paypal_subscription_id) &&
+      !isPaidReviseSwitch) {
     try {
       await cancelSubscription(
         token,
@@ -234,8 +273,10 @@ async function applySwitch(
 
   if (appliedError) throw appliedError;
 
-  // Nothing is charged for a free plan, so there are no transactions.
-  const invoices = isFreeSwitch
+  // Nothing is charged for a free plan, so there are no transactions. A paid
+  // downgrade keeps billing on the same (revised) agreement -- no new
+  // transactions exist to backfill either.
+  const invoices = isFreeSwitch || isPaidReviseSwitch
     ? 0
     : await backfillInvoices(
         token,
@@ -294,12 +335,36 @@ Deno.serve(async (req) => {
     for (const pendingSwitch of (dueSwitches ?? []) as SubscriptionSwitch[]) {
       try {
         // Nothing to verify for a Free switch: the paid agreement was already
-        // cancelled when the change was requested, so it just applies.
+        // cancelled when the change was requested, so it just applies. Same for
+        // a paid downgrade, whose agreement was revised (not replaced).
         if (pendingSwitch.paypal_subscription_id.startsWith("FREE-")) {
           await applySwitch(token, pendingSwitch, null);
           summary.applied += 1;
           console.log(
             `Applied scheduled Free switch ${pendingSwitch.id} for tenant ${pendingSwitch.tenant_id}.`,
+          );
+          continue;
+        }
+
+        if (pendingSwitch.paypal_subscription_id.startsWith("PAID-")) {
+          let oldPaypalSub: Record<string, unknown> | null = null;
+          if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
+            try {
+              oldPaypalSub = await getSubscription(
+                token,
+                pendingSwitch.old_paypal_subscription_id!,
+              );
+            } catch (error) {
+              console.error(
+                `Reading revised agreement for ${pendingSwitch.id} failed:`,
+                error,
+              );
+            }
+          }
+          await applySwitch(token, pendingSwitch, null, oldPaypalSub);
+          summary.applied += 1;
+          console.log(
+            `Applied scheduled paid-downgrade switch ${pendingSwitch.id} for tenant ${pendingSwitch.tenant_id}.`,
           );
           continue;
         }

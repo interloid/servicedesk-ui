@@ -18,16 +18,15 @@ export async function uploadInvoicePdf(
     .from("invoices")
     .upload(storagePath, pdf, {
       contentType: "application/pdf",
-      upsert: false,
+      // A converged retry re-uploads over the partial object from an earlier
+      // failed delivery rather than tripping the 409 "already exists" error.
+      upsert: true,
     });
 
-  await admin
-    .from("invoices")
-    .update({
-      storage_path: storagePath,
-    })
-    .eq("id", invoiceId);
-
+  // The caller decides whether the upload succeeded before writing
+  // storage_path: persisting it here on a failed upload would leave the row
+  // pointing at a file that does not exist, and the idempotency guard would
+  // then skip the PDF on every retry.
   if (error) {
     throw error;
   }

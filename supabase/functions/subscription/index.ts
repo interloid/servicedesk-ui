@@ -87,73 +87,6 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-/**
- * Mints the browser-safe client token PayPal's JS SDK v6 needs for
- * `createInstance({ clientToken, ... })`.
- *
- * `response_type=client_token` returns a short-lived (~15 min) token derived
- * from the merchant credentials. The credentials themselves never leave this
- * function -- the browser only ever receives the token, and it is minted only
- * after the caller's billing membership has been checked.
- *
- * `domains[]` binds the token to the origins allowed to use it. PayPal rejects
- * bare hosts like `localhost`, so it is sent only when PAYPAL_TOKEN_DOMAINS is
- * configured with real domains; omitting it yields an unbound token, which is
- * what local development uses.
- */
-async function getSdkClientToken(): Promise<{
-  token: string;
-  expiresIn: number;
-}> {
-  const params = new URLSearchParams({
-    grant_type: "client_credentials",
-    response_type: "client_token",
-  });
-
-  const domains = (Deno.env.get("PAYPAL_TOKEN_DOMAINS") ?? "")
-    .split(",")
-    .map((domain) => domain.trim())
-    .filter(Boolean);
-
-  for (const domain of domains) {
-    params.append("domains[]", domain);
-  }
-
-  const response = await fetch(`${BASE_URL}/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: params.toString(),
-  });
-
-  const data = (await response.json()) as {
-    access_token?: string;
-    expires_in?: number;
-    error?: string;
-    error_description?: string;
-    message?: string;
-  };
-
-  if (!response.ok || !data?.access_token) {
-    // Never log the token itself, only why it could not be made.
-    console.error("[PayPal] client token request failed:", {
-      status: response.status,
-      error: data?.error ?? data?.error_description ?? data?.message,
-      domains: domains.length,
-    });
-    throw new Error(
-      data?.error_description ??
-        data?.message ??
-        "PayPal did not return a client token.",
-    );
-  }
-
-  return { token: data.access_token, expiresIn: data.expires_in ?? 900 };
-}
-
 // "FREE-<tenant>" placeholders are not real PayPal agreements and must never
 // be sent to the cancel endpoint.
 function isRealAgreement(id?: string | null): boolean {
@@ -512,10 +445,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // The browser needs a PayPal token to render hosted card fields. It is
-    // minted only after the membership check above, so a token that can confirm
-    // this tenant's subscription is never handed to someone who could not
-    // change the plan anyway.
+    // Hosted card fields are disabled, so no SDK client token is minted; reject
+    // clients that still ask for one.
     if (action === "sdk-token") {
       return Response.json(
         {
@@ -1057,9 +988,6 @@ Deno.serve(async (req) => {
         // an ACTIVE agreement. The upgrade value was already captured from the
         // one-time order, so create a replacement subscription with a zero
         // setup fee instead of failing after the money is in.
-        const details = Array.isArray(reviseResult?.details)
-          ? (reviseResult.details as Array<{ issue?: string }>)
-          : [];
         return await createReplacementSubscription();
       }
 

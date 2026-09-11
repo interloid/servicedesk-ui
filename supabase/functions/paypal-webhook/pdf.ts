@@ -396,7 +396,6 @@ export async function generateInvoicePdf(
   drawText(subLine, left + 15, y - 14, 8, font, textMuted);
 
   const periodText = `${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`;
-  const periodWidth = font.widthOfTextAtSize(periodText, 9);
   drawText(periodText, 250, y, 9);
 
   drawTextRight(formatMoney(total), right - 5, y + 3, 10, bold);

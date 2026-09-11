@@ -1047,7 +1047,6 @@ export async function handleOrderCompleted(event: WebhookEvent) {
 
   let txnId: string;
   let currency = "USD";
-  let capturedAmount: number | null = null;
 
   if (event.event_type === "CHECKOUT.ORDER.COMPLETED") {
     const capture = resource.purchase_units?.[0]?.payments?.captures?.[0];
@@ -1056,7 +1055,6 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     }
     txnId = capture.id;
     currency = capture.amount?.currency ?? "USD";
-    capturedAmount = Number(capture.amount?.value ?? NaN);
   } else {
     // PAYMENT.CAPTURE.COMPLETED: the resource is the capture itself.
     if (String(resource.status ?? "").toUpperCase() !== "COMPLETED") {
@@ -1067,7 +1065,6 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     }
     txnId = resource.id;
     currency = resource.amount?.currency ?? "USD";
-    capturedAmount = Number(resource.amount?.value ?? NaN);
   }
 
   const { data: invoiceRow, error: invoiceError } = await admin
@@ -1080,7 +1077,7 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     throw invoiceError;
   }
 
-  let invoice = invoiceRow;
+  const invoice = invoiceRow;
 
   if (invoice?.storage_path) {
     return;

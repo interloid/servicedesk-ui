@@ -103,6 +103,140 @@ async function resolveInvoiceRecipients(
   return recipients;
 }
 
+// Moves a switch from pending/approved to applied in one conditional update,
+// BEFORE any of its effects are applied. PayPal redelivers events and edge
+// functions run deliveries concurrently; only the delivery that wins this
+// update applies the switch, so the superseded agreement is cancelled once.
+// Returns false when another delivery already claimed it.
+async function claimSwitch(switchId: string): Promise<boolean> {
+  const { data, error } = await admin
+    .from("subscription_switches")
+    .update({ status: "applied", updated_at: new Date().toISOString() })
+    .eq("id", switchId)
+    .in("status", ["pending", "approved"])
+    .select("id");
+
+  if (error) {
+    throw error;
+  }
+
+  return (data?.length ?? 0) > 0;
+}
+
+// Undoes claimSwitch after the apply failed, so PayPal's redelivery of the
+// event finds the switch open again and retries it.
+async function releaseSwitch(switchId: string, previousStatus?: string) {
+  const { error } = await admin
+    .from("subscription_switches")
+    .update({
+      status: previousStatus ?? "pending",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", switchId)
+    .eq("status", "applied");
+
+  if (error) {
+    console.error(
+      `[webhook] could not release switch ${switchId} after a failed apply:`,
+      error,
+    );
+  }
+}
+
+// Emails an invoice at most once.
+//
+// email_sent_at is claimed with a conditional update right before sending, so
+// concurrent or repeated deliveries of the same event cannot mail the same
+// invoice twice. If the email reaches none of the recipients, the claim is
+// released and the error rethrown: the webhook fails, PayPal redelivers the
+// event, and the redelivery retries the email instead of skipping it. When at
+// least one recipient got it, the claim stands, so nobody is emailed twice.
+async function emailInvoiceOnce({
+  invoice,
+  tenantId,
+  storagePath,
+  amount,
+  currency,
+}: {
+  invoice: { id: string; invoice_number?: string | null };
+  tenantId: string;
+  storagePath: string;
+  amount: number;
+  currency: string;
+}) {
+  const recipients = await resolveInvoiceRecipients(tenantId);
+
+  if (recipients.length === 0) {
+    console.warn(
+      `No active tenant/billing admin found for tenant ${tenantId}; invoice email skipped.`,
+    );
+    return;
+  }
+
+  const { data: claimed, error: claimError } = await admin
+    .from("invoices")
+    .update({ email_sent_at: new Date().toISOString() })
+    .eq("id", invoice.id)
+    .is("email_sent_at", null)
+    .select("id");
+
+  if (claimError) {
+    throw claimError;
+  }
+
+  // Another delivery already sent, or is sending, this invoice.
+  if (!claimed || claimed.length === 0) {
+    return;
+  }
+
+  const invoiceNumber =
+    invoice.invoice_number ||
+    `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+
+  let delivered = 0;
+  let lastError: unknown = null;
+
+  try {
+    const signedUrl = await getInvoiceSignedUrl(storagePath);
+
+    for (const recipient of recipients) {
+      try {
+        await sendInvoiceEmail({
+          customerEmail: recipient.email,
+          customerName: recipient.name,
+          invoiceNumber,
+          amount,
+          currency,
+          signedUrl,
+        });
+        delivered += 1;
+      } catch (error) {
+        lastError = error;
+        console.error(`Failed to send invoice ${invoice.id} email:`, error);
+      }
+    }
+  } catch (error) {
+    lastError = error;
+    console.error(`Failed to prepare invoice ${invoice.id} email:`, error);
+  }
+
+  if (delivered === 0 && lastError) {
+    const { error: releaseError } = await admin
+      .from("invoices")
+      .update({ email_sent_at: null })
+      .eq("id", invoice.id);
+
+    if (releaseError) {
+      console.error(
+        `Could not release invoice ${invoice.id} email claim:`,
+        releaseError,
+      );
+    }
+
+    throw lastError;
+  }
+}
+
 async function restoreSubscriptionFromSwitch(
   pendingSwitch: SubscriptionSwitch,
 ) {
@@ -164,7 +298,8 @@ async function restoreSubscriptionFromSwitch(
 function subscriberFetcher(paypalSubscriptionId: string) {
   return async () => {
     const fresh = await getSubscription(paypalSubscriptionId);
-    return (fresh.subscriber as PayPalSubscriber | undefined) ?? null;
+    // Raw JSON; storePayPalPaymentMethod validates its shape.
+    return fresh.subscriber ?? null;
   };
 }
 
@@ -190,66 +325,67 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
   }
 
   if (pendingSwitch) {
-    const { data: plan } = await admin
-      .from("plans")
-      .select("seat_limit")
-      .eq("id", pendingSwitch.plan_id)
-      .maybeSingle();
-
-    const { data: updatedSub, error: subError } = await admin
-      .from("subscriptions")
-      .update({
-        plan_id: pendingSwitch.plan_id,
-        paypal_subscription_id: subscription.id,
-        status: "active",
-        seats: plan?.seat_limit ?? 1,
-        current_period_end: nextBilling ?? null,
-        updated_at: now,
-      })
-      .eq("tenant_id", pendingSwitch.tenant_id)
-      .select("id")
-      .maybeSingle();
-
-    if (subError) {
-      throw subError;
+    if (!(await claimSwitch(pendingSwitch.id))) {
+      // A concurrent delivery of this event is applying it.
+      return;
     }
 
-    await storePayPalPaymentMethod(admin, {
-      tenantId: pendingSwitch.tenant_id!,
-      subscriptionRowId: updatedSub?.id ?? null,
-      paypalSubscriptionId: subscription.id,
-      subscriber: subscription.subscriber,
-      fetchSubscriber: subscriberFetcher(subscription.id),
-      context: "webhook:activated:switch",
-    });
+    try {
+      const { data: plan } = await admin
+        .from("plans")
+        .select("seat_limit")
+        .eq("id", pendingSwitch.plan_id)
+        .maybeSingle();
 
-    const { error: tenantError } = await admin
-      .from("tenants")
-      .update({ plan_id: pendingSwitch.plan_id, updated_at: now })
-      .eq("id", pendingSwitch.tenant_id);
+      const { data: updatedSub, error: subError } = await admin
+        .from("subscriptions")
+        .update({
+          plan_id: pendingSwitch.plan_id,
+          paypal_subscription_id: subscription.id,
+          status: "active",
+          seats: plan?.seat_limit ?? 1,
+          current_period_end: nextBilling ?? null,
+          updated_at: now,
+        })
+        .eq("tenant_id", pendingSwitch.tenant_id)
+        .select("id")
+        .maybeSingle();
 
-    if (tenantError) {
-      throw tenantError;
-    }
-
-    if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
-      try {
-        await cancelSubscription(pendingSwitch.old_paypal_subscription_id!);
-      } catch (cancelError) {
-        console.error(
-          "Failed to cancel previous agreement on activation:",
-          cancelError,
-        );
+      if (subError) {
+        throw subError;
       }
-    }
 
-    const { error: applyError } = await admin
-      .from("subscription_switches")
-      .update({ status: "applied", updated_at: now })
-      .eq("id", pendingSwitch.id);
+      await storePayPalPaymentMethod(admin, {
+        tenantId: pendingSwitch.tenant_id!,
+        subscriptionRowId: updatedSub?.id ?? null,
+        paypalSubscriptionId: subscription.id,
+        subscriber: subscription.subscriber,
+        fetchSubscriber: subscriberFetcher(subscription.id),
+        context: "webhook:activated:switch",
+      });
 
-    if (applyError) {
-      throw applyError;
+      const { error: tenantError } = await admin
+        .from("tenants")
+        .update({ plan_id: pendingSwitch.plan_id, updated_at: now })
+        .eq("id", pendingSwitch.tenant_id);
+
+      if (tenantError) {
+        throw tenantError;
+      }
+
+      if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
+        try {
+          await cancelSubscription(pendingSwitch.old_paypal_subscription_id!);
+        } catch (cancelError) {
+          console.error(
+            "Failed to cancel previous agreement on activation:",
+            cancelError,
+          );
+        }
+      }
+    } catch (error) {
+      await releaseSwitch(pendingSwitch.id, pendingSwitch.status);
+      throw error;
     }
 
     return;
@@ -398,54 +534,54 @@ async function applyRevisedUpgrade(
     return false;
   }
 
-  const { data: plan, error: planError } = await admin
-    .from("plans")
-    .select("seat_limit")
-    .eq("id", pendingUpgrade.plan_id)
-    .maybeSingle();
-
-  if (planError) {
-    throw planError;
+  // Claimed before applying, as in handleSubscriptionActivated. When another
+  // delivery holds the claim this is still a revised upgrade, just not this
+  // delivery's to apply.
+  if (!(await claimSwitch(pendingUpgrade.id))) {
+    return true;
   }
 
-  const { error: subError } = await admin
-    .from("subscriptions")
-    .update({
-      plan_id: pendingUpgrade.plan_id,
-      status: "active",
-      seats: plan?.seat_limit ?? 1,
-      current_period_end: nextBilling ?? null,
-      updated_at: now,
-    })
-    .eq("tenant_id", tenantId)
-    .eq("paypal_subscription_id", subscription.id);
+  try {
+    const { data: plan, error: planError } = await admin
+      .from("plans")
+      .select("seat_limit")
+      .eq("id", pendingUpgrade.plan_id)
+      .maybeSingle();
 
-  if (subError) {
-    throw subError;
-  }
+    if (planError) {
+      throw planError;
+    }
 
-  const { error: tenantError } = await admin
-    .from("tenants")
-    .update({
-      plan_id: pendingUpgrade.plan_id,
-      updated_at: now,
-    })
-    .eq("id", tenantId);
+    const { error: subError } = await admin
+      .from("subscriptions")
+      .update({
+        plan_id: pendingUpgrade.plan_id,
+        status: "active",
+        seats: plan?.seat_limit ?? 1,
+        current_period_end: nextBilling ?? null,
+        updated_at: now,
+      })
+      .eq("tenant_id", tenantId)
+      .eq("paypal_subscription_id", subscription.id);
 
-  if (tenantError) {
-    throw tenantError;
-  }
+    if (subError) {
+      throw subError;
+    }
 
-  const { error: applyError } = await admin
-    .from("subscription_switches")
-    .update({
-      status: "applied",
-      updated_at: now,
-    })
-    .eq("id", pendingUpgrade.id);
+    const { error: tenantError } = await admin
+      .from("tenants")
+      .update({
+        plan_id: pendingUpgrade.plan_id,
+        updated_at: now,
+      })
+      .eq("id", tenantId);
 
-  if (applyError) {
-    throw applyError;
+    if (tenantError) {
+      throw tenantError;
+    }
+  } catch (error) {
+    await releaseSwitch(pendingUpgrade.id, pendingUpgrade.status);
+    throw error;
   }
 
   return true;
@@ -712,7 +848,7 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
    */
   const { data: alreadyInvoiced, error: existingInvoiceError } = await admin
     .from("invoices")
-    .select("id, storage_path")
+    .select("id, storage_path, email_sent_at")
     .eq("paypal_txn_id", payment.id)
     .maybeSingle();
 
@@ -720,7 +856,10 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     throw existingInvoiceError;
   }
 
-  if (alreadyInvoiced?.storage_path) {
+  // Finished only once the PDF is stored AND the email has gone out. A stored
+  // PDF with no email means an earlier delivery failed to send it; carry on so
+  // this delivery retries the email (the PDF is not regenerated).
+  if (alreadyInvoiced?.storage_path && alreadyInvoiced.email_sent_at) {
     return;
   }
 
@@ -802,9 +941,9 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   let insertedInvoice: { id: string } | null = null;
 
   /*
-   * Existing incomplete invoice delivery.
+   * Existing invoice whose PDF or email is still outstanding.
    */
-  if (alreadyInvoiced && !alreadyInvoiced.storage_path) {
+  if (alreadyInvoiced) {
     insertedInvoice = {
       id: alreadyInvoiced.id,
     };
@@ -938,88 +1077,59 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   /*
    * ============================================================
-   * STEP 5
-   * Generate PDF.
+   * STEP 5 + 6
+   * Generate and upload the PDF, unless an earlier delivery
+   * already stored it.
    * ============================================================
    */
 
-  const pdf = await generateInvoicePdf(
-    {
-      ...invoice,
-      currency,
-      payment_method: "PayPal",
-    },
-    {
-      tenant_name: tenant?.name,
-      tenant_id: subscription.tenant_id,
-      plan_name: plan?.name,
-      seats: subscription.seats,
-      tenant_email: billingEmail,
-      next_billing_date: nextBillingDate,
-      next_billing_amount: nextBillingAmount,
-    },
-  );
+  let storagePath: string | null = invoice.storage_path ?? null;
 
-  /*
-   * ============================================================
-   * STEP 6
-   * Upload PDF.
-   * ============================================================
-   */
+  if (!storagePath) {
+    const pdf = await generateInvoicePdf(
+      {
+        ...invoice,
+        currency,
+        payment_method: "PayPal",
+      },
+      {
+        tenant_name: tenant?.name,
+        tenant_id: subscription.tenant_id,
+        plan_name: plan?.name,
+        seats: subscription.seats,
+        tenant_email: billingEmail,
+        next_billing_date: nextBillingDate,
+        next_billing_amount: nextBillingAmount,
+      },
+    );
 
-  const storagePath = await uploadInvoicePdf(
-    subscription.tenant_id,
-    invoice.id,
-    pdf,
-  );
+    storagePath = await uploadInvoicePdf(
+      subscription.tenant_id,
+      invoice.id,
+      pdf,
+    );
 
-  await updateInvoiceStorage(invoice.id, storagePath);
+    await updateInvoiceStorage(invoice.id, storagePath);
+  }
 
   /*
    * ============================================================
    * STEP 7
-   * Email invoice.
+   * Email invoice, exactly once (see emailInvoiceOnce).
+   *
+   * The invoice row and PDF are stored by now, so a failed send
+   * loses nothing. It does fail this delivery, which makes PayPal
+   * redeliver the event, and the redelivery retries the email.
    * ============================================================
    */
 
-  try {
-    const recipients = await resolveInvoiceRecipients(subscription.tenant_id);
-
-    if (recipients.length === 0) {
-      console.warn(
-        `No active tenant/billing admin found for tenant ` +
-          `${subscription.tenant_id}; invoice email skipped.`,
-      );
-    } else {
-      const invoiceNumber =
-        invoice.invoice_number ||
-        (invoice.id
-          ? `INV-${String(invoice.id)
-              .replace(/-/g, "")
-              .slice(0, 8)
-              .toUpperCase()}`
-          : "-");
-
-      const signedUrl = await getInvoiceSignedUrl(storagePath);
-
-      for (const recipient of recipients) {
-        await sendInvoiceEmail({
-          customerEmail: recipient.email,
-          customerName: recipient.name ?? tenant?.name ?? "there",
-          invoiceNumber,
-          amount: Number(invoice.amount ?? amount ?? 0),
-          currency,
-          signedUrl,
-        });
-      }
-    }
-  } catch (emailError) {
-    /*
-     * Email failure must not cause PayPal payment
-     * processing to be treated as failed.
-     */
-    console.error("Failed to send invoice email:", emailError);
-  }
+  await emailInvoiceOnce({
+    invoice,
+    tenantId: subscription.tenant_id,
+    storagePath,
+    amount: Number(invoice.amount ?? amount ?? 0),
+    currency,
+  });
 }
 
 // Attach a PDF + email to the invoice row recorded by `capture-order` for a
@@ -1079,7 +1189,8 @@ export async function handleOrderCompleted(event: WebhookEvent) {
 
   const invoice = invoiceRow;
 
-  if (invoice?.storage_path) {
+  // Finished only once the PDF is stored AND the email has gone out.
+  if (invoice?.storage_path && invoice.email_sent_at) {
     return;
   }
 
@@ -1134,58 +1245,42 @@ export async function handleOrderCompleted(event: WebhookEvent) {
   const billingEmail =
     invoice.billing_email || billingMethod?.paypal_email || undefined;
 
-  const pdf = await generateInvoicePdf(
-    {
-      ...invoice,
-      currency,
-      payment_method: "PayPal",
-    },
-    {
-      tenant_name: (tenant as { name?: string } | null)?.name,
-      tenant_id: tenantId,
-      plan_name: invoice.plan_name,
-      seats: invoice.seats,
-      tenant_email: billingEmail,
-      next_billing_date: nextBillingDate,
-      next_billing_amount: nextBillingAmount,
-    },
-  );
+  let storagePath: string | null = invoice.storage_path ?? null;
 
-  const storagePath = await uploadInvoicePdf(tenantId, invoice.id, pdf);
+  // An earlier delivery may have stored the PDF and only failed to email it.
+  if (!storagePath) {
+    const pdf = await generateInvoicePdf(
+      {
+        ...invoice,
+        currency,
+        payment_method: "PayPal",
+      },
+      {
+        tenant_name: (tenant as { name?: string } | null)?.name,
+        tenant_id: tenantId,
+        plan_name: invoice.plan_name,
+        seats: invoice.seats,
+        tenant_email: billingEmail,
+        next_billing_date: nextBillingDate,
+        next_billing_amount: nextBillingAmount,
+      },
+    );
 
-  await updateInvoiceStorage(invoice.id, storagePath);
+    storagePath = await uploadInvoicePdf(tenantId, invoice.id, pdf);
+
+    await updateInvoiceStorage(invoice.id, storagePath);
+  }
 
   // Email the upgrade invoice to the tenant admin (mandatory) and, when one
-  // exists, the verified+active billing admin, with a short-lived download link.
-  try {
-    const recipients = await resolveInvoiceRecipients(tenantId);
-
-    if (recipients.length === 0) {
-      console.warn(
-        `No active tenant/billing admin found for tenant ${tenantId}; invoice email skipped.`,
-      );
-    } else {
-      const invoiceNumber =
-        invoice.invoice_number ||
-        (invoice.id
-          ? `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
-          : "-");
-      const signedUrl = await getInvoiceSignedUrl(storagePath);
-
-      for (const recipient of recipients) {
-        await sendInvoiceEmail({
-          customerEmail: recipient.email,
-          customerName: recipient.name ?? tenant?.name ?? "there",
-          invoiceNumber,
-          amount: Number(invoice.amount ?? 0),
-          currency,
-          signedUrl,
-        });
-      }
-    }
-  } catch (emailError) {
-    console.error("Failed to send upgrade invoice email:", emailError);
-  }
+  // exists, the verified+active billing admin, with a short-lived download
+  // link -- exactly once; a failed send is retried via PayPal's redelivery.
+  await emailInvoiceOnce({
+    invoice,
+    tenantId,
+    storagePath,
+    amount: Number(invoice.amount ?? 0),
+    currency,
+  });
 }
 
 export async function handlePaymentDenied(event: WebhookEvent) {
@@ -1261,9 +1356,9 @@ export async function handlePaymentDenied(event: WebhookEvent) {
         : addMonths(now).substring(0, 10),
     });
 
+    // 23505: a concurrent delivery already recorded this failure.
     if (invError && invError.code !== "23505") {
       console.error("Failed to record denied payment as an invoice:", invError);
-    } else if (invError && invError.code === "23505") {
     }
   }
 }

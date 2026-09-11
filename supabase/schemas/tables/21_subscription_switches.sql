@@ -38,6 +38,13 @@ create table if not exists public.subscription_switches
         default 'pending'
         check (status in ('pending', 'approved', 'applied', 'cancelled')),
 
+    -- When a scheduled switch becomes effective. Null means apply immediately.
+    effective_at timestamptz,
+
+    -- Lease held by the request creating a replacement PayPal subscription for
+    -- this switch, so a concurrent duplicate cannot create a second one.
+    locked_until timestamptz,
+
     created_at timestamptz
         default now(),
 
@@ -50,3 +57,12 @@ create index if not exists idx_subscription_switches_tenant
 
 create index if not exists idx_subscription_switches_paypal_id
     on public.subscription_switches(paypal_subscription_id);
+
+create index if not exists idx_subscription_switches_due
+    on public.subscription_switches (effective_at)
+    where status in ('pending', 'approved');
+
+-- A tenant has at most one open plan change; a racing second insert fails.
+create unique index if not exists uq_subscription_switches_one_open_per_tenant
+    on public.subscription_switches (tenant_id)
+    where status in ('pending', 'approved');

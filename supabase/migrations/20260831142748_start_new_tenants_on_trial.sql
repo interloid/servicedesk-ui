@@ -1,4 +1,8 @@
--- Start new tenants on a 15-day trial (trialing status) instead of immediately active.
+-- NOTE: despite its name, this migration changes nothing. The function body is
+-- identical to 20260820152910_fix_provision_tenant.sql, which already creates
+-- the subscription with status 'trialing'. tenants.status stays 'active' (the
+-- tenant_status enum has no 'trialing' value). Kept only because it is already
+-- recorded in migration history; do not read it as a behaviour change.
 CREATE OR REPLACE FUNCTION public.provision_tenant(
     p_user_id uuid,
     p_email text,

@@ -5,10 +5,13 @@ import {
   canManageTenantBilling,
   getTenantIdBySlug,
 } from "@/features/tenancy/services/tenant-resolver";
+import { describePlan } from "./billing.service";
 
 export interface BillingDashboardData {
   accountName: string;
   accountId: string;
+  /** tenants.id, printed as "Tenant ID" on invoices. */
+  tenantId: string;
   billingStatus: "active" | "past_due" | "cancelled" | "trialing";
   isSuspended?: boolean;
   suspensionReason?: {
@@ -21,6 +24,8 @@ export interface BillingDashboardData {
     rate: string;
     rateValue: number;
     seatLimit: number;
+    /** The plan's tagline (plans.description, or the per-tier default). */
+    description: string;
   };
   agents: {
     active: number;
@@ -79,7 +84,53 @@ export interface BillingDashboardData {
     amount: string;
     status: string;
     pdfUrl?: string;
+    /** "one_time" for an upgrade charge, "recurring" for a monthly charge. */
+    invoiceType: "one_time" | "recurring";
+    planName: string;
+    periodStart: string;
+    periodEnd: string;
+    paidAt?: string;
+    paymentMethod: string;
+    transactionId?: string;
+    billingEmail?: string;
+    subtotal: string;
+    tax: string;
+    taxRate: string;
   }>;
+}
+
+const DATE_FORMAT: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+};
+
+// period_start / period_end are calendar dates. Formatting them in the server's
+// time zone would show the previous day on a server west of UTC.
+function formatCalendarDate(value: string): string {
+  return new Date(`${value.slice(0, 10)}T00:00:00Z`).toLocaleDateString(
+    "en-US",
+    { ...DATE_FORMAT, timeZone: "UTC" },
+  );
+}
+
+function formatTimestamp(value: string): string {
+  return new Date(value).toLocaleDateString("en-US", DATE_FORMAT);
+}
+
+// Amounts in the invoice's own currency. A code Intl rejects falls back to
+// "<code> 0.00" instead of throwing while the page renders.
+function formatMoney(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(2)}`;
+  }
 }
 
 export async function fetchTenantBillingData(
@@ -173,6 +224,7 @@ export async function fetchTenantBillingData(
     name?: string | null;
     price_month?: string | number | null;
     seat_limit?: number | null;
+    description?: string | null;
   };
 
   let plan: PlanFacts | null = (sub?.plans as PlanFacts | null) ?? null;
@@ -184,7 +236,7 @@ export async function fetchTenantBillingData(
   if (!plan && tenant.plan_id) {
     const { data: tenantPlan } = await supabase
       .from("plans")
-      .select("name, price_month, seat_limit")
+      .select("name, price_month, seat_limit, description")
       .eq("id", tenant.plan_id)
       .single();
 
@@ -307,7 +359,8 @@ export async function fetchTenantBillingData(
       }
 
       const isOneTime = inv.invoice_type === "one_time";
-      const description = `${inv.plan_name ?? plan?.name ?? "ServiceDesk"} · ${
+      const planName: string = inv.plan_name ?? plan?.name ?? "ServiceDesk";
+      const description = `${planName} · ${
         isOneTime ? "One-time upgrade" : "Monthly"
       }`;
       const statusLabel =
@@ -315,20 +368,35 @@ export async function fetchTenantBillingData(
           ? "Paid"
           : inv.status === "failed"
             ? "Failed"
-            : "Unpaid";
+            : inv.status === "refunded"
+              ? "Refunded"
+              : "Unpaid";
+      const currency = inv.currency || "USD";
+      const subtotalNum = Number(inv.subtotal ?? amountNum);
+      const taxNum = Number(inv.tax ?? 0);
 
       return {
         id: inv.invoice_number || `INV-${inv.id.slice(0, 8).toUpperCase()}`,
-        date: new Date(inv.period_start).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
+        date: formatCalendarDate(inv.period_start),
         description,
         seats: inv.seats ?? (totalSeats > 0 ? totalSeats : 0),
-        amount: `$${amountNum.toFixed(2)}`,
+        amount: formatMoney(amountNum, currency),
         status: statusLabel,
         pdfUrl,
+        invoiceType: isOneTime ? ("one_time" as const) : ("recurring" as const),
+        planName,
+        periodStart: formatCalendarDate(inv.period_start),
+        periodEnd: formatCalendarDate(inv.period_end),
+        paidAt: inv.paid_at ? formatTimestamp(inv.paid_at) : undefined,
+        paymentMethod: inv.payment_method || "PayPal",
+        transactionId: inv.paypal_txn_id || undefined,
+        billingEmail: inv.billing_email || undefined,
+        subtotal: formatMoney(subtotalNum, currency),
+        tax: formatMoney(taxNum, currency),
+        taxRate:
+          subtotalNum > 0
+            ? `${Number(((taxNum / subtotalNum) * 100).toFixed(2))}%`
+            : "0%",
       };
     }),
   );
@@ -390,6 +458,7 @@ export async function fetchTenantBillingData(
   return {
     accountName: tenant.name,
     accountId: tenant.slug.toUpperCase(),
+    tenantId: tenant.id,
     billingStatus,
     isSuspended: billingStatus === "past_due",
     plan: {
@@ -397,6 +466,7 @@ export async function fetchTenantBillingData(
       rate: isFreePlan ? "$0.00/mo" : `$${monthlyRate.toFixed(2)}/mo`,
       rateValue: monthlyRate,
       seatLimit: totalSeats,
+      description: describePlan(plan?.name ?? "Free", plan?.description),
     },
     agents: {
       active: usedSeats,

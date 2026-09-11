@@ -12,6 +12,7 @@ create policy "Tenants can view own payment methods"
             select tenant_id from public.memberships
             where user_id = auth.uid()
             and status = 'active'
+            and role in ('tenant_admin', 'billing_admin')
         )
     );
 

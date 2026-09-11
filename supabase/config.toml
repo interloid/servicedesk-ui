@@ -431,6 +431,12 @@ deno_version = 2
 [functions.paypal-webhook]
 verify_jwt = false
 
+# Called hourly by pg_cron (migration 20260905130000), which sends the
+# x-cron-secret header and no JWT. With verify_jwt on, the gateway rejected the
+# scheduled call before the function's own secret check ever ran.
+[functions.reconcile-subscriptions]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

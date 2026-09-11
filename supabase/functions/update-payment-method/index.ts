@@ -1,9 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createPayPalTokenProvider } from "../_shared/paypal-auth.ts";
 import {
+  parsePayPalSubscriber,
   paypalAutopayUrl,
   resolvePaymentSource,
   storePayPalPaymentMethod,
-  type PayPalSubscriber,
 } from "../_shared/paypal-payment-method.ts";
 
 const CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID")?.trim();
@@ -26,40 +27,11 @@ if (!SUPABASE_ANON_KEY) throw new Error("SUPABASE_ANON_KEY is missing");
 if (!SUPABASE_SERVICE_ROLE_KEY)
   throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing");
 
-async function getAccessToken(): Promise<string> {
-  const credentials = `${CLIENT_ID}:${CLIENT_SECRET}`;
-  const encodedCredentials = btoa(credentials);
-  const tokenUrl = `${BASE_URL}/v1/oauth2/token`;
-
-  const response = await fetch(tokenUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${encodedCredentials}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: "grant_type=client_credentials",
-  });
-
-  const responseText = await response.text();
-  let data: {
-    access_token?: string;
-    error?: string;
-    error_description?: string;
-  } = {};
-
-  try {
-    data = JSON.parse(responseText);
-  } catch {
-    data = {};
-  }
-
-  if (!response.ok || !data?.access_token) {
-    throw new Error("Failed to obtain PayPal access token");
-  }
-
-  return data.access_token;
-}
+const getAccessToken = createPayPalTokenProvider({
+  clientId: CLIENT_ID,
+  clientSecret: CLIENT_SECRET,
+  baseUrl: BASE_URL,
+});
 
 async function getPayPalSubscription(
   accessToken: string,
@@ -204,7 +176,10 @@ Deno.serve(async (req) => {
       paypalSubscriptionId,
     );
 
-    const subscriber = paypalSub.subscriber as PayPalSubscriber | undefined;
+    const subscriber = parsePayPalSubscriber(
+      paypalSub.subscriber,
+      "update-payment-method",
+    );
     const resolved = resolvePaymentSource(subscriber);
 
     // Re-sync from PayPal against the EXISTING agreement. Nothing here creates

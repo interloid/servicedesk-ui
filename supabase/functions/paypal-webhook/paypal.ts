@@ -1,29 +1,29 @@
-const CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID")!;
-const CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET")!;
-const PAYPAL_BASE_URL = Deno.env.get("PAYPAL_BASE_URL")!;
-const PAYPAL_WEBHOOK_ID = Deno.env.get("PAYPAL_WEBHOOK_ID")!;
+import { createPayPalTokenProvider } from "../_shared/paypal-auth.ts";
 
-export async function getAccessToken(): Promise<string> {
-  const auth = btoa(`${CLIENT_ID}:${CLIENT_SECRET}`);
+// Required at module load. With a non-null assertion a missing secret became
+// the string "undefined" at runtime, and every webhook then failed as "Invalid
+// webhook signature" -- indistinguishable from a real signature problem.
+// Failing at startup names the missing variable instead.
+function requireEnv(name: string): string {
+  const value = Deno.env.get(name)?.trim();
 
-  const response = await fetch(`${PAYPAL_BASE_URL}/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: "grant_type=client_credentials",
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    console.error(data);
-    throw new Error("Unable to generate PayPal access token.");
+  if (!value) {
+    throw new Error(`${name} is missing`);
   }
 
-  return data.access_token;
+  return value;
 }
+
+const CLIENT_ID = requireEnv("PAYPAL_CLIENT_ID");
+const CLIENT_SECRET = requireEnv("PAYPAL_CLIENT_SECRET");
+const PAYPAL_BASE_URL = requireEnv("PAYPAL_BASE_URL");
+const PAYPAL_WEBHOOK_ID = requireEnv("PAYPAL_WEBHOOK_ID");
+
+export const getAccessToken = createPayPalTokenProvider({
+  clientId: CLIENT_ID,
+  clientSecret: CLIENT_SECRET,
+  baseUrl: PAYPAL_BASE_URL,
+});
 
 export async function verifyWebhookSignature(
   req: Request,

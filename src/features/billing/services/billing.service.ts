@@ -61,19 +61,29 @@ export function formatPlan(plan: DbPlan): FormattedPlan {
     price: `$${priceNum === 0 ? "0" : priceNum.toFixed(0)}`,
     priceValue: Number.isFinite(priceNum) ? priceNum : 0,
     priceSuffix: "/month",
-    description:
-      plan.description ||
-      (plan.name === "Free"
-        ? "For small teams getting started with help desk essentials."
-        : plan.name === "Pro"
-          ? "For growing teams that need SLA policies, shared views, and reporting."
-          : "Advanced governance, AI automation, and scale for larger teams."),
+    description: describePlan(plan.name, plan.description),
     seatLimit,
     seatLimitText: unlimitedOr(seatLimit),
     ticketLimitText: unlimitedOr(plan.ticket_limit),
     storageLimitText: `${(storageMb / 1024).toFixed(storageMb > 0 && storageMb % 1024 !== 0 ? 1 : 0)} GB`,
     features,
   };
+}
+
+// A plan's tagline: its own description, or a per-tier default for rows that
+// never had one written. Shared by the plans page and the billing dashboard.
+export function describePlan(
+  name: string,
+  description?: string | null,
+): string {
+  return (
+    description ||
+    (name === "Free"
+      ? "For small teams getting started with help desk essentials."
+      : name === "Pro"
+        ? "For growing teams that need SLA policies, shared views, and reporting."
+        : "Advanced governance, AI automation, and scale for larger teams.")
+  );
 }
 
 export async function getPlans(): Promise<FormattedPlan[]> {

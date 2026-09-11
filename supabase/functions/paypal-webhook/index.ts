@@ -14,6 +14,57 @@ import {
   handlePaymentRefunded,
 } from "./handlers.ts";
 
+// PayPal webhook events are a few KB. This function is public (verify_jwt is
+// off), so the body is capped before it is buffered and before a PayPal
+// signature-verification round trip is spent on it.
+const MAX_BODY_BYTES = 512 * 1024;
+
+// Returns null when the body exceeds maxBytes. Content-Length is checked first,
+// but it is optional (chunked uploads), so the stream is counted as well.
+async function readBodyWithLimit(
+  req: Request,
+  maxBytes: number,
+): Promise<string | null> {
+  const declaredLength = Number(req.headers.get("content-length"));
+
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    return null;
+  }
+
+  if (!req.body) {
+    return "";
+  }
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) break;
+
+    received += value.byteLength;
+
+    if (received > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(received);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return new TextDecoder().decode(body);
+}
+
 serve(async (req) => {
   try {
     if (req.method !== "POST") {
@@ -28,7 +79,19 @@ serve(async (req) => {
       );
     }
 
-    const rawBody = await req.text();
+    const rawBody = await readBodyWithLimit(req, MAX_BODY_BYTES);
+
+    if (rawBody === null) {
+      return Response.json(
+        {
+          success: false,
+          message: "Payload Too Large",
+        },
+        {
+          status: 413,
+        },
+      );
+    }
 
     const isValid = await verifyWebhookSignature(req, rawBody);
 

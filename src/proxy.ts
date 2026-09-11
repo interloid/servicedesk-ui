@@ -22,6 +22,7 @@ import {
 } from "@/lib/tenancy";
 
 import { readTenantClaims } from "@/features/auth/claims";
+import { buildContentSecurityPolicy, createNonce } from "@/lib/csp";
 
 import { env } from "./config/env";
 
@@ -70,6 +71,23 @@ function rememberTenant(response: NextResponse, slug: string): NextResponse {
 }
 
 export async function proxy(request: NextRequest) {
+  // A fresh nonce per request. Next.js reads it from the request's CSP header
+  // while rendering and stamps it on its scripts; the response header is the
+  // policy the browser enforces. Every branch below forwards request.headers.
+  const nonce = createNonce();
+  const contentSecurityPolicy = buildContentSecurityPolicy(nonce);
+
+  request.headers.set("x-nonce", nonce);
+  request.headers.set("Content-Security-Policy", contentSecurityPolicy);
+
+  const response = await routeRequest(request);
+
+  response.headers.set("Content-Security-Policy", contentSecurityPolicy);
+
+  return response;
+}
+
+async function routeRequest(request: NextRequest): Promise<NextResponse> {
   // x-tenant-slug is trusted downstream (see tenant-resolver.getTenantContext),
   // so it may only ever come from this proxy. Dropping it up front means the
   // pass-through branches below cannot leak a caller-supplied value.

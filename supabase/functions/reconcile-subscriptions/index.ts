@@ -19,6 +19,7 @@
 // unique paypal_txn_id -- so running it twice changes nothing the second time.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createPayPalTokenProvider } from "../_shared/paypal-auth.ts";
 
 const CLIENT_ID = Deno.env.get("PAYPAL_CLIENT_ID")?.trim();
 const CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET")?.trim();
@@ -50,24 +51,37 @@ function isRealAgreement(id?: string | null): boolean {
   return Boolean(id && !id.startsWith("FREE-"));
 }
 
-async function getAccessToken(): Promise<string> {
-  const response = await fetch(`${BASE_URL}/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: "grant_type=client_credentials",
-  });
+const getAccessToken = createPayPalTokenProvider({
+  clientId: CLIENT_ID,
+  clientSecret: CLIENT_SECRET,
+  baseUrl: BASE_URL,
+});
 
-  const data = await response.json().catch(() => ({}));
+// Constant-time comparison for the cron secret. Both sides are hashed first so
+// the byte-by-byte compare always runs over 32 bytes, whatever was sent.
+async function secretMatches(
+  provided: string | null,
+  expected: string,
+): Promise<boolean> {
+  if (provided === null) return false;
 
-  if (!response.ok || !data?.access_token) {
-    throw new Error("Failed to obtain PayPal access token");
+  const encoder = new TextEncoder();
+  const [providedHash, expectedHash] = await Promise.all(
+    [provided, expected].map(
+      async (value) =>
+        new Uint8Array(
+          await crypto.subtle.digest("SHA-256", encoder.encode(value)),
+        ),
+    ),
+  );
+
+  let difference = 0;
+
+  for (let i = 0; i < expectedHash.length; i++) {
+    difference |= providedHash[i] ^ expectedHash[i];
   }
 
-  return data.access_token;
+  return difference === 0;
 }
 
 async function getSubscription(token: string, id: string) {
@@ -219,11 +233,22 @@ async function applySwitch(
         new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString())
       : (billingInfo?.next_billing_time ?? null);
 
-  const { data: plan } = await admin
+  const { data: plan, error: planError } = await admin
     .from("plans")
     .select("seat_limit")
     .eq("id", pendingSwitch.plan_id)
     .maybeSingle();
+
+  if (planError) throw planError;
+
+  // A switch whose plan row is gone cannot be applied correctly: defaulting
+  // seats to 1 would silently truncate the tenant. Fail this switch instead,
+  // so it is counted in summary.failed, logged, and retried on the next run.
+  if (!plan) {
+    throw new Error(
+      `Plan ${pendingSwitch.plan_id} for switch ${pendingSwitch.id} no longer exists.`,
+    );
+  }
 
   const { error: subError } = await admin
     .from("subscriptions")
@@ -235,7 +260,7 @@ async function applySwitch(
         ? pendingSwitch.old_paypal_subscription_id
         : pendingSwitch.paypal_subscription_id,
       status: "active",
-      seats: plan?.seat_limit ?? 1,
+      seats: plan.seat_limit ?? 1,
       current_period_end: nextBilling,
       updated_at: now,
     })
@@ -299,7 +324,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  if (req.headers.get("x-cron-secret") !== CRON_SECRET) {
+  if (!(await secretMatches(req.headers.get("x-cron-secret"), CRON_SECRET))) {
     return Response.json(
       { success: false, message: "Unauthorized" },
       { status: 401 },

@@ -43,15 +43,111 @@ interface Subscription {
   next_billing_amount?: number;
 }
 
+// The standard fonts only encode WinAnsi (Windows-1252), and pdf-lib throws on
+// any character outside it -- when measuring or drawing text, or when saving.
+// Tenant names and emails are customer input, so a name in Japanese or with an
+// emoji would otherwise fail the PDF after the invoice row already exists, on
+// every PayPal redelivery, and the invoice would never be sent.
+//
+// Characters the font cannot encode are transliterated when a plain base letter
+// exists (NFKD with combining marks dropped) and replaced with "?" otherwise.
+// Accented Latin letters are already WinAnsi and are left untouched.
+function createWinAnsiSanitizer(font: {
+  getCharacterSet(): number[];
+}): (text: string) => string {
+  const encodable = new Set(font.getCharacterSet());
+  const isEncodable = (text: string) =>
+    [...text].every((char) => encodable.has(char.codePointAt(0)!));
+
+  return (text) => {
+    if (isEncodable(text)) return text;
+
+    let result = "";
+
+    for (const char of text) {
+      if (encodable.has(char.codePointAt(0)!)) {
+        result += char;
+        continue;
+      }
+
+      const base = char.normalize("NFKD").replace(/\p{M}/gu, "");
+      result += base && isEncodable(base) ? base : "?";
+    }
+
+    return result;
+  };
+}
+
+// Runs every string field through the sanitizer; other values pass through.
+function sanitizeStrings<T extends object>(
+  value: T,
+  sanitize: (text: string) => string,
+): T {
+  return Object.fromEntries(
+    Object.entries(value).map(([key, field]) => [
+      key,
+      typeof field === "string" ? sanitize(field) : field,
+    ]),
+  ) as T;
+}
+
+// The currency code comes from the PayPal webhook payload. Intl throws a
+// RangeError for a malformed code, and some symbols (e.g. "₹") are outside the
+// fonts' encoding; either would fail the PDF. Such amounts fall back to the ISO
+// code ("INR 1,000.00"), or to "<code> <number>" when Intl rejects the code.
+function createMoneyFormatter(
+  currency: string,
+  sanitize: (text: string) => string,
+): (value: number) => string {
+  const digits = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  const plain = new Intl.NumberFormat("en-US", digits);
+  let withSymbol: Intl.NumberFormat | null = null;
+  let withCode: Intl.NumberFormat | null = null;
+
+  try {
+    withSymbol = new Intl.NumberFormat("en-US", {
+      ...digits,
+      style: "currency",
+      currency,
+    });
+    withCode = new Intl.NumberFormat("en-US", {
+      ...digits,
+      style: "currency",
+      currency,
+      currencyDisplay: "code",
+    });
+  } catch {
+    // Not a well-formed ISO 4217 code.
+  }
+
+  return (value) => {
+    if (!withSymbol || !withCode) {
+      return sanitize(`${currency} ${plain.format(value)}`);
+    }
+
+    const formatted = withSymbol.format(value);
+
+    return sanitize(formatted) === formatted
+      ? formatted
+      : sanitize(withCode.format(value));
+  };
+}
+
 export async function generateInvoicePdf(
-  invoice: Invoice,
-  subscription: Subscription,
+  rawInvoice: Invoice,
+  rawSubscription: Subscription,
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
 
   const page = pdf.addPage([595, 842]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  // Helvetica and Helvetica-Bold share the WinAnsi encoding, so one sanitizer
+  // covers both. Every string drawn below is a literal or derives from these.
+  const toWinAnsi = createWinAnsiSanitizer(font);
+  const invoice = sanitizeStrings(rawInvoice, toWinAnsi);
+  const subscription = sanitizeStrings(rawSubscription, toWinAnsi);
 
   const { width, height } = page.getSize();
 
@@ -95,14 +191,8 @@ export async function generateInvoicePdf(
 
   const currency = invoice.currency || "USD";
 
-  const formatMoney = (value?: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(Number(value ?? 0));
-  };
+  const moneyFormatter = createMoneyFormatter(currency, toWinAnsi);
+  const formatMoney = (value?: number) => moneyFormatter(Number(value ?? 0));
 
   const drawLabel = (text: string, x: number, y: number, size = 8) => {
     page.drawText(text.toUpperCase(), {

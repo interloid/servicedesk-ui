@@ -1,37 +1,9 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
-const isDev = process.env.NODE_ENV === "development";
-
-const sentryIngestHost = process.env.NEXT_PUBLIC_SENTRY_DSN
-  ? new URL(process.env.NEXT_PUBLIC_SENTRY_DSN).host
-  : null;
-
-const supabaseOrigin = process.env.NEXT_PUBLIC_SUPABASE_URL
-  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin
-  : null;
-
-const cspHeader = `
-  default-src 'self';
-  script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.paypal.com https://www.sandbox.paypal.com;
-  style-src 'self' 'unsafe-inline';
-  img-src 'self' data: blob:${supabaseOrigin ? ` ${supabaseOrigin}` : ""} https://www.paypal.com https://www.sandbox.paypal.com;
-  font-src 'self';
-  connect-src 'self'${supabaseOrigin ? ` ${supabaseOrigin}` : ""}${
-    sentryIngestHost ? ` https://${sentryIngestHost}` : ""
-  } https://www.paypal.com https://www.sandbox.paypal.com https://api-m.sandbox.paypal.com https://api-m.paypal.com;
-  object-src 'none';
-  base-uri 'self';
-  form-action 'self' https://www.paypal.com https://www.sandbox.paypal.com;
-  frame-ancestors 'self';
-  frame-src 'self' https://www.paypal.com https://www.sandbox.paypal.com;
-  upgrade-insecure-requests;
-`
-  .replace(/\s{2,}/g, " ")
-  .trim();
-
+// Content-Security-Policy is not set here: it carries a per-request nonce, so
+// src/proxy.ts sets it (see src/lib/csp.ts).
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: cspHeader },
   {
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",

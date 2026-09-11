@@ -1,6 +1,18 @@
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const FROM_EMAIL = Deno.env.get("FROM_EMAIL")!;
 
+// Every value interpolated into the HTML body is escaped. customerName comes
+// from users.full_name, which the user edits freely, so it must not be able to
+// inject markup into the email.
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export async function sendInvoiceEmail({
   customerEmail,
   customerName,
@@ -16,6 +28,11 @@ export async function sendInvoiceEmail({
   currency: string;
   signedUrl: string;
 }) {
+  const safeName = escapeHtml(customerName);
+  const safeInvoiceNumber = escapeHtml(invoiceNumber);
+  const safeCurrency = escapeHtml(currency);
+  const safeUrl = escapeHtml(signedUrl);
+
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -38,18 +55,18 @@ export async function sendInvoiceEmail({
           <div style="padding:32px">
             <span style="background:#dcfce7;color:#166534;padding:7px 12px;border-radius:5px;font-size:12px;font-weight:bold">PAYMENT SUCCESSFUL</span>
             <h2 style="font-size:22px;color:#111827;margin:18px 0 6px">Payment received successfully</h2>
-            <p style="color:#374151;font-size:14px;line-height:1.6">Hi ${customerName},</p>
+            <p style="color:#374151;font-size:14px;line-height:1.6">Hi ${safeName},</p>
             <p style="color:#374151;font-size:14px;line-height:1.6">Thank you for your payment. Your invoice has been generated successfully and is available below.</p>
             <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin:24px 0">
               <div style="padding:14px 18px;background:#f8fafc;font-weight:bold;font-size:13px;color:#111827">INVOICE DETAILS</div>
               <table style="width:100%;border-collapse:collapse;font-size:14px">
                 <tr>
                   <td style="padding:14px 18px;color:#6b7280;border-top:1px solid #e5e7eb">Invoice</td>
-                  <td style="padding:14px 18px;color:#111827;font-weight:bold;border-top:1px solid #e5e7eb;text-align:right">${invoiceNumber}</td>
+                  <td style="padding:14px 18px;color:#111827;font-weight:bold;border-top:1px solid #e5e7eb;text-align:right">${safeInvoiceNumber}</td>
                 </tr>
                 <tr>
                   <td style="padding:14px 18px;color:#6b7280;border-top:1px solid #e5e7eb">Amount Paid</td>
-                  <td style="padding:14px 18px;color:#111827;font-weight:bold;border-top:1px solid #e5e7eb;text-align:right">${currency} ${Number(amount).toFixed(2)}</td>
+                  <td style="padding:14px 18px;color:#111827;font-weight:bold;border-top:1px solid #e5e7eb;text-align:right">${safeCurrency} ${Number(amount).toFixed(2)}</td>
                 </tr>
                 <tr>
                   <td style="padding:14px 18px;color:#6b7280;border-top:1px solid #e5e7eb">Payment Status</td>
@@ -58,7 +75,7 @@ export async function sendInvoiceEmail({
               </table>
             </div>
             <div style="text-align:center;margin:30px">
-              <a href="${signedUrl}" style="display:inline-block;background:#0f766e;color:#ffffff;padding:13px 28px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:14px">Download Invoice</a>
+              <a href="${safeUrl}" style="display:inline-block;background:#0f766e;color:#ffffff;padding:13px 28px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:14px">Download Invoice</a>
             </div>
             <p style="font-size:12px;color:#6b7280;text-align:center">If the button above does not work, you can access your invoice from your ServiceDesk billing account.</p>
           </div>

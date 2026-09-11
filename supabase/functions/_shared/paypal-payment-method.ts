@@ -140,6 +140,111 @@ export function resolvePaymentSource(
   };
 }
 
+/**
+ * Narrows PayPal's raw `subscriber` JSON to the fields this module reads.
+ *
+ * The value comes straight off a PayPal API response or webhook payload, so it
+ * is untrusted input rather than a `PayPalSubscriber` by construction. A field
+ * that arrives with an unexpected shape (an object where a string belongs, say)
+ * is dropped and named in a warning, instead of being cast through and failing
+ * somewhere downstream -- `card.expiry.split` on a number, for instance.
+ */
+export function parsePayPalSubscriber(
+  raw: unknown,
+  context: string,
+): PayPalSubscriber | undefined {
+  const mismatches: string[] = [];
+
+  const record = (value: unknown, path: string) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    mismatches.push(`${path}:${Array.isArray(value) ? "array" : typeof value}`);
+    return undefined;
+  };
+
+  const text = (value: unknown, path: string) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "string") return value;
+    mismatches.push(`${path}:${typeof value}`);
+    return undefined;
+  };
+
+  const subscriber = record(raw, "subscriber");
+  const name = record(subscriber?.name, "name");
+  const shipping = record(subscriber?.shipping_address, "shipping_address");
+  const shippingName = record(shipping?.name, "shipping_address.name");
+  const shippingAddress = record(shipping?.address, "shipping_address.address");
+  const paymentSource = record(subscriber?.payment_source, "payment_source");
+  const card = record(paymentSource?.card, "payment_source.card");
+  const bin = record(card?.bin_details, "payment_source.card.bin_details");
+
+  const parsed: PayPalSubscriber | undefined = subscriber
+    ? {
+        payer_id: text(subscriber.payer_id, "payer_id"),
+        email_address: text(subscriber.email_address, "email_address"),
+        tenant: text(subscriber.tenant, "tenant"),
+        name: name
+          ? {
+              given_name: text(name.given_name, "name.given_name"),
+              surname: text(name.surname, "name.surname"),
+            }
+          : undefined,
+        shipping_address: shipping
+          ? {
+              name: shippingName
+                ? {
+                    full_name: text(
+                      shippingName.full_name,
+                      "shipping_address.name.full_name",
+                    ),
+                  }
+                : undefined,
+              address: shippingAddress
+                ? {
+                    country_code: text(
+                      shippingAddress.country_code,
+                      "shipping_address.address.country_code",
+                    ),
+                  }
+                : undefined,
+            }
+          : undefined,
+        payment_source: card
+          ? {
+              card: {
+                brand: text(card.brand, "card.brand"),
+                last_digits: text(card.last_digits, "card.last_digits"),
+                expiry: text(card.expiry, "card.expiry"),
+                bin_details: bin
+                  ? {
+                      bin: text(bin.bin, "card.bin_details.bin"),
+                      issuing_bank: text(
+                        bin.issuing_bank,
+                        "card.bin_details.issuing_bank",
+                      ),
+                      bin_country_code: text(
+                        bin.bin_country_code,
+                        "card.bin_details.bin_country_code",
+                      ),
+                    }
+                  : undefined,
+              },
+            }
+          : undefined,
+      }
+    : undefined;
+
+  if (mismatches.length > 0) {
+    console.warn(
+      `[payment-method] ${context} action=unexpected_subscriber_shape fields=${mismatches.join(",")}`,
+    );
+  }
+
+  return parsed;
+}
+
 interface ExistingPaymentMethod {
   id: string;
   paypal_payment_token_id: string | null;
@@ -185,7 +290,11 @@ export interface StorePaymentMethodArgs {
   subscriptionRowId?: string | null;
   /** The PayPal billing agreement / subscription id (`I-...`). */
   paypalSubscriptionId: string;
-  subscriber?: PayPalSubscriber | null;
+  /**
+   * The `subscriber` block exactly as PayPal returned it. It is validated with
+   * `parsePayPalSubscriber` before anything reads it.
+   */
+  subscriber?: unknown;
   /**
    * Optional authoritative re-read of the subscription, used only when the
    * event itself carried no card. Webhook payloads are point-in-time snapshots,
@@ -193,12 +302,42 @@ export interface StorePaymentMethodArgs {
    * some later event -- it never will, because in our tested wallet /
    * hosted-checkout flows PayPal does not expose the underlying card.
    */
-  fetchSubscriber?: () => Promise<PayPalSubscriber | null>;
+  fetchSubscriber?: () => Promise<unknown>;
   /** Free-text label for the logs, e.g. "webhook:activated". */
   context: string;
 }
 
-export type StoreOutcome = "inserted" | "updated" | "failed";
+export type StoreOutcome = "inserted" | "updated" | "skipped" | "failed";
+
+// Whether `paypalSubscriptionId` is still the agreement the tenant is billed
+// on. Used to settle a write race between two different agreements.
+async function isCurrentAgreement(
+  admin: AdminClient,
+  tenantId: string,
+  paypalSubscriptionId: string,
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from("subscriptions")
+    .select("paypal_subscription_id")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error(
+      "[payment-method] current agreement lookup failed:",
+      error.message,
+    );
+    // Cannot tell; keep the previous last-write-wins behaviour.
+    return true;
+  }
+
+  const current = (
+    data?.[0] as { paypal_subscription_id?: string | null } | undefined
+  )?.paypal_subscription_id;
+
+  return !current || current === paypalSubscriptionId;
+}
 
 /**
  * Idempotently records the tenant's default payment method.
@@ -218,11 +357,13 @@ export async function storePayPalPaymentMethod(
     context,
   }: StorePaymentMethodArgs,
 ): Promise<StoreOutcome> {
-  let resolved = resolvePaymentSource(subscriber);
+  let resolved = resolvePaymentSource(
+    parsePayPalSubscriber(subscriber, context),
+  );
 
   if (!resolved.hasCard && fetchSubscriber) {
     try {
-      const fresh = await fetchSubscriber();
+      const fresh = parsePayPalSubscriber(await fetchSubscriber(), context);
 
       if (fresh) {
         const confirmed = resolvePaymentSource(fresh);
@@ -294,14 +435,11 @@ export async function storePayPalPaymentMethod(
       payload.card_country = resolved.card?.country ?? null;
     }
 
-    return { payload, preserveCard };
+    return payload;
   };
 
   const existing = await findDefaultPaymentMethod(admin, tenantId);
-  let { payload, preserveCard } = buildPayload(existing);
-
-  if (preserveCard) {
-  }
+  let payload = buildPayload(existing);
 
   let outcome: StoreOutcome;
   let paymentMethodId = existing?.id ?? null;
@@ -341,9 +479,25 @@ export async function storePayPalPaymentMethod(
           return "failed";
         }
 
+        // A concurrent delivery for a DIFFERENT agreement won the insert. That
+        // happens around a plan switch, when the outgoing and incoming
+        // agreements' webhooks land together. Last-write-wins could leave the
+        // outgoing agreement's details on the tenant's default payment method,
+        // so defer to whichever agreement the tenant is actually billed on.
+        if (
+          winner.paypal_payment_token_id &&
+          winner.paypal_payment_token_id !== paypalSubscriptionId &&
+          !(await isCurrentAgreement(admin, tenantId, paypalSubscriptionId))
+        ) {
+          console.warn(
+            `[payment-method] ${context} subscription=${paypalSubscriptionId} action=conflict_skipped_superseded winner=${winner.paypal_payment_token_id}`,
+          );
+          return "skipped";
+        }
+
         // Rebuilt against the row the winner created, so a racing delivery
         // that carried no card cannot blank out one that did.
-        ({ payload, preserveCard } = buildPayload(winner));
+        payload = buildPayload(winner);
 
         const { error: retryError } = await admin
           .from("payment_methods")
@@ -371,9 +525,6 @@ export async function storePayPalPaymentMethod(
       paymentMethodId = (data as { id: string } | null)?.id ?? null;
       outcome = "inserted";
     }
-  }
-
-  if (!preserveCard) {
   }
 
   if (paymentMethodId && subscriptionRowId) {

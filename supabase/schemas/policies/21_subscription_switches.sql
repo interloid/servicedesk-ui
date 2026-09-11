@@ -27,27 +27,8 @@ USING (
 
 
 -- =====================================================
--- UPDATE
--- Tenant Admin + Billing Admin
+-- No INSERT / UPDATE / DELETE for clients
 -- =====================================================
-
-CREATE POLICY "subscription_switches_update"
-ON public.subscription_switches
-FOR UPDATE
-TO authenticated
-USING (
-    tenant_id = public.current_tenant_id()
-    AND public.is_active_membership()
-    AND public.current_tenant_role() IN (
-        'tenant_admin',
-        'billing_admin'
-    )
-)
-WITH CHECK (
-    tenant_id = public.current_tenant_id()
-    AND public.is_active_membership()
-    AND public.current_tenant_role() IN (
-        'tenant_admin',
-        'billing_admin'
-    )
-);
+-- Switches are written only by the edge functions, with the service role.
+-- A client UPDATE policy would let a billing admin retarget their own pending
+-- upgrade (plan_id) to a pricier plan before capture-order reads it.

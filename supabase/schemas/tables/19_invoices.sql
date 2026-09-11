@@ -70,6 +70,10 @@ create table if not exists public.invoices
 
     paypal_event_id text,
 
+    -- When the invoice email was sent; claimed atomically before sending so
+    -- each invoice is emailed once, reset to null if sending fails.
+    email_sent_at timestamptz,
+
     created_at timestamptz
         default now(),
 

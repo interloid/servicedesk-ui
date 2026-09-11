@@ -160,7 +160,7 @@ export function PricingCards({
   };
 
   const openCancelDialog = () => {
-    router.push(`/${tenantSlug}/account/billing/cancel`);
+    router.push(`/${tenantSlug}/account/billing/cancel?from=plans`);
   };
 
   const usedSeats = billingData?.seats?.used ?? 0;

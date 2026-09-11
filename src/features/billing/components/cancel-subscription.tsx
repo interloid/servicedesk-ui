@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -46,6 +46,7 @@ export default function CancelSubscription({
   freePlan = null,
 }: CancelSubscriptionProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [step, setStep] = useState<"confirm" | "final">("confirm");
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +75,17 @@ export default function CancelSubscription({
       ? seats.used - freeSeatLimit
       : 0;
 
-  const backToBilling = () => router.push(`/${tenantSlug}/account/billing`);
+  // The only entry point today is the plan card on /account/plans, but the
+  // billing dashboard may link here too. `?from=plans` says where to return, so
+  // leaving the page lands the user back where they started rather than always
+  // dropping them on the dashboard.
+  const cameFromPlans = searchParams.get("from") === "plans";
+  const exitHref = cameFromPlans
+    ? `/${tenantSlug}/account/plans`
+    : `/${tenantSlug}/account/billing`;
+  const exitLabel = cameFromPlans ? "Back to plans" : "Back to billing";
+
+  const goBack = () => router.push(exitHref);
 
   const handleCancel = () => {
     startTransition(async () => {
@@ -123,7 +134,7 @@ export default function CancelSubscription({
 
   if (isFreePlan) {
     return (
-      <Shell tenantSlug={tenantSlug} onBack={backToBilling}>
+      <Shell onBack={goBack} backLabel={exitLabel}>
         <Card className="p-6 text-center">
           <Check className="mx-auto h-12 w-12 text-emerald-500" />
           <h2 className="mt-4 text-lg font-bold text-foreground">
@@ -135,7 +146,7 @@ export default function CancelSubscription({
           </p>
           <Button
             onClick={() => router.push(`/${tenantSlug}/account/plans`)}
-            className="mt-6"
+            className="mt-6 h-11 w-full px-6 font-semibold sm:w-auto"
           >
             View plans
           </Button>
@@ -146,7 +157,7 @@ export default function CancelSubscription({
 
   if (alreadyCancelled) {
     return (
-      <Shell tenantSlug={tenantSlug} onBack={backToBilling}>
+      <Shell onBack={goBack} backLabel={exitLabel}>
         <Card className="border-amber-200 bg-amber-50/60 p-5">
           <div className="flex items-start gap-3">
             <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
@@ -170,13 +181,16 @@ export default function CancelSubscription({
                 )}
               </p>
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <Button size="sm" onClick={backToBilling}>
-                  Back to billing
+                <Button
+                  onClick={goBack}
+                  className="h-11 w-full px-6 font-semibold sm:w-auto"
+                >
+                  {exitLabel}
                 </Button>
                 <Button
-                  size="sm"
                   variant="outline"
                   onClick={() => router.push(`/${tenantSlug}/account/plans`)}
+                  className="h-11 w-full px-5 text-sm font-semibold sm:w-auto"
                 >
                   Reactivate my plan
                 </Button>
@@ -190,7 +204,7 @@ export default function CancelSubscription({
 
   if (hasScheduledPlanChange && scheduledChange) {
     return (
-      <Shell tenantSlug={tenantSlug} onBack={backToBilling}>
+      <Shell onBack={goBack} backLabel={exitLabel}>
         <Card className="p-5">
           <div className="flex items-start gap-3">
             <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
@@ -207,7 +221,10 @@ export default function CancelSubscription({
                 )}
                 . Cancel that change first, then cancel your subscription.
               </p>
-              <Button size="sm" onClick={backToBilling} className="mt-4">
+              <Button
+                onClick={goBack}
+                className="mt-4 h-11 w-full px-6 font-semibold sm:w-auto"
+              >
                 Go to billing
               </Button>
             </div>
@@ -218,7 +235,7 @@ export default function CancelSubscription({
   }
 
   return (
-    <Shell tenantSlug={tenantSlug} onBack={backToBilling} disabled={isPending}>
+    <Shell onBack={goBack} backLabel={exitLabel} disabled={isPending}>
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
           Cancel subscription
@@ -356,15 +373,17 @@ export default function CancelSubscription({
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Button
               variant="outline"
-              onClick={backToBilling}
+              onClick={goBack}
               disabled={isPending}
+              className="h-10 w-full rounded-lg px-5 text-sm font-medium sm:w-auto"
             >
               Keep my plan
             </Button>
             <Button
+              variant="outline"
               onClick={() => setStep("final")}
               disabled={isPending}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="h-10 w-full rounded-lg border-red-600 bg-white px-6 text-sm font-medium text-red-600 hover:border-red-600 hover:bg-red-50 hover:text-red-600 disabled:border-red-300 disabled:bg-white disabled:text-red-300 disabled:opacity-100 sm:w-auto"
             >
               Continue to cancel
             </Button>
@@ -414,24 +433,26 @@ export default function CancelSubscription({
               onValueChange={setCancelReason}
               className="mt-4"
             >
-              {CANCEL_REASONS.map((reason) => (
-                <div
-                  key={reason}
-                  data-state={cancelReason === reason ? "checked" : "unchecked"}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 transition-colors hover:border-slate-300 data-[state=checked]:border-brand-accent data-[state=checked]:bg-accent/50"
-                >
-                  <RadioGroupItem
-                    value={reason}
-                    id={`cancel-reason-${reason}`}
-                  />
+              {CANCEL_REASONS.map((reason) => {
+                // The id has to be slug-safe: an id containing a space is
+                // invalid HTML and the label stops resolving to its input, so
+                // every reason except the single-word "Other" was unclickable.
+                const id = `cancel-reason-${reason.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
+                return (
                   <Label
-                    htmlFor={`cancel-reason-${reason}`}
-                    className="flex-1 cursor-pointer text-sm font-normal text-foreground"
+                    key={reason}
+                    htmlFor={id}
+                    data-state={
+                      cancelReason === reason ? "checked" : "unchecked"
+                    }
+                    className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 text-sm font-normal text-foreground transition-colors hover:border-slate-300 data-[state=checked]:border-brand-accent data-[state=checked]:bg-accent/50"
                   >
+                    <RadioGroupItem value={reason} id={id} />
                     {reason}
                   </Label>
-                </div>
-              ))}
+                );
+              })}
             </RadioGroup>
 
             {cancelReason === OTHER_REASON && (
@@ -473,13 +494,15 @@ export default function CancelSubscription({
                 variant="outline"
                 onClick={() => setStep("confirm")}
                 disabled={isPending}
+                className="h-10 w-full rounded-lg px-5 text-sm font-medium sm:w-auto"
               >
                 Go back
               </Button>
               <Button
+                variant="outline"
                 onClick={handleCancel}
                 disabled={isPending}
-                className="bg-red-600 text-white hover:bg-red-700"
+                className="h-10 w-full rounded-lg border-red-600 bg-white px-6 text-sm font-medium text-red-600 hover:border-red-600 hover:bg-red-50 hover:text-red-600 disabled:border-red-300 disabled:bg-white disabled:text-red-300 disabled:opacity-100 sm:w-auto"
               >
                 {isPending ? (
                   <>
@@ -500,16 +523,17 @@ export default function CancelSubscription({
 
 function Shell({
   onBack,
+  backLabel,
   disabled,
   children,
 }: {
-  tenantSlug: string;
   onBack: () => void;
+  backLabel: string;
   disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className="w-full bg-background p-4 sm:p-6 lg:p-8">
+    <div className="min-h-dvh w-full bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto w-full max-w-3xl space-y-5">
         <Button
           variant="ghost"
@@ -518,7 +542,7 @@ function Shell({
           disabled={disabled}
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to billing
+          {backLabel}
         </Button>
 
         {children}

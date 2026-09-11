@@ -126,12 +126,12 @@ function StatusBanner({
   if (billingStatus === "cancelled") {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 space-y-3">
-        <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
-          <div className="flex items-start space-x-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             <div className="rounded-md bg-amber-500 p-1.5 text-white shrink-0 mt-0.5">
               <Clock className="h-4 w-4" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h3 className="text-sm font-bold text-amber-950">
                 Cancels on {data.renewalDate}
               </h3>
@@ -314,12 +314,12 @@ export default function BillingDashboard({
 
         {scheduledChange && (
           <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 space-y-3">
-            <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
-              <div className="flex items-start space-x-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
                 <div className="rounded-md bg-amber-500 p-1.5 text-white shrink-0 mt-0.5">
                   <CalendarClock className="h-4 w-4" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-sm font-bold text-amber-950">
                     Your plan will change to {scheduledChange.planName}
                   </h3>

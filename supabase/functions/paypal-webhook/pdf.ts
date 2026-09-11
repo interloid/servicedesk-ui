@@ -343,9 +343,12 @@ export async function generateInvoicePdf(
     detailsLine("PayPal subscription ID", invoice.paypal_subscription_id, true);
   }
 
-  y -= 62;
-
-  drawLine(y);
+  // Both columns above grow downward independently, so the next section has to
+  // start below whichever one ended lower. The old fixed `y -= 62` ignored
+  // that: with a PayPal subscription id the details column runs past it, and
+  // the divider that used to sit here was drawn straight through the
+  // "Payment method" row.
+  y = Math.min(customerY, detailsY) - 12;
 
   // ── Charge details ────────────────────────────────────────────────────────
   y -= 40;

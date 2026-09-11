@@ -21,6 +21,8 @@ import {
   tenantPath,
 } from "@/lib/tenancy";
 
+import { readTenantClaims } from "@/features/auth/claims";
+
 import { env } from "./config/env";
 
 const ROOT_PATH = "/";
@@ -48,10 +50,11 @@ async function resolveSessionTenantSlug(
     await supabase.auth.getClaims();
 
   if (claimsError) {
-    throw claimsError;
+    console.error("[proxy] claims lookup failed:", claimsError.message);
+    return undefined;
   }
 
-  return claimsData?.claims?.tenant_slug as string | undefined;
+  return readTenantClaims(claimsData?.claims).tenantSlug ?? undefined;
 }
 
 function rememberTenant(response: NextResponse, slug: string): NextResponse {
@@ -67,6 +70,11 @@ function rememberTenant(response: NextResponse, slug: string): NextResponse {
 }
 
 export async function proxy(request: NextRequest) {
+  // x-tenant-slug is trusted downstream (see tenant-resolver.getTenantContext),
+  // so it may only ever come from this proxy. Dropping it up front means the
+  // pass-through branches below cannot leak a caller-supplied value.
+  request.headers.delete("x-tenant-slug");
+
   let response = NextResponse.next({
     request,
   });

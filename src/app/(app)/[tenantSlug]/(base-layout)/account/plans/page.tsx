@@ -6,6 +6,12 @@ import {
 import { PricingCards } from "@/features/billing/components/pricing-cards";
 import { fetchTenantBillingData } from "@/features/billing/services/billing-dashboard.service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Plans & pricing",
+};
 import {
   canManageTenantBilling,
   getTenantIdBySlug,

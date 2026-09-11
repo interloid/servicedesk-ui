@@ -1,3 +1,5 @@
+import "server-only";
+
 import slugify from "slugify";
 import {
   createSupabaseAnonClient,

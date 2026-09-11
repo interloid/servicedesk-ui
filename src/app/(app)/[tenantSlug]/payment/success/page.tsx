@@ -52,8 +52,6 @@ function PaymentSuccessContent() {
   const targetRedirectUrl = `/${tenantSlug}/account/plans`;
 
   useEffect(() => {
-    let cancelled = false;
-
     if (confirmedRef.current) return;
     confirmedRef.current = true;
 
@@ -70,8 +68,6 @@ function PaymentSuccessContent() {
 
     confirm(tenantSlug, paymentId ?? "")
       .then((res) => {
-        if (cancelled) return;
-
         if (!res.success) {
           if (missingPaymentId) return;
           setError(res.error ?? "Could not verify your payment.");
@@ -81,7 +77,7 @@ function PaymentSuccessContent() {
         if (isOrderLike && "approvalUrl" in res && res.approvalUrl) {
           setAuthorizing(true);
           setApproval({
-            url: res.approvalUrl as string,
+            url: res.approvalUrl,
             planName: res.planName ?? "your new plan",
             nextBilling: Number(res.nextBilling ?? 0),
           });
@@ -91,51 +87,41 @@ function PaymentSuccessContent() {
         setPlanName(res.planName ?? "your new plan");
       })
       .catch(() => {
-        if (!cancelled && !missingPaymentId)
-          setError("Could not verify your payment.");
+        if (!missingPaymentId) setError("Could not verify your payment.");
       })
       .finally(() => {
-        if (!cancelled) setChecking(false);
+        setChecking(false);
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, [tenantSlug, missingPaymentId, paymentId]);
 
   useEffect(() => {
     if (checking || !authorizing || !approval) return;
 
-    const timer = setInterval(() => {
-      setPaypalCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          window.location.assign(approval.url);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    if (paypalCountdown <= 0) {
+      window.location.assign(approval.url);
+      return;
+    }
 
-    return () => clearInterval(timer);
-  }, [checking, authorizing, approval]);
+    const timer = setTimeout(
+      () => setPaypalCountdown((prev) => prev - 1),
+      1000,
+    );
+
+    return () => clearTimeout(timer);
+  }, [checking, authorizing, approval, paypalCountdown]);
 
   useEffect(() => {
     if (checking || authorizing) return;
 
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          router.push(targetRedirectUrl);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    if (countdown <= 0) {
+      router.push(targetRedirectUrl);
+      return;
+    }
 
-    return () => clearInterval(timer);
-  }, [checking, authorizing, router, targetRedirectUrl]);
+    const timer = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
+
+    return () => clearTimeout(timer);
+  }, [checking, authorizing, countdown, router, targetRedirectUrl]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/40 p-4">

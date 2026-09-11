@@ -17,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BillingDashboardData } from "../services/billing-dashboard.service";
+import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import InvoiceModal from "./invoice-model";
 import { UpdatePaymentModal } from "./payment-method";
 import { abortPlanSwitchAction } from "../billing-actions";
@@ -103,7 +103,7 @@ function StatusBanner({
             </p>
           </div>
         </div>
-        <div className="flex items-center space-x-3 pt-1">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 pt-1">
           <Button
             className="bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold h-9 px-4 rounded-lg shadow-none"
             onClick={() =>
@@ -114,7 +114,7 @@ function StatusBanner({
           </Button>
           <Button
             variant="outline"
-            className="bg-white border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold h-9 px-4 rounded-lg shadow-none"
+            className="bg-white text-xs font-semibold h-9 px-4 rounded-lg shadow-none"
           >
             Retry charge
           </Button>
@@ -126,7 +126,7 @@ function StatusBanner({
   if (billingStatus === "cancelled") {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 space-y-3">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
           <div className="flex items-start space-x-3">
             <div className="rounded-md bg-amber-500 p-1.5 text-white shrink-0 mt-0.5">
               <Clock className="h-4 w-4" />
@@ -145,7 +145,7 @@ function StatusBanner({
             variant="outline"
             size="sm"
             onClick={() => router.push(`/${tenantSlug}/account/plans`)}
-            className="shrink-0 text-xs font-semibold bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50 h-9 px-3.5 rounded-lg shadow-none"
+            className="shrink-0 text-xs font-semibold bg-white h-9 px-3.5 rounded-lg shadow-none w-full sm:w-auto"
           >
             Reactivate
           </Button>
@@ -170,21 +170,58 @@ export default function BillingDashboard({
 
   if (isLoading) {
     return (
-      <div className="h-full p-8 font-sans text-slate-900">
+      <div className="h-full p-4 sm:p-8 font-sans text-slate-900">
         <div className="mx-auto space-y-6">
-          <div className="flex justify-between items-start">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-2">
               <Skeleton className="h-7 w-24 bg-slate-200" />
               <Skeleton className="h-4 w-48 bg-slate-200" />
             </div>
-            <Skeleton className="h-9 w-28 rounded-lg bg-slate-200" />
+            <Skeleton className="h-9 w-full sm:w-28 rounded-lg bg-slate-200" />
           </div>
-          <Skeleton className="h-20 w-full rounded-xl bg-slate-100" />
+          {initialData &&
+            (initialData.billingStatus === "past_due" ||
+              initialData.billingStatus === "cancelled" ||
+              initialData.isSuspended ||
+              !!initialData.scheduledChange) && (
+              <Skeleton className="h-20 w-full rounded-xl bg-slate-100" />
+            )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <SummaryCard key={i} label="" isLoading={true} />
             ))}
           </div>
+          <Card className="rounded-xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-none ring-0">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+              <div className="w-full min-w-0 space-y-2 sm:w-auto">
+                <Skeleton className="h-3 w-28 bg-slate-100" />
+                <Skeleton className="h-4 w-40 bg-slate-100" />
+              </div>
+              <Skeleton className="h-8 w-full sm:w-28 rounded-lg bg-slate-100" />
+            </div>
+            <div className="pt-4 space-y-2">
+              <Skeleton className="h-2 w-full rounded-full bg-slate-100" />
+              <Skeleton className="h-3 w-72 max-w-full bg-slate-100" />
+            </div>
+          </Card>
+          <Card className="rounded-xl border border-slate-200/80 bg-white shadow-none ring-0 overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 px-6 pt-4">
+              <Skeleton className="h-4 w-28 bg-slate-100" />
+            </div>
+            <div className="divide-y divide-slate-100">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between gap-4 px-6 py-3.5"
+                >
+                  <Skeleton className="h-3 w-24 bg-slate-100" />
+                  <Skeleton className="h-3 w-20 bg-slate-100" />
+                  <Skeleton className="h-3 w-28 bg-slate-100" />
+                  <Skeleton className="h-5 w-16 rounded-full bg-slate-100" />
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
       </div>
     );
@@ -193,10 +230,12 @@ export default function BillingDashboard({
   if (!initialData) {
     return (
       <div className="p-8 text-center text-slate-500 font-sans">
-        <p className="text-sm font-semibold">Billing data unavailable.</p>
+        <p className="text-sm font-semibold">
+          We couldn&apos;t load your billing details.
+        </p>
         <p className="text-xs text-slate-400 mt-1">
-          Please make sure billing information is configured for tenant:{" "}
-          {tenantSlug}
+          Billing isn&apos;t set up yet for {tenantSlug}. Try again in a moment,
+          or contact support if this keeps happening.
         </p>
       </div>
     );
@@ -214,9 +253,18 @@ export default function BillingDashboard({
   const paypalEmail = data?.paymentMethod?.email;
   const paypalPayerName = data?.paymentMethod?.payerName;
   const hasPayPalWallet = paymentSourceType === "paypal";
-  const isFreeTier = (data?.plan?.rate ?? "") === "$0/mo";
+  const isFreeTier = (data?.plan?.rateValue ?? 0) === 0;
 
   const scheduledChange = data.scheduledChange;
+
+  const planStatus =
+    data.isSuspended || data.billingStatus === "past_due"
+      ? { label: "Payment failed", dot: "bg-red-500" }
+      : data.billingStatus === "cancelled"
+        ? { label: `Ends ${data.renewalDate}`, dot: "bg-amber-500" }
+        : data.billingStatus === "trialing"
+          ? { label: "Trial", dot: "bg-sky-500" }
+          : { label: "Active", dot: "bg-emerald-500" };
 
   const handleAbort = () => {
     startAbort(async () => {
@@ -242,7 +290,7 @@ export default function BillingDashboard({
     d <= 0 ? "today" : d === 1 ? "in 1 day" : `in ${d} days`;
 
   return (
-    <div className="h-full font-sans text-slate-900 p-8 overflow-y-auto ">
+    <div className="h-full font-sans text-slate-900 p-4 sm:p-8 overflow-y-auto">
       <div className="mx-auto space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -255,29 +303,18 @@ export default function BillingDashboard({
           </div>
           <Button
             variant="outline"
-            className="w-fit text-xs font-semibold bg-brand-accent text-primary-foreground hover:bg-brand-accent/80 hover:text-primary-foreground rounded-lg px-4 h-9"
+            className="w-full sm:w-fit text-xs font-semibold bg-brand-accent text-primary-foreground hover:bg-brand-accent/80 hover:text-primary-foreground rounded-lg px-4 h-9"
             onClick={() => router.push(`/${tenantSlug}/account/plans`)}
           >
             Change plan
           </Button>
-          {!isFreeTier && data.billingStatus !== "cancelled" && (
-            <Button
-              variant="outline"
-              className="w-fit text-xs font-semibold border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 rounded-lg px-4 h-9"
-              onClick={() =>
-                router.push(`/${tenantSlug}/account/billing/cancel`)
-              }
-            >
-              Cancel subscription
-            </Button>
-          )}
         </div>
 
         <StatusBanner data={data} tenantSlug={tenantSlug} />
 
         {scheduledChange && (
           <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 space-y-3">
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
               <div className="flex items-start space-x-3">
                 <div className="rounded-md bg-amber-500 p-1.5 text-white shrink-0 mt-0.5">
                   <CalendarClock className="h-4 w-4" />
@@ -301,7 +338,7 @@ export default function BillingDashboard({
                 size="sm"
                 disabled={isAborting}
                 onClick={handleAbort}
-                className="shrink-0 text-xs font-semibold bg-white border-amber-300 text-amber-900 hover:bg-amber-100 h-9 px-3.5 rounded-lg shadow-none"
+                className="shrink-0 text-xs font-semibold bg-white border-amber-300 text-amber-900 hover:bg-amber-100 h-9 px-3.5 rounded-lg shadow-none w-full sm:w-auto"
               >
                 {isAborting && (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -312,9 +349,9 @@ export default function BillingDashboard({
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <SummaryCard
-            label="Current Plan"
+            label="Current plan"
             value={
               <>
                 {data.plan?.name ?? "N/A"}
@@ -325,24 +362,18 @@ export default function BillingDashboard({
             }
             subtext={
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Active
-                {data.autoRenew ? (
-                  <>
-                    <span>·</span>
-                    <span>Auto-renew ON</span>
-                  </>
-                ) : (
-                  <span className="text-xs text-slate-400">
-                    · Auto-renew OFF
-                  </span>
-                )}
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${planStatus.dot}`}
+                />
+                {planStatus.label}
+                <span>·</span>
+                <span>Auto-renew is {data.autoRenew ? "on" : "off"}</span>
               </span>
             }
             extra={
               <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
                 <div className="flex items-center justify-between gap-2">
-                  <span>User seats</span>
+                  <span>Seat limit</span>
                   <span className="font-semibold text-slate-700">
                     {data.seats?.total ?? 0} seats
                   </span>
@@ -363,17 +394,17 @@ export default function BillingDashboard({
               <>
                 {usedSeats}{" "}
                 <span className="text-base font-medium text-slate-500">
-                  / {totalSeats} used
+                  / {totalSeats} seats used
                 </span>
               </>
             }
             subtext={
               <>
+                {unusedSeats} seat{unusedSeats === 1 ? "" : "s"} available ·{" "}
                 {data.agents?.admins ?? 0} admin
                 {data.agents?.admins === 1 ? "" : "s"} ·{" "}
                 {data.agents?.regular ?? 0} agent
-                {data.agents?.regular === 1 ? "" : "s"} · {unusedSeats} seat
-                {unusedSeats === 1 ? "" : "s"} available
+                {data.agents?.regular === 1 ? "" : "s"}
               </>
             }
             action={
@@ -381,15 +412,15 @@ export default function BillingDashboard({
                 variant="outline"
                 size="sm"
                 onClick={() => router.push(`/${tenantSlug}/settings/team`)}
-                className="text-xs font-semibold text-teal-800 border-slate-200 hover:bg-teal-50 h-8 px-3.5 rounded-lg shadow-none"
+                className="w-full sm:w-auto text-xs font-semibold h-8 px-3.5 rounded-lg shadow-none"
               >
-                Manage members
+                Manage team
               </Button>
             }
           />
 
           <SummaryCard
-            label="Next Payment"
+            label="Next payment"
             value={
               pendingUpgrade ? (
                 <>
@@ -411,19 +442,19 @@ export default function BillingDashboard({
               pendingUpgrade ? (
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  Upgrade to {pendingUpgrade.planName} awaits payment
+                  Awaiting payment for your upgrade to {pendingUpgrade.planName}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5">
                   {data.autoRenew ? (
                     <>
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      Auto-renew is ON
+                      Auto-renew is on
                     </>
                   ) : (
                     <>
                       <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                      Auto-renew is OFF
+                      Auto-renew is off
                     </>
                   )}
                 </span>
@@ -433,22 +464,19 @@ export default function BillingDashboard({
               pendingUpgrade ? (
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-slate-500">
-                    ${pendingUpgrade.planRate.toFixed(2)}/mo from your next
-                    billing cycle after this one-time payment.
+                    Then ${pendingUpgrade.planRate.toFixed(2)}/mo, starting with
+                    your next billing cycle.
                   </span>
                   {pendingUpgrade.proratedCredit > 0 && (
                     <span className="text-xs text-emerald-700">
                       Includes ${pendingUpgrade.proratedCredit.toFixed(2)}{" "}
-                      credit from your remaining{" "}
-                      {data.plan?.name ?? "current plan"} time.
+                      credit for the unused time on your{" "}
+                      {data.plan?.name ?? "current"} plan.
                     </span>
                   )}
                 </div>
               ) : (
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-400">
-                    Current billing
-                  </span>
                   <span className="text-xs text-slate-500">
                     {data.lastPayment ? (
                       <>
@@ -463,7 +491,7 @@ export default function BillingDashboard({
           />
 
           <SummaryCard
-            label="Payment Method"
+            label="Payment method"
             value={
               hasPayPalWallet ? (
                 <>
@@ -482,7 +510,7 @@ export default function BillingDashboard({
               hasPayPalWallet
                 ? (paypalEmail ??
                   (paypalPayerName
-                    ? "Billed through their PayPal account"
+                    ? "Billed through this PayPal account"
                     : "Billed through your PayPal account"))
                 : isFreeTier
                   ? "No charges for this plan"
@@ -493,7 +521,7 @@ export default function BillingDashboard({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsUpdatePaymentOpen(true)}
-                className="text-xs font-semibold text-teal-800 border-slate-200 hover:bg-teal-50 h-8 px-3.5 rounded-lg shadow-none"
+                className="text-xs font-semibold h-8 px-3.5 rounded-lg shadow-none"
               >
                 {hasPayPalWallet ? "Manage PayPal" : "Change payment method"}
               </Button>
@@ -501,7 +529,6 @@ export default function BillingDashboard({
           />
         </div>
 
-        {/* Seat usage */}
         <Card className="rounded-xl border border-slate-200/80 bg-white p-4 sm:p-6 shadow-none drop-shadow-none ring-0">
           <CardHeader className="p-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 space-y-0">
             <div className="min-w-0 w-full sm:w-auto">
@@ -510,7 +537,7 @@ export default function BillingDashboard({
               </span>
               <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span className="text-sm font-semibold text-slate-900">
-                  {usedSeats} of {totalSeats} User seats used
+                  {usedSeats} / {totalSeats} seats used
                 </span>
                 <span className="text-xs text-slate-400 font-normal">
                   {Math.round(seatPercentage)}%
@@ -521,9 +548,9 @@ export default function BillingDashboard({
               variant="outline"
               size="sm"
               onClick={() => router.push(`/${tenantSlug}/settings/team`)}
-              className="w-full sm:w-auto justify-center text-xs font-semibold text-teal-800 border-slate-200 hover:bg-teal-50 h-8 px-3.5 rounded-lg shadow-none shrink-0"
+              className="w-full sm:w-auto justify-center text-xs font-semibold h-8 px-3.5 rounded-lg shadow-none shrink-0"
             >
-              Manage seats
+              Manage team
             </Button>
           </CardHeader>
           <CardContent className="p-0 pt-3 sm:pt-4">
@@ -534,22 +561,20 @@ export default function BillingDashboard({
             <p className="text-xs text-slate-500 leading-relaxed mt-3">
               {unusedSeats > 0 ? (
                 <>
-                  You&apos;re currently using {usedSeats} of {totalSeats} user
-                  seats. {unusedSeats} user seat
-                  {unusedSeats === 1 ? "" : "s"} available.
+                  {unusedSeats} seat{unusedSeats === 1 ? "" : "s"} available.
+                  Each seat is one team member who can sign in.
                 </>
               ) : (
-                "All user seats are currently assigned to active team members."
+                `No seats available — all ${totalSeats} are in use.`
               )}
             </p>
           </CardContent>
         </Card>
 
-        {/* Billing history */}
         <Card className="rounded-xl border border-slate-200/80 bg-white shadow-none overflow-hidden ring-0">
           <CardHeader className="border-b border-slate-100 pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-bold text-slate-900">
-              Billing History
+              Billing history
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -570,9 +595,6 @@ export default function BillingDashboard({
                       </TableHead>
                       <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-left">
                         Description
-                      </TableHead>
-                      <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-center">
-                        User Seats
                       </TableHead>
                       <TableHead className="px-6 py-3 text-[10px] uppercase font-bold text-slate-400 text-right">
                         Amount
@@ -599,9 +621,6 @@ export default function BillingDashboard({
                         </TableCell>
                         <TableCell className="px-6 py-3.5 text-slate-500 text-left whitespace-nowrap">
                           {inv.description}
-                        </TableCell>
-                        <TableCell className="px-6 py-3.5 text-center text-slate-700 whitespace-nowrap">
-                          {inv.seats}
                         </TableCell>
                         <TableCell className="px-6 py-3.5 text-right font-semibold text-slate-900 whitespace-nowrap">
                           {inv.amount}

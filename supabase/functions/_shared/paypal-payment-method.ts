@@ -301,12 +301,6 @@ export async function storePayPalPaymentMethod(
   let { payload, preserveCard } = buildPayload(existing);
 
   if (preserveCard) {
-    console.log(
-      `[payment-method] ${context} subscription=${paypalSubscriptionId} ` +
-        `payment_source_type=${existing?.payment_source_type ?? "unknown"} has_card=false ` +
-        `action=preserved reason=no_payment_source_in_event ` +
-        `brand=${existing?.card_brand ?? "-"} last4=${existing?.card_last4 ?? "-"}`,
-    );
   }
 
   let outcome: StoreOutcome;
@@ -380,19 +374,6 @@ export async function storePayPalPaymentMethod(
   }
 
   if (!preserveCard) {
-    console.log(
-      `[payment-method] ${context} subscription=${paypalSubscriptionId} ` +
-        `payment_source_type=${resolved.sourceType} has_card=${resolved.hasCard} ` +
-        `evidence=${
-          resolved.hasCard
-            ? "payment_source.card"
-            : resolved.payerTenant
-              ? `subscriber.tenant=${resolved.payerTenant}`
-              : "no_payment_source_reported"
-        } ` +
-        `action=${outcome} brand=${resolved.card?.brand ?? "-"} last4=${resolved.card?.last4 ?? "-"} ` +
-        `payer=${resolved.payerName ?? "-"} email=${resolved.email ?? "-"}`,
-    );
   }
 
   if (paymentMethodId && subscriptionRowId) {

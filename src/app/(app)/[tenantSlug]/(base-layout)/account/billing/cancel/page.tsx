@@ -2,6 +2,12 @@ import CancelSubscription from "@/features/billing/components/cancel-subscriptio
 import { fetchTenantBillingData } from "@/features/billing/services/billing-dashboard.service";
 import { notFound } from "next/navigation";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Cancel subscription",
+};
+
 interface PageProps {
   params: Promise<{ tenantSlug: string }>;
 }

@@ -1,10 +1,6 @@
-export type MembershipRole =
-  | "platform_admin"
-  | "tenant_admin"
-  | "manager"
-  | "agent"
-  | "billing_admin"
-  | "customer";
+export type { MembershipRole } from "@/types/team-members";
+
+import type { MembershipRole } from "@/types/team-members";
 
 export type SessionUser = {
   id: string;

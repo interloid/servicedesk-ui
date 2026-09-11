@@ -86,7 +86,11 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
       const rawTarget =
         redirectTo === undefined ? result.data.redirectTo : redirectTo;
 
-      if (rawTarget) {
+      if (!rawTarget) {
+        // Nothing to navigate to, so nothing will unmount this component.
+        // Without this the submit button stays disabled on a successful login.
+        setIsPending(false);
+      } else {
         if (isAbsoluteUrl(rawTarget)) {
           const targetUrl = new URL(rawTarget);
 

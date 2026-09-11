@@ -313,9 +313,6 @@ export async function handleSubscriptionCancelled(event: WebhookEvent) {
     .maybeSingle();
 
   if (supersedingSwitch) {
-    console.log(
-      `Ignoring cancellation of ${subscription.id}: superseded by scheduled switch ${supersedingSwitch.id} (effective ${supersedingSwitch.effective_at}).`,
-    );
     return;
   }
 
@@ -357,18 +354,6 @@ export async function handleSubscriptionCancelled(event: WebhookEvent) {
 
     return;
   }
-
-  const { data: supersededSwitch } = await admin
-    .from("subscription_switches")
-    .select("id, status")
-    .eq("old_paypal_subscription_id", subscription.id)
-    .maybeSingle();
-
-  if (supersededSwitch) {
-    console.log(
-      `Ignoring cancellation of superseded agreement ${subscription.id} (switch ${supersededSwitch.status}).`,
-    );
-  }
 }
 
 export async function handleSubscriptionSuspended(event: WebhookEvent) {
@@ -401,25 +386,32 @@ async function applyRevisedUpgrade(
     .maybeSingle();
 
   if (lookupError) {
-    console.error("Revised-upgrade switch lookup failed:", lookupError);
-    return;
+    console.error(
+      "[webhook] Revised-upgrade switch lookup failed:",
+      lookupError,
+    );
+    return false;
   }
 
+  // This was a normal subscription update, not a revised upgrade.
   if (!pendingUpgrade) {
-    return;
+    return false;
   }
 
-  const { data: plan } = await admin
+  const { data: plan, error: planError } = await admin
     .from("plans")
     .select("seat_limit")
     .eq("id", pendingUpgrade.plan_id)
     .maybeSingle();
 
+  if (planError) {
+    throw planError;
+  }
+
   const { error: subError } = await admin
     .from("subscriptions")
     .update({
       plan_id: pendingUpgrade.plan_id,
-      paypal_subscription_id: subscription.id,
       status: "active",
       seats: plan?.seat_limit ?? 1,
       current_period_end: nextBilling ?? null,
@@ -434,7 +426,10 @@ async function applyRevisedUpgrade(
 
   const { error: tenantError } = await admin
     .from("tenants")
-    .update({ plan_id: pendingUpgrade.plan_id, updated_at: now })
+    .update({
+      plan_id: pendingUpgrade.plan_id,
+      updated_at: now,
+    })
     .eq("id", tenantId);
 
   if (tenantError) {
@@ -443,16 +438,17 @@ async function applyRevisedUpgrade(
 
   const { error: applyError } = await admin
     .from("subscription_switches")
-    .update({ status: "applied", updated_at: now })
+    .update({
+      status: "applied",
+      updated_at: now,
+    })
     .eq("id", pendingUpgrade.id);
 
   if (applyError) {
     throw applyError;
   }
 
-  console.log(
-    `[webhook] applied revised upgrade ${pendingUpgrade.id} via BILLING.SUBSCRIPTION.UPDATED for tenant ${tenantId}.`,
-  );
+  return true;
 }
 
 export async function handleSubscriptionUpdated(event: WebhookEvent) {
@@ -473,11 +469,16 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
     return;
   }
 
-  // A card-funded subscription fires this event when its payment source is
-  // patched, so it is the one place a card change shows up. Safe to run for
-  // wallet-funded subscriptions too: storePayPalPaymentMethod leaves existing
-  // card metadata alone when the event carries no payment source, so an
-  // unrelated UPDATED event cannot blank out a card we already hold.
+  /*
+   * BILLING.SUBSCRIPTION.UPDATED can happen when:
+   *
+   * 1. Payment method is changed
+   * 2. Subscription is revised for an upgrade
+   * 3. Other PayPal subscription details change
+   *
+   * This webhook NEVER creates or updates an invoice.
+   */
+
   await storePayPalPaymentMethod(admin, {
     tenantId: existingSub.tenant_id,
     subscriptionRowId: existingSub.id,
@@ -487,32 +488,54 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
     context: "webhook:updated",
   });
 
-  const updates: Record<string, string> = {
-    updated_at: new Date().toISOString(),
-  };
-
   const nextBilling = subscription.billing_info?.next_billing_time;
 
+  /*
+   * First check whether this UPDATED event is the result of
+   * a revised upgrade.
+   *
+   * If yes, applyRevisedUpgrade() performs the ONE subscription
+   * update required for the plan change.
+   */
+  const wasRevisedUpgrade = await applyRevisedUpgrade(
+    subscription,
+    existingSub.tenant_id,
+    nextBilling,
+  );
+
+  if (wasRevisedUpgrade) {
+    /*
+     * IMPORTANT:
+     *
+     * Do not touch invoices here.
+     * Do not generate PDF here.
+     * Do not send invoice email here.
+     */
+    return;
+  }
+
+  /*
+   * Normal subscription update.
+   *
+   * Example:
+   * - Payment method update
+   * - Billing information update
+   *
+   * Only synchronize the subscription period.
+   */
   if (nextBilling) {
-    updates.current_period_end = nextBilling;
+    const { error: updateError } = await admin
+      .from("subscriptions")
+      .update({
+        current_period_end: nextBilling,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("paypal_subscription_id", subscription.id);
+
+    if (updateError) {
+      console.error("Failed to sync subscription on update:", updateError);
+    }
   }
-
-  const { error: updateError } = await admin
-    .from("subscriptions")
-    .update(updates)
-    .eq("paypal_subscription_id", subscription.id);
-
-  if (updateError) {
-    console.error("Failed to sync subscription on update:", updateError);
-  }
-
-  // A one-time upgrade revises the EXISTING subscription onto the new plan.
-  // PayPal fires BILLING.SUBSCRIPTION.UPDATED for that change (not ACTIVATED),
-  // so this is the webhook that must complete the plan switch. The upgrade
-  // switch is keyed on old_paypal_subscription_id (its own paypal_subscription_id
-  // keeps the order id), has no effective_at, and is still pending. If the
-  // buyer's redirect back to the app ever drops, this applies the upgrade.
-  await applyRevisedUpgrade(subscription, existingSub.tenant_id, nextBilling);
 }
 
 export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
@@ -540,21 +563,153 @@ export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
       updated_at: new Date().toISOString(),
     })
     .eq("paypal_subscription_id", subscription.id);
-
-  console.log(
-    `Payment failed for subscription ${subscription.id}. Status updated to past_due.`,
-  );
 }
 
 export async function handlePaymentCompleted(event: WebhookEvent) {
   const payment = event.resource;
 
+  if (!payment.id) {
+    throw new Error("Webhook missing payment id.");
+  }
+
   const subscriptionId = payment.billing_agreement_id;
 
-  // PayPal retries deliveries, so the same sale can arrive several times. The
-  // invoice is keyed on the PayPal transaction id: if one already exists this
-  // sale is fully processed, and re-running would both violate that key and
-  // email the customer a second copy.
+  if (!subscriptionId) {
+    return;
+  }
+
+  /*
+   * ============================================================
+   * STEP 1
+   * Detect PayPal's immediate SALE caused by an upgrade.
+   *
+   * IMPORTANT:
+   * We do this BEFORE querying invoices.
+   *
+   * An upgrade payment must:
+   *
+   *   - NOT create an invoice
+   *   - NOT update an invoice
+   *   - NOT generate a PDF
+   *   - NOT upload a PDF
+   *   - NOT send an email
+   *
+   * The actual recurring invoice is created next month.
+   * ============================================================
+   */
+
+  const paymentTime = payment.create_time
+    ? new Date(payment.create_time)
+    : new Date();
+
+  const paymentDate = paymentTime.toISOString().substring(0, 10);
+
+  /*
+   * Two different upgrade paths produce this SALE, and the subscription id
+   * it carries can live in EITHER switch column:
+   *
+   *   1. Revise path  — the same agreement is revised onto the higher plan,
+   *      so the SALE's billing_agreement_id matches the switch's
+   *      old_paypal_subscription_id.
+   *
+   *   2. Replacement path — the revise fails (e.g. plans on different PayPal
+   *      products), so a NEW agreement is created, the switch is re-keyed to
+   *      it, and the SALE's billing_agreement_id matches the switch's
+   *      paypal_subscription_id instead.
+   *
+   * Match on BOTH columns to cover both paths. The sale can also arrive
+   * before the switch is flipped to "applied" (PayPal redelivers until the
+   * webhook returns 200), so accept pending/approved too — the same-day
+   * recency bound below prevents a stale switch from suppressing a genuine
+   * monthly renewal later.
+   *
+   * The switch must ALSO predate the sale: created_at <= payment time. This
+   * stops a LATER switch (e.g. a same-day Pro->Business after Free->Pro) from
+   * hijacking a redelivered, older sale that never invoiced. An upgrade's
+   * proration sale always happens after its switch was created (requested
+   * before any charge), so real upgrades still match.
+   */
+  const { data: switchRows, error: upgradeSwitchError } = await admin
+    .from("subscription_switches")
+    .select(
+      "id, tenant_id, status, created_at, updated_at, old_paypal_subscription_id",
+    )
+    .or(
+      `old_paypal_subscription_id.eq.${subscriptionId},paypal_subscription_id.eq.${subscriptionId}`,
+    )
+    .is("effective_at", null)
+    .in("status", ["pending", "approved", "applied"])
+    .lte("created_at", paymentTime.toISOString())
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  const upgradeSwitch = (switchRows ?? [])[0] ?? null;
+
+  if (upgradeSwitchError) {
+    console.warn(
+      `[webhook] upgrade switch lookup failed for sale ${payment.id}:`,
+      upgradeSwitchError,
+    );
+  }
+
+  /*
+   * The upgrade switch must have been created/applied recently
+   * (same calendar day as the payment).
+   *
+   * This prevents an old/stale upgrade switch from suppressing
+   * a genuine monthly renewal later.
+   */
+  let isRecentUpgradeSale = false;
+
+  if (upgradeSwitch) {
+    const switchUpdated = upgradeSwitch.updated_at
+      ? new Date(upgradeSwitch.updated_at)
+      : null;
+
+    const switchCreated = upgradeSwitch.created_at
+      ? new Date(upgradeSwitch.created_at)
+      : null;
+
+    const switchDate =
+      switchUpdated && !Number.isNaN(switchUpdated.getTime())
+        ? switchUpdated.toISOString().substring(0, 10)
+        : switchCreated && !Number.isNaN(switchCreated.getTime())
+          ? switchCreated.toISOString().substring(0, 10)
+          : null;
+
+    /*
+     * A revised/replacement upgrade can ONLY happen when the tenant already
+     * had a REAL PayPal subscription to move FROM. Switch rows created for a
+     * fresh signup carry old_paypal_subscription_id = "FREE-<tenant>" (no
+     * prior paid agreement), and their SALE is the subscription's genuine
+     * first recurring charge — it must be invoiced, never suppressed.
+     */
+    const hadPaidSubscription =
+      !!upgradeSwitch.old_paypal_subscription_id &&
+      !upgradeSwitch.old_paypal_subscription_id.startsWith("FREE-");
+
+    isRecentUpgradeSale =
+      hadPaidSubscription && !!switchDate && switchDate === paymentDate;
+  }
+
+  if (isRecentUpgradeSale) {
+    return;
+  }
+
+  /*
+   * ============================================================
+   * STEP 2
+   * From here onward, this is a genuine recurring payment.
+   * Normal invoice processing is allowed.
+   * ============================================================
+   */
+
+  /*
+   * PayPal can retry webhook delivery.
+   *
+   * If this transaction already has a completed invoice,
+   * do not process it again.
+   */
   const { data: alreadyInvoiced, error: existingInvoiceError } = await admin
     .from("invoices")
     .select("id, storage_path")
@@ -565,17 +720,13 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     throw existingInvoiceError;
   }
 
-  // Only short-circuit when the delivery actually finished: if the PDF upload
-  // or email failed on a previous attempt the row exists but its storage_path
-  // is still null, and skipping here would leave the invoice without a PDF or
-  // an email for good. That case falls through and re-publishes the same row.
   if (alreadyInvoiced?.storage_path) {
-    console.log(
-      `Sale ${payment.id} already invoiced as ${alreadyInvoiced.id}; skipping duplicate delivery.`,
-    );
     return;
   }
 
+  /*
+   * Find the active subscription.
+   */
   const { data: subscription, error } = await admin
     .from("subscriptions")
     .select("*, plans(name, price_month), tenants(name)")
@@ -589,14 +740,18 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   const plan = Array.isArray(subscription.plans)
     ? subscription.plans?.[0]
     : subscription.plans;
+
   const tenant = Array.isArray(subscription.tenants)
     ? subscription.tenants?.[0]
     : subscription.tenants;
 
   const amount = Number(payment.amount?.total ?? 0);
   const currency = payment.amount?.currency ?? "USD";
+
   const paidAt = payment.create_time || new Date().toISOString();
-  const periodStart = (paidAt || "").substring(0, 10);
+
+  const periodStart = paidAt.substring(0, 10);
+
   const periodEnd = subscription.current_period_end
     ? subscription.current_period_end.substring(0, 10)
     : addMonths(paidAt).substring(0, 10);
@@ -604,37 +759,61 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   const nextBillingDate = subscription.current_period_end
     ? subscription.current_period_end
     : addMonths(paidAt);
+
   const nextBillingAmount = Number(plan?.price_month ?? 0);
 
-  // Billing email for the PDF "Bill To" block: the tenant's default payment
-  // method reports the email PayPal holds for the agreement.
+  /*
+   * Billing email.
+   */
   const { data: billingMethod } = await admin
     .from("payment_methods")
     .select("paypal_email")
     .eq("tenant_id", subscription.tenant_id)
     .eq("is_default", true)
     .maybeSingle();
+
   const billingEmail = billingMethod?.paypal_email || undefined;
 
-  // A denied attempt recorded a FAILED invoice for this subscription; the
-  // successful retry finalizes that same line instead of creating a duplicate
-  // and counts as the "later collected" flip, per the payment lifecycle.
+  /*
+   * ============================================================
+   * STEP 3
+   * If this is a successful retry of a previously failed
+   * recurring payment, finalize the existing failed invoice.
+   * ============================================================
+   */
+
   const { data: failedInvoice } = await admin
     .from("invoices")
-    .select("id")
+    .select("id, amount, period_start, period_end")
     .eq("subscription_id", subscription.id)
     .eq("status", "failed")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
+  const paidStart = paidAt.substring(0, 10);
+
+  const failedIsSameCharge =
+    !!failedInvoice &&
+    Number(failedInvoice.amount ?? 0) === amount &&
+    paidStart >= failedInvoice.period_start &&
+    paidStart <= failedInvoice.period_end;
+
   let insertedInvoice: { id: string } | null = null;
 
+  /*
+   * Existing incomplete invoice delivery.
+   */
   if (alreadyInvoiced && !alreadyInvoiced.storage_path) {
-    // Re-publishing a partially finished delivery: the row is already there, so
-    // skip the flip/insert and just regenerate the PDF + email below.
-    insertedInvoice = { id: alreadyInvoiced.id };
-  } else if (failedInvoice) {
+    insertedInvoice = {
+      id: alreadyInvoiced.id,
+    };
+  }
+
+  /*
+   * Successful retry of a failed payment.
+   */
+  else if (failedIsSameCharge && failedInvoice) {
     const { error: flipError } = await admin
       .from("invoices")
       .update({
@@ -663,12 +842,17 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
       throw flipError;
     }
 
-    console.log(
-      `[webhook] finalized previously failed invoice ${failedInvoice.id} for sale ${payment.id}.`,
-    );
+    insertedInvoice = {
+      id: failedInvoice.id,
+    };
+  }
 
-    insertedInvoice = { id: failedInvoice.id };
-  } else {
+  /*
+   * Genuine recurring payment.
+   *
+   * This is where the monthly invoice is created.
+   */
+  else {
     const { data, error: invoiceError } = await admin
       .from("invoices")
       .insert({
@@ -680,18 +864,28 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
         amount,
         currency,
+
         status: "paid",
 
         invoice_type: "recurring",
+
         subscription_id: subscription.id,
+
         paypal_subscription_id:
           subscription.paypal_subscription_id ?? subscriptionId,
+
         subtotal: amount,
+
         tax: 0,
+
         amount_paid: amount,
+
         balance_due: 0,
+
         payment_method: "PayPal",
+
         paid_at: paidAt,
+
         billing_email: billingEmail ?? null,
 
         plan_name: plan?.name ?? null,
@@ -703,18 +897,17 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
         period_end: periodEnd,
 
         next_billing_date: nextBillingDate,
+
         next_billing_amount: nextBillingAmount,
       })
       .select()
       .single();
 
     if (invoiceError) {
-      // A concurrent delivery inserted it between the check above and here. The
-      // unique key on paypal_txn_id did its job: nothing left to do.
+      /*
+       * Concurrent webhook delivery.
+       */
       if (invoiceError.code === "23505") {
-        console.log(
-          `Sale ${payment.id} was invoiced concurrently; skipping duplicate delivery.`,
-        );
         return;
       }
 
@@ -723,6 +916,15 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
     insertedInvoice = data;
   }
+
+  /*
+   * ============================================================
+   * STEP 4
+   * Load invoice for PDF generation.
+   *
+   * This point is reached ONLY for a genuine recurring payment.
+   * ============================================================
+   */
 
   const { data: invoice, error: fetchError } = await admin
     .from("invoices")
@@ -734,7 +936,13 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     throw fetchError;
   }
 
-  // PayPal is the only payment provider; currency comes from the payload.
+  /*
+   * ============================================================
+   * STEP 5
+   * Generate PDF.
+   * ============================================================
+   */
+
   const pdf = await generateInvoicePdf(
     {
       ...invoice,
@@ -752,6 +960,13 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     },
   );
 
+  /*
+   * ============================================================
+   * STEP 6
+   * Upload PDF.
+   * ============================================================
+   */
+
   const storagePath = await uploadInvoicePdf(
     subscription.tenant_id,
     invoice.id,
@@ -760,22 +975,31 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   await updateInvoiceStorage(invoice.id, storagePath);
 
-  // Email the invoice to the tenant admin (mandatory) and, when one exists,
-  // the verified+active billing admin, with a short-lived download link. Email
-  // failures must not fail payment processing.
+  /*
+   * ============================================================
+   * STEP 7
+   * Email invoice.
+   * ============================================================
+   */
+
   try {
     const recipients = await resolveInvoiceRecipients(subscription.tenant_id);
 
     if (recipients.length === 0) {
       console.warn(
-        `No active tenant/billing admin found for tenant ${subscription.tenant_id}; invoice email skipped.`,
+        `No active tenant/billing admin found for tenant ` +
+          `${subscription.tenant_id}; invoice email skipped.`,
       );
     } else {
       const invoiceNumber =
         invoice.invoice_number ||
         (invoice.id
-          ? `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
+          ? `INV-${String(invoice.id)
+              .replace(/-/g, "")
+              .slice(0, 8)
+              .toUpperCase()}`
           : "-");
+
       const signedUrl = await getInvoiceSignedUrl(storagePath);
 
       for (const recipient of recipients) {
@@ -790,6 +1014,10 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
       }
     }
   } catch (emailError) {
+    /*
+     * Email failure must not cause PayPal payment
+     * processing to be treated as failed.
+     */
     console.error("Failed to send invoice email:", emailError);
   }
 }
@@ -819,7 +1047,6 @@ export async function handleOrderCompleted(event: WebhookEvent) {
 
   let txnId: string;
   let currency = "USD";
-  let eventLabel = "order";
   let capturedAmount: number | null = null;
 
   if (event.event_type === "CHECKOUT.ORDER.COMPLETED") {
@@ -830,7 +1057,6 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     txnId = capture.id;
     currency = capture.amount?.currency ?? "USD";
     capturedAmount = Number(capture.amount?.value ?? NaN);
-    eventLabel = resource.id;
   } else {
     // PAYMENT.CAPTURE.COMPLETED: the resource is the capture itself.
     if (String(resource.status ?? "").toUpperCase() !== "COMPLETED") {
@@ -842,7 +1068,6 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     txnId = resource.id;
     currency = resource.amount?.currency ?? "USD";
     capturedAmount = Number(resource.amount?.value ?? NaN);
-    eventLabel = txnId;
   }
 
   const { data: invoiceRow, error: invoiceError } = await admin
@@ -865,9 +1090,6 @@ export async function handleOrderCompleted(event: WebhookEvent) {
   // the PayPal transaction id). If no row exists here, this is a stray event
   // with nothing to finalize — skip rather than invent an invoice.
   if (!invoice) {
-    console.log(
-      `[webhook] no invoice row for txn ${txnId} (${eventLabel}); skipping (one-time upgrade capture).`,
-    );
     return;
   }
 
@@ -935,10 +1157,6 @@ export async function handleOrderCompleted(event: WebhookEvent) {
   const storagePath = await uploadInvoicePdf(tenantId, invoice.id, pdf);
 
   await updateInvoiceStorage(invoice.id, storagePath);
-
-  console.log(
-    `[webhook] generated invoice PDF for txn ${txnId} (${eventLabel}) tenant ${tenantId}.`,
-  );
 
   // Email the upgrade invoice to the tenant admin (mandatory) and, when one
   // exists, the verified+active billing admin, with a short-lived download link.
@@ -1019,9 +1237,6 @@ export async function handlePaymentDenied(event: WebhookEvent) {
       .maybeSingle();
 
     if (existingFailed) {
-      console.log(
-        `Denied payment for cycle ${now.substring(0, 10)} already recorded as failed invoice ${existingFailed.id}; skipping duplicate.`,
-      );
       return;
     }
 
@@ -1052,9 +1267,6 @@ export async function handlePaymentDenied(event: WebhookEvent) {
     if (invError && invError.code !== "23505") {
       console.error("Failed to record denied payment as an invoice:", invError);
     } else if (invError && invError.code === "23505") {
-      console.log(
-        `Denied payment event ${event.id} already recorded; skipping duplicate.`,
-      );
     }
   }
 }

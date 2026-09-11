@@ -27,9 +27,9 @@ export function AppHeader({ identity }: { identity: ShellIdentity | null }) {
           variant="ghost"
           size="icon-lg"
           aria-label="Search"
-          className="relative size-10 sm:size-11 rounded-md lg:hidden"
+          className="relative size-10 border-none sm:size-11 rounded-md lg:hidden"
         >
-          <Search aria-hidden />
+          <Search className="size-5" aria-hidden />
         </Button>
 
         <NotificationMenu />

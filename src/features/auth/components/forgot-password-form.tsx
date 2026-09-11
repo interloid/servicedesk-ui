@@ -98,7 +98,7 @@ export function ForgotPasswordForm() {
               variant="outline"
               onClick={handleResend}
               disabled={isPending}
-              className="h-11 border-input text-brand-accent"
+              className="h-11"
             >
               {isPending ? (
                 <span className="flex items-center gap-2">

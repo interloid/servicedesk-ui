@@ -1,4 +1,10 @@
+import "server-only";
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  canManageTenantBilling,
+  getTenantIdBySlug,
+} from "@/features/tenancy/services/tenant-resolver";
 
 export interface BillingDashboardData {
   accountName: string;
@@ -39,19 +45,11 @@ export interface BillingDashboardData {
     date: string;
   };
   paymentMethod: {
-    /**
-     * What PayPal actually reported. "card" only when PayPal returned card
-     * metadata; "paypal" for a wallet-funded subscription, where PayPal does
-     * not disclose the underlying card; "none" when nothing is on file yet.
-     */
     sourceType: "card" | "paypal" | "none";
-    /** Display label: the card brand, or "PayPal". */
     type: string;
     last4: string;
-    /** "MM/YYYY" for a card, otherwise "N/A". */
     expiry: string;
     email?: string;
-    /** Payer name PayPal reported once the buyer approved, if any. */
     payerName?: string;
     payerCountry?: string;
     brand?: string;
@@ -66,12 +64,7 @@ export interface BillingDashboardData {
     effectiveAt: string;
     daysRemaining: number;
   } | null;
-  /**
-   * An immediate upgrade in progress: a one-time PayPal order was created
-   * for `newPlanRate - proratedCredit` and is awaiting the buyer's payment.
-   * Once paid, the full-rate subscription begins and the next payment is
-   * the full `newPlanRate`.
-   */
+
   pendingUpgrade?: {
     planName: string;
     planRate: number;
@@ -94,6 +87,18 @@ export async function fetchTenantBillingData(
 ): Promise<BillingDashboardData | null> {
   const supabase = await createSupabaseServerClient();
   const sanitizedSlug = (tenantSlug || "").trim();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return null;
+
+  const callerTenantId = await getTenantIdBySlug(sanitizedSlug);
+
+  if (!callerTenantId) return null;
+
+  if (!(await canManageTenantBilling(user.id, callerTenantId))) return null;
 
   const { data: tenant, error: tenantError } = await supabase
     .from("tenants")
@@ -136,7 +141,7 @@ export async function fetchTenantBillingData(
     const rate = Number(switchPlan?.price_month ?? 0);
     scheduledChange = {
       planName: switchPlan?.name ?? "Free",
-      planRate: rate > 0 ? `$${rate.toFixed(0)}/mo` : "$0/mo",
+      planRate: rate > 0 ? `$${rate.toFixed(2)}/mo` : "$0.00/mo",
       effectiveAt: pendingSwitch.effective_at,
       daysRemaining,
     };
@@ -164,7 +169,13 @@ export async function fetchTenantBillingData(
   ).length;
   const regularCount = usedSeats - adminCount;
 
-  let plan = sub?.plans;
+  type PlanFacts = {
+    name?: string | null;
+    price_month?: string | number | null;
+    seat_limit?: number | null;
+  };
+
+  let plan: PlanFacts | null = (sub?.plans as PlanFacts | null) ?? null;
 
   // No active subscription row (upgrade awaiting approval, agreement between
   // cancel and replacement): the plan card must still reflect the tenant's
@@ -178,11 +189,11 @@ export async function fetchTenantBillingData(
       .single();
 
     if (tenantPlan) {
-      plan = tenantPlan as unknown as typeof plan;
+      plan = tenantPlan;
     }
   }
 
-  const planSeatLimit: number | undefined = plan?.seat_limit;
+  const planSeatLimit: number | undefined = plan?.seat_limit ?? undefined;
 
   const totalSeats = sub?.seats ?? planSeatLimit ?? 0;
   const unusedSeats = Math.max(0, totalSeats - usedSeats);
@@ -275,7 +286,8 @@ export async function fetchTenantBillingData(
     .from("invoices")
     .select("*")
     .eq("tenant_id", tenant.id)
-    .order("period_start", { ascending: false });
+    .order("period_start", { ascending: false })
+    .order("invoice_number", { ascending: true });
 
   const invoices = await Promise.all(
     (invoiceRows || []).map(async (inv) => {
@@ -347,8 +359,17 @@ export async function fetchTenantBillingData(
     };
   }
 
-  const latestInvoice = invoiceRows?.[0];
-  const latestInvoicePaid = latestInvoice?.status === "paid";
+  const latestInvoice =
+    (invoiceRows || [])
+      .filter((inv) => inv.status === "paid")
+      .sort((a, b) => {
+        const paidAt = (v: string | null | undefined) =>
+          new Date(v ?? "").getTime() || 0;
+        return (
+          paidAt(b.paid_at ?? b.created_at) - paidAt(a.paid_at ?? a.created_at)
+        );
+      })[0] ?? null;
+  const latestInvoicePaid = latestInvoice !== null;
 
   let billingStatus: BillingDashboardData["billingStatus"] = "active";
   if (sub?.status === "trialing") {
@@ -373,7 +394,7 @@ export async function fetchTenantBillingData(
     isSuspended: billingStatus === "past_due",
     plan: {
       name: plan?.name ?? "Free",
-      rate: isFreePlan ? "$0/mo" : `$${monthlyRate}/mo`,
+      rate: isFreePlan ? "$0.00/mo" : `$${monthlyRate.toFixed(2)}/mo`,
       rateValue: monthlyRate,
       seatLimit: totalSeats,
     },
@@ -402,10 +423,20 @@ export async function fetchTenantBillingData(
       next: isFreePlan ? "$0.00" : `$${nextDueAmountFormatted}`,
       unusedSeats: unusedSeats,
     },
-    lastPayment:
-      invoices.length > 0 && invoices[0].status === "Paid"
-        ? { amount: invoices[0].amount, date: invoices[0].date }
-        : undefined,
+    lastPayment: latestInvoice
+      ? {
+          amount: `$${Number(latestInvoice.amount ?? 0).toFixed(2)}`,
+          date: new Date(
+            latestInvoice.paid_at ??
+              latestInvoice.created_at ??
+              latestInvoice.period_start,
+          ).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+        }
+      : undefined,
     paymentMethod: paymentMethodData,
     scheduledChange,
     pendingUpgrade,

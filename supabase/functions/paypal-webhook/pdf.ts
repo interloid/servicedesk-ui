@@ -295,6 +295,19 @@ export async function generateInvoicePdf(
 
   drawText(`Tenant ID: ${subscription.tenant_id || "-"}`, col1X, customerY, 8);
 
+  customerY -= 14;
+  drawText(`Plan: ${planName}`, col1X, customerY, 8);
+
+  if (subscription.seats !== undefined) {
+    customerY -= 13;
+    drawText(
+      `${subscription.seats} ${subscription.seats === 1 ? "seat" : "seats"}`,
+      col1X,
+      customerY,
+      8,
+    );
+  }
+
   // ── Invoice Details (right) ───────────────────────────────────────────────
   drawLabel("Invoice Details", col2X, y);
 
@@ -650,6 +663,8 @@ export async function generateInvoicePdf(
     font,
     color: brandTeal,
   });
+
+  y -= 14;
 
   const footerCompany =
     "ServiceDesk, Inc. · 1 Market Plaza, Suite 300 · San Francisco, CA 94105";

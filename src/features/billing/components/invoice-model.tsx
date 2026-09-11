@@ -138,7 +138,7 @@ export default function InvoiceModal({
             type="button"
             variant="outline"
             onClick={onClose}
-            className="rounded-xl border-emerald-800 text-teal-800 hover:bg-teal-50 font-semibold px-6"
+            className="rounded-xl font-semibold px-6"
           >
             Close
           </Button>

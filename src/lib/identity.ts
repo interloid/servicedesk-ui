@@ -1,6 +1,9 @@
+import "server-only";
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
 import { ShellIdentity } from "@/types/shell-identity";
+import { getTenantClaims } from "@/features/auth/claims";
 
 export async function getShellIdentity(
   tenantSlug: string,
@@ -16,18 +19,13 @@ export async function getShellIdentity(
     return null;
   }
 
-  const { data: claimsData, error: claimsError } =
-    await supabase.auth.getClaims();
+  const claims = await getTenantClaims(supabase);
 
-  if (claimsError) {
-    console.error("[identity] claims lookup failed:", claimsError.message);
+  if (!claims) {
     return null;
   }
 
-  const tenantId = claimsData?.claims?.tenant_id as string | undefined;
-  const tenantRole = claimsData?.claims?.tenant_role as string | undefined;
-  const sessionTenantSlug = claimsData?.claims?.tenant_slug as
-    string | undefined;
+  const { tenantId, tenantRole, tenantSlug: sessionTenantSlug } = claims;
 
   if (!tenantId || !sessionTenantSlug) {
     return null;
@@ -168,7 +166,7 @@ export async function getShellIdentity(
       email: user.email ?? "",
       initials,
       avatarUrl: profile?.avatar_url ?? "",
-      role: tenantRole ?? "User",
+      role: tenantRole ?? "customer",
     },
   };
 }

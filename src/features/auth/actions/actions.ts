@@ -15,6 +15,8 @@ import {
 } from "@/features/auth/services/auth.service";
 import type { ActionResult, LoginSuccess } from "@/features/auth/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { getTenantClaims } from "../claims";
 import { exchangePkceAuthCode } from "@/lib/supabase/pkce";
 import {
   ForgotPasswordValues,
@@ -24,6 +26,9 @@ import {
   UpdatePasswordValues,
   updatePasswordSchema,
 } from "../schemas/reset-password";
+
+const LOGIN_ATTEMPT_LIMIT = { limit: 10, windowMs: 5 * 60_000 };
+const RESET_REQUEST_LIMIT = { limit: 5, windowMs: 15 * 60_000 };
 
 const CONFIRM_OTP_TYPES = new Set([
   "signup",
@@ -40,6 +45,19 @@ export async function loginAction(
   values: LoginValues,
   next?: string | null,
 ): Promise<ActionResult<LoginSuccess>> {
+  const { allowed } = rateLimit(
+    `login:${await clientKey()}`,
+    LOGIN_ATTEMPT_LIMIT,
+  );
+
+  if (!allowed) {
+    return {
+      success: false,
+      code: "rate_limited",
+      message: "Too many sign-in attempts. Wait a few minutes and try again.",
+    };
+  }
+
   const parsed = loginSchema.safeParse(values);
 
   if (!parsed.success) {
@@ -141,6 +159,19 @@ export async function logoutAction(): Promise<ActionResult<null>> {
 }
 
 export async function resetPasswordAction(values: ForgotPasswordValues) {
+  const { allowed } = rateLimit(
+    `password-reset:${await clientKey()}`,
+    RESET_REQUEST_LIMIT,
+  );
+
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Too many reset requests. Wait a few minutes and try again.",
+      isRateLimited: true,
+    };
+  }
+
   const validatedFields = forgotPasswordSchema.safeParse(values);
 
   if (!validatedFields.success) {
@@ -167,6 +198,19 @@ export async function resetTenantPasswordAction(
   values: ForgotPasswordValues,
   slug: string,
 ) {
+  const { allowed } = rateLimit(
+    `password-reset:${await clientKey()}`,
+    RESET_REQUEST_LIMIT,
+  );
+
+  if (!allowed) {
+    return {
+      success: false,
+      error: "Too many reset requests. Wait a few minutes and try again.",
+      isRateLimited: true,
+    };
+  }
+
   const validatedFields = forgotPasswordSchema.safeParse(values);
 
   if (!validatedFields.success) {
@@ -250,9 +294,7 @@ export async function confirmEmailAction(
       );
     }
 
-    const { data: claimsData } = await supabase.auth.getClaims();
-    const tenantSlug =
-      (claimsData?.claims?.tenant_slug as string | undefined) ?? null;
+    const tenantSlug = (await getTenantClaims(supabase))?.tenantSlug ?? null;
 
     return { success: true, data: { tenantSlug } };
   } catch (error) {
@@ -315,9 +357,7 @@ export async function exchangeConfirmationCodeAction(
       }
     }
 
-    const { data: claimsData } = await supabase.auth.getClaims();
-    const tenantSlug =
-      (claimsData?.claims?.tenant_slug as string | undefined) ?? null;
+    const tenantSlug = (await getTenantClaims(supabase))?.tenantSlug ?? null;
 
     return { success: true, data: { tenantSlug } };
   } catch (error) {

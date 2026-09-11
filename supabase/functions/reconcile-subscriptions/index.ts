@@ -343,9 +343,6 @@ Deno.serve(async (req) => {
         if (pendingSwitch.paypal_subscription_id.startsWith("FREE-")) {
           await applySwitch(token, pendingSwitch, null);
           summary.applied += 1;
-          console.log(
-            `Applied scheduled Free switch ${pendingSwitch.id} for tenant ${pendingSwitch.tenant_id}.`,
-          );
           continue;
         }
 
@@ -366,9 +363,6 @@ Deno.serve(async (req) => {
           }
           await applySwitch(token, pendingSwitch, null, oldPaypalSub);
           summary.applied += 1;
-          console.log(
-            `Applied scheduled paid-downgrade switch ${pendingSwitch.id} for tenant ${pendingSwitch.tenant_id}.`,
-          );
           continue;
         }
 
@@ -386,9 +380,6 @@ Deno.serve(async (req) => {
             paypalSub,
           );
           summary.applied += 1;
-          console.log(
-            `Applied scheduled switch ${pendingSwitch.id} for tenant ${pendingSwitch.tenant_id}.`,
-          );
           continue;
         }
 
@@ -404,9 +395,6 @@ Deno.serve(async (req) => {
             .eq("id", pendingSwitch.id);
 
           summary.abandoned += 1;
-          console.log(
-            `Scheduled switch ${pendingSwitch.id} abandoned (PayPal: ${status}).`,
-          );
           continue;
         }
 
@@ -414,9 +402,6 @@ Deno.serve(async (req) => {
         // billing the new agreement yet. Change nothing and look again on the
         // next run.
         summary.notReady += 1;
-        console.log(
-          `Scheduled switch ${pendingSwitch.id} not ready (PayPal: ${status}).`,
-        );
       } catch (switchError) {
         // One tenant failing must not stop the rest of the batch.
         summary.failed += 1;

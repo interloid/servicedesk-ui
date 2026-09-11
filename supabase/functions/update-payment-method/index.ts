@@ -243,11 +243,6 @@ Deno.serve(async (req) => {
     // merchant account, so it is deliberately not attempted.
     const manageUrl = paypalAutopayUrl(BASE_URL);
 
-    console.log(
-      `[update-payment-method] tenant=${tenantId} subscription=${paypalSubscriptionId} ` +
-        `payment_source_type=${resolved.sourceType} has_card=${resolved.hasCard} outcome=${outcome}`,
-    );
-
     return Response.json({
       success: true,
       message:

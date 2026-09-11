@@ -250,7 +250,7 @@ export function StepBusinessHours({
               type="button"
               variant="outline"
               onClick={onSkip}
-              className="w-full sm:w-auto h-11 px-5 font-semibold text-brand-accent"
+              className="w-full sm:w-auto h-11 px-5 font-semibold"
             >
               Skip for now
             </Button>

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { headers } from "next/headers";
 import {
   PORTAL_BASE_DOMAIN,

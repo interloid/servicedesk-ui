@@ -14,8 +14,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cancelSubscriptionAction } from "../billing-actions";
-import { BillingDashboardData } from "../services/billing-dashboard.service";
+import type { BillingDashboardData } from "../services/billing-dashboard.service";
 
 interface CancelSubscriptionProps {
   tenantSlug: string;
@@ -30,6 +32,15 @@ export default function CancelSubscription({
   const [isPending, startTransition] = useTransition();
   const [step, setStep] = useState<"confirm" | "final">("confirm");
   const [error, setError] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>("");
+
+  const cancelReasons = [
+    "Too expensive",
+    "Missing features",
+    "Found a better alternative",
+    "Don't use it often enough",
+    "Other",
+  ];
 
   const plan = billingData.plan;
   const renewalDate = billingData.renewalDate;
@@ -178,7 +189,6 @@ export default function CancelSubscription({
           </p>
         </div>
 
-        {/* Current plan summary */}
         <Card className="p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -200,7 +210,6 @@ export default function CancelSubscription({
 
         {step === "confirm" && (
           <>
-            {/* What you'll lose */}
             <Card className="border-red-200 bg-red-50/50 p-5">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
@@ -275,6 +284,41 @@ export default function CancelSubscription({
                   </p>
                 </div>
               </div>
+            </Card>
+
+            <Card className="p-5">
+              <h3 className="text-sm font-bold text-slate-900">
+                What&apos;s the reason for cancelling?
+              </h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Optional — helps us improve. Not required to cancel.
+              </p>
+              <RadioGroup
+                value={cancelReason}
+                onValueChange={setCancelReason}
+                className="mt-4"
+              >
+                {cancelReasons.map((reason) => (
+                  <div
+                    key={reason}
+                    className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-slate-300 data-[state=checked]:border-teal-600"
+                    data-state={
+                      cancelReason === reason ? "checked" : "unchecked"
+                    }
+                  >
+                    <RadioGroupItem
+                      value={reason}
+                      id={`cancel-reason-${reason}`}
+                    />
+                    <Label
+                      htmlFor={`cancel-reason-${reason}`}
+                      className="cursor-pointer text-sm text-slate-700"
+                    >
+                      {reason}
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
             </Card>
 
             {error && (

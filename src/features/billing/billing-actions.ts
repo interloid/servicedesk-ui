@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { changeTenantPlan } from "./services/billing.service";
-import { fetchTenantBillingData } from "./services/billing-dashboard.service";
 
 export async function changeTenantPlanAction(
   tenantSlug: string,
@@ -34,16 +33,6 @@ export async function changeTenantPlanAction(
     const message =
       error instanceof Error ? error.message : "Failed to change plan";
     return { success: false, error: message };
-  }
-}
-
-export async function getBillingDashboardAction(tenantSlug: string) {
-  try {
-    const data = await fetchTenantBillingData(tenantSlug);
-    if (!data) return { error: "Tenant billing data not found" };
-    return { success: true, data };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "Unknown error" };
   }
 }
 
@@ -143,14 +132,6 @@ export async function confirmSubscriptionActivationAction(
   }
 }
 
-/**
- * Re-syncs the tenant's payment method from PayPal and returns where the
- * customer changes it.
- *
- * All PayPal work lives in the `update-payment-method` Edge Function so there
- * is one implementation of the payment-method mapping rather than a Node copy
- * drifting from the Deno one. Nothing here creates a subscription or a tenant.
- */
 export async function updatePaymentMethodAction(tenantSlug: string): Promise<{
   success: boolean;
   error?: string;

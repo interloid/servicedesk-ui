@@ -68,7 +68,7 @@ export default function RootLayout({
               name: siteConfig.name,
               description: siteConfig.description,
               url: siteConfig.url,
-            }),
+            }).replace(/</g, "\\u003c"),
           }}
         />
 

@@ -191,7 +191,7 @@ export function StepSlaPolicy({
             type="button"
             variant="outline"
             onClick={onSkip}
-            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold text-brand-accent"
+            className="w-full sm:w-auto h-11 px-5 text-sm font-semibold"
           >
             Skip for now
           </Button>

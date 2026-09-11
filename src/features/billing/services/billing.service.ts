@@ -112,45 +112,6 @@ export async function getTenantPlan(tenantSlug: string): Promise<string> {
   return plan?.code || tenant.plan_id;
 }
 
-export async function updateTenantPlan(
-  tenantSlug: string,
-  newPlanCode: string,
-  newPlanId?: string,
-) {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-
-  if (authError || !user) {
-    throw new Error("Unauthorized");
-  }
-
-  const payload: Record<string, string> = {
-    plan_id: newPlanCode,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (newPlanId) {
-    payload.plan_id = newPlanId;
-  }
-
-  const { data, error } = await supabase
-    .from("tenants")
-    .update(payload)
-    .eq("slug", tenantSlug)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(`Database error: ${error.message}`);
-  }
-
-  return data;
-}
-
 export type PlanChangeResult = {
   success: boolean;
   error?: string;
@@ -371,6 +332,19 @@ export async function captureOrderPayment(
     return { success: false, error: "Unauthorized" };
   }
 
+  const tenantId = await getTenantIdBySlug(tenantSlug);
+
+  if (!tenantId) {
+    return { success: false, error: "Workspace not found." };
+  }
+
+  if (!(await canManageTenantBilling(user.id, tenantId))) {
+    return {
+      success: false,
+      error: "You don't have permission to manage billing for this workspace.",
+    };
+  }
+
   if (!orderId) {
     return { success: false, error: "Order ID is required." };
   }
@@ -452,6 +426,19 @@ export async function activateTenantSubscription(
 
   if (authError || !user) {
     return { success: false, error: "Unauthorized" };
+  }
+
+  const tenantId = await getTenantIdBySlug(tenantSlug);
+
+  if (!tenantId) {
+    return { success: false, error: "Workspace not found." };
+  }
+
+  if (!(await canManageTenantBilling(user.id, tenantId))) {
+    return {
+      success: false,
+      error: "You don't have permission to manage billing for this workspace.",
+    };
   }
 
   try {

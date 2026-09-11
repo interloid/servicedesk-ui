@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { CalendarClock, Loader2, X, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { FormattedPlan } from "../types";
@@ -25,7 +26,6 @@ interface DowngradeDialogProps {
   usedSeats: number;
   totalSeats: number;
   renewalDate: string | null;
-  /** Target plan name of an already-scheduled change, if any ("already downgraded"). */
   scheduledToPlan?: string | null;
 }
 
@@ -40,6 +40,7 @@ export function DowngradeDialog({
   renewalDate,
   scheduledToPlan,
 }: DowngradeDialogProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   const isFreeTarget = targetPlan?.priceValue === 0;
@@ -116,7 +117,7 @@ export function DowngradeDialog({
         }
 
         onOpenChange(false);
-        window.location.reload();
+        router.refresh();
       } catch (error) {
         console.error("Downgrade error:", error);
         toast.error(
@@ -212,7 +213,7 @@ export function DowngradeDialog({
         <AlertDialogFooter className="mx-0 mb-0 border-t border-border px-4 py-4">
           <AlertDialogCancel
             disabled={isPending}
-            className="mt-0 h-10 rounded-xl border-border bg-background px-5 font-semibold text-foreground hover:bg-muted"
+            className="mt-0 h-10 rounded-xl px-5 font-semibold"
           >
             Keep my plan
           </AlertDialogCancel>

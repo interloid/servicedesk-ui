@@ -151,12 +151,6 @@ async function getSdkClientToken(): Promise<{
     );
   }
 
-  console.log(
-    `[PayPal] client token created (domains=${domains.length}, expires_in=${
-      data.expires_in ?? 900
-    })`,
-  );
-
   return { token: data.access_token, expiresIn: data.expires_in ?? 900 };
 }
 
@@ -201,10 +195,6 @@ async function cancelPayPalSubscription(
     response.status === 404 ||
     (response.status === 422 && data.includes("SUBSCRIPTION_STATUS_INVALID"))
   ) {
-    console.log(
-      `PayPal subscription ${paypalSubscriptionId} is not cancellable ` +
-        `(${response.status}); nothing to cancel.`,
-    );
     return;
   }
 
@@ -321,9 +311,6 @@ async function capturePaypalOrder(
   const existingOrder = await readOrder();
 
   if (String(existingOrder.status ?? "").toUpperCase() === "COMPLETED") {
-    console.log(
-      `[subscription] order ${orderId} already completed; treating as captured.`,
-    );
     return { ok: true, ...parseCompletedOrder(existingOrder) };
   }
 
@@ -351,9 +338,6 @@ async function capturePaypalOrder(
   const recheckOrder = await readOrder();
 
   if (String(recheckOrder.status ?? "").toUpperCase() === "COMPLETED") {
-    console.log(
-      `[subscription] order ${orderId} completed between checks; treating as captured.`,
-    );
     return { ok: true, ...parseCompletedOrder(recheckOrder) };
   }
 
@@ -706,9 +690,6 @@ Deno.serve(async (req) => {
         }
 
         if (appliedSwitch) {
-          console.log(
-            `[subscription] capture-order re-entry: order ${orderId} already applied for tenant ${tenantId}.`,
-          );
           const { data: appliedPlan } = await admin
             .from("plans")
             .select("name")
@@ -752,9 +733,6 @@ Deno.serve(async (req) => {
             { status: 400 },
           );
         }
-        console.log(
-          `[subscription] order ${orderId} already captured, continuing upgrade.`,
-        );
       }
 
       const { data: plan, error: planError } = await admin
@@ -867,13 +845,8 @@ Deno.serve(async (req) => {
       // different PayPal products (PLAN_PRODUCT_NOT_COMPATIBLE). The upgrade
       // value was already captured from the one-time order, so the replacement
       // carries a zero setup fee and PayPal bills the full rate next cycle.
-      const createReplacementSubscription = async (
-        reason: string,
-      ): Promise<Response> => {
+      const createReplacementSubscription = async (): Promise<Response> => {
         const nowDateStr = new Date().toISOString();
-        console.log(
-          `[subscription] creating replacement for upgrade (${tenantId}): ${reason}.`,
-        );
 
         const { data: tenantRow } = await admin
           .from("tenants")
@@ -1009,9 +982,6 @@ Deno.serve(async (req) => {
           if (
             !["ACTIVE", "APPROVAL_PENDING", "SUSPENDED"].includes(freshStatus)
           ) {
-            console.log(
-              `[subscription] old agreement ${existingSubscriptionId} is already "${freshStatus}"; skipping cancel.`,
-            );
             await syncSubscriptionStatus();
           } else {
             const cancelRes = await fetch(
@@ -1032,9 +1002,6 @@ Deno.serve(async (req) => {
             );
 
             if (cancelRes.ok) {
-              console.log(
-                `[subscription] cancelled old agreement ${existingSubscriptionId} after replacement (${tenantId}).`,
-              );
               await syncSubscriptionStatus();
             } else {
               const cancelBody = await cancelRes.json().catch(() => ({}));
@@ -1045,10 +1012,6 @@ Deno.serve(async (req) => {
             }
           }
         }
-
-        console.log(
-          `[subscription] replacement subscription ${replacementSubId} created (zero setup fee) for upgrade to ${plan.name}.`,
-        );
 
         return Response.json({
           success: true,
@@ -1064,9 +1027,7 @@ Deno.serve(async (req) => {
       };
 
       if (existingPaypalStatus !== "ACTIVE") {
-        return await createReplacementSubscription(
-          `status "${existingPaypalStatus || "UNKNOWN"}"`,
-        );
+        return await createReplacementSubscription();
       }
 
       const reviseResponse = await fetch(
@@ -1099,9 +1060,7 @@ Deno.serve(async (req) => {
         const details = Array.isArray(reviseResult?.details)
           ? (reviseResult.details as Array<{ issue?: string }>)
           : [];
-        return await createReplacementSubscription(
-          `revise ${reviseResponse.status} ${details[0]?.issue ?? ""}`.trim(),
-        );
+        return await createReplacementSubscription();
       }
 
       // Kept pending and still keyed on the ORDER id. If PayPal needs buyer
@@ -2205,10 +2164,6 @@ Deno.serve(async (req) => {
         );
       }
 
-      console.log(
-        `[subscription] order created ${orderResult.orderId} tenant=${tenantId} amount=${orderAmount}`,
-      );
-
       await admin
         .from("subscription_switches")
         .update({ status: "cancelled", updated_at: new Date().toISOString() })
@@ -2307,10 +2262,6 @@ Deno.serve(async (req) => {
         { status: 400 },
       );
     }
-
-    console.log(
-      `[subscription] created ${paypalSubscription.id} tenant=${tenantId}`,
-    );
 
     const approvalUrl = paypalSubscription.links?.find(
       (link: { rel: string; href: string }) => link.rel === "approve",

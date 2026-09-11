@@ -58,7 +58,7 @@ export async function sendInvoiceEmail({
               </table>
             </div>
             <div style="text-align:center;margin:30px">
-              <a href="${signedUrl}" style="display:inline-block;background:#0e7adf;color:#ffffff;padding:13px 28px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:14px">Download Invoice</a>
+              <a href="${signedUrl}" style="display:inline-block;background:#0f766e;color:#ffffff;padding:13px 28px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:14px">Download Invoice</a>
             </div>
             <p style="font-size:12px;color:#6b7280;text-align:center">If the button above does not work, you can access your invoice from your ServiceDesk billing account.</p>
           </div>

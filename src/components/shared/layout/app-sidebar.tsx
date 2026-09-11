@@ -49,7 +49,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { MembershipRole } from "@/types/team-members";
+import { isMembershipRole, MembershipRole } from "@/types/team-members";
 import { ShellIdentity } from "@/types/shell-identity";
 
 interface NavItem {
@@ -82,11 +82,18 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
   const pathname = usePathname();
   const params = useParams();
 
-  const userRole = (identity?.user.role as MembershipRole) ?? "customer";
+  // identity.user.role is a plain string and can hold a value that is not a
+  // real membership role (the JWT claim is absent for a member whose row was
+  // not active when the token was minted). Checking it rather than casting is
+  // what keeps an unknown role from filtering every nav item away.
+  const userRole: MembershipRole = isMembershipRole(identity?.user.role)
+    ? identity.user.role
+    : "customer";
 
+  // org.name is a display name ("CloudNova Systems"), never a URL slug, so the
+  // path is the only safe fallback for the route parameter.
   const tenantSlug =
     (params?.tenantSlug as string | undefined) ??
-    identity?.org.name ??
     stripTenantPrefix(pathname)?.slug ??
     "";
 
@@ -301,15 +308,25 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                 </TooltipContent>
               </Tooltip>
 
-              <span
-                className="
-        truncate
-        text-xs
-        text-muted-foreground
-      "
-              >
-                {identity?.org.planSummary ?? "Active Plan"}
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="
+            block
+            min-w-0
+            truncate
+            text-xs
+            text-muted-foreground
+          "
+                  >
+                    {identity?.org.planSummary ?? "Active Plan"}
+                  </span>
+                </TooltipTrigger>
+
+                <TooltipContent>
+                  {identity?.org.planSummary ?? "Active Plan"}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </TooltipProvider>
 

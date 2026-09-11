@@ -16,7 +16,7 @@ import {
 import { FormattedPlan } from "../types";
 import { toast } from "sonner";
 import { changeTenantPlanAction } from "../billing-actions";
-import { BillingDashboardData } from "../services/billing-dashboard.service";
+import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import { tenantPath } from "@/lib/tenancy";
 import { DowngradeDialog } from "./downgrade-dialog";
 
@@ -108,7 +108,7 @@ export function PricingCards({
         }
 
         setSelectedPlanForSwitch(null);
-        window.location.reload();
+        router.refresh();
       } catch (error) {
         console.error("Plan switch error:", error);
         toast.error(
@@ -398,11 +398,12 @@ export function PricingCards({
                     </>
                   ) : (
                     <Button
+                      variant={isDowngrade ? "outline" : "default"}
                       disabled={isPending}
                       onClick={() => openSwitchDialog(plan)}
                       className={`h-11 w-full gap-2 whitespace-nowrap font-semibold shadow-none transition-colors ${
                         isDowngrade
-                          ? "border border-border bg-background text-foreground hover:bg-muted"
+                          ? ""
                           : "bg-brand-accent text-primary-foreground hover:bg-brand-accent/90"
                       }`}
                     >
@@ -533,7 +534,7 @@ export function PricingCards({
           <AlertDialogFooter className="mx-0 mb-0 border-t border-border px-4 py-4">
             <AlertDialogCancel
               disabled={isPending}
-              className="mt-0 h-10 rounded-xl border-border bg-background px-5 font-semibold text-foreground hover:bg-muted"
+              className="mt-0 h-10 rounded-xl px-5 font-semibold"
             >
               Cancel
             </AlertDialogCancel>

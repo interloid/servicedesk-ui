@@ -108,7 +108,7 @@ export function ForgotTenantPasswordForm({
               variant="outline"
               onClick={handleResend}
               disabled={isPending}
-              className="h-10.5 border-input text-brand-accent"
+              className="h-10.5"
             >
               {isPending ? (
                 <span className="flex items-center gap-2">

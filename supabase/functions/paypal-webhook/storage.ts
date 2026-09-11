@@ -36,10 +36,11 @@ export async function uploadInvoicePdf(
 
 export async function getInvoiceSignedUrl(
   storagePath: string,
+  expiresInSeconds = 60 * 60 * 24 * 7,
 ): Promise<string> {
   const { data, error } = await admin.storage
     .from("invoices")
-    .createSignedUrl(storagePath, 60 * 60);
+    .createSignedUrl(storagePath, expiresInSeconds);
 
   if (error) {
     throw error;

@@ -207,7 +207,7 @@ export function LoginForm({
             variant="outline"
             disabled={busy}
             onClick={onGoogleSignIn}
-            className="h-11 w-full border-input text-base text-brand-accent"
+            className="h-11 w-full text-base"
           >
             {isGooglePending
               ? "Redirecting to Google…"

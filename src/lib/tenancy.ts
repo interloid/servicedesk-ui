@@ -23,6 +23,30 @@ export const PORTAL_BASE_HOSTNAME = stripPort(
   PORTAL_BASE_DOMAIN ?? "localhost",
 );
 
+export function isTrustedHost(
+  host: string | null | undefined,
+  siteUrl: string,
+): boolean {
+  if (!host) return false;
+
+  const hostname = stripPort(host.trim().toLowerCase());
+  if (!hostname) return false;
+
+  let siteHostname: string;
+  try {
+    siteHostname = stripPort(new URL(siteUrl).host.toLowerCase());
+  } catch {
+    return false;
+  }
+
+  if (hostname === siteHostname) return true;
+  if (hostname === PORTAL_BASE_HOSTNAME) return true;
+
+  return (
+    PORTAL_BASE_DOMAIN !== null && hostname.endsWith(`.${PORTAL_BASE_HOSTNAME}`)
+  );
+}
+
 const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 const SUBDOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;

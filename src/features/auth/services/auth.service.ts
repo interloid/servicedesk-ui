@@ -1,3 +1,5 @@
+import "server-only";
+
 import { headers } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -6,7 +8,6 @@ import type { LoginValues } from "@/features/auth/schemas/login";
 import type {
   ActiveMembership,
   AuthFailureCode,
-  MembershipRole,
   SessionUser,
 } from "@/features/auth/types";
 import {
@@ -15,6 +16,7 @@ import {
   getTenantIdBySlug,
 } from "@/features/tenancy/services/tenant-resolver";
 import {
+  isTrustedHost,
   isValidTenantSlug,
   landingUrlForSlug,
   stripTenantPrefix,
@@ -22,6 +24,7 @@ import {
   tenantPath,
 } from "@/lib/tenancy";
 import { APP_ROUTES } from "@/lib/routes";
+import { EMPTY_TENANT_CLAIMS, getTenantClaims } from "../claims";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { ForgotPasswordValues } from "../schemas/forgot-password";
 import {
@@ -80,18 +83,13 @@ export async function login({
     });
   }
 
-  const { data: claimsData, error: claimsError } =
-    await supabase.auth.getClaims();
+  const claims = await getTenantClaims(supabase);
 
-  if (claimsError) {
-    console.error("JWT claims error:", claimsError);
+  if (!claims) {
     throw new Error("Unable to verify authentication session");
   }
 
-  const tenantId =
-    (claimsData?.claims?.tenant_id as string | undefined) ?? null;
-  const tenantSlug =
-    (claimsData?.claims?.tenant_slug as string | undefined) ?? null;
+  const { tenantId, tenantSlug } = claims;
 
   await verifyHostTenancy(supabase, tenantId);
   if (tenantId) {
@@ -107,8 +105,7 @@ export async function login({
     email: data.user.email ?? email,
     tenantId,
     tenantSlug,
-    role:
-      (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
+    role: claims.tenantRole,
   };
 }
 
@@ -167,14 +164,12 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
     });
   }
 
-  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = (await getTenantClaims(supabase)) ?? EMPTY_TENANT_CLAIMS;
 
-  const tenantId =
-    (claimsData?.claims?.tenant_id as string | undefined) ?? null;
+  const tenantId = claims.tenantId;
 
   const tenantSlug =
-    (claimsData?.claims?.tenant_slug as string | undefined) ??
-    (tenantId ? await getTenantSlugById(tenantId) : null);
+    claims.tenantSlug ?? (tenantId ? await getTenantSlugById(tenantId) : null);
 
   await verifyHostTenancy(supabase, tenantId);
   if (tenantId) {
@@ -190,8 +185,7 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
     email: data.user.email ?? "",
     tenantSlug,
     tenantId,
-    role:
-      (claimsData?.claims?.tenant_role as MembershipRole | undefined) ?? null,
+    role: claims.tenantRole,
   };
 }
 
@@ -229,19 +223,23 @@ export function safeNext(
 }
 
 async function requestOrigin(): Promise<string> {
+  const configured = new URL(env.NEXT_PUBLIC_SITE_URL);
   const requestHeaders = await headers();
   const host = requestHeaders.get("host");
-  const forwardedProto = requestHeaders.get("x-forwarded-proto");
 
-  const scheme =
-    forwardedProto?.split(",")[0]?.trim() ??
-    (process.env.NODE_ENV === "production" ? "https" : "http");
-
-  if (host) {
-    return `${scheme}://${host}`;
+  if (!isTrustedHost(host, env.NEXT_PUBLIC_SITE_URL)) {
+    if (host) {
+      console.warn(`[auth] ignoring untrusted host header: ${host}`);
+    }
+    return configured.origin;
   }
 
-  return new URL(env.NEXT_PUBLIC_SITE_URL).origin;
+  const forwardedProto = requestHeaders.get("x-forwarded-proto");
+  const scheme =
+    forwardedProto?.split(",")[0]?.trim() ??
+    configured.protocol.replace(":", "");
+
+  return `${scheme}://${host}`;
 }
 
 async function verifyHostTenancy(

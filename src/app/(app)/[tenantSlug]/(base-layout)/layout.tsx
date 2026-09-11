@@ -4,6 +4,7 @@ import { AppSidebar } from "@/components/shared/layout/app-sidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getShellIdentity } from "@/lib/identity";
+import { notFound } from "next/navigation";
 
 export default async function DashboardLayout({
   children,
@@ -17,6 +18,18 @@ export default async function DashboardLayout({
   const { tenantSlug } = await params;
 
   const identity = await getShellIdentity(tenantSlug);
+
+  // getShellIdentity returns null for a failed claims lookup, a session whose
+  // tenant does not match the URL, or a tenant row RLS will not return. Without
+  // this the shell renders with customer navigation, which fails open.
+  //
+  // Deliberately notFound() and not a redirect to the tenant login: the proxy
+  // bounces an authenticated visitor off /[slug]/login back to /[slug]/tickets
+  // (see allowsExistingSession in lib/tenancy.ts), so redirecting there would
+  // loop forever for exactly the broken sessions this guard catches.
+  if (!identity) {
+    notFound();
+  }
 
   return (
     <SidebarProvider className="w-full">

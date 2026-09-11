@@ -10,14 +10,11 @@ import { updatePaymentMethodAction } from "../billing-actions";
 interface UpdatePaymentModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** What PayPal reports funds this subscription. */
   sourceType?: "card" | "paypal" | "none";
   paypalEmail?: string;
-  /** Name PayPal reported for the payer, when it disclosed one. */
   paypalPayerName?: string;
   invoiceId?: string;
   tenantSlug?: string;
-  /** Re-reads the billing page once the customer says they are done. */
   onSynced?: () => void;
 }
 
@@ -109,10 +106,6 @@ export function UpdatePaymentModal({
             </p>
           </div>
 
-          {/*
-            The stored method is shown here rather than described in prose so
-            the customer can confirm they are about to replace the right one.
-          */}
           {isWallet && (
             <div className="mb-5 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
               <div className="rounded-lg bg-slate-100 p-2">
@@ -170,7 +163,7 @@ export function UpdatePaymentModal({
                 variant="outline"
                 disabled={isSubmitting}
                 onClick={() => onOpenChange(false)}
-                className="rounded-lg border border-slate-200 text-teal-800 hover:bg-slate-50 font-semibold px-5 h-10 text-xs shadow-none"
+                className="rounded-lg font-semibold px-5 h-10 text-xs shadow-none"
               >
                 Cancel
               </Button>

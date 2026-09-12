@@ -394,26 +394,23 @@ export default function InvoiceModal({
               ))}
             </dl>
 
-            <div
-              className={cn(
-                "mt-5 flex items-center gap-4 rounded-xl p-4",
-                meta.box,
-              )}
-            >
-              <span
-                className={cn(
-                  "flex size-10 shrink-0 items-center justify-center rounded-full",
-                  meta.iconWrap,
-                )}
-              >
-                <StatusIcon className="size-5" />
-              </span>
-              <div className="min-w-0">
+            <div className={cn("mt-5 rounded-xl p-4 text-left", meta.box)}>
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                    meta.iconWrap,
+                  )}
+                >
+                  <StatusIcon className="size-4.5" />
+                </span>
                 <p className={cn("text-sm font-semibold", meta.headingColor)}>
                   {meta.heading}
                 </p>
-                <p className={cn("text-sm", meta.textColor)}>{meta.message}</p>
               </div>
+              <p className={cn("mt-2.5 text-sm", meta.textColor)}>
+                {meta.message}
+              </p>
             </div>
           </div>
 

@@ -7,6 +7,7 @@ import { X, Loader2, ExternalLink, Shield, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MODAL_BUTTON } from "./modal-buttons";
+import { ModalNotice } from "./modal-notice";
 import { updatePaymentMethodAction } from "../billing-actions";
 
 interface UpdatePaymentModalProps {
@@ -90,17 +91,19 @@ export function UpdatePaymentModal({
           }}
           className="w-[calc(100%-2rem)] max-w-120 rounded-2xl bg-white p-6 text-slate-900 shadow-2xl border border-slate-200 outline-none"
         >
-          <DialogPrimitive.Close className="absolute right-5 top-5 rounded-md p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors focus:outline-none">
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
+          <div className="mb-5 space-y-1">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="text-xl font-bold tracking-tight text-slate-900">
+                {isWallet
+                  ? "Manage your PayPal payment"
+                  : "Update payment method"}
+              </h2>
 
-          <div className="space-y-1 mb-5">
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              {isWallet
-                ? "Manage your PayPal payment"
-                : "Update payment method"}
-            </h2>
+              <DialogPrimitive.Close className="-mr-1.5 shrink-0 rounded-md p-1.5 text-slate-400 transition-colors duration-200 ease-out hover:bg-slate-100 hover:text-slate-600 focus:outline-none motion-safe:active:scale-[0.98]">
+                <X className="h-5 w-5" />
+                <span className="sr-only">Close</span>
+              </DialogPrimitive.Close>
+            </div>
             <p className="text-xs text-slate-500 font-normal">
               {invoiceId
                 ? `We'll retry invoice ${invoiceId} once the new details go through.`
@@ -128,25 +131,18 @@ export function UpdatePaymentModal({
           )}
 
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
-              <div className="flex items-start space-x-3">
-                <div className="rounded-lg bg-teal-100 p-2">
-                  <Wallet className="h-5 w-5 text-teal-700" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    {sentToPayPal
-                      ? "Finish in the PayPal tab"
-                      : "Change it in PayPal"}
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {sentToPayPal
-                      ? "Pick a different funding source for this subscription, then come back and select Done so we can refresh what's on file."
-                      : "Swapping the funding source behind a running agreement has to happen on PayPal's side. We'll open its automatic payments settings, where you can change the card or bank account. Your plan, workspace and subscription stay exactly as they are — nothing is re-created, and your card details never touch our servers."}
-                  </p>
-                </div>
-              </div>
-            </div>
+            <ModalNotice
+              icon={Wallet}
+              title={
+                sentToPayPal
+                  ? "Finish in the PayPal tab"
+                  : "Change it in PayPal"
+              }
+            >
+              {sentToPayPal
+                ? "Pick a different funding source for this subscription, then come back and select Done so we can refresh what's on file."
+                : "Swapping the funding source behind a running agreement has to happen on PayPal's side. We'll open its automatic payments settings, where you can change the card or bank account. Your plan, workspace and subscription stay exactly as they are — nothing is re-created, and your card details never touch our servers."}
+            </ModalNotice>
 
             <div className="flex items-center space-x-2 text-xs text-slate-500">
               <Shield className="h-4 w-4 text-emerald-600" />

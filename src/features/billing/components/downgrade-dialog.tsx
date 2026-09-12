@@ -8,6 +8,7 @@ import { FormattedPlan } from "../types";
 import { changeTenantPlanAction } from "../billing-actions";
 import { cn } from "@/lib/utils";
 import { MODAL_BUTTON } from "./modal-buttons";
+import { ModalNotice } from "./modal-notice";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -160,61 +161,44 @@ export function DowngradeDialog({
             overflow-hidden
           "
       >
-        <AlertDialogHeader className="relative px-6 pt-5 pb-4">
-          <button
-            type="button"
-            onClick={() => {
-              if (!isPending) onOpenChange(false);
-            }}
-            disabled={isPending}
-            className="absolute right-5 top-5 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
+        <AlertDialogHeader className="block px-6 pt-5 pb-4 text-left">
+          <div className="flex items-center justify-between gap-4">
+            <AlertDialogTitle className="text-xl font-bold text-foreground">
+              Downgrade to {targetName}?
+            </AlertDialogTitle>
 
-          <AlertDialogTitle className="pr-10 text-xl font-bold text-foreground">
-            Downgrade to {targetName}?
-          </AlertDialogTitle>
+            <button
+              type="button"
+              onClick={() => {
+                if (!isPending) onOpenChange(false);
+              }}
+              disabled={isPending}
+              className="-mr-1.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
 
           <AlertDialogDescription asChild>
             <div className="mt-4 space-y-3">
-              <div className="w-full rounded-xl border border-brand-accent/20 bg-brand-accent/3 px-4 py-3.5">
-                <div className="flex items-start gap-3">
-                  {timing.deferred ? (
-                    <CalendarClock className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
-                  ) : (
-                    <Zap className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
-                  )}
-
-                  <div className="space-y-1 text-sm leading-5 text-foreground">
-                    <p className="font-semibold">
-                      Takes effect: {timing.headline}
-                    </p>
-                    <p className="font-normal text-muted-foreground">
-                      {timing.body}
-                    </p>
-                  </div>
-                </div>
-              </div>
+              <ModalNotice
+                icon={timing.deferred ? CalendarClock : Zap}
+                title={`Takes effect: ${timing.headline}`}
+              >
+                {timing.body}
+              </ModalNotice>
 
               {targetPlan && seatsAtRisk > 0 && (
-                <div className="w-full rounded-xl border border-amber-200 bg-amber-50 px-4 py-3.5 dark:border-amber-900/50 dark:bg-amber-950/30">
-                  <div className="flex items-start gap-3">
-                    <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
-                    <div className="space-y-1 text-sm leading-5">
-                      <p className="font-semibold text-amber-900 dark:text-amber-200">
-                        Agent seat usage: {usedSeats} of {totalSeats} seats
-                      </p>
-                      <p className="font-normal text-amber-800/90 dark:text-amber-300/90">
-                        {targetPlan.name} includes {targetSeatLimit} agent
-                        seats. You&apos;ll need to free up {seatsAtRisk} seat
-                        {seatsAtRisk === 1 ? "" : "s"} before this change
-                        applies.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <ModalNotice
+                  icon={XCircle}
+                  tone="amber"
+                  title={`Agent seat usage: ${usedSeats} of ${totalSeats} seats`}
+                >
+                  {targetPlan.name} includes {targetSeatLimit} agent seats.
+                  You&apos;ll need to free up {seatsAtRisk} seat
+                  {seatsAtRisk === 1 ? "" : "s"} before this change applies.
+                </ModalNotice>
               )}
             </div>
           </AlertDialogDescription>

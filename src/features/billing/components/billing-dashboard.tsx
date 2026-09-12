@@ -53,8 +53,14 @@ import type { BillingDashboardData } from "../services/billing-dashboard.service
 import InvoiceModal from "./invoice-model";
 import { UpdatePaymentModal } from "./payment-method";
 import { abortPlanSwitchAction } from "../billing-actions";
-import { MODAL_BUTTON, MODAL_BUTTON_PRIMARY } from "./modal-buttons";
+import { ModalNotice } from "./modal-notice";
 
+export const MODAL_BUTTON =
+  "h-10 w-full gap-2 rounded-lg px-5 text-sm font-semibold shadow-none duration-200 ease-out motion-safe:active:scale-[0.98] sm:w-auto";
+
+/** The affirmative action in a dialog footer. */
+export const MODAL_BUTTON_PRIMARY =
+  "bg-brand-accent text-brand-accent-foreground hover:bg-brand-accent/90";
 type Invoice = BillingDashboardData["invoices"][number];
 type IconType = ComponentType<{ className?: string }>;
 type PillTone = "emerald" | "sky" | "amber" | "red" | "slate";
@@ -741,12 +747,17 @@ export default function BillingDashboard({
               </>
             )}
             <div className="mt-5 border-t border-slate-100 pt-5 text-sm">
-              <p className="font-semibold text-slate-900">Last payment</p>
-              <p className="mt-1 text-slate-600">
-                {data.lastPayment
-                  ? `${data.lastPayment.amount} · Paid ${data.lastPayment.date}`
-                  : "No payments yet."}
-              </p>
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                <p className="font-semibold text-slate-900 whitespace-nowrap">
+                  Last payment
+                </p>
+
+                <p className="text-slate-600">
+                  {data.lastPayment
+                    ? `${data.lastPayment.amount} · Paid ${data.lastPayment.date}`
+                    : "No payments yet."}
+                </p>
+              </div>
             </div>
           </DashboardCard>
 
@@ -1029,10 +1040,10 @@ export default function BillingDashboard({
             ))}
           </dl>
           {scheduledChange && (
-            <p className="rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-900">
+            <ModalNotice icon={CalendarClock} tone="amber">
               Changes to {scheduledChange.planName} ({scheduledChange.planRate})
               on {effectiveDateLabel}.
-            </p>
+            </ModalNotice>
           )}
           <DialogFooter className="gap-3 sm:justify-end">
             <Button

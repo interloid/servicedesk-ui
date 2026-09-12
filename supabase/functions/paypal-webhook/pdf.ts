@@ -204,6 +204,17 @@ export async function generateInvoicePdf(
     });
   };
 
+  const drawLabelRight = (text: string, x: number, y: number, size = 8) => {
+    const upper = text.toUpperCase();
+    page.drawText(upper, {
+      x: x - bold.widthOfTextAtSize(upper, size),
+      y,
+      size,
+      font: bold,
+      color: textMuted,
+    });
+  };
+
   const drawText = (
     text: string,
     x: number,
@@ -225,6 +236,28 @@ export async function generateInvoicePdf(
   ) => {
     const textWidth = f.widthOfTextAtSize(text, size);
     page.drawText(text, { x: x - textWidth, y, size, font: f, color });
+  };
+
+  // A long plan name would otherwise run the description straight into the
+  // charge-date column, which sits only a few points away at its longest.
+  const truncateToWidth = (
+    text: string,
+    maxWidth: number,
+    size: number,
+    f = font,
+  ) => {
+    if (f.widthOfTextAtSize(text, size) <= maxWidth) return text;
+
+    let clipped = text;
+
+    while (
+      clipped.length > 1 &&
+      f.widthOfTextAtSize(`${clipped}...`, size) > maxWidth
+    ) {
+      clipped = clipped.slice(0, -1);
+    }
+
+    return `${clipped.trimEnd()}...`;
   };
 
   const drawLine = (y: number) => {
@@ -298,6 +331,7 @@ export async function generateInvoicePdf(
       ? invoice.balance_due
       : Math.max(total - amountPaid, 0),
   );
+
   const taxPct = subtotal > 0 ? (tax / subtotal) * 100 : 0;
   const taxPctLabel = `${Number.isInteger(taxPct) ? taxPct : taxPct.toFixed(2)}%`;
 
@@ -401,23 +435,12 @@ export async function generateInvoicePdf(
   // ── Invoice Details (right) ───────────────────────────────────────────────
   drawLabel("Invoice Details", col2X, y);
 
-  let detailsY = y - 17;
+  // Collected first, drawn second: every value starts at the same x, so the
+  // column reads as two aligned columns instead of ragged "label: value" runs.
+  const detailRows: Array<{ label: string; value: string; small?: boolean }> =
+    [];
   const detailsLine = (label: string, value: string, small = false) => {
-    page.drawText(`${label}: `, {
-      x: col2X,
-      y: detailsY,
-      size: small ? 8 : 9,
-      font,
-      color: textMuted,
-    });
-    page.drawText(value, {
-      x: col2X + font.widthOfTextAtSize(`${label}: `, small ? 8 : 9),
-      y: detailsY,
-      size: small ? 8 : 9,
-      font,
-      color: textPrimary,
-    });
-    detailsY -= small ? 14 : 16;
+    detailRows.push({ label, value, small });
   };
 
   // A one-time upgrade is a single payment, not a service period: its row
@@ -428,7 +451,6 @@ export async function generateInvoicePdf(
     ? formatDate(invoice.period_start)
     : `${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`;
 
-  detailsLine("Invoice date", formatDate(invoice.created_at));
   detailsLine(periodLabel, periodText);
   detailsLine("Currency", currency);
   detailsLine("Payment method", invoice.payment_method || "PayPal");
@@ -436,6 +458,36 @@ export async function generateInvoicePdf(
 
   if (invoice.paypal_subscription_id) {
     detailsLine("PayPal subscription ID", invoice.paypal_subscription_id, true);
+  }
+
+  let detailsY = y - 17;
+  const detailValueX =
+    col2X +
+    Math.max(
+      ...detailRows.map((row) =>
+        font.widthOfTextAtSize(`${row.label}: `, row.small ? 8 : 9),
+      ),
+    );
+
+  for (const row of detailRows) {
+    const size = row.small ? 8 : 9;
+
+    page.drawText(`${row.label}: `, {
+      x: col2X,
+      y: detailsY,
+      size,
+      font,
+      color: textMuted,
+    });
+    page.drawText(row.value, {
+      x: detailValueX,
+      y: detailsY,
+      size,
+      font,
+      color: textPrimary,
+    });
+
+    detailsY -= row.small ? 14 : 16;
   }
 
   // Both columns above grow downward independently, so the next section has to
@@ -446,6 +498,13 @@ export async function generateInvoicePdf(
   y = Math.min(customerY, detailsY) - 12;
 
   // ── Charge details ────────────────────────────────────────────────────────
+  // One column grid for the table and the summary below it, so the Amount
+  // heading, every amount and every total share a right edge, inset from the
+  // band by the same 15pt the Description heading is inset on the left.
+  const colDescX = left + 15;
+  const colDateX = left + 250;
+  const colAmountX = right - 15;
+
   y -= 22;
 
   drawLabel("Charge Details", left, y);
@@ -460,9 +519,9 @@ export async function generateInvoicePdf(
     color: bgLight,
   });
 
-  drawLabel("Description", left + 15, y - 16);
-  drawLabel(periodLabel, 250, y - 16);
-  drawLabel("Amount", right - 70, y - 16);
+  drawLabel("Description", colDescX, y - 16);
+  drawLabel(periodLabel, colDateX, y - 16);
+  drawLabelRight("Amount", colAmountX, y - 16);
 
   y -= 40;
 
@@ -472,7 +531,20 @@ export async function generateInvoicePdf(
     ? "One-time charge"
     : "Recurring subscription charge";
 
-  drawText(`${chargeTitle} – ${chargeType}`, left + 15, y, 10, bold);
+  const descriptionWidth = colDateX - colDescX - 12;
+
+  drawText(
+    truncateToWidth(
+      `${chargeTitle} – ${chargeType}`,
+      descriptionWidth,
+      10,
+      bold,
+    ),
+    colDescX,
+    y,
+    10,
+    bold,
+  );
 
   const seatText =
     subscription.seats !== undefined
@@ -488,11 +560,18 @@ export async function generateInvoicePdf(
     .filter(Boolean)
     .join(" · ");
 
-  drawText(subLine, left + 15, y - 14, 8, font, textMuted);
+  drawText(
+    truncateToWidth(subLine, descriptionWidth, 8),
+    colDescX,
+    y - 14,
+    8,
+    font,
+    textMuted,
+  );
 
-  drawText(periodText, 250, y, 9);
+  drawText(periodText, colDateX, y, 9);
 
-  drawTextRight(formatMoney(total), right - 5, y + 3, 10, bold);
+  drawTextRight(formatMoney(total), colAmountX, y, 10, bold);
 
   y -= 34;
 
@@ -501,8 +580,8 @@ export async function generateInvoicePdf(
   // ── Amount summary (Subtotal, Tax, Total, Amount paid, Balance due) ───────
   y -= 24;
 
-  const totalsX = width - 250;
-  const valueX = right - 5;
+  const totalsX = right - 200;
+  const valueX = colAmountX;
 
   const drawTotalRow = (
     label: string,
@@ -568,17 +647,17 @@ export async function generateInvoicePdf(
 
     page.drawRectangle({
       x: left,
-      y: y - 58,
+      y: y - 54,
       width: contentWidth,
-      height: 58,
+      height: 54,
       color: bgLight,
     });
 
-    drawLabel("Upcoming Billing", left + 15, y - 14);
+    drawLabel("Upcoming Billing", colDescX, y - 14);
 
     drawText(
       `Next billing date: ${formatDate(subscription.next_billing_date)}`,
-      left + 15,
+      colDescX,
       y - 30,
       9,
       bold,
@@ -587,31 +666,31 @@ export async function generateInvoicePdf(
     if (subscription.next_billing_amount !== undefined) {
       drawTextRight(
         `Next recurring amount: ${formatMoney(subscription.next_billing_amount)}/month`,
-        right - 15,
+        colAmountX,
         y - 30,
         9,
         bold,
       );
     } else {
-      drawTextRight("Next recurring amount: —", right - 15, y - 30, 9, bold);
+      drawTextRight("Next recurring amount: —", colAmountX, y - 30, 9, bold);
     }
 
     drawText(
       "This is informational only and is not included in any amount on this invoice.",
-      left + 15,
+      colDescX,
       y - 44,
       7,
       font,
       textMuted,
     );
 
-    y -= 58;
+    y -= 54;
   }
 
   // ── Payment information ───────────────────────────────────────────────────
   y -= 20;
 
-  const paymentBoxHeight = 76;
+  const paymentBoxHeight = 80;
 
   page.drawRectangle({
     x: left,
@@ -626,7 +705,7 @@ export async function generateInvoicePdf(
 
   if (isPaid) {
     page.drawText("Payment completed", {
-      x: left + 15,
+      x: colDescX,
       y: y - 20,
       size: 10,
       font: bold,
@@ -634,7 +713,7 @@ export async function generateInvoicePdf(
     });
 
     page.drawText(`Provider: ${paymentMethod}`, {
-      x: left + 15,
+      x: colDescX,
       y: y - 36,
       size: 9,
       font,
@@ -642,7 +721,7 @@ export async function generateInvoicePdf(
     });
 
     page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
-      x: left + 15,
+      x: colDescX,
       y: y - 50,
       size: 8,
       font,
@@ -652,7 +731,7 @@ export async function generateInvoicePdf(
     page.drawText(
       `Paid on ${formatDate(invoice.paid_at || invoice.created_at)}`,
       {
-        x: left + 15,
+        x: colDescX,
         y: y - 65,
         size: 9,
         font,
@@ -661,7 +740,7 @@ export async function generateInvoicePdf(
     );
   } else if (isFailed) {
     page.drawText("Payment failed", {
-      x: left + 15,
+      x: colDescX,
       y: y - 20,
       size: 10,
       font: bold,
@@ -669,7 +748,7 @@ export async function generateInvoicePdf(
     });
 
     page.drawText(`Provider: ${paymentMethod}`, {
-      x: left + 15,
+      x: colDescX,
       y: y - 36,
       size: 9,
       font,
@@ -677,7 +756,7 @@ export async function generateInvoicePdf(
     });
 
     page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
-      x: left + 15,
+      x: colDescX,
       y: y - 50,
       size: 8,
       font,
@@ -685,7 +764,7 @@ export async function generateInvoicePdf(
     });
 
     page.drawText("Status: PAYMENT FAILED", {
-      x: left + 15,
+      x: colDescX,
       y: y - 65,
       size: 9,
       font,
@@ -693,7 +772,7 @@ export async function generateInvoicePdf(
     });
   } else {
     page.drawText(statusLabel, {
-      x: left + 15,
+      x: colDescX,
       y: y - 20,
       size: 10,
       font: bold,
@@ -701,7 +780,7 @@ export async function generateInvoicePdf(
     });
 
     page.drawText(`Provider: ${paymentMethod}`, {
-      x: left + 15,
+      x: colDescX,
       y: y - 36,
       size: 9,
       font,
@@ -709,7 +788,7 @@ export async function generateInvoicePdf(
     });
 
     page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
-      x: left + 15,
+      x: colDescX,
       y: y - 50,
       size: 8,
       font,
@@ -717,7 +796,7 @@ export async function generateInvoicePdf(
     });
 
     page.drawText("Please refer to your billing account for payment details.", {
-      x: left + 15,
+      x: colDescX,
       y: y - 65,
       size: 9,
       font,

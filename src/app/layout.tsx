@@ -47,10 +47,6 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // The CSP is nonce-based (see src/lib/csp.ts), and a nonce only exists per
-  // request. Reading it here renders every page dynamically: a page
-  // prerendered at build time would ship scripts without the nonce, and the
-  // browser would block them.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (

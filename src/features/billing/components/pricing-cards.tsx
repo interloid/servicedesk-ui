@@ -21,6 +21,7 @@ import { tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
 import { DowngradeDialog } from "./downgrade-dialog";
 import { MODAL_BUTTON, MODAL_BUTTON_PRIMARY } from "./modal-buttons";
+import { ModalNotice } from "./modal-notice";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -444,46 +445,40 @@ export function PricingCards({
             overflow-hidden
           "
         >
-          <AlertDialogHeader className="relative px-6 pt-5 pb-4">
-            <button
-              type="button"
-              onClick={() => {
-                if (!isPending) {
-                  setSelectedPlanForSwitch(null);
-                }
-              }}
-              disabled={isPending}
-              className="absolute right-5 top-5 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
+          <AlertDialogHeader className="block px-6 pt-5 pb-4 text-left">
+            <div className="flex items-center justify-between gap-4">
+              <AlertDialogTitle className="text-xl font-bold text-foreground">
+                {selectedSwitchLabel}?
+              </AlertDialogTitle>
 
-            <AlertDialogTitle className="pr-10 text-xl font-bold text-foreground">
-              {selectedSwitchLabel}?
-            </AlertDialogTitle>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isPending) {
+                    setSelectedPlanForSwitch(null);
+                  }
+                }}
+                disabled={isPending}
+                className="-mr-1.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
             <AlertDialogDescription asChild>
               <div className="mt-4 space-y-3">
-                <div className="w-full rounded-xl border border-brand-accent/20 bg-brand-accent/3 px-4 py-3.5">
-                  <div className="flex items-start gap-3">
-                    <Zap className="mt-0.5 h-5 w-5 shrink-0 text-brand-accent" />
-
-                    <div className="space-y-1 text-sm leading-5 text-foreground">
-                      <p className="font-semibold">
-                        Takes effect: {dialogTiming.headline}
-                      </p>
-                      <p className="font-normal text-muted-foreground">
-                        {dialogTiming.body}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <ModalNotice
+                  icon={Zap}
+                  title={`Takes effect: ${dialogTiming.headline}`}
+                >
+                  {dialogTiming.body}
+                </ModalNotice>
 
                 {isUpgradeTarget && (
                   <>
                     {proratedCredit > 0 && (
-                      <div className="w-full rounded-xl border border-border px-4 py-3.5">
+                      <div className="w-full rounded-xl border border-border px-4 py-3.5 text-left">
                         <p className="text-sm font-semibold text-foreground">
                           Price breakdown
                         </p>
@@ -519,14 +514,11 @@ export function PricingCards({
                         </div>
                       </div>
                     )}
-                    <div className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm leading-5 text-muted-foreground">
-                      <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-accent" />
-                      <p>
-                        You&apos;ll be taken to PayPal to approve the new
-                        subscription. Nothing changes until you complete that
-                        step.
-                      </p>
-                    </div>
+                    <ModalNotice icon={Info} tone="neutral">
+                      You&apos;ll be taken to PayPal to approve the new
+                      subscription. Nothing changes until you complete that
+                      step.
+                    </ModalNotice>
                   </>
                 )}
               </div>

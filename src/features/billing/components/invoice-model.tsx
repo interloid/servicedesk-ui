@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { MODAL_BUTTON, MODAL_BUTTON_PRIMARY } from "./modal-buttons";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 
 type Invoice = BillingDashboardData["invoices"][number];
@@ -41,8 +42,10 @@ interface InvoiceModalProps {
   account: { name: string; tenantId: string };
 }
 
-const OUTLINE_BUTTON =
-  "h-10 gap-2 rounded-lg border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 shadow-none hover:bg-slate-50";
+const OUTLINE_BUTTON = cn(
+  MODAL_BUTTON,
+  "border-slate-200 bg-white text-slate-800 hover:bg-slate-50",
+);
 
 interface StatusMeta {
   pill: string;
@@ -454,14 +457,14 @@ export default function InvoiceModal({
             <Button
               variant="outline"
               onClick={onClose}
-              className={cn(OUTLINE_BUTTON, "sm:px-6")}
+              className={OUTLINE_BUTTON}
             >
               Close
             </Button>
             <Button
               onClick={handleDownload}
               disabled={isDownloading || !pdfUrl}
-              className="h-10 gap-2 rounded-lg bg-brand-accent px-5 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90"
+              className={cn(MODAL_BUTTON, MODAL_BUTTON_PRIMARY)}
             >
               {isDownloading ? (
                 <Loader2 className="animate-spin" />

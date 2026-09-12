@@ -6,6 +6,8 @@ import { CalendarClock, Loader2, X, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { FormattedPlan } from "../types";
 import { changeTenantPlanAction } from "../billing-actions";
+import { cn } from "@/lib/utils";
+import { MODAL_BUTTON } from "./modal-buttons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +18,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+// Confirm/dismiss tones only -- the size comes from MODAL_BUTTON, shared with
+// every other billing popup. Outlined rather than solid, following the
+// cancel-subscription flow.
+const CONFIRM_DANGER =
+  "border-red-600 bg-background text-red-600 hover:border-red-600 hover:bg-red-50 hover:text-red-600 disabled:border-red-300 disabled:bg-background disabled:text-red-300 disabled:opacity-100 dark:hover:bg-red-950/30";
+const CONFIRM_ACCENT =
+  "border-brand-accent bg-background text-brand-accent hover:border-brand-accent hover:bg-brand-accent/5 hover:text-brand-accent disabled:border-brand-accent/40 disabled:bg-background disabled:text-brand-accent/40 disabled:opacity-100";
 
 interface DowngradeDialogProps {
   tenantSlug: string;
@@ -157,7 +167,7 @@ export function DowngradeDialog({
               if (!isPending) onOpenChange(false);
             }}
             disabled={isPending}
-            className="absolute right-5 top-5 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            className="absolute right-5 top-5 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -210,27 +220,30 @@ export function DowngradeDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <AlertDialogFooter className="mx-0 mb-0 border-t border-border px-4 py-4">
+        <AlertDialogFooter className="mx-0 mb-0 gap-3 border-t border-border px-4 py-4 sm:justify-end">
           <AlertDialogCancel
             disabled={isPending}
-            className="mt-0 h-10 rounded-xl px-5 font-semibold"
+            className={cn(MODAL_BUTTON, "mt-0")}
           >
             Keep my plan
           </AlertDialogCancel>
 
+          {/* Outlined rather than solid, matching the confirm button on the
+              cancel-subscription flow: red when the downgrade drops the tenant
+              to Free, brand-accent for a paid-to-paid downgrade. */}
           <AlertDialogAction
+            variant="outline"
             disabled={isPending}
             onClick={(e) => {
               e.preventDefault();
               handleConfirm();
             }}
-            className={`h-10 rounded-xl px-5 font-semibold shadow-none transition-colors ${
-              isFreeTarget
-                ? "bg-red-600 text-white hover:bg-red-700"
-                : "bg-brand-accent text-primary-foreground hover:bg-brand-accent/90"
-            }`}
+            className={cn(
+              MODAL_BUTTON,
+              isFreeTarget ? CONFIRM_DANGER : CONFIRM_ACCENT,
+            )}
           >
-            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Confirm downgrade
           </AlertDialogAction>
         </AlertDialogFooter>

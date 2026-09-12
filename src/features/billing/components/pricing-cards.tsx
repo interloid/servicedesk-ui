@@ -18,7 +18,9 @@ import { toast } from "sonner";
 import { changeTenantPlanAction } from "../billing-actions";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import { tenantPath } from "@/lib/tenancy";
+import { cn } from "@/lib/utils";
 import { DowngradeDialog } from "./downgrade-dialog";
+import { MODAL_BUTTON, MODAL_BUTTON_PRIMARY } from "./modal-buttons";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -451,7 +453,7 @@ export function PricingCards({
                 }
               }}
               disabled={isPending}
-              className="absolute right-5 top-5 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              className="absolute right-5 top-5 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
               aria-label="Close"
             >
               <X className="h-5 w-5" />
@@ -531,10 +533,10 @@ export function PricingCards({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <AlertDialogFooter className="mx-0 mb-0 border-t border-border px-4 py-4">
+          <AlertDialogFooter className="mx-0 mb-0 gap-3 border-t border-border px-4 py-4 sm:justify-end">
             <AlertDialogCancel
               disabled={isPending}
-              className="mt-0 h-10 rounded-xl px-5 font-semibold"
+              className={cn(MODAL_BUTTON, "mt-0")}
             >
               Cancel
             </AlertDialogCancel>
@@ -548,9 +550,9 @@ export function PricingCards({
                   executePlanSwitch(selectedPlanForSwitch);
                 }
               }}
-              className="h-10 rounded-xl bg-brand-accent px-5 font-semibold text-primary-foreground shadow-none transition-colors hover:bg-brand-accent/90"
+              className={cn(MODAL_BUTTON, MODAL_BUTTON_PRIMARY)}
             >
-              {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Confirm switch
             </AlertDialogAction>
           </AlertDialogFooter>

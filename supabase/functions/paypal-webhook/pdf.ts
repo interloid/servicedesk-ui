@@ -351,12 +351,12 @@ export async function generateInvoicePdf(
     9,
   );
 
-  y -= 90;
+  y -= 84;
 
   drawLine(y);
 
   // ── Bill To (left) ────────────────────────────────────────────────────────
-  y -= 32;
+  y -= 28;
 
   const col1X = left;
   const col2X = 295;
@@ -420,11 +420,16 @@ export async function generateInvoicePdf(
     detailsY -= small ? 14 : 16;
   };
 
+  // A one-time upgrade is a single payment, not a service period: its row
+  // stores the same date as start and end, which printed as "Sep 11, 2026 -
+  // Sep 11, 2026". It is shown as one charge date instead.
+  const periodLabel = isOneTime ? "Charge date" : "Billing period";
+  const periodText = isOneTime
+    ? formatDate(invoice.period_start)
+    : `${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`;
+
   detailsLine("Invoice date", formatDate(invoice.created_at));
-  detailsLine(
-    "Billing period",
-    `${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`,
-  );
+  detailsLine(periodLabel, periodText);
   detailsLine("Currency", currency);
   detailsLine("Payment method", invoice.payment_method || "PayPal");
   detailsLine("Transaction ID", invoice.paypal_txn_id || "-", true);
@@ -441,7 +446,7 @@ export async function generateInvoicePdf(
   y = Math.min(customerY, detailsY) - 12;
 
   // ── Charge details ────────────────────────────────────────────────────────
-  y -= 40;
+  y -= 22;
 
   drawLabel("Charge Details", left, y);
 
@@ -456,7 +461,7 @@ export async function generateInvoicePdf(
   });
 
   drawLabel("Description", left + 15, y - 16);
-  drawLabel("Billing period", 250, y - 16);
+  drawLabel(periodLabel, 250, y - 16);
   drawLabel("Amount", right - 70, y - 16);
 
   y -= 40;
@@ -485,7 +490,6 @@ export async function generateInvoicePdf(
 
   drawText(subLine, left + 15, y - 14, 8, font, textMuted);
 
-  const periodText = `${formatDate(invoice.period_start)} - ${formatDate(invoice.period_end)}`;
   drawText(periodText, 250, y, 9);
 
   drawTextRight(formatMoney(total), right - 5, y + 3, 10, bold);
@@ -527,18 +531,18 @@ export async function generateInvoicePdf(
   };
 
   drawTotalRow("Subtotal", formatMoney(subtotal), y);
-  y -= 20;
+  y -= 18;
 
   drawTotalRow(`Tax (${taxPctLabel})`, formatMoney(tax), y);
   y -= 14;
 
   drawLine(y);
 
-  y -= 24;
+  y -= 22;
 
   drawTotalRow("Total", formatMoney(total), y, 14, brandDark);
 
-  y -= 24;
+  y -= 22;
 
   drawTotalRow(
     "Amount paid",
@@ -548,7 +552,7 @@ export async function generateInvoicePdf(
     isPaid ? paidText : textPrimary,
   );
 
-  y -= 23;
+  y -= 20;
 
   drawTotalRow(
     "Balance due",
@@ -560,7 +564,7 @@ export async function generateInvoicePdf(
 
   // ── Upcoming billing (informational, never added to this invoice) ─────────
   if (subscription.next_billing_date) {
-    y -= 32;
+    y -= 26;
 
     page.drawRectangle({
       x: left,
@@ -601,13 +605,13 @@ export async function generateInvoicePdf(
       textMuted,
     );
 
-    y -= 82;
+    y -= 58;
   }
 
   // ── Payment information ───────────────────────────────────────────────────
-  y -= 26;
+  y -= 20;
 
-  const paymentBoxHeight = isFailed ? 72 : 66;
+  const paymentBoxHeight = 76;
 
   page.drawRectangle({
     x: left,
@@ -631,7 +635,7 @@ export async function generateInvoicePdf(
 
     page.drawText(`Provider: ${paymentMethod}`, {
       x: left + 15,
-      y: y - 38,
+      y: y - 36,
       size: 9,
       font,
       color: textMuted,
@@ -639,7 +643,7 @@ export async function generateInvoicePdf(
 
     page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
       x: left + 15,
-      y: y - 52,
+      y: y - 50,
       size: 8,
       font,
       color: textMuted,
@@ -649,7 +653,7 @@ export async function generateInvoicePdf(
       `Paid on ${formatDate(invoice.paid_at || invoice.created_at)}`,
       {
         x: left + 15,
-        y: y - 62,
+        y: y - 65,
         size: 9,
         font,
         color: paidText,
@@ -666,7 +670,7 @@ export async function generateInvoicePdf(
 
     page.drawText(`Provider: ${paymentMethod}`, {
       x: left + 15,
-      y: y - 38,
+      y: y - 36,
       size: 9,
       font,
       color: textMuted,
@@ -674,7 +678,7 @@ export async function generateInvoicePdf(
 
     page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
       x: left + 15,
-      y: y - 52,
+      y: y - 50,
       size: 8,
       font,
       color: textMuted,
@@ -682,7 +686,7 @@ export async function generateInvoicePdf(
 
     page.drawText("Status: PAYMENT FAILED", {
       x: left + 15,
-      y: y - 62,
+      y: y - 65,
       size: 9,
       font,
       color: failedText,
@@ -698,7 +702,7 @@ export async function generateInvoicePdf(
 
     page.drawText(`Provider: ${paymentMethod}`, {
       x: left + 15,
-      y: y - 38,
+      y: y - 36,
       size: 9,
       font,
       color: textMuted,
@@ -706,7 +710,7 @@ export async function generateInvoicePdf(
 
     page.drawText(`Transaction ID: ${invoice.paypal_txn_id || "-"}`, {
       x: left + 15,
-      y: y - 52,
+      y: y - 50,
       size: 8,
       font,
       color: textMuted,
@@ -714,7 +718,7 @@ export async function generateInvoicePdf(
 
     page.drawText("Please refer to your billing account for payment details.", {
       x: left + 15,
-      y: y - 62,
+      y: y - 65,
       size: 9,
       font,
       color: textMuted,
@@ -722,41 +726,52 @@ export async function generateInvoicePdf(
   }
 
   // ── Footer ────────────────────────────────────────────────────────────────
-  y -= paymentBoxHeight + 30;
+  // Anchored to the bottom margin. It used to flow on from the content, and
+  // with the upcoming-billing panel present the support email, address and
+  // closing line were drawn below the bottom edge of the page.
+  const footerTop = 116;
 
-  drawLine(y);
+  if (y - paymentBoxHeight < footerTop + 12) {
+    console.warn(
+      `[pdf] invoice ${invoice.id ?? "?"} content reaches into the footer area`,
+    );
+  }
 
-  y -= 28;
+  let footerY = footerTop;
+
+  drawLine(footerY);
+
+  footerY -= 22;
 
   page.drawText("Thank you for your business.", {
     x: left,
-    y,
+    y: footerY,
     size: 11,
     font: bold,
     color: brandDark,
   });
 
-  y -= 17;
+  footerY -= 16;
 
   page.drawText("Questions about this invoice?", {
     x: left,
-    y,
+    y: footerY,
     size: 9,
     font,
     color: textMuted,
   });
 
-  y -= 14;
+  footerY -= 13;
 
   page.drawText("support@servicedesk.com", {
     x: left,
-    y,
+    y: footerY,
     size: 9,
     font,
     color: brandTeal,
   });
 
-  y -= 14;
+  footerY -= 16;
 
   const footerCompany =
     "ServiceDesk, Inc. · 1 Market Plaza, Suite 300 · San Francisco, CA 94105";
@@ -764,25 +779,30 @@ export async function generateInvoicePdf(
 
   page.drawText(footerCompany, {
     x: left,
-    y,
+    y: footerY,
     size: 7,
     font,
     color: textMuted,
   });
 
-  const websiteLeft = left + footerCompanyWidth + 14;
-
   page.drawText("www.servicedesk.com", {
-    x: websiteLeft,
-    y,
+    x: left + footerCompanyWidth + 14,
+    y: footerY,
     size: 7,
     font,
     color: brandTeal,
   });
 
-  const footerText = "This invoice was generated electronically.";
+  footerY -= 12;
 
-  drawTextRight(footerText, right, y - 13, 8, font, textMuted);
+  drawTextRight(
+    "This invoice was generated electronically.",
+    right,
+    footerY,
+    8,
+    font,
+    textMuted,
+  );
 
   return await pdf.save();
 }

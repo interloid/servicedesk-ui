@@ -5,6 +5,8 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X, Loader2, ExternalLink, Shield, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { MODAL_BUTTON } from "./modal-buttons";
 import { updatePaymentMethodAction } from "../billing-actions";
 
 interface UpdatePaymentModalProps {
@@ -86,7 +88,7 @@ export function UpdatePaymentModal({
             transform: "translate(-50%, -50%)",
             zIndex: 9999,
           }}
-          className="w-full max-w-120 rounded-2xl bg-white p-6 text-slate-900 shadow-2xl border border-slate-200 outline-none"
+          className="w-[calc(100%-2rem)] max-w-120 rounded-2xl bg-white p-6 text-slate-900 shadow-2xl border border-slate-200 outline-none"
         >
           <DialogPrimitive.Close className="absolute right-5 top-5 rounded-md p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors focus:outline-none">
             <X className="h-4 w-4" />
@@ -157,13 +159,13 @@ export function UpdatePaymentModal({
               </div>
             )}
 
-            <div className="pt-4 flex flex-row items-center justify-end gap-2.5">
+            <div className="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:items-center sm:justify-end">
               <Button
                 type="button"
                 variant="outline"
                 disabled={isSubmitting}
                 onClick={() => onOpenChange(false)}
-                className="rounded-lg font-semibold px-5 h-10 text-xs shadow-none"
+                className={MODAL_BUTTON}
               >
                 Cancel
               </Button>
@@ -171,7 +173,10 @@ export function UpdatePaymentModal({
                 <Button
                   type="button"
                   onClick={handleDone}
-                  className="rounded-lg bg-teal-800 text-white hover:bg-teal-900 font-semibold px-5 h-10 text-xs shadow-none"
+                  className={cn(
+                    MODAL_BUTTON,
+                    "bg-teal-800 text-white hover:bg-teal-900",
+                  )}
                 >
                   Done
                 </Button>
@@ -180,17 +185,20 @@ export function UpdatePaymentModal({
                   type="button"
                   disabled={isSubmitting}
                   onClick={handleUpdatePayment}
-                  className="rounded-lg bg-teal-800 text-white hover:bg-teal-900 font-semibold px-5 h-10 text-xs shadow-none"
+                  className={cn(
+                    MODAL_BUTTON,
+                    "bg-teal-800 text-white hover:bg-teal-900",
+                  )}
                 >
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       Opening PayPal...
                     </>
                   ) : (
                     <>
                       Open PayPal
-                      <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+                      <ExternalLink className="h-3.5 w-3.5" />
                     </>
                   )}
                 </Button>

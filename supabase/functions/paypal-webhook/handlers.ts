@@ -891,11 +891,19 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   const periodStart = paidAt.substring(0, 10);
 
-  const periodEnd = subscription.current_period_end
-    ? subscription.current_period_end.substring(0, 10)
+  // current_period_end can still hold the previous cycle's end when the sale
+  // arrives before the subscription row is moved on. A period that ends on or
+  // before the payment day would print as "Sep 11 - Sep 11", so it falls back
+  // to one month from the payment instead.
+  const recordedPeriodEnd = subscription.current_period_end?.substring(0, 10);
+  const hasCurrentPeriod =
+    !!recordedPeriodEnd && recordedPeriodEnd > periodStart;
+
+  const periodEnd = hasCurrentPeriod
+    ? recordedPeriodEnd
     : addMonths(paidAt).substring(0, 10);
 
-  const nextBillingDate = subscription.current_period_end
+  const nextBillingDate = hasCurrentPeriod
     ? subscription.current_period_end
     : addMonths(paidAt);
 

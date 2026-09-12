@@ -1,0 +1,515 @@
+import "server-only";
+
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  canManageTenantBilling,
+  getTenantIdBySlug,
+} from "@/features/tenancy/services/tenant-resolver";
+import { describePlan } from "./billing.service";
+
+export interface BillingDashboardData {
+  accountName: string;
+  accountId: string;
+  /** tenants.id, printed as "Tenant ID" on invoices. */
+  tenantId: string;
+  billingStatus: "active" | "past_due" | "cancelled" | "trialing";
+  isSuspended?: boolean;
+  suspensionReason?: {
+    card?: string;
+    invoiceId?: string;
+    amount?: string;
+  };
+  plan: {
+    name: string;
+    rate: string;
+    rateValue: number;
+    seatLimit: number;
+    /** The plan's tagline (plans.description, or the per-tier default). */
+    description: string;
+  };
+  agents: {
+    active: number;
+    admins: number;
+    regular: number;
+  };
+  seats: {
+    used: number;
+    total: number;
+    unused: number;
+  };
+  renewalDate: string;
+  renewalDateRaw?: string;
+  autoRenew: boolean;
+  amountDue: {
+    current: string;
+    next: string;
+    unusedSeats: number;
+  };
+  lastPayment?: {
+    amount: string;
+    date: string;
+  };
+  paymentMethod: {
+    sourceType: "card" | "paypal" | "none";
+    type: string;
+    last4: string;
+    expiry: string;
+    email?: string;
+    payerName?: string;
+    payerCountry?: string;
+    brand?: string;
+    bin?: string;
+    issuer?: string;
+    country?: string;
+    status?: string;
+  };
+  scheduledChange?: {
+    planName: string;
+    planRate: string;
+    effectiveAt: string;
+    daysRemaining: number;
+  } | null;
+
+  pendingUpgrade?: {
+    planName: string;
+    planRate: number;
+    proratedCredit: number;
+    amountDue: number;
+  } | null;
+  invoices: Array<{
+    id: string;
+    date: string;
+    description: string;
+    seats: number;
+    amount: string;
+    status: string;
+    pdfUrl?: string;
+    /** "one_time" for an upgrade charge, "recurring" for a monthly charge. */
+    invoiceType: "one_time" | "recurring";
+    planName: string;
+    periodStart: string;
+    periodEnd: string;
+    paidAt?: string;
+    paymentMethod: string;
+    transactionId?: string;
+    billingEmail?: string;
+    subtotal: string;
+    tax: string;
+    taxRate: string;
+  }>;
+}
+
+const DATE_FORMAT: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+};
+
+// period_start / period_end are calendar dates. Formatting them in the server's
+// time zone would show the previous day on a server west of UTC.
+function formatCalendarDate(value: string): string {
+  return new Date(`${value.slice(0, 10)}T00:00:00Z`).toLocaleDateString(
+    "en-US",
+    { ...DATE_FORMAT, timeZone: "UTC" },
+  );
+}
+
+function formatTimestamp(value: string): string {
+  return new Date(value).toLocaleDateString("en-US", DATE_FORMAT);
+}
+
+// Amounts in the invoice's own currency. A code Intl rejects falls back to
+// "<code> 0.00" instead of throwing while the page renders.
+function formatMoney(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(2)}`;
+  }
+}
+
+export async function fetchTenantBillingData(
+  tenantSlug: string,
+): Promise<BillingDashboardData | null> {
+  const supabase = await createSupabaseServerClient();
+  const sanitizedSlug = (tenantSlug || "").trim();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return null;
+
+  const callerTenantId = await getTenantIdBySlug(sanitizedSlug);
+
+  if (!callerTenantId) return null;
+
+  if (!(await canManageTenantBilling(user.id, callerTenantId))) return null;
+
+  const { data: tenant, error: tenantError } = await supabase
+    .from("tenants")
+    .select("id, name, slug, plan_id")
+    .eq("slug", sanitizedSlug)
+    .single();
+
+  if (tenantError || !tenant) return null;
+
+  const { data: sub } = await supabase
+    .from("subscriptions")
+    .select("*, plans(*)")
+    .eq("tenant_id", tenant.id)
+    .in("status", ["active", "trialing"])
+    .order("created_at", { ascending: false })
+    .maybeSingle();
+
+  const { data: pendingSwitch } = await supabase
+    .from("subscription_switches")
+    .select(
+      "plan_id, effective_at, status, old_plan_id, old_current_period_end, plans!subscription_switches_plan_id_fkey(name, price_month)",
+    )
+    .eq("tenant_id", tenant.id)
+    .in("status", ["pending", "approved"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  let scheduledChange: BillingDashboardData["scheduledChange"] = null;
+
+  if (pendingSwitch?.effective_at && pendingSwitch.plans) {
+    const switchPlan = Array.isArray(pendingSwitch.plans)
+      ? pendingSwitch.plans[0]
+      : pendingSwitch.plans;
+    const effectiveAt = new Date(pendingSwitch.effective_at);
+    const daysRemaining = Math.max(
+      0,
+      Math.ceil((effectiveAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
+    );
+    const rate = Number(switchPlan?.price_month ?? 0);
+    scheduledChange = {
+      planName: switchPlan?.name ?? "Free",
+      planRate: rate > 0 ? `$${rate.toFixed(2)}/mo` : "$0.00/mo",
+      effectiveAt: pendingSwitch.effective_at,
+      daysRemaining,
+    };
+  }
+
+  const { data: paymentMethod } = await supabase
+    .from("payment_methods")
+    .select("*")
+    .eq("tenant_id", tenant.id)
+    .eq("is_default", true)
+    .eq("status", "active")
+    .maybeSingle();
+
+  const { data: activeMembers } = await supabase
+    .from("memberships")
+    .select("role")
+    .eq("tenant_id", tenant.id)
+    .eq("status", "active");
+
+  const members = activeMembers || [];
+  const usedSeats = members.length;
+
+  const adminCount = members.filter(
+    (m) => m.role === "tenant_admin" || m.role === "owner",
+  ).length;
+  const regularCount = usedSeats - adminCount;
+
+  type PlanFacts = {
+    name?: string | null;
+    price_month?: string | number | null;
+    seat_limit?: number | null;
+    description?: string | null;
+  };
+
+  let plan: PlanFacts | null = (sub?.plans as PlanFacts | null) ?? null;
+
+  // No active subscription row (upgrade awaiting approval, agreement between
+  // cancel and replacement): the plan card must still reflect the tenant's
+  // actual plan, not fall back to "Free". The assignment on the tenants row
+  // is the same source the plans page uses.
+  if (!plan && tenant.plan_id) {
+    const { data: tenantPlan } = await supabase
+      .from("plans")
+      .select("name, price_month, seat_limit, description")
+      .eq("id", tenant.plan_id)
+      .single();
+
+    if (tenantPlan) {
+      plan = tenantPlan;
+    }
+  }
+
+  const planSeatLimit: number | undefined = plan?.seat_limit ?? undefined;
+
+  const totalSeats = sub?.seats ?? planSeatLimit ?? 0;
+  const unusedSeats = Math.max(0, totalSeats - usedSeats);
+
+  const monthlyRate = Number(plan?.price_month ?? 0);
+
+  // A pending switch with an effective date is a scheduled change: the tenant
+  // keeps the current plan (and its charges) until effective_at, then moves to
+  // the target plan. A scheduled downgrade to Free means the subscription is
+  // effectively cancelled -- no further charges are made -- so the dashboard
+  // must stop advertising auto-renewal and the full-rate next payment.
+  const switchPlan = pendingSwitch?.plans
+    ? Array.isArray(pendingSwitch.plans)
+      ? pendingSwitch.plans[0]
+      : pendingSwitch.plans
+    : null;
+  const switchPlanRate = Number(switchPlan?.price_month ?? 0);
+  const hasScheduledSwitch =
+    !!pendingSwitch?.effective_at && switchPlan !== null;
+  const isScheduledFree = hasScheduledSwitch && switchPlanRate === 0;
+
+  // An immediate upgrade awaiting its one-time PayPal order payment shows a
+  // pending switch with no effective_at (it takes effect right away once the
+  // buyer pays). Surface it so the "Next payment" card can explain the
+  // one-time amount due and the subsequent full-rate subscription.
+  //
+  // Only while the upgrade is genuinely in progress: once the buyer has paid
+  // and the subscription was switched, the current subscription's plan_id
+  // matches the switch's target, so the one-time display must disappear and
+  // the card falls back to the normal full-rate next payment.
+  let pendingUpgrade: BillingDashboardData["pendingUpgrade"] = null;
+  if (
+    pendingSwitch &&
+    !pendingSwitch.effective_at &&
+    pendingSwitch.plans &&
+    ["pending", "approved"].includes(pendingSwitch.status ?? "") &&
+    sub?.plan_id !== pendingSwitch.plan_id
+  ) {
+    const switchPlan = Array.isArray(pendingSwitch.plans)
+      ? pendingSwitch.plans[0]
+      : pendingSwitch.plans;
+    const newPlanRate = Number(switchPlan?.price_month ?? 0);
+
+    if (newPlanRate > monthlyRate) {
+      const periodEnd = sub?.current_period_end
+        ? new Date(sub.current_period_end)
+        : null;
+      let credit = 0;
+      if (periodEnd && periodEnd.getTime() > Date.now() && monthlyRate > 0) {
+        const periodStart = new Date(
+          periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000,
+        );
+        const totalDays = Math.max(
+          1,
+          Math.ceil(
+            (periodEnd.getTime() - periodStart.getTime()) /
+              (24 * 60 * 60 * 1000),
+          ),
+        );
+        const remainingDays = Math.max(
+          0,
+          Math.ceil((periodEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
+        );
+        credit =
+          Math.round((monthlyRate * remainingDays * 100) / totalDays) / 100;
+      }
+
+      pendingUpgrade = {
+        planName: switchPlan?.name ?? "new plan",
+        planRate: newPlanRate,
+        proratedCredit: credit,
+        amountDue: Math.round(Math.max(0, newPlanRate - credit) * 100) / 100,
+      };
+    }
+  }
+
+  const totalAmount = monthlyRate.toFixed(2);
+
+  // The prorated credit is a one-time discount applied at upgrade time, not to
+  // the running subscription's next renewal, so the next due amount is simply
+  // the current monthly rate -- unless a switch is scheduled, in which case it
+  // is the target plan's rate (Free = nothing further is charged).
+  const nextDueAmount = hasScheduledSwitch ? switchPlanRate : monthlyRate;
+  const nextDueAmountFormatted = nextDueAmount.toFixed(2);
+
+  const paypalSubId = sub?.paypal_subscription_id || "";
+  const isFreePlan = paypalSubId.startsWith("FREE-") || monthlyRate === 0;
+
+  const { data: invoiceRows } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("tenant_id", tenant.id)
+    .order("period_start", { ascending: false })
+    .order("invoice_number", { ascending: true });
+
+  const invoices = await Promise.all(
+    (invoiceRows || []).map(async (inv) => {
+      const amountNum = Number(inv.amount ?? 0);
+
+      let pdfUrl: string | undefined = undefined;
+
+      if (inv.storage_path) {
+        const cleanPath = inv.storage_path
+          .replace(/^invoices\//, "")
+          .replace(/^\//, "");
+        const { data: signedData } = await supabase.storage
+          .from("invoices")
+          .createSignedUrl(cleanPath, 3600);
+
+        pdfUrl = signedData?.signedUrl || undefined;
+      }
+
+      const isOneTime = inv.invoice_type === "one_time";
+      const planName: string = inv.plan_name ?? plan?.name ?? "ServiceDesk";
+      const description = `${planName} · ${
+        isOneTime ? "One-time upgrade" : "Monthly"
+      }`;
+      const statusLabel =
+        inv.status === "paid"
+          ? "Paid"
+          : inv.status === "failed"
+            ? "Failed"
+            : inv.status === "refunded"
+              ? "Refunded"
+              : "Unpaid";
+      const currency = inv.currency || "USD";
+      const subtotalNum = Number(inv.subtotal ?? amountNum);
+      const taxNum = Number(inv.tax ?? 0);
+
+      return {
+        id: inv.invoice_number || `INV-${inv.id.slice(0, 8).toUpperCase()}`,
+        date: formatCalendarDate(inv.period_start),
+        description,
+        seats: inv.seats ?? (totalSeats > 0 ? totalSeats : 0),
+        amount: formatMoney(amountNum, currency),
+        status: statusLabel,
+        pdfUrl,
+        invoiceType: isOneTime ? ("one_time" as const) : ("recurring" as const),
+        planName,
+        periodStart: formatCalendarDate(inv.period_start),
+        periodEnd: formatCalendarDate(inv.period_end),
+        paidAt: inv.paid_at ? formatTimestamp(inv.paid_at) : undefined,
+        paymentMethod: inv.payment_method || "PayPal",
+        transactionId: inv.paypal_txn_id || undefined,
+        billingEmail: inv.billing_email || undefined,
+        subtotal: formatMoney(subtotalNum, currency),
+        tax: formatMoney(taxNum, currency),
+        taxRate:
+          subtotalNum > 0
+            ? `${Number(((taxNum / subtotalNum) * 100).toFixed(2))}%`
+            : "0%",
+      };
+    }),
+  );
+
+  let paymentMethodData: BillingDashboardData["paymentMethod"];
+
+  if (paymentMethod) {
+    paymentMethodData = {
+      sourceType: "paypal",
+      type: "PayPal",
+      last4: "N/A",
+      expiry: "N/A",
+      email: paymentMethod.paypal_email || undefined,
+      payerName: paymentMethod.paypal_payer_name || undefined,
+      payerCountry: paymentMethod.paypal_payer_country || undefined,
+      brand: undefined,
+      bin: undefined,
+      issuer: undefined,
+      country: undefined,
+      status: paymentMethod.status || undefined,
+    };
+  } else {
+    paymentMethodData = {
+      sourceType: "none",
+      type: isFreePlan ? "Free Tier" : "PayPal",
+      last4: "N/A",
+      expiry: "N/A",
+    };
+  }
+
+  const latestInvoice =
+    (invoiceRows || [])
+      .filter((inv) => inv.status === "paid")
+      .sort((a, b) => {
+        const paidAt = (v: string | null | undefined) =>
+          new Date(v ?? "").getTime() || 0;
+        return (
+          paidAt(b.paid_at ?? b.created_at) - paidAt(a.paid_at ?? a.created_at)
+        );
+      })[0] ?? null;
+  const latestInvoicePaid = latestInvoice !== null;
+
+  let billingStatus: BillingDashboardData["billingStatus"] = "active";
+  if (sub?.status === "trialing") {
+    billingStatus = "trialing";
+  } else if (sub?.status === "suspended" || sub?.status === "past_due") {
+    billingStatus = "past_due";
+  } else if (sub?.status === "cancelled") {
+    billingStatus = "cancelled";
+  } else if (isScheduledFree) {
+    billingStatus = "cancelled";
+  }
+
+  const renewalRaw =
+    sub?.current_period_end && !paypalSubId.startsWith("FREE-")
+      ? sub.current_period_end
+      : undefined;
+
+  return {
+    accountName: tenant.name,
+    accountId: tenant.slug.toUpperCase(),
+    tenantId: tenant.id,
+    billingStatus,
+    isSuspended: billingStatus === "past_due",
+    plan: {
+      name: plan?.name ?? "Free",
+      rate: isFreePlan ? "$0.00/mo" : `$${monthlyRate.toFixed(2)}/mo`,
+      rateValue: monthlyRate,
+      seatLimit: totalSeats,
+      description: describePlan(plan?.name ?? "Free", plan?.description),
+    },
+    agents: {
+      active: usedSeats,
+      admins: adminCount,
+      regular: regularCount,
+    },
+    seats: {
+      used: usedSeats,
+      total: totalSeats,
+      unused: unusedSeats,
+    },
+    renewalDate: renewalRaw
+      ? new Date(renewalRaw).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : "N/A",
+    renewalDateRaw: renewalRaw,
+    autoRenew:
+      !isFreePlan && !(sub?.status === "cancelled") && !isScheduledFree,
+    amountDue: {
+      current: latestInvoicePaid ? "$0.00" : `$${totalAmount}`,
+      next: isFreePlan ? "$0.00" : `$${nextDueAmountFormatted}`,
+      unusedSeats: unusedSeats,
+    },
+    lastPayment: latestInvoice
+      ? {
+          amount: `$${Number(latestInvoice.amount ?? 0).toFixed(2)}`,
+          date: new Date(
+            latestInvoice.paid_at ??
+              latestInvoice.created_at ??
+              latestInvoice.period_start,
+          ).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+        }
+      : undefined,
+    paymentMethod: paymentMethodData,
+    scheduledChange,
+    pendingUpgrade,
+    invoices,
+  };
+}

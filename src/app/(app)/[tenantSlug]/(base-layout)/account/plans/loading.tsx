@@ -2,18 +2,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function PlansLoading() {
   return (
-    <div className="min-h-full w-full bg-background font-sans text-foreground p-6 sm:px-6 sm:py-8 md:p-8 lg:px-8">
-      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-        <div className="text-center max-w-2xl mx-auto">
+    <div className="min-h-full w-full bg-accent/40 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 md:py-10">
+      <div className="mx-auto max-w-7xl space-y-6 sm:space-y-10 lg:space-y-12">
+        <header className="mx-auto max-w-2xl text-center">
           <Skeleton className="h-7 w-48 mx-auto sm:h-8" />
           <Skeleton className="h-4 w-72 mx-auto mt-2" />
-        </div>
+        </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-7 items-stretch">
+        <div className="flex flex-wrap items-stretch justify-center gap-5 xl:gap-6">
           {Array.from({ length: 3 }).map((_, idx) => (
             <div
               key={idx}
-              className="relative flex h-full flex-col rounded-2xl border border-border p-5 sm:p-7 shadow-sm"
+              className="relative flex h-full w-full flex-col rounded-2xl border border-border p-6 shadow-sm sm:w-[calc(50%-0.625rem)] xl:w-[calc(33.333%-1rem)]"
             >
               <div className="space-y-1.5">
                 <Skeleton className="h-5 w-24" />

@@ -1,16 +1,9 @@
 "use client";
 
-import {
-  use,
-  useState,
-  useTransition,
-  type ComponentType,
-  type ReactNode,
-} from "react";
+import { use, useState, type ComponentType, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
-  ArrowLeftRight,
   CalendarClock,
   CalendarDays,
   ChevronLeft,
@@ -21,14 +14,13 @@ import {
   ExternalLink,
   Eye,
   FileText,
-  Loader2,
   Settings,
-  ShieldCheck,
   UserRound,
   Users,
   UsersRound,
+  X,
 } from "lucide-react";
-import { toast } from "sonner";
+import { MdCurrencyExchange } from "react-icons/md";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,8 +44,8 @@ import { cn } from "@/lib/utils";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import InvoiceModal from "./invoice-model";
 import { UpdatePaymentModal } from "./payment-method";
-import { abortPlanSwitchAction } from "../billing-actions";
 import { ModalNotice } from "./modal-notice";
+import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
 
 export const MODAL_BUTTON =
   "h-10 w-full gap-2 rounded-lg px-5 text-sm font-semibold shadow-none duration-200 ease-out motion-safe:active:scale-[0.98] sm:w-auto";
@@ -81,7 +73,32 @@ const ICON_TURN = `${MICRO_ICON} motion-safe:group-hover/button:rotate-45`;
 const PRIMARY_BUTTON = `h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90 ${BUTTON_MICRO}`;
 const OUTLINE_BUTTON = `h-10 gap-2 rounded-lg border-slate-200 px-4 ${BUTTON_MICRO}`;
 const SECONDARY_BUTTON = `h-10 gap-2 rounded-lg px-4 text-sm font-semibold ${BUTTON_MICRO}`;
-const PAGINATION_BUTTON = `h-10 shrink-0 gap-1.5 rounded-lg border-slate-200 px-3 text-xs sm:h-9 ${BUTTON_MICRO}`;
+const PAGINATION_BUTTON = `size-10 shrink-0 rounded-lg border-slate-200 p-0 sm:size-9 ${BUTTON_MICRO}`;
+
+/**
+ * Page buttons for the billing history: first and last always, the current page
+ * with one neighbour either side, and an ellipsis standing in for each gap. The
+ * control keeps the same width whether there are three pages or three hundred.
+ */
+function pageWindow(current: number, total: number): Array<number | "gap"> {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, index) => index + 1);
+  }
+
+  const wanted = [1, total, current, current - 1, current + 1];
+  const pages = [...new Set(wanted)]
+    .filter((page) => page >= 1 && page <= total)
+    .sort((a, b) => a - b);
+
+  const out: Array<number | "gap"> = [];
+
+  pages.forEach((page, index) => {
+    if (index > 0 && page - pages[index - 1] > 1) out.push("gap");
+    out.push(page);
+  });
+
+  return out;
+}
 
 const PILL_TONES: Record<
   PillTone,
@@ -216,7 +233,7 @@ function DashboardCard({
           {label}
         </h2>
       </header>
-      <div className="mt-5 flex flex-1 flex-col">{children}</div>
+      <div className="mt-5 flex flex-col">{children}</div>
       {footer && (
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap [&>button]:w-full sm:[&>button]:w-auto">
           {footer}
@@ -226,18 +243,21 @@ function DashboardCard({
   );
 }
 
+
 function NoticeBanner({
   tone,
   icon: Icon,
   title,
   description,
   action,
+  onDismiss,
 }: {
   tone: "amber" | "red";
   icon: IconType;
   title: ReactNode;
   description: ReactNode;
   action?: ReactNode;
+  onDismiss?: () => void;
 }) {
   const styles =
     tone === "red"
@@ -257,25 +277,79 @@ function NoticeBanner({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 rounded-xl border px-5 py-4 sm:flex-row sm:items-center sm:justify-between",
+        "relative rounded-xl border px-4 py-3",
+        "lg:px-5 lg:py-3",
         styles.box,
       )}
     >
-      <div className="flex min-w-0 items-start gap-4">
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss notice"
+          className={cn(
+            "absolute right-3 top-3 z-10",
+            "flex size-7 items-center justify-center rounded-md",
+            "text-current/60 transition-colors",
+            "hover:bg-black/5 hover:text-current",
+            "focus:outline-none focus:ring-2 focus:ring-current/20",
+            "lg:right-4 lg:top-1/2 lg:-translate-y-1/2",
+          )}
+        >
+          <X className="size-4" />
+        </button>
+      )}
+
+      <div className="lg:hidden">
+        <div className="relative min-h-9 pr-8">
+          <span
+            className={cn(
+              "absolute left-0 top-0 flex size-9 items-center justify-center rounded-lg text-white",
+              styles.tile,
+            )}
+          >
+            <Icon className="size-4" />
+          </span>
+
+          <h3
+            className={cn(
+              "min-w-0 pl-12 text-sm font-semibold leading-5",
+              styles.title,
+            )}
+          >
+            {title}
+          </h3>
+        </div>
+
+        <p className={cn("mt-2 text-xs leading-4.5", styles.text)}>
+          {description}
+        </p>
+
+        {action && <div className="mt-3 flex w-full">{action}</div>}
+      </div>
+
+      <div className="hidden lg:flex lg:items-center lg:gap-3 lg:pr-28">
         <span
           className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-lg text-white",
+            "flex size-9 shrink-0 items-center justify-center rounded-lg text-white",
             styles.tile,
           )}
         >
-          <Icon className="size-5" />
+          <Icon className="size-4" />
         </span>
-        <div className="min-w-0">
-          <h3 className={cn("text-sm font-semibold", styles.title)}>{title}</h3>
-          <p className={cn("mt-0.5 text-xs", styles.text)}>{description}</p>
+
+        <div className="min-w-0 flex-1">
+          <h3 className={cn("text-sm font-semibold leading-5", styles.title)}>
+            {title}
+          </h3>
+
+          <p className={cn("mt-0.5 text-xs leading-4", styles.text)}>
+            {description}
+          </p>
         </div>
+
+        {action && <div className="shrink-0">{action}</div>}
       </div>
-      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }
@@ -385,7 +459,12 @@ export default function BillingDashboard({
   const [isUpdatePaymentOpen, setIsUpdatePaymentOpen] = useState(false);
   const [isPlanDetailsOpen, setIsPlanDetailsOpen] = useState(false);
   const [invoicePage, setInvoicePage] = useState(1);
-  const [isAborting, startAbort] = useTransition();
+  const [dismissedBanners, setDismissedBanners] = useState<string[]>([]);
+
+  const dismissBanner = (id: string) =>
+    setDismissedBanners((current) =>
+      current.includes(id) ? current : [...current, id],
+    );
 
   if (isLoading) {
     return (
@@ -475,17 +554,14 @@ export default function BillingDashboard({
       })
     : "";
 
-  const handleAbort = () => {
-    startAbort(async () => {
-      const res = await abortPlanSwitchAction(tenantSlug);
-      if (!res.success) {
-        toast.error(res.error || "Failed to cancel the scheduled change.");
-        return;
-      }
-      toast.success("Plan change cancelled.");
-      router.refresh();
-    });
-  };
+  // Cancelling books a downgrade to Free at period end, so the subscription is
+  // both "cancelled" and carrying a scheduled change. That is one event, not
+  // two: the cancellation notice owns it, and the downgrade detail rides along
+  // in its hover hint instead of claiming a banner of its own.
+  const isPendingCancellation = data.billingStatus === "cancelled";
+  const currentPlanName = data.plan?.name ?? "your plan";
+  const showScheduledChangeBanner =
+    Boolean(scheduledChange) && !isPendingCancellation;
 
   const planDetails: Array<{ label: string; value: ReactNode }> = [
     {
@@ -528,12 +604,12 @@ export default function BillingDashboard({
             className={cn(PRIMARY_BUTTON, "w-full sm:w-fit")}
             onClick={() => router.push(plansHref)}
           >
-            <ArrowLeftRight />
+            <MdCurrencyExchange />
             Change plan
           </Button>
         </div>
 
-        {isPaymentFailed ? (
+        {isPaymentFailed && !dismissedBanners.includes("payment-failed") ? (
           <NoticeBanner
             tone="red"
             icon={AlertTriangle}
@@ -552,66 +628,71 @@ export default function BillingDashboard({
                 Update payment method
               </Button>
             }
+            onDismiss={() => dismissBanner("payment-failed")}
           />
-        ) : data.billingStatus === "cancelled" ? (
+        ) : isPendingCancellation &&
+          !dismissedBanners.includes("pending-cancellation") ? (
           <NoticeBanner
             tone="amber"
             icon={Clock}
-            title={`Cancels on ${data.renewalDate}`}
-            description={`Your subscription will end on ${data.renewalDate}. You can reactivate or change your plan before then.`}
+            title={
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                Your {currentPlanName} plan ends on {data.renewalDate}
+              </span>
+            }
+            description={`You'll keep ${currentPlanName} and all its features until then.`}
             action={
-              <Button
-                variant="outline"
+              <UndoScheduledChangeButton
+                tenantSlug={tenantSlug}
+                label="Reactivate"
                 className={cn(
                   OUTLINE_BUTTON,
                   "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
                 )}
-                onClick={() => router.push(plansHref)}
-              >
-                Reactivate
-              </Button>
+              />
             }
+            onDismiss={() => dismissBanner("pending-cancellation")}
           />
         ) : null}
 
-        {scheduledChange && (
-          <NoticeBanner
-            tone="amber"
-            icon={CalendarClock}
-            title={
-              <>
-                Your plan will change to{" "}
-                <span className="text-orange-700">
-                  {scheduledChange.planName}
-                </span>{" "}
-                on <span className="text-orange-700">{effectiveDateLabel}</span>
-                .
-              </>
-            }
-            description={
-              <>
-                Your subscription will switch to {scheduledChange.planName} at{" "}
-                {scheduledChange.planRate}. You keep{" "}
-                {data.plan?.name ?? "your current plan"} and all of its features
-                until then.
-              </>
-            }
-            action={
-              <Button
-                variant="outline"
-                disabled={isAborting}
-                onClick={handleAbort}
-                className={cn(
-                  OUTLINE_BUTTON,
-                  "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
-                )}
-              >
-                {isAborting && <Loader2 className="animate-spin" />}
-                Cancel change
-              </Button>
-            }
-          />
-        )}
+        {showScheduledChangeBanner &&
+          scheduledChange &&
+          !dismissedBanners.includes("scheduled-change") && (
+            <NoticeBanner
+              tone="amber"
+              icon={CalendarClock}
+              title={
+                <>
+                  Your plan will change to{" "}
+                  <span className="text-orange-700">
+                    {scheduledChange.planName}
+                  </span>{" "}
+                  on{" "}
+                  <span className="text-orange-700">{effectiveDateLabel}</span>.
+                </>
+              }
+              description={
+                <>
+                  Your subscription will switch to {scheduledChange.planName} at{" "}
+                  {scheduledChange.planRate}. You keep{" "}
+                  {data.plan?.name ?? "your current plan"} and all of its
+                  features until then.
+                </>
+              }
+              action={
+                <UndoScheduledChangeButton
+                  tenantSlug={tenantSlug}
+                  label="Cancel change"
+                  showIcon={false}
+                  className={cn(
+                    OUTLINE_BUTTON,
+                    "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
+                  )}
+                />
+              }
+              onDismiss={() => dismissBanner("scheduled-change")}
+            />
+          )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <DashboardCard
@@ -666,15 +747,6 @@ export default function BillingDashboard({
                 icon={CalendarDays}
                 label="Next billing date"
                 value={hasRenewalDate ? data.renewalDate : "—"}
-              />
-              <DetailRow
-                icon={ShieldCheck}
-                label="Auto-renew"
-                value={
-                  <StatusText tone={data.autoRenew ? "emerald" : "slate"}>
-                    {data.autoRenew ? "On" : "Off"}
-                  </StatusText>
-                }
               />
             </dl>
           </DashboardCard>
@@ -866,11 +938,7 @@ export default function BillingDashboard({
                 value={unusedSeats}
               />
             </dl>
-            <p className="mt-5 border-t border-slate-100 pt-5 text-xs text-slate-500">
-              {unusedSeats > 0
-                ? "Each seat represents one team member who can sign in."
-                : `No seats available — all ${totalSeats} are in use.`}
-            </p>
+            <p className="border-t border-slate-100 mt-4 text-xs text-slate-500"></p>
           </DashboardCard>
         </div>
 
@@ -896,19 +964,31 @@ export default function BillingDashboard({
             </div>
           ) : (
             <div className="w-full overflow-x-auto">
-              <Table className="min-w-180">
+              <Table className="min-w-240 table-fixed">
+                <colgroup>
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[30%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[17%]" />
+                </colgroup>
                 <TableHeader>
                   <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50">
-                    {["Invoice", "Date", "Description", "Amount", "Status"].map(
-                      (heading) => (
-                        <TableHead
-                          key={heading}
-                          className="h-10 px-4 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-6"
-                        >
-                          {heading}
-                        </TableHead>
-                      ),
-                    )}
+                    {[
+                      "Invoice ID",
+                      "Date",
+                      "Plan details",
+                      "Amount",
+                      "Status",
+                    ].map((heading) => (
+                      <TableHead
+                        key={heading}
+                        className="h-10 px-4 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-6"
+                      >
+                        {heading}
+                      </TableHead>
+                    ))}
                     <TableHead className="h-10 px-4 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-6">
                       Action
                     </TableHead>
@@ -920,14 +1000,32 @@ export default function BillingDashboard({
                       key={inv.id}
                       className="border-slate-100 hover:bg-slate-50/60"
                     >
-                      <TableCell className="whitespace-nowrap px-4 py-3.5 sm:px-6 sm:py-4 font-semibold text-slate-900">
+                      <TableCell className="whitespace-nowrap px-4 py-3.5 font-mono text-xs font-semibold tracking-tight text-slate-900 sm:px-6 sm:py-4">
                         {inv.id}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-4 py-3.5 sm:px-6 sm:py-4 text-slate-600">
+                      <TableCell className="whitespace-nowrap px-4 py-3.5 text-slate-600 sm:px-6 sm:py-4">
                         {inv.date}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-4 py-3.5 sm:px-6 sm:py-4 text-slate-600">
-                        {inv.description}
+                      <TableCell className="px-4 py-3.5 sm:px-6 sm:py-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-slate-900">
+                            {inv.planName}
+                          </span>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                            {inv.invoiceType === "one_time"
+                              ? "One-time"
+                              : "Monthly"}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {inv.periodStart} &ndash; {inv.periodEnd}
+                          {inv.seats > 0 && (
+                            <>
+                              {" · "}
+                              {inv.seats} seat{inv.seats === 1 ? "" : "s"}
+                            </>
+                          )}
+                        </p>
                       </TableCell>
                       <TableCell className="whitespace-nowrap px-4 py-3.5 sm:px-6 sm:py-4 font-semibold text-slate-900">
                         {inv.amount}
@@ -958,12 +1056,34 @@ export default function BillingDashboard({
                       </TableCell>
                     </TableRow>
                   ))}
+                  {pageCount > 1 &&
+                    Array.from({
+                      length: INVOICES_PER_PAGE - visibleInvoices.length,
+                    }).map((_, index) => (
+                      <TableRow
+                        key={`filler-${index}`}
+                        aria-hidden
+                        className="border-transparent hover:bg-transparent"
+                      >
+                        <TableCell
+                          colSpan={6}
+                          className="px-4 py-3.5 sm:px-6 sm:py-4"
+                        >
+                          <div className="invisible flex items-center gap-2">
+                            <span className="font-medium">&nbsp;</span>
+                            <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                              &nbsp;
+                            </span>
+                          </div>
+                          <p className="invisible mt-0.5 text-xs">&nbsp;</p>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             </div>
           )}
-
-          {pageCount > 1 && (
+          {invoices.length > 0 && (
             <nav
               aria-label="Billing history pages"
               className="flex flex-col gap-3 border-t border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"
@@ -977,46 +1097,80 @@ export default function BillingDashboard({
                 <span className="font-semibold text-slate-700">
                   {invoices.length}
                 </span>{" "}
-                invoices
+                invoice{invoices.length === 1 ? "" : "s"}
               </p>
-              <div className="flex items-center justify-between gap-2 sm:justify-end sm:gap-3">
-                <Button
-                  variant="outline"
-                  aria-label="Previous page"
-                  disabled={currentPage === 1}
-                  onClick={() => setInvoicePage(currentPage - 1)}
-                  className={cn(PAGINATION_BUTTON, "pl-2.5 sm:pl-3")}
-                >
-                  <ChevronLeft className={cn("size-4", ICON_NUDGE_LEFT)} />
-                  {/* "Prev" keeps the control inside a 320px viewport; the
-                      aria-label carries the full wording either way. */}
-                  <span className="sm:hidden">Prev</span>
-                  <span className="hidden sm:inline">Previous</span>
-                </Button>
-                <span
-                  aria-live="polite"
-                  className="flex-1 whitespace-nowrap text-center text-xs font-semibold text-slate-600 sm:flex-none sm:px-1"
-                >
-                  Page {currentPage} of {pageCount}
-                </span>
-                <Button
-                  variant="outline"
-                  aria-label="Next page"
-                  disabled={currentPage === pageCount}
-                  onClick={() => setInvoicePage(currentPage + 1)}
-                  className={cn(PAGINATION_BUTTON, "pr-2.5 sm:pr-3")}
-                >
-                  Next
-                  <ChevronRight className={cn("size-4", ICON_NUDGE_RIGHT)} />
-                </Button>
-              </div>
+
+              {pageCount > 1 && (
+                <div className="flex items-center justify-between gap-2 sm:justify-end sm:gap-2">
+                  <Button
+                    variant="outline"
+                    aria-label="Previous page"
+                    disabled={currentPage === 1}
+                    onClick={() => setInvoicePage(currentPage - 1)}
+                    className={PAGINATION_BUTTON}
+                  >
+                    <ChevronLeft className={cn("size-4", ICON_NUDGE_LEFT)} />
+                  </Button>
+                  <span
+                    aria-live="polite"
+                    className="flex-1 whitespace-nowrap text-center text-xs font-semibold text-slate-600 sm:hidden"
+                  >
+                    Page {currentPage} of {pageCount}
+                  </span>
+
+                  <ul className="hidden items-center gap-1 sm:flex">
+                    {pageWindow(currentPage, pageCount).map((page, index) =>
+                      page === "gap" ? (
+                        <li
+                          key={`gap-${index}`}
+                          aria-hidden
+                          className="px-1 text-xs text-slate-400"
+                        >
+                          &hellip;
+                        </li>
+                      ) : (
+                        <li key={page}>
+                          <Button
+                            variant={page === currentPage ? "default" : "ghost"}
+                            aria-label={`Page ${page}`}
+                            aria-current={
+                              page === currentPage ? "page" : undefined
+                            }
+                            onClick={() => setInvoicePage(page)}
+                            className={cn(
+                              "size-9 shrink-0 rounded-lg p-0 text-xs font-semibold",
+                              BUTTON_MICRO,
+                              page === currentPage
+                                ? "bg-brand-accent text-brand-accent-foreground hover:bg-brand-accent/90"
+                                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                            )}
+                          >
+                            {page}
+                          </Button>
+                        </li>
+                      ),
+                    )}
+                  </ul>
+
+                  <Button
+                    variant="outline"
+                    aria-label="Next page"
+                    disabled={currentPage === pageCount}
+                    onClick={() => setInvoicePage(currentPage + 1)}
+                    className={PAGINATION_BUTTON}
+                  >
+                    <ChevronRight className={cn("size-4", ICON_NUDGE_RIGHT)} />
+                  </Button>
+                </div>
+              )}
             </nav>
           )}
         </section>
       </div>
 
       <Dialog open={isPlanDetailsOpen} onOpenChange={setIsPlanDetailsOpen}>
-        <DialogContent className="max-w-md rounded-2xl p-6">
+        <DialogContent className="max-w-md w-[calc(100%-2rem)] sm:max-w-md rounded-2xl p-6">
+          {" "}
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3 text-xl font-bold text-slate-900">
               {data.plan?.name ?? "Current plan"}
@@ -1057,7 +1211,7 @@ export default function BillingDashboard({
               className={cn(MODAL_BUTTON, MODAL_BUTTON_PRIMARY)}
               onClick={() => router.push(plansHref)}
             >
-              <ArrowLeftRight className={ICON_POP} />
+              <MdCurrencyExchange className={ICON_POP} />
               Change plan
             </Button>
           </DialogFooter>

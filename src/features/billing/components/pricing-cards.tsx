@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Check,
+  Clock,
+  Crown,
   Info,
   Layers,
   Loader2,
@@ -19,9 +21,11 @@ import { changeTenantPlanAction } from "../billing-actions";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import { tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
+import { CancelSubscriptionDialog } from "./cancel-subscription";
 import { DowngradeDialog } from "./downgrade-dialog";
 import { MODAL_BUTTON, MODAL_BUTTON_PRIMARY } from "./modal-buttons";
 import { ModalNotice } from "./modal-notice";
+import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,6 +62,7 @@ export function PricingCards({
   const [downgradeTarget, setDowngradeTarget] = useState<FormattedPlan | null>(
     null,
   );
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
 
   const announceScheduled = (planName: string, effectiveAt: string | null) => {
     const when = effectiveAt
@@ -101,9 +106,6 @@ export function PricingCards({
           return;
         }
 
-        // A deferred downgrade changes nothing today, so reloading would just
-        // show the old plan and look like the request failed. Say when it
-        // takes effect instead.
         if (res.scheduled) {
           announceScheduled(plan.name, res.effectiveAt ?? null);
           setSelectedPlanForSwitch(null);
@@ -134,17 +136,28 @@ export function PricingCards({
         (p.code || "").trim().toLowerCase() === activeTarget,
     ) ?? null;
 
-  // plans.code holds PayPal plan ids (P-.. / F-..), so rank plans by monthly
-  // price rather than by matching names inside the code.
   const currentPrice = currentPlan?.priceValue ?? null;
-
   const freePlan = plans.find((p) => p.priceValue === 0);
 
   const canCancelCurrent =
+    Boolean(billingData) &&
     currentPlan !== null &&
     currentPlan.priceValue > 0 &&
     freePlan !== undefined &&
     freePlan.id !== currentPlan.id;
+
+  const isPendingCancellation = billingData?.billingStatus === "cancelled";
+
+  const scheduledChange = billingData?.scheduledChange ?? null;
+  const hasScheduledDowngrade =
+    Boolean(scheduledChange) && !isPendingCancellation;
+  const scheduledChangeDate = scheduledChange?.effectiveAt
+    ? new Date(scheduledChange.effectiveAt).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : null;
 
   const selectedSwitchLabel = !selectedPlanForSwitch
     ? ""
@@ -162,9 +175,7 @@ export function PricingCards({
     setSelectedPlanForSwitch(plan);
   };
 
-  const openCancelDialog = () => {
-    router.push(`/${tenantSlug}/account/billing/cancel?from=plans`);
-  };
+  const openCancelDialog = () => setIsCancelOpen(true);
 
   const usedSeats = billingData?.seats?.used ?? 0;
   const totalSeats = billingData?.seats?.total ?? 0;
@@ -173,7 +184,6 @@ export function PricingCards({
       ? billingData.renewalDate
       : null;
 
-  // Calculate prorated credit for upgrades based on remaining days in current billing period
   const renewalDateRaw = billingData?.renewalDateRaw;
   const currentPlanRate = billingData?.plan?.rateValue ?? 0;
   const proratedCredit = (() => {
@@ -204,7 +214,6 @@ export function PricingCards({
     target !== null &&
     target.priceValue > currentPrice;
 
-  // Calculate the actual amount user will pay after prorated credit
   const upgradeAmount =
     isUpgradeTarget && target
       ? Math.round(Math.max(0, target.priceValue - proratedCredit) * 100) / 100
@@ -227,7 +236,7 @@ export function PricingCards({
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 sm:gap-6 items-stretch">
+      <div className="flex flex-wrap items-stretch justify-center gap-5 xl:gap-6">
         {plans.map((plan, planIdx) => {
           const planId = (plan.id || "").trim().toLowerCase();
           const planCode = (plan.code || "").trim().toLowerCase();
@@ -276,66 +285,60 @@ export function PricingCards({
           return (
             <Card
               key={plan.id}
-              className={`relative flex h-full flex-col rounded-2xl p-5 sm:p-7 transition-all ${
+              className={cn(
+                "relative flex w-full flex-col rounded-2xl p-6 sm:w-[calc(50%-0.625rem)]  xl:w-[calc(33.333%-1rem)] transition-all shadow-sm",
                 isCurrent
-                  ? "border-brand-accent ring-1 ring-brand-accent shadow-xl shadow-brand-accent/5"
-                  : "border-border shadow-sm hover:border-brand-accent/40 hover:shadow-md"
-              }`}
+                  ? "border-2! border-emerald-600! bg-emerald-50/10 dark:bg-emerald-950/10 shadow-lg"
+                  : "border! border-border! hover:border-gray-300! dark:hover:border-neutral-700! hover:shadow-md",
+              )}
             >
+              {isCurrent && (
+                <div className="absolute top-5 right-5 z-10">
+                  <Badge className="shrink-0 gap-1 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow-none hover:bg-emerald-600">
+                    <Crown className="h-3.5 w-3.5 fill-current" />
+                    Current plan
+                  </Badge>
+                </div>
+              )}
+
               <div className="flex h-full flex-1 flex-col">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base sm:text-lg font-bold tracking-tight text-foreground">
+                <div className="flex items-center justify-between gap-3 pr-28 sm:pr-32">
+                  <h3 className="text-xl font-bold tracking-tight text-foreground">
                     {plan.name}
                   </h3>
-
-                  {isCurrent && (
-                    <Badge className="shrink-0 bg-brand-accent text-primary-foreground hover:bg-brand-accent shadow-none">
-                      Current plan
-                    </Badge>
-                  )}
                 </div>
 
-                <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-muted-foreground">
+                <p className="mt-2 min-h-10 text-sm leading-relaxed text-muted-foreground">
                   {plan.description}
                 </p>
 
-                <div className="mt-5 flex items-end gap-1.5">
-                  <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="text-4xl font-extrabold tracking-tight text-foreground">
                     {plan.price}
                   </span>
-                  <span className="pb-1.5 text-xs sm:text-sm font-normal text-muted-foreground">
+                  <span className="text-sm font-medium text-muted-foreground">
                     {plan.priceSuffix}
                   </span>
                 </div>
 
-                <div
-                  className={`mt-4 flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 ${
-                    isCurrent
-                      ? "border-brand-accent/30 bg-brand-accent/5"
-                      : "border-border bg-muted/40"
-                  }`}
-                >
-                  <Users
-                    className={`h-4 w-4 shrink-0 ${
-                      isCurrent ? "text-brand-accent" : "text-muted-foreground"
-                    }`}
-                  />
+                <div className="mt-5 flex items-center gap-2.5 rounded-xl border border-border/80 bg-muted/30 px-3.5 py-2.5">
+                  <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-xs font-semibold text-foreground">
                     {plan.seatLimitText} agent seats included
                   </span>
                 </div>
 
-                <div className="mt-5 flex-1 border-t border-border pt-5">
+                <div className="mt-6 flex-1 border-t border-border/60 pt-5">
                   {previousPlan ? (
                     <>
-                      <div className="flex items-start gap-2.5 rounded-lg bg-muted/40 px-3 py-2.5">
+                      <div className="flex items-start gap-2.5 rounded-lg bg-muted/30 px-3 py-2">
                         <Layers className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                        <p className="text-xs font-medium leading-relaxed text-foreground">
+                        <p className="text-xs font-medium text-foreground">
                           Everything in {previousPlan.name}, plus:
                         </p>
                       </div>
 
-                      <ul className="mt-3 space-y-2.5">
+                      <ul className="mt-3.5 space-y-3">
                         {(additionalFeatures.length > 0
                           ? additionalFeatures
                           : [
@@ -346,8 +349,8 @@ export function PricingCards({
                             ]
                         ).map((feature, index) => (
                           <li key={index} className="flex items-start gap-2.5">
-                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-accent stroke-[2.5]" />
-                            <span className="text-xs leading-relaxed text-muted-foreground">
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 stroke-[2.5]" />
+                            <span className="text-xs font-medium text-muted-foreground">
                               {feature.label}
                               {typeof feature.value === "string" ||
                               typeof feature.value === "number"
@@ -359,11 +362,11 @@ export function PricingCards({
                       </ul>
                     </>
                   ) : (
-                    <ul className="space-y-2.5">
+                    <ul className="space-y-3">
                       {rawFeatures.map((feature, index) => (
                         <li key={index} className="flex items-start gap-2.5">
-                          <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-accent stroke-[2.5]" />
-                          <span className="text-xs leading-relaxed text-muted-foreground">
+                          <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 stroke-[2.5]" />
+                          <span className="text-xs font-medium text-muted-foreground">
                             {feature.label}
                             {typeof feature.value === "string" ||
                             typeof feature.value === "number"
@@ -381,22 +384,52 @@ export function PricingCards({
                     <>
                       <Button
                         asChild
-                        className="h-11 w-full gap-2 whitespace-nowrap bg-brand-accent text-primary-foreground shadow-none hover:bg-brand-accent/90"
+                        className="h-11 w-full gap-2 rounded-xl bg-emerald-700 text-sm font-semibold text-white shadow-none hover:bg-emerald-800"
                       >
                         <Link href={manageBillingHref}>
                           <Settings className="h-4 w-4" />
                           Manage plan
                         </Link>
                       </Button>
-                      {canCancelCurrent && (
-                        <Button
-                          variant="ghost"
-                          disabled={isPending}
-                          onClick={openCancelDialog}
-                          className="h-10 w-full border border-red-200 bg-background text-red-600 shadow-none transition-colors hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-950/30"
-                        >
-                          Cancel subscription
-                        </Button>
+
+                      {isPendingCancellation || hasScheduledDowngrade ? (
+                        <>
+                          <div className="flex items-center justify-center gap-2 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-3.5 text-center text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
+                            <Clock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
+                            <span>
+                              {isPendingCancellation
+                                ? renewalDate
+                                  ? `Ends on ${renewalDate}`
+                                  : "Ends at the end of this period"
+                                : `Changes to ${scheduledChange?.planName} on ${
+                                    scheduledChangeDate ??
+                                    renewalDate ??
+                                    "your renewal date"
+                                  }`}
+                            </span>
+                          </div>
+
+                          <UndoScheduledChangeButton
+                            tenantSlug={tenantSlug}
+                            label={
+                              isPendingCancellation
+                                ? "Reactivate my plan"
+                                : "Keep my current plan"
+                            }
+                            className="h-11 w-full gap-2 rounded-xl border border-emerald-600 bg-background text-sm font-medium text-emerald-700 shadow-none hover:bg-emerald-50/50 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                          />
+                        </>
+                      ) : (
+                        canCancelCurrent && (
+                          <Button
+                            variant="ghost"
+                            disabled={isPending}
+                            onClick={openCancelDialog}
+                            className="h-11 w-full rounded-xl border border-red-200 bg-background text-sm font-medium text-red-600 shadow-none hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-950/30"
+                          >
+                            Cancel subscription
+                          </Button>
+                        )
                       )}
                     </>
                   ) : (
@@ -404,11 +437,12 @@ export function PricingCards({
                       variant={isDowngrade ? "outline" : "default"}
                       disabled={isPending}
                       onClick={() => openSwitchDialog(plan)}
-                      className={`h-11 w-full gap-2 whitespace-nowrap font-semibold shadow-none transition-colors ${
+                      className={cn(
+                        "h-11 w-full gap-2 rounded-xl text-sm font-semibold shadow-none transition-colors",
                         isDowngrade
-                          ? ""
-                          : "bg-brand-accent text-primary-foreground hover:bg-brand-accent/90"
-                      }`}
+                          ? "border-border text-emerald-700 hover:border-emerald-600 hover:bg-emerald-50/30 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
+                          : "bg-emerald-700 text-white hover:bg-emerald-800",
+                      )}
                     >
                       {isLoadingThis && (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -442,7 +476,8 @@ export function PricingCards({
             bg-background
             p-0
             shadow-xl
-            overflow-hidden
+            max-h-[calc(100dvh-2rem)]
+            overflow-y-auto
           "
         >
           <AlertDialogHeader className="block px-6 pt-5 pb-4 text-left">
@@ -525,7 +560,7 @@ export function PricingCards({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <AlertDialogFooter className="mx-0 mb-0 gap-3 border-t border-border px-4 py-4 sm:justify-end">
+          <AlertDialogFooter className="mx-0 mb-0 gap-3 px-4 py-4 sm:justify-end">
             <AlertDialogCancel
               disabled={isPending}
               className={cn(MODAL_BUTTON, "mt-0")}
@@ -564,6 +599,16 @@ export function PricingCards({
         renewalDate={renewalDate}
         scheduledToPlan={billingData?.scheduledChange?.planName ?? null}
       />
+
+      {billingData && (
+        <CancelSubscriptionDialog
+          tenantSlug={tenantSlug}
+          open={isCancelOpen}
+          onOpenChange={setIsCancelOpen}
+          billingData={billingData}
+          freePlan={freePlan ?? null}
+        />
+      )}
     </>
   );
 }

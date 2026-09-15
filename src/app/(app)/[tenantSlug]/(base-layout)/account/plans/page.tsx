@@ -49,20 +49,20 @@ export default async function TenantBillingPage({
   }
 
   return (
-    <div className="min-h-full w-full bg-background px-4 sm:px-6 lg:px-8 py-6 sm:py-8 md:py-10">
-      <div className="mx-auto max-w-7xl space-y-8 sm:space-y-12">
+    <div className="min-h-full w-full bg-accent/40 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 md:py-10">
+      <div className="mx-auto max-w-7xl space-y-6 sm:space-y-10 lg:space-y-12">
         <header className="mx-auto max-w-2xl text-center">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-foreground text-balance">
             Plans & pricing
           </h1>
-          <p className="mt-2 text-xs sm:text-sm text-muted-foreground">
+          <p className="mt-2 text-xs sm:text-sm text-muted-foreground text-pretty">
             One flat monthly price per plan, with agent seats included. Change
             or cancel anytime.
           </p>
         </header>
 
         {!canManageBilling ? (
-          <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-6 sm:p-8 text-center shadow-sm">
+          <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-5 sm:p-6 md:p-8 text-center shadow-sm">
             <p className="text-sm font-semibold text-card-foreground">
               You don&apos;t have permission to change plans.
             </p>
@@ -72,7 +72,7 @@ export default async function TenantBillingPage({
             </p>
           </div>
         ) : plans.length === 0 ? (
-          <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-6 sm:p-8 text-center shadow-sm">
+          <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-5 sm:p-6 md:p-8 text-center shadow-sm">
             <p className="text-sm font-semibold text-card-foreground">
               Plans aren&apos;t available right now.
             </p>

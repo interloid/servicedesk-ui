@@ -296,7 +296,7 @@ export default function InvoiceModal({
       value: invoice.date,
       emphasis: true,
     },
-    { icon: FileText, label: "Description", value: invoice.description },
+    { icon: FileText, label: "Plan details", value: invoice.description },
     {
       icon: Users,
       label: "Seats",
@@ -340,9 +340,9 @@ export default function InvoiceModal({
           </div>
           <DialogClose asChild>
             <Button
-              variant="ghost"
+              variant="outline"
               size="icon-sm"
-              className="-mr-2 shrink-0 text-slate-500 hover:text-slate-900"
+              className="-mr-2 shrink-0 border-none bg-none text-slate-500 hover:text-slate-900"
             >
               <X className="size-5" />
               <span className="sr-only">Close</span>
@@ -351,7 +351,7 @@ export default function InvoiceModal({
         </div>
 
         <div className="grid gap-6 px-6 py-6 md:grid-cols-[minmax(0,1fr)_18.5rem]">
-          <div className="min-w-0">
+          <div className="min-w-0 border border-slate-200 p-4 md:pr-6">
             <div className="flex items-center gap-4 rounded-xl bg-teal-50/70 p-4">
               <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-teal-700">
                 <FileText className="size-5" />

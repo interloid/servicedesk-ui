@@ -162,7 +162,7 @@ export function DowngradeDialog({
           "
       >
         <AlertDialogHeader className="block px-6 pt-5 pb-4 text-left">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex w-full items-center justify-between gap-4">
             <AlertDialogTitle className="text-xl font-bold text-foreground">
               Downgrade to {targetName}?
             </AlertDialogTitle>
@@ -204,7 +204,7 @@ export function DowngradeDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <AlertDialogFooter className="mx-0 mb-0 gap-3 border-t border-border px-4 py-4 sm:justify-end">
+        <AlertDialogFooter className="mx-0 mb-0 gap-3 px-4 py-4 sm:justify-end">
           <AlertDialogCancel
             disabled={isPending}
             className={cn(MODAL_BUTTON, "mt-0")}
@@ -212,9 +212,6 @@ export function DowngradeDialog({
             Keep my plan
           </AlertDialogCancel>
 
-          {/* Outlined rather than solid, matching the confirm button on the
-              cancel-subscription flow: red when the downgrade drops the tenant
-              to Free, brand-accent for a paid-to-paid downgrade. */}
           <AlertDialogAction
             variant="outline"
             disabled={isPending}

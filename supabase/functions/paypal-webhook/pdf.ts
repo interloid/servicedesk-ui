@@ -280,26 +280,27 @@ export async function generateInvoicePdf(
   const statusLabel = isPaid
     ? "PAID"
     : isRefunded
-    ? "REFUNDED"
-    : isFailed
-    ? "PAYMENT FAILED"
-    : isPending
-    ? "PENDING"
-    : status.toUpperCase();
+      ? "REFUNDED"
+      : isFailed
+        ? "PAYMENT FAILED"
+        : isPending
+          ? "PENDING"
+          : status.toUpperCase();
 
   const statusBackground = isPaid
     ? paidBg
     : isRefunded || isFailed
-    ? failedBg
-    : warningBg;
+      ? failedBg
+      : warningBg;
 
   const statusColor = isPaid
     ? paidText
     : isRefunded || isFailed
-    ? failedText
-    : warningText;
+      ? failedText
+      : warningText;
 
-  const invoiceNumber = invoice.invoice_number ||
+  const invoiceNumber =
+    invoice.invoice_number ||
     (invoice.id
       ? `INV-${String(invoice.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
       : "-");
@@ -490,7 +491,7 @@ export async function generateInvoicePdf(
   // Fixed label width ensures all values begin at the same x position.
   const maxLabelWidth = Math.max(
     ...detailRows.map((row) =>
-      font.widthOfTextAtSize(`${row.label}:`, row.small ? 8 : 9)
+      font.widthOfTextAtSize(`${row.label}:`, row.small ? 8 : 9),
     ),
   );
   const detailValueX = col2X + 10 + maxLabelWidth;
@@ -573,11 +574,12 @@ export async function generateInvoicePdf(
     bold,
   );
 
-  const seatText = subscription.seats !== undefined
-    ? `${subscription.seats} ${
-      subscription.seats === 1 ? "agent seat" : "agent seats"
-    }`
-    : "";
+  const seatText =
+    subscription.seats !== undefined
+      ? `${subscription.seats} ${
+          subscription.seats === 1 ? "agent seat" : "agent seats"
+        }`
+      : "";
 
   const subLine = [
     seatText,
@@ -688,9 +690,9 @@ export async function generateInvoicePdf(
 
     if (subscription.next_billing_amount !== undefined) {
       drawTextRight(
-        `Next recurring amount: ${
-          formatMoney(subscription.next_billing_amount)
-        }/month`,
+        `Next recurring amount: ${formatMoney(
+          subscription.next_billing_amount,
+        )}/month`,
         colAmountX,
         y - 40,
         9,
@@ -718,19 +720,19 @@ export async function generateInvoicePdf(
     color: isPaid ? paidBg : isFailed ? failedBg : bgLight,
   });
 
-  const paymentMethod = invoice.payment_method || subscription.billing_cycle ||
-    "PayPal";
+  const paymentMethod =
+    invoice.payment_method || subscription.billing_cycle || "PayPal";
 
   const paymentTitle = isPaid
     ? "Payment completed"
     : isFailed
-    ? "Payment failed"
-    : statusLabel;
+      ? "Payment failed"
+      : statusLabel;
   const paymentNote = isPaid
     ? `Paid on ${formatDate(invoice.paid_at || invoice.created_at)}`
     : isFailed
-    ? "Status: PAYMENT FAILED"
-    : "Please refer to your billing account for payment details.";
+      ? "Status: PAYMENT FAILED"
+      : "Please refer to your billing account for payment details.";
   const paymentColor = isPaid ? paidText : isFailed ? failedText : statusColor;
 
   drawText(paymentTitle, colDescX, y - 17, 11, bold, paymentColor);
@@ -802,14 +804,7 @@ export async function generateInvoicePdf(
 
   drawTextRight(footerCompany, right, footerY, 8, font, textMuted);
 
-  drawTextRight(
-    "www.servicedesk.com",
-    right,
-    footerY - 12,
-    8,
-    font,
-    brandTeal,
-  );
+  drawTextRight("www.servicedesk.com", right, footerY - 12, 8, font, brandTeal);
 
   footerY -= 22;
 

@@ -10,7 +10,6 @@ import {
   DollarSign,
   Download,
   ExternalLink,
-  Eye,
   FileText,
   Hash,
   Loader2,
@@ -480,7 +479,6 @@ export default function InvoiceModal({
             onClick={openPdf}
             className={OUTLINE_BUTTON}
           >
-            
             View full invoice
             <ExternalLink />
           </Button>

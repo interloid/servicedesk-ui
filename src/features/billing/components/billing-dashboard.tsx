@@ -243,7 +243,6 @@ function DashboardCard({
   );
 }
 
-
 function NoticeBanner({
   tone,
   icon: Icon,

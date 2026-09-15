@@ -419,19 +419,6 @@ export async function generateInvoicePdf(
 
   drawText(`Tenant ID: ${subscription.tenant_id || "-"}`, col1X, customerY, 8);
 
-  customerY -= 14;
-  drawText(`Plan: ${planName}`, col1X, customerY, 8);
-
-  if (subscription.seats !== undefined) {
-    customerY -= 13;
-    drawText(
-      `${subscription.seats} ${subscription.seats === 1 ? "seat" : "seats"}`,
-      col1X,
-      customerY,
-      8,
-    );
-  }
-
   // ── Invoice Details (right) ───────────────────────────────────────────────
   drawLabel("Invoice Details", col2X, y);
 
@@ -577,7 +564,7 @@ export async function generateInvoicePdf(
 
   drawLine(y);
 
-  // ── Amount summary (Subtotal, Tax, Total, Amount paid, Balance due) ───────
+  // ── Amount summary (Subtotal, Tax, Total) ───────
   y -= 24;
 
   const totalsX = right - 200;
@@ -620,26 +607,6 @@ export async function generateInvoicePdf(
   y -= 22;
 
   drawTotalRow("Total", formatMoney(total), y, 14, brandDark);
-
-  y -= 22;
-
-  drawTotalRow(
-    "Amount paid",
-    formatMoney(amountPaid),
-    y,
-    10,
-    isPaid ? paidText : textPrimary,
-  );
-
-  y -= 20;
-
-  drawTotalRow(
-    "Balance due",
-    formatMoney(balanceDue),
-    y,
-    11,
-    balanceDue > 0 ? failedText : paidText,
-  );
 
   // ── Upcoming billing (informational, never added to this invoice) ─────────
   if (subscription.next_billing_date) {

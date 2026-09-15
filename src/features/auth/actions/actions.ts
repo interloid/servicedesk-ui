@@ -85,6 +85,7 @@ export async function loginAction(
 
     const redirectTo = await resolvePostAuthUrl(
       sessionUser.tenantId,
+      sessionUser.role,
       typeof next === "string" ? next : null,
     );
 

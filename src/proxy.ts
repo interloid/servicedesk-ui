@@ -5,14 +5,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   AUTH_COOKIE_DOMAIN,
-  DEFAULT_TENANT_PATH,
   SUBDOMAIN_ROUTING_AVAILABLE,
   TENANT_HINT_COOKIE,
   TENANT_HINT_MAX_AGE,
   allowsExistingSession,
+  defaultTenantLanding,
   isCentralPath,
   isInfrastructurePath,
   isTenantPublicPath,
+  isTenantRouteAllowed,
   isValidTenantSlug,
   sessionTenantDestination,
   stripTenantPrefix,
@@ -44,9 +45,9 @@ function withSessionCookies(
   return target;
 }
 
-async function resolveSessionTenantSlug(
+async function resolveSessionTenant(
   supabase: SupabaseClient,
-): Promise<string | undefined> {
+): Promise<{ slug: string; role: string | null } | undefined> {
   const { data: claimsData, error: claimsError } =
     await supabase.auth.getClaims();
 
@@ -55,7 +56,16 @@ async function resolveSessionTenantSlug(
     return undefined;
   }
 
-  return readTenantClaims(claimsData?.claims).tenantSlug ?? undefined;
+  const claims = readTenantClaims(claimsData?.claims);
+
+  if (!claims.tenantSlug) {
+    return undefined;
+  }
+
+  return {
+    slug: claims.tenantSlug,
+    role: claims.tenantRole,
+  };
 }
 
 function rememberTenant(response: NextResponse, slug: string): NextResponse {
@@ -148,13 +158,17 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
 
   if (isCentralPath(pathname)) {
     if (user) {
-      const sessionTenantSlug = await resolveSessionTenantSlug(supabase);
+      const sessionTenant = await resolveSessionTenant(supabase);
 
-      if (isValidTenantSlug(sessionTenantSlug)) {
+      if (isValidTenantSlug(sessionTenant?.slug)) {
         return withSessionCookies(
           NextResponse.redirect(
             new URL(
-              sessionTenantDestination(sessionTenantSlug, "/"),
+              sessionTenantDestination(
+                sessionTenant!.slug,
+                "/",
+                sessionTenant?.role,
+              ),
               request.url,
             ),
           ),
@@ -170,11 +184,21 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
 
   if (pathTenant) {
     const { slug, rest } = pathTenant;
-    if (user) {
-      const sessionTenantSlug = await resolveSessionTenantSlug(supabase);
 
-      if (isValidTenantSlug(sessionTenantSlug) && sessionTenantSlug !== slug) {
-        const target = sessionTenantDestination(sessionTenantSlug, rest);
+    let sessionTenant: { slug: string; role: string | null } | undefined;
+
+    if (user) {
+      sessionTenant = await resolveSessionTenant(supabase);
+
+      if (
+        isValidTenantSlug(sessionTenant?.slug) &&
+        sessionTenant!.slug !== slug
+      ) {
+        const target = sessionTenantDestination(
+          sessionTenant!.slug,
+          rest,
+          sessionTenant?.role,
+        );
 
         return withSessionCookies(
           NextResponse.redirect(new URL(`${target}${url.search}`, request.url)),
@@ -203,7 +227,29 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
       return rememberTenant(
         withSessionCookies(
           NextResponse.redirect(
-            new URL(tenantPath(slug, DEFAULT_TENANT_PATH), request.url),
+            new URL(
+              tenantPath(slug, defaultTenantLanding(sessionTenant?.role)),
+              request.url,
+            ),
+          ),
+          response,
+        ),
+        slug,
+      );
+    }
+
+    if (
+      user &&
+      sessionTenant &&
+      !isTenantRouteAllowed(sessionTenant.role, rest)
+    ) {
+      return rememberTenant(
+        withSessionCookies(
+          NextResponse.redirect(
+            new URL(
+              tenantPath(slug, defaultTenantLanding(sessionTenant.role)),
+              request.url,
+            ),
           ),
           response,
         ),
@@ -245,17 +291,23 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
           response,
         );
       }
+      let sessionTenant: { slug: string; role: string | null } | undefined;
+
       if (user) {
-        const sessionTenantSlug = await resolveSessionTenantSlug(supabase);
+        sessionTenant = await resolveSessionTenant(supabase);
 
         if (
-          isValidTenantSlug(sessionTenantSlug) &&
-          sessionTenantSlug !== slugFromSubdomain
+          isValidTenantSlug(sessionTenant?.slug) &&
+          sessionTenant!.slug !== slugFromSubdomain
         ) {
           return withSessionCookies(
             NextResponse.redirect(
               new URL(
-                sessionTenantDestination(sessionTenantSlug, pathname),
+                sessionTenantDestination(
+                  sessionTenant!.slug,
+                  pathname,
+                  sessionTenant?.role,
+                ),
                 request.url,
               ),
             ),
@@ -279,7 +331,22 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
           (isTenantPublicPath(pathname) && !allowsExistingSession(pathname)))
       ) {
         return withSessionCookies(
-          NextResponse.redirect(new URL(DEFAULT_TENANT_PATH, request.url)),
+          NextResponse.redirect(
+            new URL(defaultTenantLanding(sessionTenant?.role), request.url),
+          ),
+          response,
+        );
+      }
+
+      if (
+        user &&
+        sessionTenant &&
+        !isTenantRouteAllowed(sessionTenant.role, pathname)
+      ) {
+        return withSessionCookies(
+          NextResponse.redirect(
+            new URL(defaultTenantLanding(sessionTenant.role), request.url),
+          ),
           response,
         );
       }

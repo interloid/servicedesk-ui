@@ -5,9 +5,11 @@ import {
   safeNext,
 } from "@/features/auth/services/auth.service";
 import {
-  TENANT_ROUTES,
-  tenantPath,
+  defaultTenantLanding,
+  isTenantRouteAllowed,
   tenantLoginPath,
+  tenantPath,
+  TENANT_ROUTES,
   withTenantPrefix,
 } from "@/lib/tenancy";
 import { APP_ROUTES } from "@/lib/routes";
@@ -56,7 +58,7 @@ export async function GET(
   }
 
   try {
-    const { tenantId, tenantSlug } = await exchangeOAuthCode(code);
+    const { tenantId, tenantSlug, role } = await exchangeOAuthCode(code);
 
     if (!tenantId || !tenantSlug || tenantSlug !== targetTenantSlug) {
       return rejectSession(
@@ -70,8 +72,12 @@ export async function GET(
       );
     }
 
+    const destination = isTenantRouteAllowed(role, next)
+      ? next
+      : defaultTenantLanding(role);
+
     return NextResponse.redirect(
-      new URL(withTenantPrefix(tenantSlug, next), origin),
+      new URL(withTenantPrefix(tenantSlug, destination), origin),
     );
   } catch (error) {
     console.error("[tenant-auth] Callback failed:", error);

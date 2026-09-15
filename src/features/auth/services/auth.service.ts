@@ -16,7 +16,9 @@ import {
   getTenantIdBySlug,
 } from "@/features/tenancy/services/tenant-resolver";
 import {
+  defaultTenantLanding,
   isTrustedHost,
+  isTenantRouteAllowed,
   isValidTenantSlug,
   landingUrlForSlug,
   stripTenantPrefix,
@@ -191,6 +193,7 @@ export async function exchangeOAuthCode(code: string): Promise<SessionUser> {
 
 export async function resolvePostAuthUrl(
   tenantId: string | null,
+  role: string | null,
   next?: string | null,
 ): Promise<string | null> {
   if (!tenantId) {
@@ -204,12 +207,17 @@ export async function resolvePostAuthUrl(
 
   const rawNext = safeNext(next);
   const parsed = stripTenantPrefix(rawNext);
-  const target = parsed ? parsed.rest : rawNext;
+  let target = parsed ? parsed.rest : rawNext;
 
-  return landingUrlForSlug(
-    slug,
-    target === "/" ? "/tickets" : target || "/tickets",
-  );
+  if (!isTenantRouteAllowed(role, target)) {
+    target = defaultTenantLanding(role);
+  }
+
+  if (target === "/") {
+    target = defaultTenantLanding(role);
+  }
+
+  return landingUrlForSlug(slug, target);
 }
 
 export function safeNext(

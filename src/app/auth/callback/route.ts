@@ -5,6 +5,8 @@ import {
   safeNext,
 } from "@/features/auth/services/auth.service";
 import {
+  defaultTenantLanding,
+  isTenantRouteAllowed,
   isValidTenantSlug,
   stripTenantPrefix,
   tenantLoginPath,
@@ -61,7 +63,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { tenantSlug } = await exchangeOAuthCode(code);
+    const { tenantSlug, role } = await exchangeOAuthCode(code);
     if (destination === TENANT_ROUTES.RESET_PASSWORD) {
       return NextResponse.redirect(
         new URL(
@@ -85,8 +87,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const landing = isTenantRouteAllowed(role, destination)
+      ? destination
+      : defaultTenantLanding(role);
+
     return NextResponse.redirect(
-      new URL(tenantPath(tenantSlug, destination), origin),
+      new URL(tenantPath(tenantSlug, landing), origin),
     );
   } catch (error) {
     console.error("[app-auth] Callback failed:", error);

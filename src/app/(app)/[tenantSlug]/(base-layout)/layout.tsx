@@ -1,6 +1,7 @@
 import { AppFooter } from "@/components/shared/layout/app-footer";
 import { AppHeader } from "@/components/shared/layout/app-header";
 import { AppSidebar } from "@/components/shared/layout/app-sidebar";
+import { RoleRouteGuard } from "@/components/shared/layout/role-route-guard";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getShellIdentity } from "@/lib/identity";
@@ -34,6 +35,7 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider className="w-full">
       <TooltipProvider delayDuration={0}>
+        <RoleRouteGuard role={identity.user.role} />
         <div className="flex h-screen w-full overflow-hidden bg-background text-xs text-slate-800 font-sans antialiased">
           <AppSidebar identity={identity} />
 

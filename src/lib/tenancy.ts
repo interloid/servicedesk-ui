@@ -151,6 +151,34 @@ export const TENANT_ROUTES = {
 
 export const DEFAULT_TENANT_PATH = TENANT_ROUTES.TICKETS;
 
+const BILLING_ADMIN_ROUTE_PREFIXES = [
+  TENANT_ROUTES.ACCOUNT.BILLING,
+  TENANT_ROUTES.ACCOUNT.PLANS,
+];
+
+export function defaultTenantLanding(role: string | null | undefined): string {
+  if (role === "billing_admin") {
+    return TENANT_ROUTES.ACCOUNT.BILLING;
+  }
+
+  return DEFAULT_TENANT_PATH;
+}
+
+export function isTenantRouteAllowed(
+  role: string | null | undefined,
+  tenantRelativePath: string,
+): boolean {
+  if (role !== "billing_admin") {
+    return true;
+  }
+
+  const rest = normalizePath(tenantRelativePath);
+
+  return BILLING_ADMIN_ROUTE_PREFIXES.some(
+    (prefix) => rest === prefix || rest.startsWith(`${prefix}/`),
+  );
+}
+
 export const TENANT_PUBLIC_PATHS = new Set<string>([
   TENANT_ROUTES.LOGIN,
   TENANT_ROUTES.FORGOT_PASSWORD,
@@ -217,10 +245,16 @@ export function isSafeInternalPath(
 export function sessionTenantDestination(
   sessionSlug: string,
   tenantRelativeRest?: string,
+  role?: string | null,
 ): string {
   const rest = normalizePath(tenantRelativeRest ?? "/");
 
-  const target = rest === "/" ? DEFAULT_TENANT_PATH : rest;
+  const target =
+    rest === "/"
+      ? defaultTenantLanding(role)
+      : isTenantRouteAllowed(role, rest)
+        ? rest
+        : defaultTenantLanding(role);
 
   return tenantPath(sessionSlug, target);
 }

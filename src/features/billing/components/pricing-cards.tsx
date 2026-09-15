@@ -288,13 +288,13 @@ export function PricingCards({
               className={cn(
                 "relative flex w-full flex-col rounded-2xl p-6 sm:w-[calc(50%-0.625rem)]  xl:w-[calc(33.333%-1rem)] transition-all shadow-sm",
                 isCurrent
-                  ? "border-2! border-emerald-600! bg-emerald-50/10 dark:bg-emerald-950/10 shadow-lg"
-                  : "border! border-border! hover:border-gray-300! dark:hover:border-neutral-700! hover:shadow-md",
+                  ? "border-2! border-brand-accent! bg-brand-accent/5 shadow-lg"
+                  : "border! border-border! hover:border-gray-300! dark:hover:border-neutral-700! hover:shadow-md ring-0",
               )}
             >
               {isCurrent && (
                 <div className="absolute top-5 right-5 z-10">
-                  <Badge className="shrink-0 gap-1 rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow-none hover:bg-emerald-600">
+                  <Badge className="shrink-0 gap-1 rounded-full bg-brand-accent px-3 py-1 text-xs font-semibold text-white shadow-none hover:bg-brand-accent/90">
                     <Crown className="h-3.5 w-3.5 fill-current" />
                     Current plan
                   </Badge>
@@ -384,7 +384,7 @@ export function PricingCards({
                     <>
                       <Button
                         asChild
-                        className="h-11 w-full gap-2 rounded-xl bg-emerald-700 text-sm font-semibold text-white shadow-none hover:bg-emerald-800"
+                        className="h-11 w-full gap-2 rounded-xl bg-brand-accent text-sm font-semibold text-white shadow-none hover:bg-brand-accent/90"
                       >
                         <Link href={manageBillingHref}>
                           <Settings className="h-4 w-4" />
@@ -441,7 +441,7 @@ export function PricingCards({
                         "h-11 w-full gap-2 rounded-xl text-sm font-semibold shadow-none transition-colors",
                         isDowngrade
                           ? "border-border text-emerald-700 hover:border-emerald-600 hover:bg-emerald-50/30 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
-                          : "bg-emerald-700 text-white hover:bg-emerald-800",
+                          : "bg-brand-accent text-white hover:bg-brand-accent/90",
                       )}
                     >
                       {isLoadingThis && (
@@ -494,10 +494,17 @@ export function PricingCards({
                   }
                 }}
                 disabled={isPending}
-                className="-mr-1.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
+                className={cn(
+                  "absolute right-3 top-3 z-10",
+                  "flex size-7 items-center justify-center rounded-md",
+                  "text-current/60 transition-colors",
+                  "hover:bg-black/5 hover:text-current",
+                  "focus:outline-none focus:ring-2 focus:ring-current/20",
+                  "lg:right-4 lg:top-5 lg:-translate-y-1/2",
+                )}
                 aria-label="Close"
               >
-                <X className="h-5 w-5" />
+                <X className="size-4" />
               </button>
             </div>
 

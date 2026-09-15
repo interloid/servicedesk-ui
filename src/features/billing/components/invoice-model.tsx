@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, type ComponentType } from "react";
+import { useState, type ComponentType, type ReactNode } from "react";
 import {
   CalendarDays,
+  Check,
   CircleAlert,
-  CircleCheck,
   Clock,
   CreditCard,
   DollarSign,
@@ -14,6 +14,7 @@ import {
   FileText,
   Hash,
   Loader2,
+  Receipt,
   Undo2,
   Users,
   X,
@@ -32,7 +33,7 @@ import { MODAL_BUTTON, MODAL_BUTTON_PRIMARY } from "./modal-buttons";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 
 type Invoice = BillingDashboardData["invoices"][number];
-type IconType = ComponentType<{ className?: string }>;
+type IconType = ComponentType<{ className?: string; strokeWidth?: number }>;
 
 interface InvoiceModalProps {
   isOpen: boolean;
@@ -42,10 +43,7 @@ interface InvoiceModalProps {
   account: { name: string; tenantId: string };
 }
 
-const OUTLINE_BUTTON = cn(
-  MODAL_BUTTON,
-  "border-slate-200 bg-white text-slate-800 hover:bg-slate-50",
-);
+const OUTLINE_BUTTON = cn(MODAL_BUTTON, "border-slate-200 bg-white");
 
 interface StatusMeta {
   pill: string;
@@ -55,26 +53,31 @@ interface StatusMeta {
   badgeLabel: string;
   icon: IconType;
   iconWrap: string;
-  heading: string;
-  headingColor: string;
+  divider: string;
   textColor: string;
+  strongColor: string;
 }
 
-function statusMeta(invoice: Invoice): StatusMeta & { message: string } {
+function statusMeta(invoice: Invoice): StatusMeta & { message: ReactNode } {
   switch (invoice.status) {
     case "Paid":
       return {
-        pill: "bg-emerald-50 text-emerald-700",
-        dot: "bg-emerald-500",
+        pill: "bg-teal-100/70 text-teal-800",
+        dot: "bg-brand-accent",
         box: "bg-teal-50",
         badge: "bg-emerald-100 text-emerald-800",
         badgeLabel: "PAID",
-        icon: CircleCheck,
-        iconWrap: "bg-teal-700 text-white",
-        heading: "Payment completed",
-        headingColor: "text-teal-900",
-        textColor: "text-teal-800",
-        message: `This invoice was paid on ${invoice.paidAt ?? invoice.date} via ${invoice.paymentMethod}.`,
+        icon: Check,
+        iconWrap: "bg-brand-accent text-white",
+        divider: "bg-teal-200",
+        textColor: "text-slate-600",
+        strongColor: "[&_strong]:text-teal-900",
+        message: (
+          <>
+            Paid on <strong>{invoice.paidAt ?? invoice.date}</strong> via{" "}
+            <strong>{invoice.paymentMethod}</strong>.
+          </>
+        ),
       };
     case "Failed":
       return {
@@ -85,10 +88,15 @@ function statusMeta(invoice: Invoice): StatusMeta & { message: string } {
         badgeLabel: "PAYMENT FAILED",
         icon: CircleAlert,
         iconWrap: "bg-red-600 text-white",
-        heading: "Payment failed",
-        headingColor: "text-red-900",
+        divider: "bg-red-200",
         textColor: "text-red-800",
-        message: `We couldn't collect this payment through ${invoice.paymentMethod}. Update your payment method on the billing page.`,
+        strongColor: "[&_strong]:text-red-900",
+        message: (
+          <>
+            Payment via <strong>{invoice.paymentMethod}</strong> failed. Update
+            your payment method on the billing page.
+          </>
+        ),
       };
     case "Refunded":
       return {
@@ -99,10 +107,14 @@ function statusMeta(invoice: Invoice): StatusMeta & { message: string } {
         badgeLabel: "REFUNDED",
         icon: Undo2,
         iconWrap: "bg-slate-600 text-white",
-        heading: "Payment refunded",
-        headingColor: "text-slate-900",
+        divider: "bg-slate-300",
         textColor: "text-slate-700",
-        message: `This payment was refunded to your ${invoice.paymentMethod} account.`,
+        strongColor: "[&_strong]:text-slate-900",
+        message: (
+          <>
+            Refunded to your <strong>{invoice.paymentMethod}</strong> account.
+          </>
+        ),
       };
     default:
       return {
@@ -113,10 +125,15 @@ function statusMeta(invoice: Invoice): StatusMeta & { message: string } {
         badgeLabel: "PENDING",
         icon: Clock,
         iconWrap: "bg-amber-500 text-white",
-        heading: "Payment pending",
-        headingColor: "text-amber-900",
+        divider: "bg-amber-200",
         textColor: "text-amber-800",
-        message: "This invoice hasn't been paid yet.",
+        strongColor: "[&_strong]:text-amber-900",
+        message: (
+          <>
+            Payment <strong>pending</strong>. This invoice hasn&apos;t been paid
+            yet.
+          </>
+        ),
       };
   }
 }
@@ -152,13 +169,18 @@ function InvoicePaper({
       className="flex-1 rounded-lg border border-slate-200 bg-white p-4 text-[8px] leading-relaxed text-slate-700 shadow-sm"
     >
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-[11px] font-bold leading-tight text-slate-900">
-            ServiceDesk
-          </p>
-          <p className="text-[6.5px] text-slate-500">
-            Help Desk &amp; Ticket Management Platform
-          </p>
+        <div className="flex items-center gap-1.5">
+          <span className="flex size-4 shrink-0 items-center justify-center rounded-lg bg-brand-accent text-[8.5px] font-bold leading-none text-white">
+            S
+          </span>
+          <div>
+            <p className="text-[11px] font-bold leading-tight text-slate-900">
+              ServiceDesk
+            </p>
+            <p className="text-[6.5px] text-slate-500">
+              Help Desk &amp; Ticket Management Platform
+            </p>
+          </div>
         </div>
         <div className="flex flex-col items-end gap-1">
           <p className="text-xs font-bold leading-tight tracking-wide text-teal-700">
@@ -188,10 +210,6 @@ function InvoicePaper({
         <p className="break-all">{invoice.billingEmail}</p>
       )}
       <p className="break-all">Tenant ID: {account.tenantId}</p>
-      <p>Plan: {planName}</p>
-      <p>
-        {invoice.seats} {invoice.seats === 1 ? "seat" : "seats"}
-      </p>
 
       <p className="mt-3 text-[7px] font-bold uppercase tracking-wider text-slate-900">
         Charge details
@@ -239,6 +257,11 @@ export default function InvoiceModal({
   const fileName = `${invoice.id || "Invoice"}.pdf`;
   const meta = statusMeta(invoice);
   const StatusIcon = meta.icon;
+  const planName = invoice.planName.replace(/\s+upgrade$/i, "");
+  const planSummary = [
+    invoice.invoiceType === "one_time" ? "One-time upgrade" : "Monthly plan",
+    `${invoice.seats} ${invoice.seats === 1 ? "seat" : "seats"}`,
+  ].join(" · ");
 
   const openPdf = () => {
     if (pdfUrl) {
@@ -296,6 +319,7 @@ export default function InvoiceModal({
       value: invoice.date,
       emphasis: true,
     },
+    { icon: Receipt, label: "Invoice number", value: invoice.id },
     { icon: FileText, label: "Plan details", value: invoice.description },
     {
       icon: Users,
@@ -351,22 +375,22 @@ export default function InvoiceModal({
         </div>
 
         <div className="grid gap-6 px-6 py-6 md:grid-cols-[minmax(0,1fr)_18.5rem]">
-          <div className="min-w-0 border border-slate-200 p-4 md:pr-6">
-            <div className="flex items-center gap-4 rounded-xl bg-teal-50/70 p-4">
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-teal-700">
-                <FileText className="size-5" />
+          <div className="min-w-0 rounded-2xl border border-slate-200 p-4 md:pr-6">
+            <div className="flex items-center gap-4 rounded-xl bg-teal-50 p-4">
+              <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-brand-accent text-white">
+                <FileText className="size-6" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-lg font-bold leading-tight text-slate-900">
-                  {invoice.id}
+                <p className="truncate text-xl font-bold leading-tight text-slate-900">
+                  {planName}
                 </p>
-                <p className="truncate text-sm text-slate-600">
-                  {invoice.description}
+                <p className="mt-1 truncate text-sm text-slate-600">
+                  {planSummary}
                 </p>
               </div>
               <span
                 className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold",
                   meta.pill,
                 )}
               >
@@ -394,21 +418,31 @@ export default function InvoiceModal({
               ))}
             </dl>
 
-            <div className={cn("mt-5 rounded-xl p-4 text-left", meta.box)}>
-              <div className="flex items-center gap-3">
-                <span
-                  className={cn(
-                    "flex size-9 shrink-0 items-center justify-center rounded-lg",
-                    meta.iconWrap,
-                  )}
-                >
-                  <StatusIcon className="size-4.5" />
-                </span>
-                <p className={cn("text-sm font-semibold", meta.headingColor)}>
-                  {meta.heading}
-                </p>
-              </div>
-              <p className={cn("mt-2.5 text-sm", meta.textColor)}>
+            <div
+              className={cn(
+                "mt-5 flex items-center gap-4 rounded-xl p-4 text-left",
+                meta.box,
+              )}
+            >
+              <span
+                className={cn(
+                  "flex size-11 shrink-0 items-center justify-center rounded-full",
+                  meta.iconWrap,
+                )}
+              >
+                <StatusIcon className="size-5" strokeWidth={2.5} />
+              </span>
+              <span
+                aria-hidden="true"
+                className={cn("w-px self-stretch", meta.divider)}
+              />
+              <p
+                className={cn(
+                  "text-sm [&_strong]:font-semibold",
+                  meta.textColor,
+                  meta.strongColor,
+                )}
+              >
                 {meta.message}
               </p>
             </div>
@@ -446,7 +480,7 @@ export default function InvoiceModal({
             onClick={openPdf}
             className={OUTLINE_BUTTON}
           >
-            <Eye />
+            
             View full invoice
             <ExternalLink />
           </Button>

@@ -245,7 +245,7 @@ export function CancelSubscriptionDialog({
           </div>
 
           <AlertDialogDescription asChild>
-            <div className="mt-4 max-h-[55vh] space-y-3 overflow-y-auto">
+            <div className="mt-4 max-h-[55vh] space-y-3 overflow-y-auto w-full">
               {blockedState ? (
                 blockedState.body
               ) : step === "confirm" ? (

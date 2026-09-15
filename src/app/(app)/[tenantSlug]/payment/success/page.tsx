@@ -220,7 +220,7 @@ function PaymentSuccessContent() {
                 ? window.location.assign(approval.url)
                 : router.push(targetRedirectUrl)
             }
-            className="h-9 w-full bg-brand-accent hover:bg-brand-accent/90"
+            className="h-10 w-full bg-brand-accent hover:bg-brand-accent/90"
           >
             {authorizing
               ? `Continue to PayPal to confirm (${paypalCountdown}s)`

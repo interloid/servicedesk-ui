@@ -1049,7 +1049,6 @@ export default function BillingDashboard({
                           onClick={() => setSelectedInvoice(inv)}
                           className="group/view inline-flex cursor-pointer items-center gap-1.5 rounded-md font-semibold text-teal-700 transition-colors duration-200 ease-out hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 motion-safe:active:scale-[0.98]"
                         >
-                          <Eye className="size-4 transition-transform duration-200 ease-out motion-safe:group-hover/view:scale-110" />
                           View invoice
                         </button>
                       </TableCell>

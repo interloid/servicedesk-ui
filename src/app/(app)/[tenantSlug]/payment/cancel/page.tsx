@@ -109,7 +109,7 @@ export default function PaymentCancelPage() {
         <CardFooter>
           <Button
             onClick={() => router.push(targetRedirectUrl)}
-            className="h-9 w-full bg-brand-accent hover:bg-brand-accent/90"
+            className="h-10 w-full bg-brand-accent hover:bg-brand-accent/90"
           >
             Go to Account & Plan
           </Button>

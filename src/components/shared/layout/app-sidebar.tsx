@@ -37,6 +37,7 @@ import {
   SidebarMenuItem,
   SidebarTrigger,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -81,6 +82,8 @@ const SHIPPED_ROUTES = new Set<string>([
 export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
   const pathname = usePathname();
   const params = useParams();
+
+  const { isMobile, setOpenMobile } = useSidebar();
 
   // identity.user.role is a plain string and can hold a value that is not a
   // real membership role (the JWT claim is absent for a member whose row was
@@ -429,6 +432,11 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                       >
                         <Link
                           href={targetPath}
+                          onClick={() => {
+                            if (isMobile) {
+                              setOpenMobile(false);
+                            }
+                          }}
                           className="
                             flex
                             min-w-0

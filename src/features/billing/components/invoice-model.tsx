@@ -500,9 +500,26 @@ export default function InvoiceModal({
     border-t border-slate-200
     px-4 py-3
     sm:px-6 sm:py-4
-    lg:flex-row lg:items-center lg:justify-between
+    lg:flex-row lg:items-center
   "
         >
+          <Button
+            onClick={handleDownload}
+            disabled={isDownloading || !pdfUrl}
+            className={cn(
+              MODAL_BUTTON,
+              MODAL_BUTTON_PRIMARY,
+              "order-1 w-full lg:order-3 lg:w-auto",
+            )}
+          >
+            {isDownloading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
+            {isDownloading ? "Downloading..." : "Download PDF"}
+          </Button>
+
           <Button
             variant="outline"
             disabled={!pdfUrl}
@@ -516,40 +533,16 @@ export default function InvoiceModal({
             <ExternalLink className="size-4" />
           </Button>
 
-          <div
-            className="
-      flex flex-col gap-2.5
-      lg:flex-row lg:items-center
-    "
+          <Button
+            variant="outline"
+            onClick={onClose}
+            className={cn(
+              OUTLINE_BUTTON,
+              "order-3 w-full lg:order-2 lg:ml-auto lg:w-auto",
+            )}
           >
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className={cn(
-                OUTLINE_BUTTON,
-                "order-3 w-full lg:order-1 lg:w-auto",
-              )}
-            >
-              Close
-            </Button>
-
-            <Button
-              onClick={handleDownload}
-              disabled={isDownloading || !pdfUrl}
-              className={cn(
-                MODAL_BUTTON,
-                MODAL_BUTTON_PRIMARY,
-                "order-1 w-full lg:order-2 lg:w-auto",
-              )}
-            >
-              {isDownloading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Download className="size-4" />
-              )}
-              {isDownloading ? "Downloading..." : "Download PDF"}
-            </Button>
-          </div>
+            Close
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

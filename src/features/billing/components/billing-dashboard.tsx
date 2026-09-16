@@ -474,7 +474,7 @@ export default function BillingDashboard({
                   <StatusText tone={data.autoRenew ? "emerald" : "slate"}>
                     Auto-renew is {data.autoRenew ? "on" : "off"}
                   </StatusText>
-                  <p className="pl-4 text-xs text-slate-500">
+                  <p className="text-xs text-slate-500">
                     {data.autoRenew
                       ? "Your subscription will automatically renew using your saved payment method."
                       : isFreeTier

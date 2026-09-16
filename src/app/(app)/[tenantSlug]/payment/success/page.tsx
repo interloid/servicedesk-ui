@@ -40,6 +40,10 @@ function PaymentSuccessContent() {
   const token = searchParams.get("token");
   const paymentId = subscriptionId ?? token;
   const missingPaymentId = !paymentId;
+  // One-time upgrade payments arrive as PayPal order ids (token); recurring
+  // ones as subscription ids, which PayPal prefixes with "I-".
+  const isOrderLike =
+    paymentId !== null && paymentId.length > 0 && !paymentId.startsWith("I-");
   const [checking, setChecking] = useState(true);
   const [authorizing, setAuthorizing] = useState(false);
   const [approval, setApproval] = useState<{
@@ -51,18 +55,19 @@ function PaymentSuccessContent() {
   const tenantSlug = params.tenantSlug as string;
   const targetRedirectUrl = `/${tenantSlug}/account/billing`;
   const isSuccess = !checking && !authorizing && Boolean(planName) && !error;
+  // A one-time upgrade payment only covers the proration; the recurring plan
+  // does not start until the user completes PayPal authorization. Until that
+  // path either reaches PayPal or fully activates, the billing shortcut is
+  // withheld — both the button and the automatic redirect — so nobody lands on
+  // billing with the proration captured and next month's subscription off.
+  const blockBillingExit = isOrderLike && !authorizing && !isSuccess;
 
   useEffect(() => {
     if (confirmedRef.current) return;
     confirmedRef.current = true;
 
-    // One-time upgrade payments arrive as PayPal order ids (token); recurring
-    // ones as subscription ids. When the id is missing (PayPal sometimes lands
-    // here without a token), the activation action resolves the tenant's
-    // pending switch itself.
-    const isOrderLike =
-      paymentId !== null && paymentId.length > 0 && !paymentId.startsWith("I-");
-
+    // When the id is missing (PayPal sometimes lands here without a token),
+    // the activation action resolves the tenant's pending switch itself.
     const confirm = isOrderLike
       ? confirmOrderPaymentAction
       : confirmSubscriptionActivationAction;
@@ -93,7 +98,7 @@ function PaymentSuccessContent() {
       .finally(() => {
         setChecking(false);
       });
-  }, [tenantSlug, missingPaymentId, paymentId]);
+  }, [tenantSlug, missingPaymentId, paymentId, isOrderLike]);
 
   useEffect(() => {
     if (checking || !authorizing || !approval) return;
@@ -112,7 +117,7 @@ function PaymentSuccessContent() {
   }, [checking, authorizing, approval, paypalCountdown]);
 
   useEffect(() => {
-    if (checking || authorizing) return;
+    if (checking || authorizing || blockBillingExit) return;
 
     if (countdown <= 0) {
       router.push(targetRedirectUrl);
@@ -122,7 +127,14 @@ function PaymentSuccessContent() {
     const timer = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
 
     return () => clearTimeout(timer);
-  }, [checking, authorizing, countdown, router, targetRedirectUrl]);
+  }, [
+    checking,
+    authorizing,
+    blockBillingExit,
+    countdown,
+    router,
+    targetRedirectUrl,
+  ]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/40 p-4">
@@ -205,7 +217,7 @@ function PaymentSuccessContent() {
             </p>
           )}
 
-          {!checking && !authorizing && (
+          {!checking && !authorizing && !blockBillingExit && (
             <p className="text-xs text-muted-foreground">
               Redirecting to your billing page in{" "}
               <span className="font-bold text-foreground">{countdown}</span>{" "}
@@ -221,14 +233,18 @@ function PaymentSuccessContent() {
                 ? window.location.assign(approval.url)
                 : router.push(targetRedirectUrl)
             }
-            disabled={isSuccess}
+            disabled={checking || isSuccess || blockBillingExit}
             className="h-10 w-full bg-brand-accent hover:bg-brand-accent/90 disabled:cursor-not-allowed"
           >
-            {authorizing
-              ? `Continue to PayPal to confirm (${paypalCountdown}s)`
-              : isSuccess
-                ? "Redirecting automatically…"
-                : "Go to Account & Billing Immediately"}
+            {checking
+              ? "Checking payment…"
+              : authorizing
+                ? `Continue to PayPal to confirm (${paypalCountdown}s)`
+                : isSuccess
+                  ? "Redirecting automatically…"
+                  : blockBillingExit
+                    ? "PayPal authorization required"
+                    : "Go to Account & Billing Immediately"}
           </Button>
         </CardFooter>
       </Card>

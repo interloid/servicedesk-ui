@@ -142,10 +142,12 @@ export async function getShellIdentity(
     .eq("id", user.id)
     .maybeSingle();
 
-  const name =
-    profile?.full_name ?? user.user_metadata?.full_name ?? user.email ?? "User";
+  const fullName =
+    profile?.full_name?.trim() || user.user_metadata?.full_name?.trim() || "";
 
-  const initials = name
+  const name = fullName || user.email?.trim() || "Unknown user";
+
+  const initials = fullName
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)

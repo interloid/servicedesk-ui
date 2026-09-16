@@ -23,6 +23,7 @@ import {
   Sparkles,
   ChevronDown,
   PanelLeft,
+  User,
 } from "lucide-react";
 
 import {
@@ -486,11 +487,15 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           >
             <AvatarImage
               src={identity?.user.avatarUrl}
-              alt={identity?.user.name ?? "User"}
+              alt={identity?.user.name ?? "Unknown user"}
             />
 
             <AvatarFallback className="bg-foreground text-xs font-bold text-background">
-              {identity?.user.initials ?? "U"}
+              {identity?.user.initials ? (
+                identity.user.initials
+              ) : (
+                <User className="h-4 w-4" />
+              )}
             </AvatarFallback>
           </Avatar>
 
@@ -510,7 +515,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                 text-foreground
               "
             >
-              {identity?.user.name ?? "User"}
+              {identity?.user.name ?? "Unknown user"}
             </span>
 
             <span

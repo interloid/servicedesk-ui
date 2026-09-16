@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { User } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -63,10 +64,14 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
             <Avatar className="size-8">
               <AvatarImage
                 src={identity?.user.avatarUrl}
-                alt={identity?.user.name ?? "User"}
+                alt={identity?.user.name ?? "Unknown user"}
               />
               <AvatarFallback className="bg-foreground text-xs font-bold text-background">
-                {identity?.user.initials ?? "U"}
+                {identity?.user.initials ? (
+                  identity.user.initials
+                ) : (
+                  <User className="h-4 w-4" />
+                )}
               </AvatarFallback>
             </Avatar>
 

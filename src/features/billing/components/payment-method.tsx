@@ -99,7 +99,7 @@ export function UpdatePaymentModal({
                   : "Update payment method"}
               </h2>
 
-              <DialogPrimitive.Close className="-mr-1.5 shrink-0 rounded-md p-1.5 text-slate-400 transition-colors duration-200 ease-out hover:bg-slate-100 hover:text-slate-600 focus:outline-none motion-safe:active:scale-[0.98]">
+              <DialogPrimitive.Close className="-mr-1.5 shrink-0 rounded-md p-1.5 text-slate-400 transition-colors duration-200 ease-out hover:text-slate-600 focus:outline-none motion-safe:active:scale-[0.98]">
                 <X className="h-5 w-5" />
                 <span className="sr-only">Close</span>
               </DialogPrimitive.Close>

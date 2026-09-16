@@ -17,6 +17,7 @@ import {
   UserRound,
   Users,
   UsersRound,
+  X,
 } from "lucide-react";
 import { MdCurrencyExchange } from "react-icons/md";
 import { Button } from "@/components/ui/button";
@@ -368,7 +369,7 @@ export default function BillingDashboard({
             />
           )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
           <DashboardCard
             icon={Crown}
             iconTone="teal"
@@ -836,17 +837,32 @@ export default function BillingDashboard({
       </div>
 
       <Dialog open={isPlanDetailsOpen} onOpenChange={setIsPlanDetailsOpen}>
-        <DialogContent className="max-w-md w-[calc(100%-2rem)] sm:max-w-md rounded-2xl p-6">
-          {" "}
+        <DialogContent
+          showCloseButton={false}
+          className="w-[calc(100%-2rem)] max-w-md rounded-2xl p-6 sm:max-w-md"
+        >
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3 text-xl font-bold text-slate-900">
-              {data.plan?.name ?? "Current plan"}
-              <StatusPill tone={planStatus.tone} label={planStatus.label} />
-            </DialogTitle>
+            <div className="flex w-full items-center justify-between gap-4">
+              <DialogTitle className="flex items-center gap-3 text-xl font-bold text-slate-900">
+                {data.plan?.name ?? "Current plan"}
+                <StatusPill tone={planStatus.tone} label={planStatus.label} />
+              </DialogTitle>
+
+              <button
+                type="button"
+                onClick={() => setIsPlanDetailsOpen(false)}
+                className="-mr-1.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground motion-safe:active:scale-[0.98]"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
             <DialogDescription className="text-sm text-slate-500">
               {data.plan?.description}
             </DialogDescription>
           </DialogHeader>
+
           <dl className="divide-y divide-slate-100 rounded-xl border border-slate-200 text-sm">
             {planDetails.map((row) => (
               <div
@@ -860,12 +876,14 @@ export default function BillingDashboard({
               </div>
             ))}
           </dl>
+
           {scheduledChange && (
             <ModalNotice icon={CalendarClock} tone="amber">
               Changes to {scheduledChange.planName} ({scheduledChange.planRate})
               on {effectiveDateLabel}.
             </ModalNotice>
           )}
+
           <DialogFooter className="gap-3 sm:justify-end">
             <Button
               variant="outline"
@@ -874,6 +892,7 @@ export default function BillingDashboard({
             >
               Close
             </Button>
+
             <Button
               className={cn(MODAL_BUTTON, MODAL_BUTTON_PRIMARY)}
               onClick={() => router.push(plansHref)}

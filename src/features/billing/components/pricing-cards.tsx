@@ -336,7 +336,7 @@ export function PricingCards({
                 >
                   {previousPlan ? (
                     <>
-                      <div className="flex items-start gap-2.5 rounded-lg bg-muted/30 px-3 py-2">
+                      <div className="flex items-start gap-2.5 rounded-lg  px-3 py-2">
                         <Layers className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                         <p className="text-xs font-medium text-foreground">
                           Everything in {previousPlan.name}, plus:
@@ -503,7 +503,7 @@ export function PricingCards({
                   "absolute right-3 top-3 z-10",
                   "flex size-7 items-center justify-center rounded-md",
                   "text-current/60 transition-colors",
-                  "hover:bg-black/5 hover:text-current",
+                  "bg-none border-0 p-0",
                   "focus:outline-none focus:ring-2 focus:ring-current/20",
                   "lg:right-4 lg:top-5 lg:-translate-y-1/2",
                 )}

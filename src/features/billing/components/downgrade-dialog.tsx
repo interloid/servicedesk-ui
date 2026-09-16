@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useTransition } from "react";
+import React, { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarClock, Loader2, X, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
+
 import { FormattedPlan } from "../types";
 import { changeTenantPlanAction } from "../billing-actions";
 import { cn } from "@/lib/utils";
 import { MODAL_BUTTON } from "./modal-buttons";
 import { ModalNotice } from "./modal-notice";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,11 +22,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-// Confirm/dismiss tones only -- the size comes from MODAL_BUTTON, shared with
-// every other billing popup. Outlined rather than solid, following the
-// cancel-subscription flow.
 const CONFIRM_DANGER =
   "border-red-600 bg-background text-red-600 hover:border-red-600 hover:bg-red-50 hover:text-red-600 disabled:border-red-300 disabled:bg-background disabled:text-red-300 disabled:opacity-100 dark:hover:bg-red-950/30";
+
 const CONFIRM_ACCENT =
   "border-brand-accent bg-background text-brand-accent hover:border-brand-accent hover:bg-brand-accent/5 hover:text-brand-accent disabled:border-brand-accent/40 disabled:bg-background disabled:text-brand-accent/40 disabled:opacity-100";
 
@@ -54,8 +54,18 @@ export function DowngradeDialog({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
+  // Controls the fade-out before closing the dialog.
+  const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setIsClosing(false);
+    }
+  }, [open]);
+
   const isFreeTarget = targetPlan?.priceValue === 0;
   const targetSeatLimit = targetPlan?.seatLimit ?? 0;
+
   const seatsAtRisk = targetPlan ? Math.max(0, usedSeats - targetSeatLimit) : 0;
 
   const currentPlanLabel = currentPlan?.name ?? "your current plan";
@@ -64,7 +74,13 @@ export function DowngradeDialog({
   const targetSuffix = targetPlan?.priceSuffix ?? "";
 
   const timing = (() => {
-    if (!targetPlan) return { headline: "", body: "", deferred: false };
+    if (!targetPlan) {
+      return {
+        headline: "",
+        body: "",
+        deferred: false,
+      };
+    }
 
     return renewalDate
       ? {
@@ -83,8 +99,23 @@ export function DowngradeDialog({
         };
   })();
 
+  /**
+   * Close animation:
+   * 1. Fade the notice out.
+   * 2. Close the dialog after 100ms.
+   */
+  const handleClose = () => {
+    if (isPending || isClosing) return;
+
+    setIsClosing(true);
+
+    setTimeout(() => {
+      onOpenChange(false);
+    }, 100);
+  };
+
   const handleConfirm = () => {
-    if (!targetPlan) return;
+    if (!targetPlan || isPending) return;
 
     if (
       scheduledToPlan &&
@@ -94,6 +125,7 @@ export function DowngradeDialog({
       toast.info(
         `You've already scheduled the downgrade to ${targetPlan.name}.`,
       );
+
       onOpenChange(false);
       return;
     }
@@ -120,9 +152,11 @@ export function DowngradeDialog({
                 year: "numeric",
               })
             : (renewalDate ?? "the end of your billing period");
+
           toast.success(
             `Downgrade to ${targetPlan.name} scheduled for ${when}. You keep your current plan until then.`,
           );
+
           onOpenChange(false);
           return;
         }
@@ -131,6 +165,7 @@ export function DowngradeDialog({
         router.refresh();
       } catch (error) {
         console.error("Downgrade error:", error);
+
         toast.error(
           error instanceof Error
             ? error.message
@@ -144,24 +179,26 @@ export function DowngradeDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !isPending) onOpenChange(false);
+        if (!next && !isPending) {
+          handleClose();
+        }
       }}
     >
       <AlertDialogContent
         className="
-            w-[calc(100%-2rem)]
-            data-[size=default]:max-w-110
-            data-[size=default]:sm:max-w-125
-            rounded-2xl
-            border
-            border-border
-            bg-background
-            p-0
-            shadow-xl
-            overflow-hidden
-          "
+          w-[calc(100%-2rem)]
+          data-[size=default]:max-w-110
+          data-[size=default]:sm:max-w-125
+          overflow-hidden
+          rounded-2xl
+          border
+          border-border
+          bg-background
+          p-0
+          shadow-xl
+        "
       >
-        <AlertDialogHeader className="block px-6 pt-5 pb-4 text-left">
+        <AlertDialogHeader className="block px-6 pb-4 pt-5 text-left">
           <div className="flex w-full items-center justify-between gap-4">
             <AlertDialogTitle className="text-xl font-bold text-foreground">
               Downgrade to {targetName}?
@@ -169,11 +206,22 @@ export function DowngradeDialog({
 
             <button
               type="button"
-              onClick={() => {
-                if (!isPending) onOpenChange(false);
-              }}
-              disabled={isPending}
-              className="-mr-1.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
+              onClick={handleClose}
+              disabled={isPending || isClosing}
+              className="
+                -mr-1.5
+                shrink-0
+                rounded-md
+                p-1.5
+                text-muted-foreground
+                transition-colors
+                duration-200
+                ease-out
+                hover:text-foreground
+                disabled:pointer-events-none
+                disabled:opacity-50
+                motion-safe:active:scale-[0.98]
+              "
               aria-label="Close"
             >
               <X className="h-5 w-5" />
@@ -181,7 +229,12 @@ export function DowngradeDialog({
           </div>
 
           <AlertDialogDescription asChild>
-            <div className="mt-4 space-y-3">
+            <div
+              className={cn(
+                "mt-4 space-y-3 transition-opacity duration-100",
+                isClosing ? "opacity-0" : "opacity-100",
+              )}
+            >
               <ModalNotice
                 icon={timing.deferred ? CalendarClock : Zap}
                 title={`Takes effect: ${timing.headline}`}
@@ -204,9 +257,15 @@ export function DowngradeDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <AlertDialogFooter className="mx-0 mb-0 gap-3 px-4 py-4 sm:justify-end">
+        <AlertDialogFooter className="mx-0 mb-0 gap-3 border-t border-border px-4 py-4 sm:justify-end">
           <AlertDialogCancel
-            disabled={isPending}
+            disabled={isPending || isClosing}
+            onClick={(e) => {
+              // Prevent Radix from closing immediately.
+              e.preventDefault();
+
+              handleClose();
+            }}
             className={cn(MODAL_BUTTON, "mt-0")}
           >
             Keep my plan
@@ -214,7 +273,7 @@ export function DowngradeDialog({
 
           <AlertDialogAction
             variant="outline"
-            disabled={isPending}
+            disabled={isPending || isClosing}
             onClick={(e) => {
               e.preventDefault();
               handleConfirm();
@@ -225,7 +284,8 @@ export function DowngradeDialog({
             )}
           >
             {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Confirm downgrade
+
+            {isPending ? "Processing..." : "Confirm downgrade"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

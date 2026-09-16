@@ -498,7 +498,6 @@ export default function InvoiceModal({
           className="
     flex shrink-0 flex-col gap-2.5
     border-t border-slate-200
-    bg-slate-50/50
     px-4 py-3
     sm:px-6 sm:py-4
     lg:flex-row lg:items-center lg:justify-between

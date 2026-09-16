@@ -237,7 +237,7 @@ export function CancelSubscriptionDialog({
               type="button"
               onClick={close}
               disabled={isPending}
-              className="-mr-1.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
+              className="-mr-1.5 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-safe:active:scale-[0.98]"
               aria-label="Close"
             >
               <X className="h-5 w-5" />

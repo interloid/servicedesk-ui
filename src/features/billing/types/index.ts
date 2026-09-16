@@ -1,3 +1,5 @@
+import { ComponentType } from "react";
+
 export interface DbPlan {
   id: string;
   code: string;
@@ -31,3 +33,6 @@ export interface FormattedPlan {
   storageLimitText: string;
   features: FormattedFeature[];
 }
+
+export type IconType = ComponentType<{ className?: string }>;
+export type PillTone = "emerald" | "sky" | "amber" | "red" | "slate";

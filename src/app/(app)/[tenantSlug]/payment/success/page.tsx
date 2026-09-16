@@ -49,7 +49,8 @@ function PaymentSuccessContent() {
   } | null>(null);
   const confirmedRef = useRef(false);
   const tenantSlug = params.tenantSlug as string;
-  const targetRedirectUrl = `/${tenantSlug}/account/plans`;
+  const targetRedirectUrl = `/${tenantSlug}/account/billing`;
+  const isSuccess = !checking && !authorizing && Boolean(planName) && !error;
 
   useEffect(() => {
     if (confirmedRef.current) return;
@@ -206,7 +207,7 @@ function PaymentSuccessContent() {
 
           {!checking && !authorizing && (
             <p className="text-xs text-muted-foreground">
-              Redirecting to your account plan in{" "}
+              Redirecting to your billing page in{" "}
               <span className="font-bold text-foreground">{countdown}</span>{" "}
               seconds...
             </p>
@@ -220,11 +221,14 @@ function PaymentSuccessContent() {
                 ? window.location.assign(approval.url)
                 : router.push(targetRedirectUrl)
             }
-            className="h-10 w-full bg-brand-accent hover:bg-brand-accent/90"
+            disabled={isSuccess}
+            className="h-10 w-full bg-brand-accent hover:bg-brand-accent/90 disabled:cursor-not-allowed"
           >
             {authorizing
               ? `Continue to PayPal to confirm (${paypalCountdown}s)`
-              : "Go to Account & Plan Immediately"}
+              : isSuccess
+                ? "Redirecting automatically…"
+                : "Go to Account & Billing Immediately"}
           </Button>
         </CardFooter>
       </Card>

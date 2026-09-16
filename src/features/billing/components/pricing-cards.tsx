@@ -288,13 +288,13 @@ export function PricingCards({
               className={cn(
                 "relative flex w-full flex-col rounded-2xl p-6 sm:w-[calc(50%-0.625rem)]  xl:w-[calc(33.333%-1rem)] transition-all shadow-sm",
                 isCurrent
-                  ? "border-2! border-brand-accent! bg-brand-accent/5 shadow-lg"
-                  : "border! border-border! hover:border-gray-300! dark:hover:border-neutral-700! hover:shadow-md ring-0",
+                  ? "border-2! border-brand-accent! bg-brand-accent/5 shadow-sm"
+                  : "border! border-border! hover:border-gray-300! dark:hover:border-neutral-700! hover:shadow-sm ring-0",
               )}
             >
               {isCurrent && (
                 <div className="absolute top-5 right-5 z-10">
-                  <Badge className="shrink-0 gap-1 rounded-full bg-brand-accent px-3 py-1 text-xs font-semibold text-white shadow-none hover:bg-brand-accent/90">
+                  <Badge className="shrink-0 gap-1 rounded-full bg-brand-accent px-4 py-3 text-xs font-semibold text-white shadow-none hover:bg-brand-accent/90">
                     <Crown className="h-3.5 w-3.5 fill-current" />
                     Current plan
                   </Badge>
@@ -321,14 +321,19 @@ export function PricingCards({
                   </span>
                 </div>
 
-                <div className="mt-5 flex items-center gap-2.5 rounded-xl border border-border/80 bg-muted/30 px-3.5 py-2.5">
+                <div className="mt-5 flex items-center gap-2.5 rounded-xl border border-border/80 bg-white px-3.5 py-2.5">
                   <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="text-xs font-semibold text-foreground">
                     {plan.seatLimitText} agent seats included
                   </span>
                 </div>
 
-                <div className="mt-6 flex-1 border-t border-border/60 pt-5">
+                <div
+                  className={cn(
+                    "mt-6 flex-1 border-t pt-5",
+                    isCurrent ? "border-t-brand-accent/50!" : "border-t-border",
+                  )}
+                >
                   {previousPlan ? (
                     <>
                       <div className="flex items-start gap-2.5 rounded-lg bg-muted/30 px-3 py-2">
@@ -349,7 +354,7 @@ export function PricingCards({
                             ]
                         ).map((feature, index) => (
                           <li key={index} className="flex items-start gap-2.5">
-                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 stroke-[2.5]" />
+                            <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-accent stroke-[2.5]" />
                             <span className="text-xs font-medium text-muted-foreground">
                               {feature.label}
                               {typeof feature.value === "string" ||

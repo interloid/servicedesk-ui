@@ -140,8 +140,8 @@ export function UpdatePaymentModal({
               }
             >
               {sentToPayPal
-                ? "Pick a different funding source for this subscription, then come back and select Done so we can refresh what's on file."
-                : "Swapping the funding source behind a running agreement has to happen on PayPal's side. We'll open its automatic payments settings, where you can change the card or bank account. Your plan, workspace and subscription stay exactly as they are — nothing is re-created, and your card details never touch our servers."}
+                ? "Choose a different funding source for this subscription on PayPal, then return here and select Done to refresh your payment details."
+                : "You can change the funding source for your active subscription through PayPal. We will open PayPal’s automatic payments settings, where you can update your card or bank account. Your plan, workspace, and subscription will remain unchanged, and your card details will never be stored on our servers."}
             </ModalNotice>
 
             <div className="flex items-center space-x-2 text-xs text-slate-500">

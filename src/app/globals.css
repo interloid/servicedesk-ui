@@ -248,3 +248,7 @@
 *::-webkit-scrollbar-thumb:hover {
   background-color: var(--foreground);
 }
+
+.plan-card-current {
+  border-color: var(--brand-accent);
+}

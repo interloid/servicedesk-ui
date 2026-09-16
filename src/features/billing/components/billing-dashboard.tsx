@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, type ComponentType, type ReactNode } from "react";
+import { use, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -14,16 +14,13 @@ import {
   ExternalLink,
   Eye,
   FileText,
-  Settings,
   UserRound,
   Users,
   UsersRound,
-  X,
 } from "lucide-react";
 import { MdCurrencyExchange } from "react-icons/md";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +43,16 @@ import InvoiceModal from "./invoice-model";
 import { UpdatePaymentModal } from "./payment-method";
 import { ModalNotice } from "./modal-notice";
 import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
+import {
+  DashboardCard,
+  DetailRow,
+  IconTile,
+  LoadingState,
+  NoticeBanner,
+  PayPalMark,
+  StatusPill,
+  StatusText,
+} from "./reuse";
 
 export const MODAL_BUTTON =
   "h-10 w-full gap-2 rounded-lg px-5 text-sm font-semibold shadow-none duration-200 ease-out motion-safe:active:scale-[0.98] sm:w-auto";
@@ -54,7 +61,6 @@ export const MODAL_BUTTON =
 export const MODAL_BUTTON_PRIMARY =
   "bg-brand-accent text-brand-accent-foreground hover:bg-brand-accent/90";
 type Invoice = BillingDashboardData["invoices"][number];
-type IconType = ComponentType<{ className?: string }>;
 type PillTone = "emerald" | "sky" | "amber" | "red" | "slate";
 
 // Billing history pages through invoices newest first, one page at a time.
@@ -68,10 +74,9 @@ const MICRO_ICON = "transition-transform duration-200 ease-out";
 const ICON_NUDGE_RIGHT = `${MICRO_ICON} motion-safe:group-hover/button:translate-x-0.5`;
 const ICON_NUDGE_LEFT = `${MICRO_ICON} motion-safe:group-hover/button:-translate-x-0.5`;
 const ICON_POP = `${MICRO_ICON} motion-safe:group-hover/button:scale-110`;
-const ICON_TURN = `${MICRO_ICON} motion-safe:group-hover/button:rotate-45`;
 
 const PRIMARY_BUTTON = `h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90 ${BUTTON_MICRO}`;
-const OUTLINE_BUTTON = `h-10 gap-2 rounded-lg border-slate-200 px-4 ${BUTTON_MICRO}`;
+const OUTLINE_BUTTON = `h-10 gap-2 rounded-lg border-slate-200 px-4 text-sm font-medium ${BUTTON_MICRO}`;
 const SECONDARY_BUTTON = `h-10 gap-2 rounded-lg px-4 text-sm font-semibold ${BUTTON_MICRO}`;
 const PAGINATION_BUTTON = `size-10 shrink-0 rounded-lg border-slate-200 p-0 sm:size-9 ${BUTTON_MICRO}`;
 
@@ -100,340 +105,10 @@ function pageWindow(current: number, total: number): Array<number | "gap"> {
   return out;
 }
 
-const PILL_TONES: Record<
-  PillTone,
-  { pill: string; dot: string; text: string }
-> = {
-  emerald: {
-    pill: "bg-emerald-50 text-emerald-700",
-    dot: "bg-emerald-500",
-    text: "text-emerald-700",
-  },
-  sky: {
-    pill: "bg-sky-50 text-sky-700",
-    dot: "bg-sky-500",
-    text: "text-sky-700",
-  },
-  amber: {
-    pill: "bg-amber-50 text-amber-800",
-    dot: "bg-amber-500",
-    text: "text-amber-800",
-  },
-  red: {
-    pill: "bg-red-50 text-red-700",
-    dot: "bg-red-500",
-    text: "text-red-700",
-  },
-  slate: {
-    pill: "bg-slate-100 text-slate-600",
-    dot: "bg-slate-400",
-    text: "text-slate-500",
-  },
-};
-
 interface BillingDashboardProps {
   params: Promise<{ tenantSlug: string }>;
   initialData?: BillingDashboardData | null;
   isLoading?: boolean;
-}
-
-function IconTile({
-  icon: Icon,
-  tone,
-}: {
-  icon: IconType;
-  tone: "teal" | "blue";
-}) {
-  return (
-    <span
-      className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-lg",
-        tone === "teal"
-          ? "bg-teal-50 text-teal-700"
-          : "bg-blue-50 text-blue-600",
-      )}
-    >
-      <Icon className="size-5" />
-    </span>
-  );
-}
-
-function StatusPill({ tone, label }: { tone: PillTone; label: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold",
-        PILL_TONES[tone].pill,
-      )}
-    >
-      <span className={cn("size-1.5 rounded-full", PILL_TONES[tone].dot)} />
-      {label}
-    </span>
-  );
-}
-
-function StatusText({
-  tone,
-  children,
-}: {
-  tone: PillTone;
-  children: ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 font-semibold",
-        PILL_TONES[tone].text,
-      )}
-    >
-      <span className={cn("size-2 rounded-full", PILL_TONES[tone].dot)} />
-      {children}
-    </span>
-  );
-}
-
-function DetailRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: IconType;
-  label: string;
-  value: ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="flex items-center gap-2.5 text-slate-600">
-        <Icon className="size-4 text-slate-400" />
-        {label}
-      </dt>
-      <dd className="text-right font-semibold text-slate-900">{value}</dd>
-    </div>
-  );
-}
-
-function DashboardCard({
-  icon,
-  iconTone,
-  label,
-  children,
-  footer,
-}: {
-  icon: IconType;
-  iconTone: "teal" | "blue";
-  label: string;
-  children: ReactNode;
-  footer?: ReactNode;
-}) {
-  return (
-    <section className="flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-      <header className="flex items-center gap-3">
-        <IconTile icon={icon} tone={iconTone} />
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
-          {label}
-        </h2>
-      </header>
-      <div className="mt-5 flex flex-col">{children}</div>
-      {footer && (
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap [&>button]:w-full sm:[&>button]:w-auto">
-          {footer}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function NoticeBanner({
-  tone,
-  icon: Icon,
-  title,
-  description,
-  action,
-  onDismiss,
-}: {
-  tone: "amber" | "red";
-  icon: IconType;
-  title: ReactNode;
-  description: ReactNode;
-  action?: ReactNode;
-  onDismiss?: () => void;
-}) {
-  const styles =
-    tone === "red"
-      ? {
-          box: "border-red-200 bg-red-50",
-          tile: "bg-red-500",
-          title: "text-red-950",
-          text: "text-red-800",
-        }
-      : {
-          box: "border-amber-200 bg-amber-50",
-          tile: "bg-amber-500",
-          title: "text-amber-950",
-          text: "text-amber-800",
-        };
-
-  return (
-    <div
-      className={cn(
-        "relative rounded-xl border px-4 py-3",
-        "lg:px-5 lg:py-3",
-        styles.box,
-      )}
-    >
-      {onDismiss && (
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss notice"
-          className={cn(
-            "absolute right-3 top-3 z-10",
-            "flex size-7 items-center justify-center rounded-md",
-            "text-current/60 transition-colors",
-            "hover:bg-black/5 hover:text-current",
-            "focus:outline-none focus:ring-2 focus:ring-current/20",
-            "lg:right-4 lg:top-1/2 lg:-translate-y-1/2",
-          )}
-        >
-          <X className="size-4" />
-        </button>
-      )}
-
-      <div className="lg:hidden">
-        <div className="relative min-h-9 pr-8">
-          <span
-            className={cn(
-              "absolute left-0 top-0 flex size-9 items-center justify-center rounded-lg text-white",
-              styles.tile,
-            )}
-          >
-            <Icon className="size-4" />
-          </span>
-
-          <h3
-            className={cn(
-              "min-w-0 pl-12 text-sm font-semibold leading-5",
-              styles.title,
-            )}
-          >
-            {title}
-          </h3>
-        </div>
-
-        <p className={cn("mt-2 text-xs leading-4.5", styles.text)}>
-          {description}
-        </p>
-
-        {action && <div className="mt-3 flex w-full">{action}</div>}
-      </div>
-
-      <div className="hidden lg:flex lg:items-center lg:gap-3 lg:pr-28">
-        <span
-          className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-lg text-white",
-            styles.tile,
-          )}
-        >
-          <Icon className="size-4" />
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <h3 className={cn("text-sm font-semibold leading-5", styles.title)}>
-            {title}
-          </h3>
-
-          <p className={cn("mt-0.5 text-xs leading-4", styles.text)}>
-            {description}
-          </p>
-        </div>
-
-        {action && <div className="shrink-0">{action}</div>}
-      </div>
-    </div>
-  );
-}
-
-function PayPalMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className={className}
-      fill="#003087"
-    >
-      <path d="M7.016 19.198h-4.2a.562.562 0 0 1-.555-.65L5.093.584A.692.692 0 0 1 5.776 0h7.222c3.417 0 5.904 2.488 5.846 5.5-.006.25-.027.5-.066.747A6.794 6.794 0 0 1 12.071 12H8.743a.69.69 0 0 0-.682.583l-.325 2.056-.013.083-.692 4.39-.015.087z" />
-      <path
-        fill="#0070e0"
-        d="M19.79 6.142c-.01.087-.01.175-.023.261a7.76 7.76 0 0 1-7.695 6.598H9.007l-.283 1.795-.013.083-.692 4.39-.134.843-.014.088H6.86l-.497 3.15a.562.562 0 0 0 .555.65h3.94c.34 0 .63-.249.683-.585l.952-6.031a.692.692 0 0 1 .683-.584h2.126a6.793 6.793 0 0 0 6.707-5.752c.306-1.95-.466-3.744-1.84-4.84z"
-      />
-    </svg>
-  );
-}
-
-function CardSkeleton() {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-10 rounded-lg bg-slate-100" />
-        <Skeleton className="h-3 w-24 bg-slate-100" />
-      </div>
-      <Skeleton className="mt-5 h-7 w-32 bg-slate-100" />
-      <Skeleton className="mt-2 h-4 w-24 bg-slate-100" />
-      <div className="mt-6 space-y-3">
-        <Skeleton className="h-4 w-full bg-slate-100" />
-        <Skeleton className="h-4 w-full bg-slate-100" />
-        <Skeleton className="h-4 w-3/4 bg-slate-100" />
-      </div>
-      <Skeleton className="mt-6 h-10 w-32 rounded-lg bg-slate-100" />
-    </div>
-  );
-}
-
-function LoadingState({ showBanner }: { showBanner: boolean }) {
-  return (
-    <div className="h-full p-4 font-sans text-slate-900 sm:p-8">
-      <div className="mx-auto space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2">
-            <Skeleton className="h-7 w-24 bg-slate-200" />
-            <Skeleton className="h-4 w-72 max-w-full bg-slate-200" />
-          </div>
-          <Skeleton className="h-10 w-full rounded-lg bg-slate-200 sm:w-36" />
-        </div>
-        {showBanner && (
-          <Skeleton className="h-19 w-full rounded-xl bg-slate-100" />
-        )}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <CardSkeleton key={i} />
-          ))}
-        </div>
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="flex items-center gap-3 px-6 py-4">
-            <Skeleton className="size-10 rounded-lg bg-slate-100" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-28 bg-slate-100" />
-              <Skeleton className="h-3 w-16 bg-slate-100" />
-            </div>
-          </div>
-          <div className="divide-y divide-slate-100 border-t border-slate-100">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between gap-4 px-6 py-4"
-              >
-                <Skeleton className="h-3 w-16 bg-slate-100" />
-                <Skeleton className="h-3 w-20 bg-slate-100" />
-                <Skeleton className="h-3 w-36 bg-slate-100" />
-                <Skeleton className="h-3 w-14 bg-slate-100" />
-                <Skeleton className="h-5 w-14 rounded-full bg-slate-100" />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // Invoice numbers are sequential per tenant ("INV-002"), so within one day the
@@ -699,22 +374,13 @@ export default function BillingDashboard({
             iconTone="teal"
             label="Current plan"
             footer={
-              <>
-                <Button
-                  className={PRIMARY_BUTTON}
-                  onClick={() => router.push(plansHref)}
-                >
-                  <Settings className={ICON_TURN} />
-                  Manage plan
-                </Button>
-                <Button
-                  variant="outline"
-                  className={OUTLINE_BUTTON}
-                  onClick={() => setIsPlanDetailsOpen(true)}
-                >
-                  View plan details
-                </Button>
-              </>
+              <Button
+                variant="outline"
+                className={OUTLINE_BUTTON}
+                onClick={() => setIsPlanDetailsOpen(true)}
+              >
+                View plan details
+              </Button>
             }
           >
             <div className="flex items-start justify-between gap-3">
@@ -723,7 +389,7 @@ export default function BillingDashboard({
                   {data.plan?.name ?? "N/A"}
                 </p>
                 <p className="mt-1 text-sm text-slate-500">
-                  <span className="text-lg font-bold text-slate-900">
+                  <span className="text-2xl font-bold tracking-tight text-slate-900">
                     ${(data.plan?.rateValue ?? 0).toFixed(2)}
                   </span>{" "}
                   / month
@@ -769,7 +435,7 @@ export default function BillingDashboard({
           >
             {pendingUpgrade ? (
               <>
-                <p className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                <p className="text-2xl font-bold tracking-tight text-slate-900">
                   ${pendingUpgrade.amountDue.toFixed(2)}
                 </p>
                 <p className="mt-0.5 text-sm text-slate-500 sm:text-base">
@@ -795,7 +461,7 @@ export default function BillingDashboard({
               </>
             ) : (
               <>
-                <p className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                <p className="text-2xl font-bold tracking-tight text-slate-900">
                   {data.amountDue?.next ?? "$0.00"}
                 </p>
                 {hasRenewalDate && (
@@ -839,10 +505,11 @@ export default function BillingDashboard({
             footer={
               <Button
                 variant="outline"
+                disabled={isFreeTier}
                 className={OUTLINE_BUTTON}
                 onClick={() => setIsUpdatePaymentOpen(true)}
               >
-                {hasPayPalWallet ? "Manage PayPal" : "Change payment method"}
+                {hasPayPalWallet ? "Manage PayPal" : "Update payment method"}
                 {hasPayPalWallet && (
                   <ExternalLink className={ICON_NUDGE_RIGHT} />
                 )}
@@ -851,8 +518,8 @@ export default function BillingDashboard({
           >
             {hasPayPalWallet ? (
               <>
-                <p className="flex items-center gap-2 text-lg font-bold text-slate-900">
-                  <PayPalMark className="size-6" />
+                <p className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900">
+                  <PayPalMark className="size-7" />
                   PayPal
                 </p>
                 <div className="mt-3 space-y-0.5 text-sm text-slate-700">
@@ -861,23 +528,23 @@ export default function BillingDashboard({
                     {paypalEmail ?? "Billed through your PayPal account"}
                   </p>
                 </div>
-                <span className="mt-3 w-fit rounded-full bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">
-                  Default
-                </span>
+
                 <p className="mt-5 border-t border-slate-100 pt-5 text-xs text-slate-500">
                   Used for subscription billing and automatic payments.
                 </p>
               </>
             ) : isFreeTier ? (
               <>
-                <p className="text-lg font-bold text-slate-900">Free plan</p>
+                <p className="text-2xl font-bold tracking-tight text-slate-900">
+                  Free plan
+                </p>
                 <p className="mt-2 text-sm text-slate-600">
                   No charges for this plan, so no payment method is needed.
                 </p>
               </>
             ) : (
               <>
-                <p className="text-lg font-bold text-slate-900">
+                <p className="text-2xl font-bold tracking-tight text-slate-900">
                   No payment method on file
                 </p>
                 <p className="mt-2 text-sm text-slate-600">
@@ -903,7 +570,7 @@ export default function BillingDashboard({
             }
           >
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <p className="text-xl font-bold tracking-tight text-slate-900">
+              <p className="text-2xl font-bold tracking-tight text-slate-900">
                 {usedSeats} / {totalSeats} seats used
               </p>
               <span className="text-sm text-slate-500">
@@ -1017,7 +684,9 @@ export default function BillingDashboard({
                           </span>
                         </div>
                         <p className="mt-0.5 text-xs text-slate-500">
-                          {inv.periodStart} &ndash; {inv.periodEnd}
+                          {inv.invoiceType === "one_time"
+                            ? inv.periodStart
+                            : `${inv.periodStart} \u2013 ${inv.periodEnd}`}
                           {inv.seats > 0 && (
                             <>
                               {" · "}
@@ -1049,7 +718,7 @@ export default function BillingDashboard({
                           onClick={() => setSelectedInvoice(inv)}
                           className="group/view inline-flex cursor-pointer items-center gap-1.5 rounded-md font-semibold text-teal-700 transition-colors duration-200 ease-out hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 motion-safe:active:scale-[0.98]"
                         >
-                          View invoice
+                          View details
                         </button>
                       </TableCell>
                     </TableRow>

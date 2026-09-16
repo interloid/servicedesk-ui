@@ -121,7 +121,7 @@ export function TenantLoginForm({
             control={form.control}
             name="email"
             render={({ field }) => (
-              <FormItem id="login-email" className="flex flex-col gap-1.5">
+              <FormItem id="login-email" className="space-y-1.5">
                 <FormLabel className="font-semibold text-foreground">
                   Email
                 </FormLabel>
@@ -145,7 +145,7 @@ export function TenantLoginForm({
             control={form.control}
             name="password"
             render={({ field }) => (
-              <FormItem id="login-password" className="flex flex-col gap-1.5">
+              <FormItem id="login-password" className="space-y-1.5">
                 <FormLabel className="font-semibold text-foreground">
                   Password
                 </FormLabel>

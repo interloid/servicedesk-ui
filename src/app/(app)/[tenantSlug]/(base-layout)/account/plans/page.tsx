@@ -49,7 +49,7 @@ export default async function TenantBillingPage({
   }
 
   return (
-    <div className="min-h-full w-full bg-accent/40 px-4 sm:px-6 lg:px-8 py-6 sm:py-8 md:py-10">
+    <div className="min-h-full w-full  px-4 sm:px-6 lg:px-8 py-6 sm:py-8 md:py-10">
       <div className="mx-auto max-w-7xl space-y-6 sm:space-y-10 lg:space-y-12">
         <header className="mx-auto max-w-2xl text-center">
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-foreground text-balance">

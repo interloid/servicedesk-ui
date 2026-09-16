@@ -42,7 +42,7 @@ interface InvoiceModalProps {
   account: { name: string; tenantId: string };
 }
 
-const OUTLINE_BUTTON = cn(MODAL_BUTTON, "border-slate-200 bg-white");
+const OUTLINE_BUTTON = cn(MODAL_BUTTON, "border-slate-200 w-full sm:w-auto");
 
 interface StatusMeta {
   pill: string;
@@ -137,9 +137,6 @@ function statusMeta(invoice: Invoice): StatusMeta & { message: ReactNode } {
   }
 }
 
-// A scaled-down rendering of the invoice PDF (paypal-webhook/pdf.ts): same
-// sections and wording, drawn from the same invoice row. The real PDF is one
-// click away through "View full invoice".
 function InvoicePaper({
   invoice,
   account,
@@ -165,18 +162,18 @@ function InvoicePaper({
   return (
     <div
       aria-hidden="true"
-      className="flex-1 rounded-lg border border-slate-200 bg-white p-4 text-[8px] leading-relaxed text-slate-700 shadow-sm"
+      className="flex-1 rounded-xl border border-slate-200 bg-white p-4 text-[11px] leading-relaxed text-slate-700 shadow-sm sm:p-5"
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <span className="flex size-4 shrink-0 items-center justify-center rounded-lg bg-brand-accent text-[8.5px] font-bold leading-none text-white">
+        <div className="flex items-center gap-2">
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-lg bg-brand-accent text-[10px] font-bold leading-none text-white">
             S
           </span>
           <div>
-            <p className="text-[11px] font-bold leading-tight text-slate-900">
+            <p className="text-[13px] font-bold leading-tight text-slate-900">
               ServiceDesk
             </p>
-            <p className="text-[6.5px] text-slate-500">
+            <p className="text-[9px] text-slate-500">
               Help Desk &amp; Ticket Management Platform
             </p>
           </div>
@@ -187,7 +184,7 @@ function InvoicePaper({
           </p>
           <span
             className={cn(
-              "rounded-full px-2 py-0.5 text-[6.5px] font-bold",
+              "rounded-full px-2.5 py-0.5 text-[8px] font-bold",
               meta.badge,
             )}
           >
@@ -196,38 +193,44 @@ function InvoicePaper({
         </div>
       </div>
 
-      <p className="mt-3 text-[8.5px] font-bold text-slate-900">
+      <p className="mt-4 text-[11px] font-bold text-slate-900">
         # {invoice.id}
       </p>
-      <p>Invoice date: {invoice.date}</p>
+      <p className="text-[10px] text-slate-600">Invoice date: {invoice.date}</p>
 
-      <p className="mt-3 text-[6.5px] font-bold uppercase tracking-wider text-slate-500">
+      <p className="mt-4 text-[8px] font-bold uppercase tracking-wider text-slate-400">
         Bill to
       </p>
-      <p className="font-bold text-slate-900">{account.name}</p>
+      <p className="font-bold text-slate-900 text-[11px]">{account.name}</p>
       {invoice.billingEmail && (
-        <p className="break-all">{invoice.billingEmail}</p>
+        <p className="break-all text-[10px] text-slate-600">
+          {invoice.billingEmail}
+        </p>
       )}
-      <p className="break-all">Tenant ID: {account.tenantId}</p>
+      <p className="break-all text-[10px] text-slate-600">
+        Tenant ID: {account.tenantId}
+      </p>
 
-      <p className="mt-3 text-[7px] font-bold uppercase tracking-wider text-slate-900">
+      <p className="mt-4 text-[9px] font-bold uppercase tracking-wider text-slate-900">
         Charge details
       </p>
-      <div className="mt-1 flex justify-between bg-slate-50 px-1.5 py-1 text-[6.5px] font-bold uppercase text-slate-500">
+      <div className="mt-1 flex justify-between bg-slate-50 px-2 py-1.5 text-[8px] font-bold uppercase text-slate-500">
         <span>Description</span>
         <span>Amount</span>
       </div>
-      <div className="flex justify-between gap-2 px-1.5 py-1.5">
+      <div className="flex justify-between gap-2 px-2 py-2">
         <div className="min-w-0">
-          <p className="font-bold text-slate-900">
+          <p className="font-bold text-slate-900 text-[10.5px]">
             {chargeTitle} – {chargeType}
           </p>
-          <p className="text-[6.5px] text-slate-500">{chargeNote}</p>
+          <p className="text-[9px] text-slate-500">{chargeNote}</p>
         </div>
-        <p className="shrink-0 font-bold text-slate-900">{invoice.amount}</p>
+        <p className="shrink-0 font-bold text-slate-900 text-[10.5px]">
+          {invoice.amount}
+        </p>
       </div>
 
-      <div className="space-y-1 border-t border-slate-100 px-1.5 pt-1.5">
+      <div className="mt-2 space-y-1 border-t border-slate-100 px-2 pt-2 text-[10px]">
         <div className="flex justify-between">
           <span>Subtotal</span>
           <span>{invoice.subtotal}</span>
@@ -237,7 +240,7 @@ function InvoicePaper({
           <span>{invoice.tax}</span>
         </div>
       </div>
-      <div className="mt-1.5 flex justify-between rounded bg-teal-50 px-1.5 py-1 font-bold text-slate-900">
+      <div className="mt-2 flex justify-between rounded bg-teal-50 px-2 py-1.5 font-bold text-slate-900 text-[11px]">
         <span>Total</span>
         <span>{invoice.amount}</span>
       </div>
@@ -349,14 +352,14 @@ export default function InvoiceModal({
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto rounded-2xl p-0 text-slate-900 sm:max-w-3xl"
+        className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden rounded-2xl p-0 text-slate-900 sm:max-w-3xl lg:max-w-4xl"
       >
-        <div className="flex items-start justify-between gap-4 px-6 pt-6">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-4 py-4 sm:px-6">
           <div>
-            <DialogTitle className="text-xl font-bold leading-tight text-slate-900">
+            <DialogTitle className="text-lg font-bold leading-tight text-slate-900 sm:text-xl">
               Quick invoice
             </DialogTitle>
-            <DialogDescription className="mt-1.5 text-sm text-slate-500">
+            <DialogDescription className="mt-1 text-xs text-slate-500 sm:text-sm">
               A quick preview of your invoice. Download the PDF for full
               details.
             </DialogDescription>
@@ -365,7 +368,21 @@ export default function InvoiceModal({
             <Button
               variant="outline"
               size="icon-sm"
-              className="-mr-2 shrink-0 border-none bg-none text-slate-500 hover:text-slate-900"
+              className="
+              -mr-1 shrink-0
+              border-none
+              bg-transparent
+              text-slate-500
+              shadow-none
+              hover:bg-transparent
+              hover:text-slate-500
+              active:bg-transparent
+              active:text-slate-500
+              focus:bg-transparent
+              focus-visible:bg-transparent
+              focus-visible:ring-0
+              focus-visible:ring-offset-0
+            "
             >
               <X className="size-5" />
               <span className="sr-only">Close</span>
@@ -373,132 +390,163 @@ export default function InvoiceModal({
           </DialogClose>
         </div>
 
-        <div className="grid gap-6 px-6 py-6 md:grid-cols-[minmax(0,1fr)_18.5rem]">
-          <div className="min-w-0 rounded-2xl border border-slate-200 p-4 md:pr-6">
-            <div className="flex items-center gap-4 rounded-xl bg-teal-50 p-4">
-              <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-brand-accent text-white">
-                <FileText className="size-6" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xl font-bold leading-tight text-slate-900">
-                  {planName}
-                </p>
-                <p className="mt-1 truncate text-sm text-slate-600">
-                  {planSummary}
-                </p>
-              </div>
-              <span
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold",
-                  meta.pill,
-                )}
-              >
-                <span className={cn("size-1.5 rounded-full", meta.dot)} />
-                {invoice.status}
-              </span>
-            </div>
-
-            <dl className="mt-5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-8 gap-y-3.5 px-1 text-sm">
-              {details.map(({ icon: Icon, label, value, emphasis }) => (
-                <div key={label} className="contents">
-                  <dt className="flex items-center gap-3 text-slate-600">
-                    <Icon className="size-4.5 text-slate-500" />
-                    {label}
-                  </dt>
-                  <dd
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:gap-6">
+            <div className="flex flex-col justify-between rounded-2xl border border-slate-200 p-4 sm:p-5">
+              <div>
+                <div className="flex items-center justify-between gap-3 rounded-xl bg-teal-50 p-3.5 sm:p-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-accent text-white sm:size-10 sm:rounded-xl">
+                      <FileText className="size-4.5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-bold leading-tight text-slate-900 sm:text-xl">
+                        {planName}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-slate-600 sm:mt-1 sm:text-sm">
+                        {planSummary}
+                      </p>
+                    </div>
+                  </div>
+                  <span
                     className={cn(
-                      "break-all text-slate-900",
-                      emphasis ? "font-semibold" : "text-slate-700",
+                      "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold sm:px-3 sm:py-1 sm:text-sm",
+                      meta.pill,
                     )}
                   >
-                    {value}
-                  </dd>
+                    {invoice.status}
+                  </span>
                 </div>
-              ))}
-            </dl>
 
-            <div
-              className={cn(
-                "mt-5 flex items-center gap-4 rounded-xl p-4 text-left",
-                meta.box,
-              )}
-            >
-              <span
+                <dl className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-3.5 px-1 text-xs sm:mt-5 sm:gap-x-6 sm:text-sm">
+                  {details.map(({ icon: Icon, label, value, emphasis }) => (
+                    <div key={label} className="contents">
+                      <dt className="flex items-center gap-2 text-slate-600">
+                        <Icon className="size-4 shrink-0 text-slate-500" />
+                        <span className="whitespace-nowrap">{label}</span>
+                      </dt>
+                      <dd
+                        className={cn(
+                          "wrap-break-word text-right sm:text-left text-slate-900",
+                          emphasis ? "font-semibold" : "text-slate-700",
+                        )}
+                      >
+                        {value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
+              <div
                 className={cn(
-                  "flex size-11 shrink-0 items-center justify-center rounded-full",
-                  meta.iconWrap,
+                  "mt-5 flex items-center gap-3 rounded-xl p-3.5 text-left sm:gap-4 sm:p-4",
+                  meta.box,
                 )}
               >
-                <StatusIcon className="size-5" strokeWidth={2.5} />
-              </span>
-              <span
-                aria-hidden="true"
-                className={cn("w-px self-stretch", meta.divider)}
-              />
-              <p
-                className={cn(
-                  "text-sm [&_strong]:font-semibold",
-                  meta.textColor,
-                  meta.strongColor,
-                )}
-              >
-                {meta.message}
-              </p>
-            </div>
-          </div>
-
-          <aside className="flex flex-col rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="mb-3 flex items-center justify-between gap-2 px-1">
-              <p className="text-sm font-medium text-slate-600">
-                Invoice PDF preview
-              </p>
-              {pdfUrl ? (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={openPdf}
-                  className="text-slate-500 hover:text-slate-900"
+                <span
+                  className={cn(
+                    "flex size-8 shrink-0 items-center justify-center rounded-full sm:size-10",
+                    meta.iconWrap,
+                  )}
                 >
-                  <ExternalLink />
-                  <span className="sr-only">Open the PDF in a new tab</span>
-                </Button>
-              ) : (
-                <span className="text-xs text-slate-400">
-                  PDF not available yet
+                  <StatusIcon className="size-4" strokeWidth={2.5} />
                 </span>
-              )}
+                <span
+                  aria-hidden="true"
+                  className={cn("h-8 w-px shrink-0", meta.divider)}
+                />
+                <p
+                  className={cn(
+                    "text-xs sm:text-sm [&_strong]:font-semibold",
+                    meta.textColor,
+                    meta.strongColor,
+                  )}
+                >
+                  {meta.message}
+                </p>
+              </div>
             </div>
-            <InvoicePaper invoice={invoice} account={account} meta={meta} />
-          </aside>
+
+            <aside className="flex flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+              <div className="mb-3 flex items-center justify-between gap-2 px-1">
+                <p className="text-xs font-medium text-slate-600 sm:text-sm">
+                  Invoice PDF preview
+                </p>
+                {pdfUrl ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={openPdf}
+                    className="size-7 text-slate-500 hover:text-slate-900"
+                  >
+                    <ExternalLink className="size-4" />
+                    <span className="sr-only">Open the PDF in a new tab</span>
+                  </Button>
+                ) : (
+                  <span className="text-xs text-slate-400">
+                    PDF not available
+                  </span>
+                )}
+              </div>
+              <InvoicePaper invoice={invoice} account={account} meta={meta} />
+            </aside>
+          </div>
         </div>
 
-        <div className="flex flex-col-reverse gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div
+          className="
+    flex shrink-0 flex-col gap-2.5
+    border-t border-slate-200
+    bg-slate-50/50
+    px-4 py-3
+    sm:px-6 sm:py-4
+    lg:flex-row lg:items-center lg:justify-between
+  "
+        >
           <Button
             variant="outline"
             disabled={!pdfUrl}
             onClick={openPdf}
-            className={OUTLINE_BUTTON}
+            className={cn(
+              OUTLINE_BUTTON,
+              "order-2 w-full lg:order-1 lg:w-auto",
+            )}
           >
             View full invoice
-            <ExternalLink />
+            <ExternalLink className="size-4" />
           </Button>
-          <div className="flex flex-col-reverse gap-3 sm:flex-row">
+
+          <div
+            className="
+      flex flex-col gap-2.5
+      lg:flex-row lg:items-center
+    "
+          >
             <Button
               variant="outline"
               onClick={onClose}
-              className={OUTLINE_BUTTON}
+              className={cn(
+                OUTLINE_BUTTON,
+                "order-3 w-full lg:order-1 lg:w-auto",
+              )}
             >
               Close
             </Button>
+
             <Button
               onClick={handleDownload}
               disabled={isDownloading || !pdfUrl}
-              className={cn(MODAL_BUTTON, MODAL_BUTTON_PRIMARY)}
+              className={cn(
+                MODAL_BUTTON,
+                MODAL_BUTTON_PRIMARY,
+                "order-1 w-full lg:order-2 lg:w-auto",
+              )}
             >
               {isDownloading ? (
-                <Loader2 className="animate-spin" />
+                <Loader2 className="size-4 animate-spin" />
               ) : (
-                <Download />
+                <Download className="size-4" />
               )}
               {isDownloading ? "Downloading..." : "Download PDF"}
             </Button>

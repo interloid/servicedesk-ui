@@ -438,27 +438,16 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                             }
                           }}
                           className="
-                            flex
-                            min-w-0
-                            items-center
-                            gap-2.5
-                            group-data-[collapsible=icon]:justify-center
-                          "
+      flex
+      min-w-0
+      items-center
+      gap-2.5
+      group-data-[collapsible=icon]:justify-center
+    "
                         >
-                          <Icon
-                            className="
-                              size-4
-                              shrink-0
-                              text-slate-600
-                            "
-                          />
+                          <Icon className="size-4 shrink-0 text-current" />
 
-                          <span
-                            className="
-                              truncate
-                              group-data-[collapsible=icon]:hidden
-                            "
-                          >
+                          <span className="truncate group-data-[collapsible=icon]:hidden">
                             {item.label}
                           </span>
                         </Link>

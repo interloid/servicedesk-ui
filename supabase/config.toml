@@ -431,11 +431,17 @@ deno_version = 2
 [functions.paypal-webhook]
 verify_jwt = false
 
-# Called hourly by pg_cron (migration 20260905130000), which sends the
-# x-cron-secret header and no JWT. With verify_jwt on, the gateway rejected the
-# scheduled call before the function's own secret check ever ran.
+# Called by pg_cron (migration 20260918120000), which authenticates with the
+# service role key as a bearer token. The function has no secret check of its
+# own, so the gateway is the only thing standing in front of a billing
+# mutation -- verify_jwt must stay ON.
+#
+# History: this was previously verify_jwt = false plus a custom x-cron-secret
+# header. The header arrived empty (a null Vault lookup yields
+# {"x-cron-secret": null}, which pg_net drops silently), so every scheduled run
+# 401'd. Bearer auth removes that failure mode entirely.
 [functions.reconcile-subscriptions]
-verify_jwt = false
+verify_jwt = true
 
 [analytics]
 enabled = true

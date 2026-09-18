@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarClock, Loader2, X, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -57,11 +57,15 @@ export function DowngradeDialog({
   // Controls the fade-out before closing the dialog.
   const [isClosing, setIsClosing] = useState(false);
 
-  useEffect(() => {
+  // Reset the fade-out whenever the dialog is reopened (adjusting state during
+  // render instead of in an effect avoids an extra cascading render).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setIsClosing(false);
     }
-  }, [open]);
+  }
 
   const isFreeTarget = targetPlan?.priceValue === 0;
   const targetSeatLimit = targetPlan?.seatLimit ?? 0;
@@ -86,15 +90,15 @@ export function DowngradeDialog({
       ? {
           headline: "End of billing period",
           body: isFreeTarget
-            ? `You keep ${currentPlanLabel} — including its features and agent seats — until ${renewalDate}. No further charges are made, and the switch to the Free plan applies when your billing period ends.`
-            : `You keep ${currentPlanLabel} — including its features and agent seats — until ${renewalDate}. From the next billing cycle you'll be billed the ${targetName} rate of ${targetPrice}${targetSuffix}.`,
+            ? `You keep ${currentPlanLabel} - including its features and agent seats - until ${renewalDate}. No further charges are made, and the switch to the Free plan applies when your billing period ends.`
+            : `You keep ${currentPlanLabel} - including its features and agent seats - until ${renewalDate}. You'll confirm the new ${targetName} agreement on PayPal next; from the following billing cycle you'll be billed the ${targetName} rate of ${targetPrice}${targetSuffix}.`,
           deferred: true,
         }
       : {
           headline: "Immediately",
           body: isFreeTarget
             ? "It takes effect right now, and no further charges will be made."
-            : `It takes effect right now. From your next billing cycle you'll be billed the ${targetName} rate of ${targetPrice}${targetSuffix}.`,
+            : `You'll confirm the new ${targetName} agreement on PayPal next. It takes effect once PayPal confirms it, and you'll be billed the ${targetName} rate of ${targetPrice}${targetSuffix}.`,
           deferred: false,
         };
   })();

@@ -95,6 +95,43 @@ async function cancelPayPalSubscription(
   );
 }
 
+// Suspend / re-activate an agreement. A scheduled cancellation suspends
+// rather than cancels, because PayPal can never revive a CANCELLED agreement
+// and "Reactivate" must keep billing on the same one without a new checkout.
+// The reconcile job cancels it for good at effective_at.
+async function setPayPalSubscriptionState(
+  accessToken: string,
+  paypalSubscriptionId: string,
+  state: "suspend" | "activate",
+  reason: string,
+): Promise<{ ok: boolean; status: number; body: string }> {
+  const response = await fetch(
+    `${BASE_URL}/v1/billing/subscriptions/${paypalSubscriptionId}/${state}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason }),
+    },
+  );
+
+  const body = response.ok ? "" : await response.text();
+
+  if (!response.ok) {
+    console.error(
+      `PayPal ${state} subscription ${paypalSubscriptionId} failed:`,
+      {
+        status: response.status,
+        body,
+      },
+    );
+  }
+
+  return { ok: response.ok, status: response.status, body };
+}
+
 async function getPayPalSubscription(
   accessToken: string,
   subscriptionId: string,
@@ -573,22 +610,86 @@ Deno.serve(async (req) => {
         }
       }
 
-      try {
-        const accessToken = await getAccessToken();
-        const { ok, data: paypalSub } = await getPayPalSubscription(
-          accessToken,
-          pendingSwitch.paypal_subscription_id,
-        );
-        const paypalStatus = String(paypalSub?.status ?? "").toUpperCase();
+      // Reactivating a scheduled cancellation: the old agreement was suspended
+      // when the cancel was requested, so resume it before restoring the row.
+      // Restoring onto an agreement PayPal will not bill would show the plan
+      // as active while no renewal is ever charged, so that is refused.
+      const isScheduledCancel =
+        String(pendingSwitch.paypal_subscription_id).startsWith("FREE-") &&
+        isRealAgreement(pendingSwitch.old_paypal_subscription_id);
 
-        if (ok && paypalStatus !== "ACTIVE" && paypalStatus !== "SUSPENDED") {
-          await cancelPayPalSubscription(
+      if (isScheduledCancel) {
+        const oldAgreementId = pendingSwitch.old_paypal_subscription_id!;
+        const accessToken = await getAccessToken();
+        const { ok, data: oldAgreement } = await getPayPalSubscription(
+          accessToken,
+          oldAgreementId,
+        );
+        const oldStatus = String(oldAgreement?.status ?? "").toUpperCase();
+
+        if (!ok) {
+          return Response.json(
+            {
+              success: false,
+              message:
+                "Could not check your PayPal subscription. Please try again.",
+            },
+            { status: 502 },
+          );
+        }
+
+        if (oldStatus === "SUSPENDED") {
+          const resumed = await setPayPalSubscriptionState(
+            accessToken,
+            oldAgreementId,
+            "activate",
+            "Customer reactivated the subscription",
+          );
+
+          if (!resumed.ok) {
+            return Response.json(
+              {
+                success: false,
+                message:
+                  "PayPal could not resume your subscription. Please try again.",
+              },
+              { status: 502 },
+            );
+          }
+        } else if (oldStatus !== "ACTIVE") {
+          // CANCELLED / EXPIRED: typically a cancellation made before
+          // cancellations suspended the agreement. It cannot be revived, so
+          // the scheduled cancellation is left in place.
+          return Response.json(
+            {
+              success: false,
+              message:
+                "Your PayPal subscription has already ended and cannot be reactivated. Your plan stays active until the end of the billing period; choose a plan to subscribe again.",
+            },
+            { status: 409 },
+          );
+        }
+      }
+
+      // A FREE- switch has no PayPal agreement of its own to abandon.
+      if (!isScheduledCancel) {
+        try {
+          const accessToken = await getAccessToken();
+          const { ok, data: paypalSub } = await getPayPalSubscription(
             accessToken,
             pendingSwitch.paypal_subscription_id,
           );
+          const paypalStatus = String(paypalSub?.status ?? "").toUpperCase();
+
+          if (ok && paypalStatus !== "ACTIVE" && paypalStatus !== "SUSPENDED") {
+            await cancelPayPalSubscription(
+              accessToken,
+              pendingSwitch.paypal_subscription_id,
+            );
+          }
+        } catch (error) {
+          console.error("Abandoned PayPal subscription cancel failed:", error);
         }
-      } catch (error) {
-        console.error("Abandoned PayPal subscription cancel failed:", error);
       }
 
       const now = new Date().toISOString();
@@ -1055,6 +1156,33 @@ Deno.serve(async (req) => {
           }
         }
 
+        // The subscriptions row still points at the old agreement, which was
+        // just cancelled above. Repoint it at the replacement now instead of
+        // waiting for the ACTIVATED webhook: several webhook handlers resolve
+        // the row by paypal_subscription_id, so a dead id there loses the match
+        // when the replacement starts billing next cycle.
+        //
+        // This runs AFTER the cancel block on purpose -- syncSubscriptionStatus
+        // finds the row by the OLD id and would silently no-op if the id had
+        // already been repointed.
+        const { error: repointError } = await admin
+          .from("subscriptions")
+          .update({
+            paypal_subscription_id: replacementSubId,
+            updated_at: nowDateStr,
+          })
+          .eq("tenant_id", tenantId);
+
+        if (repointError) {
+          // Not fatal: the ACTIVATED webhook and the activate action both set
+          // this id again, keyed on tenant_id. Log it and let the buyer carry
+          // on to approval rather than failing a payment already captured.
+          console.warn(
+            "Could not repoint subscription to the replacement agreement:",
+            repointError,
+          );
+        }
+
         return Response.json({
           success: true,
           message:
@@ -1325,14 +1453,27 @@ Deno.serve(async (req) => {
           );
         }
 
-        // Cancel the PayPal agreement now so it never charges again;
-        // access is governed by our subscriptions row until effective_at.
+        // Suspend (not cancel) the PayPal agreement so it never charges again
+        // while "Reactivate" can still resume it; access is governed by our
+        // subscriptions row until effective_at, when the reconcile job
+        // cancels the agreement for good.
         if (isRealAgreement(paypalSubId)) {
           try {
-            await cancelPayPalSubscription(accessToken, paypalSubId);
+            const suspended = await setPayPalSubscriptionState(
+              accessToken,
+              paypalSubId,
+              "suspend",
+              "Cancellation scheduled by customer",
+            );
+
+            // Only if it could not be suspended fall back to cancelling, so
+            // PayPal still never bills a cycle the customer cancelled.
+            if (!suspended.ok) {
+              await cancelPayPalSubscription(accessToken, paypalSubId);
+            }
           } catch (cancelError) {
             console.error(
-              "Failed to cancel PayPal agreement for deferred cancel:",
+              "Failed to stop PayPal agreement for deferred cancel:",
               cancelError,
             );
           }
@@ -1651,6 +1792,28 @@ Deno.serve(async (req) => {
               cancelError,
             );
           }
+        }
+
+        // Only the agreement id moves onto the subscriptions row: plan, seats,
+        // status and current_period_end stay on the plan already paid for
+        // until the reconcile job applies the switch at effective_at. Nothing
+        // is charged today, so no invoice is written; the first invoice comes
+        // from the new agreement's first sale at the start of next period.
+        const { error: repointError } = await admin
+          .from("subscriptions")
+          .update({
+            paypal_subscription_id: targetSubscriptionId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("tenant_id", tenantId);
+
+        if (repointError) {
+          // Not fatal: the switch is approved and carries the new id, so the
+          // reconcile job still writes it onto the row at effective_at.
+          console.warn(
+            "Could not save the scheduled downgrade agreement id:",
+            repointError,
+          );
         }
 
         const { data: scheduledPlan } = await admin
@@ -2000,147 +2163,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Paid downgrades (Business -> Pro): never open a PayPal checkout. The new
-    // plan starts at the end of the paid period (or immediately if no paid
-    // time is left) and the existing PayPal agreement is best-effort REVISED
-    // onto the cheaper plan so the next billing cycle charges the lower rate.
-    // No new agreement and no approval page; if PayPal would require approval
-    // to revise, we skip it and the scheduled switch still governs access.
-    if (!isFreePlan && isDowngrade) {
-      const placeholder = `PAID-${tenantId}-${Date.now()}`;
-
-      if (!deferUntil) {
-        const { error: downgradeSubError } = await admin
-          .from("subscriptions")
-          .update({
-            plan_id: plan.id,
-            paypal_subscription_id:
-              existingPaidSubscription?.paypal_subscription_id ?? placeholder,
-            status: "active",
-            seats: plan.seat_limit ?? 1,
-            current_period_end: new Date(
-              Date.now() + 30 * 24 * 60 * 60 * 1000,
-            ).toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("tenant_id", tenantId);
-
-        if (downgradeSubError) {
-          console.error(
-            "Paid downgrade immediate apply failed:",
-            downgradeSubError,
-          );
-          return Response.json(
-            {
-              success: false,
-              message: "Failed to apply the plan change.",
-            },
-            { status: 400 },
-          );
-        }
-
-        await admin
-          .from("tenants")
-          .update({ plan_id: plan.id, updated_at: new Date().toISOString() })
-          .eq("id", tenantId);
-
-        if (existingPaidSubscription?.paypal_subscription_id) {
-          try {
-            const revise = await reviseSubscriptionPlan(
-              accessToken,
-              existingPaidSubscription.paypal_subscription_id,
-              plan.code,
-            );
-            if (!revise.ok) {
-              console.error("Paid downgrade immediate revise not applied:", {
-                status: revise.status,
-              });
-            }
-          } catch (reviseError) {
-            console.error(
-              "Paid downgrade immediate revise failed:",
-              reviseError,
-            );
-          }
-        }
-
-        return Response.json({
-          success: true,
-          message: `Plan changed to ${plan.name}.`,
-          subscriptionId:
-            existingPaidSubscription?.paypal_subscription_id ?? null,
-          approvalUrl: null,
-        });
-      }
-
-      await admin
-        .from("subscription_switches")
-        .update({ status: "cancelled", updated_at: new Date().toISOString() })
-        .eq("tenant_id", tenantId)
-        .in("status", ["pending", "approved"]);
-
-      const { error: paidSwitchError } = await admin
-        .from("subscription_switches")
-        .insert({
-          tenant_id: tenantId,
-          plan_id: plan.id,
-          // UNIQUE column: cannot reuse the real agreement id (the signup
-          // switch already holds it), so a placeholder is used. The REAL
-          // agreement stays in subscriptions and is what keeps billing.
-          paypal_subscription_id: placeholder,
-          old_paypal_subscription_id:
-            currentSubscription?.paypal_subscription_id ?? null,
-          old_plan_id: currentSubscription?.plan_id ?? tenant.plan_id,
-          old_status: currentSubscription?.status ?? "active",
-          old_seats: currentSubscription?.seats ?? 1,
-          old_current_period_end:
-            currentSubscription?.current_period_end ?? null,
-          effective_at: deferUntil.toISOString(),
-          status: "approved",
-        });
-
-      if (paidSwitchError) {
-        console.error(
-          "Scheduled paid-downgrade switch insert failed:",
-          paidSwitchError,
-        );
-        return switchInsertFailedResponse(
-          paidSwitchError,
-          "Failed to schedule plan change.",
-        );
-      }
-
-      if (existingPaidSubscription?.paypal_subscription_id) {
-        try {
-          const revise = await reviseSubscriptionPlan(
-            accessToken,
-            existingPaidSubscription.paypal_subscription_id,
-            plan.code,
-          );
-          if (!revise.ok) {
-            console.error(
-              "Paid downgrade revise not applied (switch still scheduled):",
-              { status: revise.status },
-            );
-          }
-        } catch (reviseError) {
-          console.error(
-            "Paid downgrade revise failed (switch still scheduled):",
-            reviseError,
-          );
-        }
-      }
-
-      return Response.json({
-        success: true,
-        scheduled: true,
-        effectiveAt: deferUntil.toISOString(),
-        message:
-          "Plan change scheduled. Your current plan stays active until the end of the billing period.",
-        subscriptionId: null,
-        approvalUrl: null,
-      });
-    }
+    // Paid downgrades (Business -> Pro) go through the SAME real-agreement path
+    // as every other paid plan change (below): a new PayPal subscription is
+    // created on the cheaper plan with start_time at the end of the paid period
+    // -- so the buyer is not charged again today -- and the buyer confirms it on
+    // PayPal's approval page. The switch therefore carries a REAL agreement id.
+    //
+    // This replaces a best-effort REVISE of the existing agreement recorded
+    // against a "PAID-{tenant}-{timestamp}" placeholder. A revise that PayPal
+    // rejected, or that needed buyer approval, was logged and swallowed, so the
+    // database could move the tenant onto the cheaper plan while PayPal kept
+    // charging the old rate. Requiring confirmation removes that divergence:
+    // nothing is applied until PayPal reports the new agreement ACTIVE, and the
+    // ACTIVATED webhook (or the reconcile job) then cancels the superseded one.
 
     // Upgrades collect the discounted amount as a true one-time PayPal order
     // first (pay once, no auto-pay authorization page). Once the order is

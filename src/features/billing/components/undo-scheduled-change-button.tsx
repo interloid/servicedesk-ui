@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import React, { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -26,17 +26,30 @@ export function UndoScheduledChangeButton({
   className,
   variant = "outline",
   showIcon = true,
+  onDone,
 }: {
   tenantSlug: string;
   label: string;
   className?: string;
   variant?: "outline" | "default";
   showIcon?: boolean;
+  /**
+   * Called once the undo has actually succeeded. A caller that renders this
+   * inside a confirmation dialog uses it to close that dialog, which is why
+   * the click below is prevented from bubbling into AlertDialogAction's own
+   * auto-close -- the dialog has to stay open, showing "Working...", until
+   * the server answers.
+   */
+  onDone?: () => void;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
-  const handleUndo = () => {
+  const handleUndo = (event: React.MouseEvent<HTMLButtonElement>) => {
+    // Keep an enclosing AlertDialogAction from closing the dialog the instant
+    // it is clicked; onDone closes it when the work is really finished.
+    event.preventDefault();
+
     startTransition(async () => {
       const result = await abortPlanSwitchAction(tenantSlug);
 
@@ -57,6 +70,7 @@ export function UndoScheduledChangeButton({
       );
 
       router.refresh();
+      onDone?.();
     });
   };
 

@@ -1,23 +1,3 @@
-// Scheduled reconciliation for deferred plan changes.
-//
-// A downgrade is approved by the buyer up front but only becomes effective at
-// the end of the paid period, when PayPal starts the new (cheaper) agreement.
-// Normally the BILLING.SUBSCRIPTION.ACTIVATED webhook applies it. This job is
-// the backstop for a webhook that was missed, retried past its window, or
-// arrived while the database was unavailable.
-//
-// Paid downgrades (Business -> Pro) never create a new agreement: the existing
-// one was best-effort revised onto the cheaper plan at request time, and the
-// switch carries a "PAID-{tenant}-{timestamp}" placeholder in the UNIQUE
-// paypal_subscription_id column. Applying it is a pure database change -- the
-// real agreement id stays on the subscriptions row, is not cancelled, and no
-// invoices are backfilled (billing continues on the same agreement).
-//
-// PayPal is the source of truth: nothing is applied here unless PayPal already
-// reports the new agreement as ACTIVE. The job is idempotent -- it only selects
-// switches that are still pending/approved, and invoice writes collide on the
-// unique paypal_txn_id -- so running it twice changes nothing the second time.
-
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createPayPalTokenProvider } from "../_shared/paypal-auth.ts";
 
@@ -26,14 +6,26 @@ const CLIENT_SECRET = Deno.env.get("PAYPAL_CLIENT_SECRET")?.trim();
 const BASE_URL = Deno.env.get("PAYPAL_BASE_URL")?.trim();
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")?.trim();
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
-const CRON_SECRET = Deno.env.get("CRON_SECRET")?.trim();
 
-if (!CLIENT_ID) throw new Error("PAYPAL_CLIENT_ID is missing");
-if (!CLIENT_SECRET) throw new Error("PAYPAL_CLIENT_SECRET is missing");
-if (!BASE_URL) throw new Error("PAYPAL_BASE_URL is missing");
-if (!SUPABASE_URL) throw new Error("SUPABASE_URL is missing");
-if (!SERVICE_ROLE_KEY) throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing");
-if (!CRON_SECRET) throw new Error("CRON_SECRET is missing");
+if (!CLIENT_ID) {
+  throw new Error("PAYPAL_CLIENT_ID is missing");
+}
+
+if (!CLIENT_SECRET) {
+  throw new Error("PAYPAL_CLIENT_SECRET is missing");
+}
+
+if (!BASE_URL) {
+  throw new Error("PAYPAL_BASE_URL is missing");
+}
+
+if (!SUPABASE_URL) {
+  throw new Error("SUPABASE_URL is missing");
+}
+
+if (!SERVICE_ROLE_KEY) {
+  throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing");
+}
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -57,33 +49,6 @@ const getAccessToken = createPayPalTokenProvider({
   baseUrl: BASE_URL,
 });
 
-// Constant-time comparison for the cron secret. Both sides are hashed first so
-// the byte-by-byte compare always runs over 32 bytes, whatever was sent.
-async function secretMatches(
-  provided: string | null,
-  expected: string,
-): Promise<boolean> {
-  if (provided === null) return false;
-
-  const encoder = new TextEncoder();
-  const [providedHash, expectedHash] = await Promise.all(
-    [provided, expected].map(
-      async (value) =>
-        new Uint8Array(
-          await crypto.subtle.digest("SHA-256", encoder.encode(value)),
-        ),
-    ),
-  );
-
-  let difference = 0;
-
-  for (let i = 0; i < expectedHash.length; i++) {
-    difference |= providedHash[i] ^ expectedHash[i];
-  }
-
-  return difference === 0;
-}
-
 async function getSubscription(token: string, id: string) {
   const response = await fetch(`${BASE_URL}/v1/billing/subscriptions/${id}`, {
     headers: {
@@ -94,7 +59,8 @@ async function getSubscription(token: string, id: string) {
 
   if (!response.ok) {
     throw new Error(
-      `PayPal GET subscription ${id} failed: ${response.status} ${await response.text()}`,
+      `PayPal GET subscription ${id} failed: ` +
+        `${response.status} ${await response.text()}`,
     );
   }
 
@@ -110,20 +76,20 @@ async function cancelSubscription(token: string, id: string) {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ reason: "Superseded by scheduled plan change." }),
+      body: JSON.stringify({
+        reason: "Superseded by scheduled plan change.",
+      }),
     },
   );
 
-  // 204 on success; 422 typically means it is already cancelled/expired.
   if (!response.ok && response.status !== 422) {
     throw new Error(
-      `PayPal cancel ${id} failed: ${response.status} ${await response.text()}`,
+      `PayPal cancel ${id} failed: ` +
+        `${response.status} ${await response.text()}`,
     );
   }
 }
 
-// Writes an invoice per completed PayPal transaction. invoices.paypal_txn_id is
-// UNIQUE, so re-running this backfill never duplicates a row.
 async function backfillInvoices(
   token: string,
   tenantId: string,
@@ -131,14 +97,20 @@ async function backfillInvoices(
   periodEnd: string | null,
 ): Promise<number> {
   const end = new Date();
+
   const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   const url =
-    `${BASE_URL}/v1/billing/subscriptions/${paypalSubscriptionId}/transactions` +
-    `?start_time=${start.toISOString()}&end_time=${end.toISOString()}`;
+    `${BASE_URL}/v1/billing/subscriptions/` +
+    `${paypalSubscriptionId}/transactions` +
+    `?start_time=${start.toISOString()}` +
+    `&end_time=${end.toISOString()}`;
 
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
   });
 
   if (!response.ok) {
@@ -147,6 +119,7 @@ async function backfillInvoices(
       response.status,
       await response.text(),
     );
+
     return 0;
   }
 
@@ -159,12 +132,18 @@ async function backfillInvoices(
   let written = 0;
 
   for (const txn of transactions) {
-    if (String(txn?.status ?? "").toUpperCase() !== "COMPLETED") continue;
+    if (String(txn?.status ?? "").toUpperCase() !== "COMPLETED") {
+      continue;
+    }
 
     const gross = txn?.amount_with_breakdown?.gross_amount?.value;
+
     const grossCurrency =
       txn?.amount_with_breakdown?.gross_amount?.currency_code;
-    if (!txn?.id || gross === undefined) continue;
+
+    if (!txn?.id || gross === undefined) {
+      continue;
+    }
 
     const paidAt = txn.time ? String(txn.time).substring(0, 10) : null;
 
@@ -174,13 +153,15 @@ async function backfillInvoices(
         paypal_txn_id: txn.id,
         amount: Number(gross),
         status: "paid",
+
         period_start: paidAt ?? new Date().toISOString().substring(0, 10),
+
         period_end: periodEnd
           ? periodEnd.substring(0, 10)
           : new Date().toISOString().substring(0, 10),
 
-        // Self-contained billing context so backfilled rows render complete
-        // PDFs identically to webhook-created invoices.
+        // Self-contained billing context so backfilled invoices
+        // render the same way as webhook-created invoices.
         invoice_type: "recurring",
         paypal_subscription_id: paypalSubscriptionId,
         currency: grossCurrency ?? "USD",
@@ -191,11 +172,15 @@ async function backfillInvoices(
         payment_method: "PayPal",
         paid_at: txn.time ?? null,
       },
-      { onConflict: "paypal_txn_id", ignoreDuplicates: true },
+      {
+        onConflict: "paypal_txn_id",
+        ignoreDuplicates: true,
+      },
     );
 
     if (error) {
       console.error(`Invoice upsert failed for txn ${txn.id}:`, error);
+
       continue;
     }
 
@@ -209,29 +194,19 @@ async function applySwitch(
   token: string,
   pendingSwitch: SubscriptionSwitch,
   paypalSub: Record<string, unknown> | null,
-  oldPaypalSub?: Record<string, unknown> | null,
-) {
+): Promise<number> {
   const now = new Date().toISOString();
 
-  // A scheduled drop to Free has no PayPal agreement behind it, so there is
-  // no billing cycle to read. Mirror the immediate Free path's 15-day window.
   const isFreeSwitch = pendingSwitch.paypal_subscription_id.startsWith("FREE-");
-
-  // A paid downgrade revises the existing agreement; billing continues on it,
-  // so the next cycle comes from the old agreement (or a 30-day fallback).
-  const isPaidReviseSwitch =
-    pendingSwitch.paypal_subscription_id.startsWith("PAID-");
-
   const billingInfo = paypalSub?.billing_info as
-    { next_billing_time?: string } | undefined;
-  const oldBillingInfo = oldPaypalSub?.billing_info as
-    { next_billing_time?: string } | undefined;
+    | {
+        next_billing_time?: string;
+      }
+    | undefined;
+
   const nextBilling = isFreeSwitch
     ? new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString()
-    : isPaidReviseSwitch
-      ? (oldBillingInfo?.next_billing_time ??
-        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString())
-      : (billingInfo?.next_billing_time ?? null);
+    : (billingInfo?.next_billing_time ?? null);
 
   const { data: plan, error: planError } = await admin
     .from("plans")
@@ -239,14 +214,14 @@ async function applySwitch(
     .eq("id", pendingSwitch.plan_id)
     .maybeSingle();
 
-  if (planError) throw planError;
+  if (planError) {
+    throw planError;
+  }
 
-  // A switch whose plan row is gone cannot be applied correctly: defaulting
-  // seats to 1 would silently truncate the tenant. Fail this switch instead,
-  // so it is counted in summary.failed, logged, and retried on the next run.
   if (!plan) {
     throw new Error(
-      `Plan ${pendingSwitch.plan_id} for switch ${pendingSwitch.id} no longer exists.`,
+      `Plan ${pendingSwitch.plan_id} for switch ` +
+        `${pendingSwitch.id} no longer exists.`,
     );
   }
 
@@ -254,80 +229,72 @@ async function applySwitch(
     .from("subscriptions")
     .update({
       plan_id: pendingSwitch.plan_id,
-      // A paid downgrade keeps the (revised) real agreement; only Free and
-      // pure placeholders ever go into the subscriptions row.
-      paypal_subscription_id: isPaidReviseSwitch
-        ? pendingSwitch.old_paypal_subscription_id
-        : pendingSwitch.paypal_subscription_id,
+      paypal_subscription_id: pendingSwitch.paypal_subscription_id,
+
       status: "active",
+
       seats: plan.seat_limit ?? 1,
+
       current_period_end: nextBilling,
+
       updated_at: now,
     })
     .eq("tenant_id", pendingSwitch.tenant_id);
 
-  if (subError) throw subError;
+  if (subError) {
+    throw subError;
+  }
 
   const { error: tenantError } = await admin
     .from("tenants")
-    .update({ plan_id: pendingSwitch.plan_id, updated_at: now })
+    .update({
+      plan_id: pendingSwitch.plan_id,
+      updated_at: now,
+    })
     .eq("id", pendingSwitch.tenant_id);
 
-  if (tenantError) throw tenantError;
+  if (tenantError) {
+    throw tenantError;
+  }
 
-  // A paid downgrade revises the same agreement (never cancels it). Only when
-  // a genuinely different, cheaper agreement confirmed live is the old one
-  // retired -- and only then can a failure leave the tenant unbilled, so the
-  // cancellation happens after the new row is written.
-  if (
-    isRealAgreement(pendingSwitch.old_paypal_subscription_id) &&
-    !isPaidReviseSwitch
-  ) {
-    try {
-      await cancelSubscription(
-        token,
-        pendingSwitch.old_paypal_subscription_id!,
-      );
-    } catch (error) {
-      console.error("Failed to cancel superseded agreement:", error);
-    }
+  if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
+    await cancelSubscription(token, pendingSwitch.old_paypal_subscription_id!);
   }
 
   const { error: appliedError } = await admin
     .from("subscription_switches")
-    .update({ status: "applied", updated_at: now })
+    .update({
+      status: "applied",
+      updated_at: now,
+    })
     .eq("id", pendingSwitch.id);
 
-  if (appliedError) throw appliedError;
+  if (appliedError) {
+    throw appliedError;
+  }
 
-  // Nothing is charged for a free plan, so there are no transactions. A paid
-  // downgrade keeps billing on the same (revised) agreement -- no new
-  // transactions exist to backfill either.
-  const invoices =
-    isFreeSwitch || isPaidReviseSwitch
-      ? 0
-      : await backfillInvoices(
-          token,
-          pendingSwitch.tenant_id,
-          pendingSwitch.paypal_subscription_id,
-          nextBilling,
-        );
+  if (!isFreeSwitch) {
+    return await backfillInvoices(
+      token,
+      pendingSwitch.tenant_id,
+      pendingSwitch.paypal_subscription_id,
+      nextBilling,
+    );
+  }
 
-  return invoices;
+  return 0;
 }
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return Response.json(
-      { success: false, message: "Method Not Allowed" },
-      { status: 405 },
-    );
-  }
-
-  if (!(await secretMatches(req.headers.get("x-cron-secret"), CRON_SECRET))) {
-    return Response.json(
-      { success: false, message: "Unauthorized" },
-      { status: 401 },
+      {
+        success: false,
+        message: "Method Not Allowed",
+      },
+      {
+        status: 405,
+      },
     );
   }
 
@@ -344,50 +311,45 @@ Deno.serve(async (req) => {
     const { data: dueSwitches, error } = await admin
       .from("subscription_switches")
       .select(
-        "id, tenant_id, plan_id, paypal_subscription_id, old_paypal_subscription_id, effective_at, status",
+        [
+          "id",
+          "tenant_id",
+          "plan_id",
+          "paypal_subscription_id",
+          "old_paypal_subscription_id",
+          "effective_at",
+          "status",
+        ].join(", "),
       )
       .in("status", ["pending", "approved"])
       .not("effective_at", "is", null)
       .lte("effective_at", new Date().toISOString());
 
-    if (error) throw error;
+    if (error) {
+      throw error;
+    }
+
+    const switches: SubscriptionSwitch[] = (dueSwitches ??
+      []) as unknown as SubscriptionSwitch[];
 
     summary.examined = dueSwitches?.length ?? 0;
 
+    // Nothing to reconcile.
     if (summary.examined === 0) {
-      return Response.json({ success: true, ...summary });
+      return Response.json({
+        success: true,
+        ...summary,
+      });
     }
 
     const token = await getAccessToken();
-
-    for (const pendingSwitch of (dueSwitches ?? []) as SubscriptionSwitch[]) {
+    for (const pendingSwitch of switches) {
       try {
-        // Nothing to verify for a Free switch: the paid agreement was already
-        // cancelled when the change was requested, so it just applies. Same for
-        // a paid downgrade, whose agreement was revised (not replaced).
         if (pendingSwitch.paypal_subscription_id.startsWith("FREE-")) {
           await applySwitch(token, pendingSwitch, null);
-          summary.applied += 1;
-          continue;
-        }
 
-        if (pendingSwitch.paypal_subscription_id.startsWith("PAID-")) {
-          let oldPaypalSub: Record<string, unknown> | null = null;
-          if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
-            try {
-              oldPaypalSub = await getSubscription(
-                token,
-                pendingSwitch.old_paypal_subscription_id!,
-              );
-            } catch (error) {
-              console.error(
-                `Reading revised agreement for ${pendingSwitch.id} failed:`,
-                error,
-              );
-            }
-          }
-          await applySwitch(token, pendingSwitch, null, oldPaypalSub);
           summary.applied += 1;
+
           continue;
         }
 
@@ -404,14 +366,14 @@ Deno.serve(async (req) => {
             pendingSwitch,
             paypalSub,
           );
+
           summary.applied += 1;
+
           continue;
         }
 
         if (status === "CANCELLED" || status === "EXPIRED") {
-          // The buyer never completed, or later killed, the new agreement.
-          // Leave the current plan alone and close the switch out.
-          await admin
+          const { error: cancelledError } = await admin
             .from("subscription_switches")
             .update({
               status: "cancelled",
@@ -419,34 +381,41 @@ Deno.serve(async (req) => {
             })
             .eq("id", pendingSwitch.id);
 
+          if (cancelledError) {
+            throw cancelledError;
+          }
+
           summary.abandoned += 1;
+
           continue;
         }
 
-        // APPROVAL_PENDING / APPROVED / SUSPENDED: PayPal has not started
-        // billing the new agreement yet. Change nothing and look again on the
-        // next run.
         summary.notReady += 1;
       } catch (switchError) {
-        // One tenant failing must not stop the rest of the batch.
         summary.failed += 1;
+
         console.error(
           `Reconciling switch ${pendingSwitch.id} failed:`,
           switchError,
         );
       }
     }
-
-    return Response.json({ success: true, ...summary });
+    return Response.json({
+      success: true,
+      ...summary,
+    });
   } catch (error) {
     console.error("reconcile-subscriptions failed:", error);
+
     return Response.json(
       {
         success: false,
         message: error instanceof Error ? error.message : "Internal Error",
         ...summary,
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 });

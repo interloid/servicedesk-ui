@@ -24,19 +24,6 @@ interface WebhookEvent {
   };
 }
 
-interface SubscriptionSwitch {
-  id?: string;
-  tenant_id?: string;
-  plan_id?: string;
-  paypal_subscription_id?: string;
-  old_paypal_subscription_id?: string | null;
-  old_plan_id?: string | null;
-  old_status?: string | null;
-  old_seats?: number | null;
-  old_current_period_end?: string | null;
-  status?: string;
-}
-
 const admin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -237,64 +224,6 @@ async function emailInvoiceOnce({
   }
 }
 
-async function restoreSubscriptionFromSwitch(
-  pendingSwitch: SubscriptionSwitch,
-) {
-  const now = new Date().toISOString();
-
-  const { data: tenant, error: tenantLookupError } = await admin
-    .from("tenants")
-    .select("plan_id")
-    .eq("id", pendingSwitch.tenant_id)
-    .single();
-
-  if (tenantLookupError) {
-    throw tenantLookupError;
-  }
-
-  const restorePlanId = pendingSwitch.old_plan_id ?? tenant?.plan_id;
-
-  if (!restorePlanId) {
-    throw new Error("Cannot restore subscription: missing plan.");
-  }
-
-  const { error: subError } = await admin
-    .from("subscriptions")
-    .update({
-      plan_id: restorePlanId,
-      paypal_subscription_id:
-        pendingSwitch.old_paypal_subscription_id ??
-        `FREE-${pendingSwitch.tenant_id}`,
-      status: pendingSwitch.old_status ?? "active",
-      seats: pendingSwitch.old_seats ?? 1,
-      current_period_end: pendingSwitch.old_current_period_end ?? null,
-      updated_at: now,
-    })
-    .eq("tenant_id", pendingSwitch.tenant_id);
-
-  if (subError) {
-    throw subError;
-  }
-
-  const { error: tenantError } = await admin
-    .from("tenants")
-    .update({ plan_id: restorePlanId, updated_at: now })
-    .eq("id", pendingSwitch.tenant_id);
-
-  if (tenantError) {
-    throw tenantError;
-  }
-
-  const { error: switchError } = await admin
-    .from("subscription_switches")
-    .update({ status: "cancelled", updated_at: now })
-    .eq("id", pendingSwitch.id);
-
-  if (switchError) {
-    throw switchError;
-  }
-}
-
 function subscriberFetcher(paypalSubscriptionId: string) {
   return async () => {
     const fresh = await getSubscription(paypalSubscriptionId);
@@ -322,6 +251,58 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
 
   if (switchError) {
     throw switchError;
+  }
+
+  // A scheduled downgrade (Business -> Pro) is created with start_time at the
+  // end of the paid period, and PayPal reports it ACTIVE as soon as the buyer
+  // approves -- long before it bills. Applying it here would drop the tenant
+  // to the cheaper plan today. Instead only the agreement id is saved and the
+  // superseded agreement retired (in case the buyer never reached the success
+  // page); the reconcile job applies the plan at effective_at.
+  if (
+    pendingSwitch?.effective_at &&
+    new Date(pendingSwitch.effective_at).getTime() > Date.now()
+  ) {
+    const { error: approveError } = await admin
+      .from("subscription_switches")
+      .update({ status: "approved", updated_at: now })
+      .eq("id", pendingSwitch.id)
+      .in("status", ["pending", "approved"]);
+
+    if (approveError) {
+      throw approveError;
+    }
+
+    const { error: repointError } = await admin
+      .from("subscriptions")
+      .update({ paypal_subscription_id: subscription.id, updated_at: now })
+      .eq("tenant_id", pendingSwitch.tenant_id);
+
+    if (repointError) {
+      throw repointError;
+    }
+
+    if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
+      try {
+        // The activate action usually cancelled it already; skip the call
+        // then rather than logging a failed second cancel.
+        const oldAgreement = await getSubscription(
+          pendingSwitch.old_paypal_subscription_id!,
+        );
+        const oldStatus = String(oldAgreement.status ?? "").toUpperCase();
+
+        if (["ACTIVE", "APPROVAL_PENDING", "SUSPENDED"].includes(oldStatus)) {
+          await cancelSubscription(pendingSwitch.old_paypal_subscription_id!);
+        }
+      } catch (cancelError) {
+        console.error(
+          "Failed to cancel superseded agreement for scheduled downgrade:",
+          cancelError,
+        );
+      }
+    }
+
+    return;
   }
 
   if (pendingSwitch) {
@@ -436,64 +417,126 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
 
 export async function handleSubscriptionCancelled(event: WebhookEvent) {
   const subscription = event.resource;
-
-  // A scheduled downgrade cancels the agreement it replaces as soon as the
-  // buyer approves, to avoid being double-charged when the new agreement
-  // starts. That cancellation must not mark the tenant cancelled: they keep
-  // the current plan until the replacement goes live at effective_at.
-  const { data: supersedingSwitch } = await admin
+  const paypalSubscriptionId = subscription.id;
+  const { data: supersedingSwitch, error: supersedingError } = await admin
     .from("subscription_switches")
     .select("id, effective_at")
-    .eq("old_paypal_subscription_id", subscription.id)
+    .eq("old_paypal_subscription_id", paypalSubscriptionId)
     .in("status", ["pending", "approved"])
     .maybeSingle();
+
+  if (supersedingError) {
+    throw supersedingError;
+  }
 
   if (supersedingSwitch) {
     return;
   }
 
-  const { data: rows } = await admin
+  const { data: localSubscription, error: subscriptionError } = await admin
     .from("subscriptions")
-    .select("id")
-    .eq("paypal_subscription_id", subscription.id);
+    .select(
+      `
+        id,
+        tenant_id,
+        plan_id,
+        paypal_subscription_id,
+        status,
+        seats,
+        current_period_end
+      `,
+    )
+    .eq("paypal_subscription_id", paypalSubscriptionId)
+    .maybeSingle();
 
-  if (rows && rows.length > 0) {
-    const { error: updateError } = await admin
-      .from("subscriptions")
-      .update({
-        status: "cancelled",
+  if (subscriptionError) {
+    throw subscriptionError;
+  }
 
-        cancelled_at: new Date().toISOString(),
-
-        updated_at: new Date().toISOString(),
-      })
-      .eq("paypal_subscription_id", subscription.id);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    const { data: pendingSwitch, error: switchError } = await admin
-      .from("subscription_switches")
-      .select("*")
-      .eq("paypal_subscription_id", subscription.id)
-      .in("status", ["pending", "approved"])
-      .maybeSingle();
-
-    if (switchError) {
-      throw switchError;
-    }
-
-    if (pendingSwitch) {
-      await restoreSubscriptionFromSwitch(pendingSwitch);
-    }
-
+  if (!localSubscription) {
     return;
+  }
+
+  const { data: freePlan, error: freePlanError } = await admin
+    .from("plans")
+    .select("id")
+    .eq("name", "Free")
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (freePlanError) {
+    throw freePlanError;
+  }
+
+  if (!freePlan) {
+    throw new Error("Free plan not found.");
+  }
+
+  const { data: existingSwitch, error: existingSwitchError } = await admin
+    .from("subscription_switches")
+    .select("id")
+    .eq("old_paypal_subscription_id", paypalSubscriptionId)
+    .in("status", ["pending", "approved"])
+    .maybeSingle();
+
+  if (existingSwitchError) {
+    throw existingSwitchError;
+  }
+
+  if (existingSwitch) {
+    return;
+  }
+
+  const effectiveAt = localSubscription.current_period_end;
+
+  if (!effectiveAt) {
+    throw new Error(
+      `Cannot schedule FREE downgrade: missing current_period_end for ${paypalSubscriptionId}`,
+    );
+  }
+
+  const { error: switchError } = await admin
+    .from("subscription_switches")
+    .insert({
+      tenant_id: localSubscription.tenant_id,
+      plan_id: freePlan.id,
+      paypal_subscription_id: `FREE-${localSubscription.tenant_id}`,
+      old_paypal_subscription_id: localSubscription.paypal_subscription_id,
+      old_plan_id: localSubscription.plan_id,
+      old_status: localSubscription.status,
+      old_seats: localSubscription.seats,
+      old_current_period_end: localSubscription.current_period_end,
+      status: "approved",
+      effective_at: effectiveAt,
+      updated_at: new Date().toISOString(),
+    });
+
+  if (switchError) {
+    throw switchError;
   }
 }
 
 export async function handleSubscriptionSuspended(event: WebhookEvent) {
   const subscription = event.resource;
+
+  // A scheduled cancellation suspends the agreement on purpose (so it can be
+  // reactivated). That is not a billing problem: the tenant keeps the plan
+  // until effective_at, so the row must not be flagged past_due.
+  const { data: schedulingSwitch, error: switchError } = await admin
+    .from("subscription_switches")
+    .select("id")
+    .eq("old_paypal_subscription_id", subscription.id)
+    .in("status", ["pending", "approved"])
+    .not("effective_at", "is", null)
+    .maybeSingle();
+
+  if (switchError) {
+    throw switchError;
+  }
+
+  if (schedulingSwitch) {
+    return;
+  }
 
   await admin
     .from("subscriptions")
@@ -605,16 +648,6 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
     return;
   }
 
-  /*
-   * BILLING.SUBSCRIPTION.UPDATED can happen when:
-   *
-   * 1. Payment method is changed
-   * 2. Subscription is revised for an upgrade
-   * 3. Other PayPal subscription details change
-   *
-   * This webhook NEVER creates or updates an invoice.
-   */
-
   await storePayPalPaymentMethod(admin, {
     tenantId: existingSub.tenant_id,
     subscriptionRowId: existingSub.id,
@@ -626,13 +659,6 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
 
   const nextBilling = subscription.billing_info?.next_billing_time;
 
-  /*
-   * First check whether this UPDATED event is the result of
-   * a revised upgrade.
-   *
-   * If yes, applyRevisedUpgrade() performs the ONE subscription
-   * update required for the plan change.
-   */
   const wasRevisedUpgrade = await applyRevisedUpgrade(
     subscription,
     existingSub.tenant_id,
@@ -640,25 +666,9 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
   );
 
   if (wasRevisedUpgrade) {
-    /*
-     * IMPORTANT:
-     *
-     * Do not touch invoices here.
-     * Do not generate PDF here.
-     * Do not send invoice email here.
-     */
     return;
   }
 
-  /*
-   * Normal subscription update.
-   *
-   * Example:
-   * - Payment method update
-   * - Billing information update
-   *
-   * Only synchronize the subscription period.
-   */
   if (nextBilling) {
     const { error: updateError } = await admin
       .from("subscriptions")
@@ -714,57 +724,12 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     return;
   }
 
-  /*
-   * ============================================================
-   * STEP 1
-   * Detect PayPal's immediate SALE caused by an upgrade.
-   *
-   * IMPORTANT:
-   * We do this BEFORE querying invoices.
-   *
-   * An upgrade payment must:
-   *
-   *   - NOT create an invoice
-   *   - NOT update an invoice
-   *   - NOT generate a PDF
-   *   - NOT upload a PDF
-   *   - NOT send an email
-   *
-   * The actual recurring invoice is created next month.
-   * ============================================================
-   */
-
   const paymentTime = payment.create_time
     ? new Date(payment.create_time)
     : new Date();
 
   const paymentDate = paymentTime.toISOString().substring(0, 10);
 
-  /*
-   * Two different upgrade paths produce this SALE, and the subscription id
-   * it carries can live in EITHER switch column:
-   *
-   *   1. Revise path  — the same agreement is revised onto the higher plan,
-   *      so the SALE's billing_agreement_id matches the switch's
-   *      old_paypal_subscription_id.
-   *
-   *   2. Replacement path — the revise fails (e.g. plans on different PayPal
-   *      products), so a NEW agreement is created, the switch is re-keyed to
-   *      it, and the SALE's billing_agreement_id matches the switch's
-   *      paypal_subscription_id instead.
-   *
-   * Match on BOTH columns to cover both paths. The sale can also arrive
-   * before the switch is flipped to "applied" (PayPal redelivers until the
-   * webhook returns 200), so accept pending/approved too — the same-day
-   * recency bound below prevents a stale switch from suppressing a genuine
-   * monthly renewal later.
-   *
-   * The switch must ALSO predate the sale: created_at <= payment time. This
-   * stops a LATER switch (e.g. a same-day Pro->Business after Free->Pro) from
-   * hijacking a redelivered, older sale that never invoiced. An upgrade's
-   * proration sale always happens after its switch was created (requested
-   * before any charge), so real upgrades still match.
-   */
   const { data: switchRows, error: upgradeSwitchError } = await admin
     .from("subscription_switches")
     .select(
@@ -788,13 +753,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     );
   }
 
-  /*
-   * The upgrade switch must have been created/applied recently
-   * (same calendar day as the payment).
-   *
-   * This prevents an old/stale upgrade switch from suppressing
-   * a genuine monthly renewal later.
-   */
   let isRecentUpgradeSale = false;
 
   if (upgradeSwitch) {
@@ -813,13 +771,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
           ? switchCreated.toISOString().substring(0, 10)
           : null;
 
-    /*
-     * A revised/replacement upgrade can ONLY happen when the tenant already
-     * had a REAL PayPal subscription to move FROM. Switch rows created for a
-     * fresh signup carry old_paypal_subscription_id = "FREE-<tenant>" (no
-     * prior paid agreement), and their SALE is the subscription's genuine
-     * first recurring charge — it must be invoiced, never suppressed.
-     */
     const hadPaidSubscription =
       !!upgradeSwitch.old_paypal_subscription_id &&
       !upgradeSwitch.old_paypal_subscription_id.startsWith("FREE-");
@@ -832,20 +783,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     return;
   }
 
-  /*
-   * ============================================================
-   * STEP 2
-   * From here onward, this is a genuine recurring payment.
-   * Normal invoice processing is allowed.
-   * ============================================================
-   */
-
-  /*
-   * PayPal can retry webhook delivery.
-   *
-   * If this transaction already has a completed invoice,
-   * do not process it again.
-   */
   const { data: alreadyInvoiced, error: existingInvoiceError } = await admin
     .from("invoices")
     .select("id, storage_path, email_sent_at")
@@ -863,9 +800,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     return;
   }
 
-  /*
-   * Find the active subscription.
-   */
   const { data: subscription, error } = await admin
     .from("subscriptions")
     .select("*, plans(name, price_month), tenants(name)")
@@ -876,9 +810,31 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     throw new Error("Subscription not found.");
   }
 
-  const plan = Array.isArray(subscription.plans)
+  let plan = Array.isArray(subscription.plans)
     ? subscription.plans?.[0]
     : subscription.plans;
+
+  // A scheduled downgrade saves the new agreement id on the row at approval
+  // but keeps the old plan there until the reconcile job applies the switch.
+  // The new agreement's first sale can land before that run, so the invoice
+  // takes the plan it actually bills for from the switch. Any sale on that
+  // agreement is at the new plan's rate, so no time bound is needed (PayPal's
+  // charge time can drift slightly from start_time).
+  const { data: dueScheduledSwitch } = await admin
+    .from("subscription_switches")
+    .select("plans!subscription_switches_plan_id_fkey(name, price_month)")
+    .eq("paypal_subscription_id", subscriptionId)
+    .in("status", ["pending", "approved"])
+    .not("effective_at", "is", null)
+    .maybeSingle();
+
+  const scheduledPlan = Array.isArray(dueScheduledSwitch?.plans)
+    ? dueScheduledSwitch?.plans?.[0]
+    : dueScheduledSwitch?.plans;
+
+  if (scheduledPlan) {
+    plan = scheduledPlan;
+  }
 
   const tenant = Array.isArray(subscription.tenants)
     ? subscription.tenants?.[0]
@@ -899,9 +855,7 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   const hasCurrentPeriod =
     !!recordedPeriodEnd && recordedPeriodEnd > periodStart;
 
-  const periodEnd = hasCurrentPeriod
-    ? recordedPeriodEnd
-    : addMonths(paidAt).substring(0, 10);
+  const periodEnd = addMonths(paidAt).substring(0, 10);
 
   const nextBillingDate = hasCurrentPeriod
     ? subscription.current_period_end
@@ -909,9 +863,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   const nextBillingAmount = Number(plan?.price_month ?? 0);
 
-  /*
-   * Billing email.
-   */
   const { data: billingMethod } = await admin
     .from("payment_methods")
     .select("paypal_email")
@@ -920,14 +871,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     .maybeSingle();
 
   const billingEmail = billingMethod?.paypal_email || undefined;
-
-  /*
-   * ============================================================
-   * STEP 3
-   * If this is a successful retry of a previously failed
-   * recurring payment, finalize the existing failed invoice.
-   * ============================================================
-   */
 
   const { data: failedInvoice } = await admin
     .from("invoices")
@@ -948,19 +891,11 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
   let insertedInvoice: { id: string } | null = null;
 
-  /*
-   * Existing invoice whose PDF or email is still outstanding.
-   */
   if (alreadyInvoiced) {
     insertedInvoice = {
       id: alreadyInvoiced.id,
     };
-  }
-
-  /*
-   * Successful retry of a failed payment.
-   */
-  else if (failedIsSameCharge && failedInvoice) {
+  } else if (failedIsSameCharge && failedInvoice) {
     const { error: flipError } = await admin
       .from("invoices")
       .update({
@@ -992,14 +927,7 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     insertedInvoice = {
       id: failedInvoice.id,
     };
-  }
-
-  /*
-   * Genuine recurring payment.
-   *
-   * This is where the monthly invoice is created.
-   */
-  else {
+  } else {
     const { data, error: invoiceError } = await admin
       .from("invoices")
       .insert({
@@ -1051,9 +979,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
       .single();
 
     if (invoiceError) {
-      /*
-       * Concurrent webhook delivery.
-       */
       if (invoiceError.code === "23505") {
         return;
       }
@@ -1064,15 +989,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     insertedInvoice = data;
   }
 
-  /*
-   * ============================================================
-   * STEP 4
-   * Load invoice for PDF generation.
-   *
-   * This point is reached ONLY for a genuine recurring payment.
-   * ============================================================
-   */
-
   const { data: invoice, error: fetchError } = await admin
     .from("invoices")
     .select("*")
@@ -1082,14 +998,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   if (fetchError) {
     throw fetchError;
   }
-
-  /*
-   * ============================================================
-   * STEP 5 + 6
-   * Generate and upload the PDF, unless an earlier delivery
-   * already stored it.
-   * ============================================================
-   */
 
   let storagePath: string | null = invoice.storage_path ?? null;
 
@@ -1119,17 +1027,6 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
 
     await updateInvoiceStorage(invoice.id, storagePath);
   }
-
-  /*
-   * ============================================================
-   * STEP 7
-   * Email invoice, exactly once (see emailInvoiceOnce).
-   *
-   * The invoice row and PDF are stored by now, so a failed send
-   * loses nothing. It does fail this delivery, which makes PayPal
-   * redeliver the event, and the redelivery retries the email.
-   * ============================================================
-   */
 
   await emailInvoiceOnce({
     invoice,

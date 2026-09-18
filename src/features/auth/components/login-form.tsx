@@ -27,7 +27,7 @@ import { APP_ROUTES } from "@/lib/routes";
 const FIELD_CLASS = "h-11 rounded-lg text-sm";
 
 const ERROR_HEADLINE: Record<AuthFailureCode, string> = {
-  invalid_credentials: "That email and password don't match.",
+  invalid_credentials: "Invalid email or password. Please try again.",
   email_not_confirmed: "Confirm your email first.",
   rate_limited: "Too many attempts.",
   validation: "Check your details.",

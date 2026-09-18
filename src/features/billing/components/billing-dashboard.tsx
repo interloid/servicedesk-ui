@@ -631,44 +631,16 @@ export default function BillingDashboard({
               </div>
             </div>
 
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              className={SECONDARY_BUTTON}
               onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="
-      inline-flex
-      w-full
-      items-center
-      justify-center
-      gap-2
-      rounded-lg
-      border
-      border-slate-200
-      bg-white
-      px-3
-      py-2
-      text-sm
-      font-medium
-      text-slate-700
-      shadow-sm
-      transition
-      hover:bg-slate-50
-      hover:text-slate-900
-      focus:outline-none
-      focus:ring-2
-      focus:ring-teal-500/20
-      disabled:cursor-not-allowed
-      disabled:opacity-50
-      sm:w-auto
-    "
-              aria-label="Refresh billing history"
             >
               <RefreshCw
                 className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
               />
-
               <span>{isRefreshing ? "Refreshing..." : "Refresh"}</span>
-            </button>
+            </Button>
           </header>
 
           {invoices.length === 0 ? (

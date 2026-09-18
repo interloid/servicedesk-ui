@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
-import Link from "next/link";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -11,7 +10,6 @@ import {
   Layers,
   Loader2,
   RotateCcw,
-  Settings,
   Users,
   X,
   Zap,
@@ -21,12 +19,11 @@ import { FormattedPlan } from "../types";
 import { toast } from "sonner";
 import { changeTenantPlanAction } from "../billing-actions";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
-import { tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
 
 import { CancelSubscriptionDialog } from "./cancel-subscription";
 import { DowngradeDialog } from "./downgrade-dialog";
-import { MODAL_BUTTON, MODAL_BUTTON_PRIMARY } from "./modal-buttons";
+import { MODAL_BUTTON } from "./modal-buttons";
 import { ModalNotice } from "./modal-notice";
 import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
 
@@ -313,11 +310,9 @@ export function PricingCards({
     };
   })();
 
-  const manageBillingHref = tenantPath(tenantSlug, "/account/billing");
-
   return (
     <>
-      <div className="grid w-full grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3 xl:gap-6">
+      <div className="flex flex-wrap items-stretch justify-center gap-5 xl:gap-6">
         {plans.map((plan, planIdx) => {
           const planId = (plan.id || "").trim().toLowerCase();
 
@@ -390,19 +385,18 @@ export function PricingCards({
             <Card
               key={plan.id}
               className={cn(
-                "relative flex h-full w-full flex-col rounded-2xl p-5 shadow-sm transition-all sm:p-6",
+                "relative flex min-h-136 w-full flex-col rounded-2xl border! border-border! bg-card p-6 shadow-sm transition-all sm:w-[calc(50%-0.625rem)] xl:w-[calc(33.333%-1rem)]",
                 isCurrent
                   ? "border-2! border-brand-accent! bg-brand-accent/5 shadow-sm"
                   : isScheduledTarget
                     ? "border-2! border-amber-500! bg-amber-500/5 shadow-sm"
-                    : "border! border-border! bg-background hover:border-gray-300! hover:shadow-md dark:hover:border-neutral-700!",
+                    : "bg-white hover:border-gray-300! hover:shadow-md dark:hover:border-neutral-700!",
               )}
             >
               {isCurrent && (
                 <div className="absolute right-4 top-4 z-10 sm:right-5 sm:top-5">
                   <Badge className="gap-1 rounded-full bg-brand-accent px-3 py-2 text-[11px] font-semibold text-white shadow-none hover:bg-brand-accent/90 sm:px-4 sm:py-3 sm:text-xs">
                     <Crown className="h-3.5 w-3.5 fill-current" />
-
                     <span>Current plan</span>
                   </Badge>
                 </div>
@@ -412,13 +406,13 @@ export function PricingCards({
                 <div className="absolute right-4 top-4 z-10 sm:right-5 sm:top-5">
                   <Badge className="gap-1 rounded-full bg-amber-500 px-3 py-2 text-[11px] font-semibold text-white shadow-none hover:bg-amber-600 sm:px-4 sm:py-3 sm:text-xs">
                     <Clock className="h-3.5 w-3.5" />
-
                     <span>Upcoming plan</span>
                   </Badge>
                 </div>
               )}
 
               <div className="flex h-full flex-1 flex-col">
+                {/* Plan Header */}
                 <div className="min-h-25">
                   <div className="flex items-start justify-between gap-3 pr-24 sm:pr-28">
                     <h3 className="text-xl font-bold tracking-tight text-foreground">
@@ -430,6 +424,8 @@ export function PricingCards({
                     {plan.description}
                   </p>
                 </div>
+
+                {/* Price */}
                 <div className="mt-4 flex items-baseline gap-1">
                   <span className="text-4xl font-extrabold tracking-tight text-foreground">
                     {plan.price}
@@ -440,6 +436,7 @@ export function PricingCards({
                   </span>
                 </div>
 
+                {/* Agent Seats */}
                 <div className="mt-5 flex min-h-11.5 items-center gap-2.5 rounded-xl border border-border/80 bg-white px-3.5 py-2.5 dark:bg-background">
                   <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
 
@@ -448,10 +445,10 @@ export function PricingCards({
                   </span>
                 </div>
 
+                {/* Features */}
                 <div
                   className={cn(
                     "mt-6 flex-1 border-t pt-5",
-
                     isCurrent
                       ? "border-t-brand-accent/50!"
                       : isScheduledTarget
@@ -514,20 +511,10 @@ export function PricingCards({
                   )}
                 </div>
 
+                {/* CTA */}
                 <div className="mt-6 flex flex-col gap-2.5">
                   {isCurrent ? (
                     <>
-                      <Button
-                        asChild
-                        className="h-11 w-full gap-2 rounded-xl bg-brand-accent text-sm font-semibold text-white shadow-none hover:bg-brand-accent/90"
-                      >
-                        <Link href={manageBillingHref}>
-                          <Settings className="h-4 w-4" />
-
-                          <span>Manage plan</span>
-                        </Link>
-                      </Button>
-
                       {isPendingCancellation || hasScheduledDowngrade ? (
                         <>
                           <div className="flex min-h-11.5 items-center justify-center gap-2 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-3 text-center text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
@@ -595,7 +582,6 @@ export function PricingCards({
                       onClick={() => openSwitchDialog(plan)}
                       className={cn(
                         "h-11 w-full gap-2 rounded-xl text-sm font-semibold shadow-none transition-colors",
-
                         isDowngrade
                           ? "border-border text-emerald-700 hover:border-emerald-600 hover:bg-emerald-50/30 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
                           : "bg-brand-accent text-white hover:bg-brand-accent/90",
@@ -755,7 +741,10 @@ export function PricingCards({
                   executePlanSwitch(selectedPlanForSwitch);
                 }
               }}
-              className={cn(MODAL_BUTTON, MODAL_BUTTON_PRIMARY)}
+              className={cn(
+                MODAL_BUTTON,
+                "bg-brand-accent hover:bg-brand-accent/90",
+              )}
             >
               {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Confirm switch
@@ -822,6 +811,14 @@ export function PricingCards({
                     } plan.`}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <AlertDialogCancel
+              disabled={isPending}
+              className=" absolute right-4 top-4 h-8 w-8 rounded-full border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent
+              hover:text-foreground focus:ring-0 focus:ring-offset-0 "
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </AlertDialogCancel>
 
             <AlertDialogFooter className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <AlertDialogCancel
@@ -842,8 +839,7 @@ export function PricingCards({
                   }
                   className={cn(
                     MODAL_BUTTON,
-                    MODAL_BUTTON_PRIMARY,
-                    "w-full sm:w-auto",
+                    "w-full sm:w-auto hover:text-white",
                   )}
                 />
               </AlertDialogAction>

@@ -522,19 +522,6 @@ export default function InvoiceModal({
 
           <Button
             variant="outline"
-            disabled={!pdfUrl}
-            onClick={openPdf}
-            className={cn(
-              OUTLINE_BUTTON,
-              "order-2 w-full lg:order-1 lg:w-auto",
-            )}
-          >
-            View full invoice
-            <ExternalLink className="size-4" />
-          </Button>
-
-          <Button
-            variant="outline"
             onClick={onClose}
             className={cn(
               OUTLINE_BUTTON,

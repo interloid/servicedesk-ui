@@ -167,7 +167,7 @@ function PaymentSuccessContent() {
                   ? error
                   : missingPaymentId && !planName
                     ? "We couldn't verify a pending payment or subscription on this device. Check your account page to see if your plan was already activated."
-                    : `Your plan is now active on ${planName}.`}
+                    : `Thank you for your payment! You can manage your subscription and billing information in your account settings.`}
           </CardDescription>
         </CardHeader>
 

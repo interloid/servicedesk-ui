@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, type ReactNode } from "react";
+import { use, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -14,6 +14,7 @@ import {
   ExternalLink,
   Eye,
   FileText,
+  RefreshCw,
   UserRound,
   Users,
   UsersRound,
@@ -135,7 +136,12 @@ export default function BillingDashboard({
   const [isPlanDetailsOpen, setIsPlanDetailsOpen] = useState(false);
   const [invoicePage, setInvoicePage] = useState(1);
   const [dismissedBanners, setDismissedBanners] = useState<string[]>([]);
-
+  const [isRefreshing, startRefresh] = useTransition();
+  const handleRefresh = () => {
+    startRefresh(() => {
+      router.refresh();
+    });
+  };
   const dismissBanner = (id: string) =>
     setDismissedBanners((current) =>
       current.includes(id) ? current : [...current, id],
@@ -312,7 +318,7 @@ export default function BillingDashboard({
             icon={Clock}
             title={
               <span className="inline-flex flex-wrap items-center gap-1.5">
-                Your {currentPlanName} plan ends on {data.renewalDate}
+                Your {currentPlanName} plan ends on {effectiveDateLabel}.
               </span>
             }
             description={`You'll keep ${currentPlanName} and all its features until then.`}
@@ -613,15 +619,56 @@ export default function BillingDashboard({
           <header className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div className="flex items-center gap-3">
               <IconTile icon={FileText} tone="teal" />
+
               <div>
                 <h2 className="text-base font-semibold text-slate-900">
                   Billing history
                 </h2>
+
                 <p className="text-xs text-slate-500">
                   {invoices.length} invoice{invoices.length === 1 ? "" : "s"}
                 </p>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="
+      inline-flex
+      w-full
+      items-center
+      justify-center
+      gap-2
+      rounded-lg
+      border
+      border-slate-200
+      bg-white
+      px-3
+      py-2
+      text-sm
+      font-medium
+      text-slate-700
+      shadow-sm
+      transition
+      hover:bg-slate-50
+      hover:text-slate-900
+      focus:outline-none
+      focus:ring-2
+      focus:ring-teal-500/20
+      disabled:cursor-not-allowed
+      disabled:opacity-50
+      sm:w-auto
+    "
+              aria-label="Refresh billing history"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+              />
+
+              <span>{isRefreshing ? "Refreshing..." : "Refresh"}</span>
+            </button>
           </header>
 
           {invoices.length === 0 ? (

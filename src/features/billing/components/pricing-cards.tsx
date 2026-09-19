@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -145,6 +145,29 @@ export function PricingCards({
     });
   };
 
+  const [isOpen, setIsOpen] = useState(false);
+
+  // 2. Sync open state whenever selectedPlanForSwitch changes
+  useEffect(() => {
+    if (selectedPlanForSwitch) {
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
+    }
+  }, [selectedPlanForSwitch]);
+
+  // 3. Helper function to handle closing gracefully
+  const handleClose = () => {
+    if (isPending) return;
+    setIsOpen(false); // Triggers close animation while selectedPlanForSwitch stays intact
+  };
+
+  // 4. Reset selectedPlanForSwitch when animation completes
+  const handleAnimationEnd = () => {
+    if (!isOpen) {
+      setSelectedPlanForSwitch(null);
+    }
+  };
   const activeTarget = (currentPlanCode || "").trim().toLowerCase();
 
   const currentPlan =
@@ -412,7 +435,6 @@ export function PricingCards({
               )}
 
               <div className="flex h-full flex-1 flex-col">
-                {/* Plan Header */}
                 <div className="min-h-25">
                   <div className="flex items-start justify-between gap-3 pr-24 sm:pr-28">
                     <h3 className="text-xl font-bold tracking-tight text-foreground">
@@ -425,7 +447,6 @@ export function PricingCards({
                   </p>
                 </div>
 
-                {/* Price */}
                 <div className="mt-4 flex items-baseline gap-1">
                   <span className="text-4xl font-extrabold tracking-tight text-foreground">
                     {plan.price}
@@ -436,7 +457,6 @@ export function PricingCards({
                   </span>
                 </div>
 
-                {/* Agent Seats */}
                 <div className="mt-5 flex min-h-11.5 items-center gap-2.5 rounded-xl border border-border/80 bg-white px-3.5 py-2.5 dark:bg-background">
                   <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
 
@@ -445,7 +465,6 @@ export function PricingCards({
                   </span>
                 </div>
 
-                {/* Features */}
                 <div
                   className={cn(
                     "mt-6 flex-1 border-t pt-5",
@@ -511,7 +530,6 @@ export function PricingCards({
                   )}
                 </div>
 
-                {/* CTA */}
                 <div className="mt-6 flex flex-col gap-2.5">
                   {isCurrent ? (
                     <>
@@ -602,67 +620,78 @@ export function PricingCards({
       </div>
 
       <AlertDialog
-        open={Boolean(selectedPlanForSwitch)}
-        onOpenChange={(open) => {
-          if (!open && !isPending) {
-            setSelectedPlanForSwitch(null);
-          }
-        }}
+        open={isOpen}
+        onOpenChange={(open) => !open && handleClose()}
       >
         <AlertDialogContent
+          onAnimationEnd={handleAnimationEnd}
           className="
-            w-[calc(100%-2rem)]
-            data-[size=default]:max-w-110
-            data-[size=default]:sm:max-w-125
-            rounded-2xl
-            border
-            border-border
-            bg-background
-            p-0
-            shadow-xl
-            max-h-[calc(100dvh-2rem)]
-            overflow-y-auto
-          "
+      w-[calc(100%-2rem)]
+      data-[size=default]:max-w-110
+      data-[size=default]:sm:max-w-125
+      rounded-2xl
+      border
+      border-border
+      bg-background
+      p-0
+      shadow-xl
+      max-h-[calc(100dvh-2rem)]
+      overflow-y-auto
+    "
         >
           <AlertDialogHeader className="block px-6 pt-5 pb-4 text-left">
             <div className="flex items-center justify-between gap-4">
               <AlertDialogTitle className="text-xl font-bold text-foreground">
-                {selectedSwitchLabel}?
+                {selectedSwitchLabel
+                  ? `${selectedSwitchLabel}?`
+                  : "Switch Plan"}
               </AlertDialogTitle>
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isPending) {
-                    setSelectedPlanForSwitch(null);
-                  }
-                }}
+              <AlertDialogCancel
                 disabled={isPending}
-                className={cn(
-                  "absolute right-3 top-3 z-10",
-                  "flex size-7 items-center justify-center rounded-md",
-                  "text-current/60 transition-colors",
-                  "bg-none border-0 p-0",
-                  "focus:outline-none focus:ring-2 focus:ring-current/20",
-                  "lg:right-4 lg:top-5 lg:-translate-y-1/2",
-                )}
+                onClick={handleClose}
+                className="
+            absolute
+            right-4
+            top-4
+            z-20
+            flex
+            size-8
+            items-center
+            justify-center
+            rounded-md
+            border-0
+            bg-transparent
+            p-0
+            text-muted-foreground
+            shadow-none
+            hover:bg-transparent
+            hover:text-foreground
+            focus:outline-none
+            focus:ring-2
+            focus:ring-current/20
+            disabled:pointer-events-none
+          "
                 aria-label="Close"
               >
                 <X className="size-4" />
-              </button>
+              </AlertDialogCancel>
             </div>
+
             <AlertDialogDescription asChild>
               <div className="mt-4 space-y-3">
-                <ModalNotice
-                  icon={Zap}
-                  title={`Takes effect: ${dialogTiming.headline}`}
-                >
-                  {dialogTiming.body}
-                </ModalNotice>
+                {dialogTiming?.headline && (
+                  <ModalNotice
+                    icon={Zap}
+                    title={`Takes effect: ${dialogTiming.headline}`}
+                  >
+                    {dialogTiming.body}
+                  </ModalNotice>
+                )}
 
                 {isUpgradeTarget && (
                   <>
-                    {proratedCredit > 0 && (
+                    {proratedCredit > 0 && target && (
                       <div className="w-full rounded-xl border border-border px-4 py-3.5 text-left">
                         <p className="text-sm font-semibold text-foreground">
                           Price breakdown
@@ -671,25 +700,25 @@ export function PricingCards({
                         <div className="mt-3 space-y-2">
                           <div className="flex items-center justify-between gap-4 text-sm">
                             <span className="text-muted-foreground">
-                              {target?.name} plan
+                              {target.name} plan
                             </span>
 
                             <span className="font-semibold text-foreground">
-                              ${target?.priceValue.toFixed(2)}
-                              /mo
+                              ${target.priceValue?.toFixed(2)}/mo
                             </span>
                           </div>
 
-                          <div className="flex items-center justify-between gap-4 text-sm">
-                            <span className="text-emerald-600">
-                              {currentPlan?.name} remaining credit
-                            </span>
+                          {currentPlan && (
+                            <div className="flex items-center justify-between gap-4 text-sm">
+                              <span className="text-emerald-600">
+                                {currentPlan.name} remaining credit
+                              </span>
 
-                            <span className="font-semibold text-emerald-600">
-                              -$
-                              {proratedCredit.toFixed(2)}
-                            </span>
-                          </div>
+                              <span className="font-semibold text-emerald-600">
+                                -${proratedCredit.toFixed(2)}
+                              </span>
+                            </div>
+                          )}
 
                           <div className="flex items-center justify-between gap-4 border-t border-border pt-2 text-sm">
                             <span className="font-semibold text-foreground">
@@ -697,17 +726,14 @@ export function PricingCards({
                             </span>
 
                             <span className="font-bold text-foreground">
-                              ${upgradeAmount.toFixed(2)}
+                              ${upgradeAmount?.toFixed(2)}
                             </span>
                           </div>
 
                           <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
                             <span>From next month</span>
 
-                            <span>
-                              ${target?.priceValue.toFixed(2)}
-                              /mo
-                            </span>
+                            <span>${target.priceValue?.toFixed(2)}/mo</span>
                           </div>
                         </div>
                       </div>
@@ -727,6 +753,7 @@ export function PricingCards({
           <AlertDialogFooter className="mx-0 mb-0 gap-3 px-4 py-4 sm:justify-end">
             <AlertDialogCancel
               disabled={isPending}
+              onClick={handleClose}
               className={cn(MODAL_BUTTON, "mt-0")}
             >
               Cancel
@@ -736,7 +763,6 @@ export function PricingCards({
               disabled={isPending}
               onClick={(e) => {
                 e.preventDefault();
-
                 if (selectedPlanForSwitch) {
                   executePlanSwitch(selectedPlanForSwitch);
                 }
@@ -752,6 +778,7 @@ export function PricingCards({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
       <DowngradeDialog
         tenantSlug={tenantSlug}
         open={Boolean(downgradeTarget)}

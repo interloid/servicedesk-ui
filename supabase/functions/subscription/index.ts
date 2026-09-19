@@ -998,18 +998,9 @@ Deno.serve(async (req) => {
           .maybeSingle();
         const tenantSlug = tenantRow?.slug ?? "";
 
-        // Align the replacement subscription's first charge to the original
-        // billing cycle end so the user is NOT billed twice today (once for
-        // the one-time upgrade and once for the full new plan rate).
-        const { data: originalSub } = await admin
-          .from("subscriptions")
-          .select("current_period_end")
-          .eq("tenant_id", tenantId)
-          .maybeSingle();
-
-        const startDate =
-          originalSub?.current_period_end ??
-          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const startDate = new Date(
+          Date.now() + 30 * 24 * 60 * 60 * 1000,
+        ).toISOString();
 
         const subCreateResponse = await fetch(
           `${BASE_URL}/v1/billing/subscriptions`,
@@ -1028,7 +1019,7 @@ Deno.serve(async (req) => {
                 name: { given_name: "Valued", surname: "Customer" },
                 address: { country_code: "US" },
               },
-              start_date: startDate,
+              start_time: startDate,
               payment_schedule: {
                 setup_fee: { value: "0.00", currency_code: "USD" },
               },
@@ -1335,7 +1326,6 @@ Deno.serve(async (req) => {
         subscriptionId: existingSubscriptionId,
       });
     }
-
     // Dedicated cancel action: cancels the active subscription and moves
     // the tenant to the Free plan. If paid time remains the change is
     // deferred to the end of the billing period.
@@ -1838,6 +1828,12 @@ Deno.serve(async (req) => {
         .eq("id", pendingSwitch.plan_id)
         .single();
 
+      const nextBillingTime = (
+        paypalSub as {
+          billing_info?: { next_billing_time?: string };
+        } | null
+      )?.billing_info?.next_billing_time;
+
       const { data: activatedSub, error: activationError } = await admin
         .from("subscriptions")
         .update({
@@ -1845,6 +1841,9 @@ Deno.serve(async (req) => {
           paypal_subscription_id: targetSubscriptionId,
           status: "active",
           seats: plan?.seat_limit ?? 1,
+          current_period_end:
+            nextBillingTime ??
+            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
           updated_at: new Date().toISOString(),
         })
         .eq("tenant_id", tenantId)

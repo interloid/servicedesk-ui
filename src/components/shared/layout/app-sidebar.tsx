@@ -20,10 +20,10 @@ import {
   Bell,
   FileText,
   CreditCard,
-  Sparkles,
   ChevronDown,
   PanelLeft,
   User,
+  BadgeDollarSign,
 } from "lucide-react";
 
 import {
@@ -216,7 +216,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
         {
           label: "Plans & pricing",
           href: "/account/plans",
-          icon: Sparkles,
+          icon: BadgeDollarSign,
           roles: ["tenant_admin", "billing_admin"],
         },
       ],

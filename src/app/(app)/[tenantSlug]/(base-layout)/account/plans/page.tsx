@@ -54,7 +54,6 @@ export default async function TenantBillingPage({
   return (
     <div className="min-h-full w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
       <div className="mx-auto max-w-7xl space-y-8 sm:space-y-10">
-        {/* Header */}
         <header className="mx-auto max-w-2xl space-y-2 text-center">
           <h1 className="text-xl font-bold tracking-tight text-foreground text-balance sm:text-2xl lg:text-3xl">
             Plans & pricing
@@ -66,7 +65,6 @@ export default async function TenantBillingPage({
           </p>
         </header>
 
-        {/* No permission */}
         {!canManageBilling ? (
           <div className="mx-auto max-w-xl rounded-2xl border border-border bg-card p-5 text-center shadow-sm sm:p-6 md:p-8">
             <p className="text-sm font-semibold text-card-foreground">

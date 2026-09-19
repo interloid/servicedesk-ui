@@ -729,7 +729,32 @@ Deno.serve(async (req) => {
           console.error("Tenant plan restore failed:", restoreTenantError);
         }
       }
+      const upcomingSubscriptionId = pendingSwitch.paypal_subscription_id;
 
+      if (isRealAgreement(upcomingSubscriptionId)) {
+        try {
+          const accessToken = await getAccessToken();
+
+          const { ok, data: paypalSub } = await getPayPalSubscription(
+            accessToken,
+            upcomingSubscriptionId,
+          );
+
+          const paypalStatus = String(paypalSub?.status ?? "").toUpperCase();
+
+          if (
+            ok &&
+            ["ACTIVE", "SUSPENDED", "APPROVAL_PENDING"].includes(paypalStatus)
+          ) {
+            await cancelPayPalSubscription(accessToken, upcomingSubscriptionId);
+          }
+        } catch (error) {
+          console.error(
+            "Failed to cancel upcoming PayPal subscription:",
+            error,
+          );
+        }
+      }
       const { error: cancelSwitchError } = await admin
         .from("subscription_switches")
         .update({ status: "cancelled", updated_at: now })
@@ -1459,7 +1484,7 @@ Deno.serve(async (req) => {
             // Only if it could not be suspended fall back to cancelling, so
             // PayPal still never bills a cycle the customer cancelled.
             if (!suspended.ok) {
-              await cancelPayPalSubscription(accessToken, paypalSubId);
+              // await cancelPayPalSubscription(accessToken, paypalSubId);
             }
           } catch (cancelError) {
             console.error(
@@ -1490,7 +1515,7 @@ Deno.serve(async (req) => {
       // Immediate: no paid time remaining — cancel now
       if (isRealAgreement(paypalSubId)) {
         try {
-          await cancelPayPalSubscription(accessToken, paypalSubId);
+          // await cancelPayPalSubscription(accessToken, paypalSubId);
         } catch (cancelError) {
           console.error(
             "Failed to cancel PayPal agreement for immediate cancel:",
@@ -1772,10 +1797,10 @@ Deno.serve(async (req) => {
         // the paying subscription untouched.
         if (isRealAgreement(pendingSwitch.old_paypal_subscription_id)) {
           try {
-            await cancelPayPalSubscription(
-              accessToken,
-              pendingSwitch.old_paypal_subscription_id!,
-            );
+            // await cancelPayPalSubscription(
+            //   accessToken,
+            //   pendingSwitch.old_paypal_subscription_id!,
+            // );
           } catch (cancelError) {
             console.error(
               "Failed to cancel superseded agreement for scheduled downgrade:",
@@ -2080,21 +2105,21 @@ Deno.serve(async (req) => {
           );
         }
 
-        // Insert first, then cancel: the CANCELLED webhook guard looks for
-        // this row to know the cancellation is intentional.
-        if (existingPaidSubscription?.paypal_subscription_id) {
-          try {
-            await cancelPayPalSubscription(
-              accessToken,
-              existingPaidSubscription.paypal_subscription_id,
-            );
-          } catch (cancelError) {
-            console.error(
-              "Failed to cancel agreement for scheduled Free downgrade:",
-              cancelError,
-            );
-          }
-        }
+        // // Insert first, then cancel: the CANCELLED webhook guard looks for
+        // // this row to know the cancellation is intentional.
+        // if (existingPaidSubscription?.paypal_subscription_id) {
+        //   try {
+        //     await cancelPayPalSubscription(
+        //       accessToken,
+        //       existingPaidSubscription.paypal_subscription_id,
+        //     );
+        //   } catch (cancelError) {
+        //     console.error(
+        //       "Failed to cancel agreement for scheduled Free downgrade:",
+        //       cancelError,
+        //     );
+        //   }
+        // }
 
         return Response.json({
           success: true,
@@ -2113,10 +2138,10 @@ Deno.serve(async (req) => {
       // our subscriptions row as the source of truth for entitlements.
       if (existingPaidSubscription?.paypal_subscription_id) {
         try {
-          await cancelPayPalSubscription(
-            accessToken,
-            existingPaidSubscription.paypal_subscription_id,
-          );
+          // await cancelPayPalSubscription(
+          //   accessToken,
+          //   existingPaidSubscription.paypal_subscription_id,
+          // );
         } catch (cancelError) {
           console.error(
             "Failed to cancel agreement for immediate Free downgrade:",

@@ -291,9 +291,9 @@ export async function handleSubscriptionActivated(event: WebhookEvent) {
         );
         const oldStatus = String(oldAgreement.status ?? "").toUpperCase();
 
-        if (["ACTIVE", "APPROVAL_PENDING", "SUSPENDED"].includes(oldStatus)) {
-          await cancelSubscription(pendingSwitch.old_paypal_subscription_id!);
-        }
+        // if (["ACTIVE", "APPROVAL_PENDING", "SUSPENDED"].includes(oldStatus)) {
+        //   await cancelSubscription(pendingSwitch.old_paypal_subscription_id!);
+        // }
       } catch (cancelError) {
         console.error(
           "Failed to cancel superseded agreement for scheduled downgrade:",

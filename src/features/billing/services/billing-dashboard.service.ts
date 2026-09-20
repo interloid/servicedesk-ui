@@ -161,7 +161,10 @@ export async function fetchTenantBillingData(
 
   const { data: sub } = await supabase
     .from("subscriptions")
-    .select("*, plans(*)")
+    // subscriptions has three FKs to plans (plan_id, next_plan_id,
+    // pending_plan_id); the embed must name the one it means, or PostgREST
+    // rejects the whole query as ambiguous (PGRST201).
+    .select("*, plans!subscriptions_plan_id_fkey(*)")
     .eq("tenant_id", tenant.id)
     .in("status", ["active", "trialing"])
     .order("created_at", { ascending: false })

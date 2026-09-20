@@ -244,6 +244,17 @@ export default function BillingDashboard({
   const showScheduledChangeBanner =
     Boolean(scheduledChange) && !isPendingCancellation;
 
+  // The same date means different things, so it must not always be called a
+  // billing date:
+  //   cancelling -> nothing is charged again; it is the day access ends
+  //   switching  -> the new plan starts, and is billed, that day
+  //   normal     -> the next charge
+  const renewalLabel = isPendingCancellation
+    ? "Access until"
+    : scheduledChange
+      ? "New plan starts"
+      : "Next billing date";
+
   const planDetails: Array<{ label: string; value: ReactNode }> = [
     {
       label: "Price",
@@ -252,7 +263,7 @@ export default function BillingDashboard({
     { label: "Seat limit", value: `${totalSeats} seats` },
     { label: "Seats in use", value: `${usedSeats} of ${totalSeats}` },
     {
-      label: "Next billing date",
+      label: renewalLabel,
       value: hasRenewalDate ? data.renewalDate : "—",
     },
     {
@@ -417,7 +428,7 @@ export default function BillingDashboard({
               />
               <DetailRow
                 icon={CalendarDays}
-                label="Next billing date"
+                label={renewalLabel}
                 value={hasRenewalDate ? data.renewalDate : "—"}
               />
             </dl>

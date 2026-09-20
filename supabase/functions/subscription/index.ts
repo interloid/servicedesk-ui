@@ -1727,16 +1727,48 @@ Deno.serve(async (req) => {
     const amountDue = round2(Math.max(0, targetPrice - currentPrice));
 
     if (amountDue > 0) {
-      // An upgrade this tenant already started and has not paid. Re-using the
-      // order keeps ONE payable charge: creating a second one would let a
-      // double click be billed twice for the same upgrade. PayPal expires an
-      // unpaid order on its own, and the fetch then returns nothing, so a
-      // stale one never blocks a fresh checkout.
-      if (sub.pending_order_id && sub.pending_plan_id === targetPlan.id) {
+      // An upgrade order this tenant already started. It must be resolved
+      // before another one is created -- a second order for the same upgrade
+      // is a second real charge.
+      if (sub.pending_order_id) {
         const existingOrder = await fetchPaypalOrder(sub.pending_order_id);
         const orderStatus = String(existingOrder.status ?? "").toUpperCase();
 
-        if (orderStatus === "CREATED" || orderStatus === "APPROVED") {
+        // ALREADY PAID. The money is in and only the PayPal-side plan move is
+        // outstanding (reconcile-subscriptions retries it). Charging again
+        // here would bill the same upgrade twice, so this is refused outright
+        // -- whatever plan was asked for.
+        if (orderStatus === "COMPLETED") {
+          const paidPlan = await loadPlan(admin, sub.pending_plan_id);
+
+          logBilling("upgrade.awaiting-apply", {
+            tenant_id: tenantId,
+            paypal_subscription_id: agreementId,
+            order_id: sub.pending_order_id,
+            current_plan: currentPlan?.name,
+            target_plan: paidPlan?.name,
+          });
+
+          return Response.json(
+            {
+              success: false,
+              message:
+                `Your payment for the ${paidPlan?.name ?? "upgrade"} upgrade ` +
+                `has already been received and is still being applied. ` +
+                `Please wait a few minutes rather than paying again — ` +
+                `contact support if your plan has not changed within an hour.`,
+            },
+            { status: 409 },
+          );
+        }
+
+        // Not paid yet: hand back the same checkout instead of opening a
+        // second one. PayPal expires an unpaid order on its own, and the fetch
+        // then returns nothing, so a stale one never blocks a fresh checkout.
+        if (
+          sub.pending_plan_id === targetPlan.id &&
+          (orderStatus === "CREATED" || orderStatus === "APPROVED")
+        ) {
           const approveUrl = (
             existingOrder.links as
               Array<{ rel: string; href: string }> | undefined

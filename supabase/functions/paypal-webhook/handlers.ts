@@ -64,6 +64,18 @@ function addMonths(iso: string, months = 1): string {
   return date.toISOString();
 }
 
+type EmbeddedPlan = { name?: string; price_month?: number | string };
+
+/**
+ * A subscriptions row read together with its plan. The FK hint the embed needs
+ * (see below) defeats supabase-js's select-string inference, which then widens
+ * the result to an error type, so these reads are cast to this shape.
+ */
+type SubscriptionWithPlan = SubscriptionRow & {
+  plans?: EmbeddedPlan | EmbeddedPlan[] | null;
+  tenants?: { name?: string } | { name?: string }[] | null;
+};
+
 /** The tenant that owns this agreement, live or awaiting approval. */
 async function findSubscriptionByAgreement(
   paypalSubscriptionId: string,
@@ -622,21 +634,27 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
     return;
   }
 
-  const { data: subscription, error } = await admin
+  const { data: subscriptionRow, error } = await admin
     .from("subscriptions")
-    .select("*, plans(name, price_month), tenants(name)")
+    .select(
+      // subscriptions now has three FKs to plans (plan_id, next_plan_id,
+      // pending_plan_id), so the embed MUST name the one it means or
+      // PostgREST rejects it as ambiguous (PGRST201).
+      "*, plans!subscriptions_plan_id_fkey(name, price_month), tenants(name)",
+    )
     .eq("paypal_subscription_id", subscriptionId)
     .single();
 
-  if (error || !subscription) {
+  if (error || !subscriptionRow) {
     throw new Error("Subscription not found.");
   }
 
-  let plan = (
-    Array.isArray(subscription.plans)
+  const subscription = subscriptionRow as unknown as SubscriptionWithPlan;
+
+  let plan: EmbeddedPlan | null =
+    (Array.isArray(subscription.plans)
       ? subscription.plans?.[0]
-      : subscription.plans
-  ) as { name?: string; price_month?: number | string } | null;
+      : subscription.plans) ?? null;
 
   // A scheduled downgrade is applied by reconcile-subscriptions, which runs
   // hourly; PayPal can bill the new rate before that run. The invoice then
@@ -834,9 +852,9 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
         tenant_name: tenant?.name,
         tenant_id: subscription.tenant_id,
         plan_name: plan?.name,
-        seats: subscription.seats,
+        seats: subscription.seats ?? undefined,
         tenant_email: billingEmail,
-        next_billing_date: nextBillingDate,
+        next_billing_date: nextBillingDate ?? undefined,
         next_billing_amount: nextBillingAmount,
       },
     );
@@ -1012,11 +1030,19 @@ export async function handleOrderCompleted(event: WebhookEvent) {
     .eq("id", invoiceTenantId)
     .maybeSingle();
 
-  const { data: tenantSub } = await admin
+  const { data: tenantSubRow } = await admin
     .from("subscriptions")
-    .select("current_period_end, plans(name, price_month)")
+    .select(
+      "current_period_end, plans!subscriptions_plan_id_fkey(name, price_month)",
+    )
     .eq("tenant_id", invoiceTenantId)
     .maybeSingle();
+
+  const tenantSub = tenantSubRow as unknown as
+    | (Pick<SubscriptionRow, "current_period_end"> & {
+        plans?: EmbeddedPlan | EmbeddedPlan[] | null;
+      })
+    | null;
 
   const tenantPlan = Array.isArray(tenantSub?.plans)
     ? tenantSub?.plans?.[0]
@@ -1102,13 +1128,16 @@ export async function handlePaymentDenied(event: WebhookEvent) {
   // denied payment may not carry full sale details, so the monthly plan rate
   // is used for the amount. The event id is stored for idempotency. When the
   // money later lands, handlePaymentCompleted flips this line to PAID.
-  const { data: subscription } = await admin
+  const { data: deniedRow } = await admin
     .from("subscriptions")
     .select(
-      "id, tenant_id, paypal_subscription_id, current_period_end, seats, plans(name, price_month)",
+      "id, tenant_id, paypal_subscription_id, current_period_end, seats, " +
+        "plans!subscriptions_plan_id_fkey(name, price_month)",
     )
     .eq("paypal_subscription_id", payment.billing_agreement_id)
     .maybeSingle();
+
+  const subscription = deniedRow as unknown as SubscriptionWithPlan | null;
 
   if (subscription) {
     const plan = Array.isArray(subscription.plans)

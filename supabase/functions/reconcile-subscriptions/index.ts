@@ -470,10 +470,33 @@ async function retryCapturedUpgrade(sub: SubscriptionRow): Promise<Outcome> {
   const alreadyOnPlan = String(lookup.data.plan_id ?? "") === targetPlan.code;
 
   const revise = alreadyOnPlan
-    ? { ok: true, approveUrl: null as string | null }
+    ? { ok: true, approveUrl: null as string | null, issue: null }
     : await paypal.revise(agreementId, targetPlan.code);
 
-  if (!revise.ok || revise.approveUrl) {
+  if (!revise.ok) {
+    // PLAN_PRODUCT_NOT_COMPATIBLE is PERMANENT: PayPal only revises between
+    // plans of the same product, so retrying hourly will never succeed. The
+    // customer has paid and is owed the plan -- say so loudly instead of
+    // burning a retry every hour in silence.
+    console.error(
+      revise.issue === "PLAN_PRODUCT_NOT_COMPATIBLE"
+        ? "[billing] PAID UPGRADE CANNOT BE APPLIED: the target plan is on a " +
+            "different PayPal product, which /revise cannot bridge. Move both " +
+            "plans under one product, or refund this order."
+        : "[billing] paid upgrade could not be applied; will retry:",
+      {
+        tenant_id: sub.tenant_id,
+        paypal_subscription_id: agreementId,
+        order_id: orderId,
+        target_plan: targetPlan.name,
+        issue: revise.issue,
+      },
+    );
+
+    return "notReady";
+  }
+
+  if (revise.approveUrl) {
     return "notReady";
   }
 

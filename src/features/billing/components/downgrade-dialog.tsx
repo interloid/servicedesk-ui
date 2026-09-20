@@ -91,14 +91,14 @@ export function DowngradeDialog({
           headline: "End of billing period",
           body: isFreeTarget
             ? `You keep ${currentPlanLabel} - including its features and agent seats - until ${renewalDate}. No further charges are made, and the switch to the Free plan applies when your billing period ends.`
-            : `You keep ${currentPlanLabel} - including its features and agent seats - until ${renewalDate}. Nothing to confirm and nothing charged today: your existing PayPal subscription moves to ${targetName} on ${renewalDate} and bills ${targetPrice}${targetSuffix} from then on.`,
+            : `You keep ${currentPlanLabel} - including its features and agent seats - until ${renewalDate}. PayPal may ask you to confirm the change; nothing is charged today, and your existing subscription bills ${targetPrice}${targetSuffix} from ${renewalDate}.`,
           deferred: true,
         }
       : {
           headline: "Immediately",
           body: isFreeTarget
             ? "It takes effect right now, and no further charges will be made."
-            : `Your existing PayPal subscription moves to ${targetName} straight away, and you'll be billed the ${targetName} rate of ${targetPrice}${targetSuffix} from your next cycle.`,
+            : `Your existing PayPal subscription moves to ${targetName} straight away - PayPal may ask you to confirm it - and you'll be billed the ${targetName} rate of ${targetPrice}${targetSuffix} from your next cycle.`,
           deferred: false,
         };
   })();

@@ -1,3 +1,20 @@
+-- =====================================================
+-- Subscription plans
+-- =====================================================
+--
+-- `code` is the PayPal BILLING PLAN id for a paid plan (Free has no PayPal
+-- plan, so it carries a synthetic id).
+--
+-- EVERY PAID PLAN MUST SIT UNDER ONE PAYPAL PRODUCT.
+-- A paid -> paid plan change revises the tenant's existing agreement, and
+-- PayPal only revises between plans of the SAME product -- a cross-product
+-- revise fails with PLAN_PRODUCT_NOT_COMPATIBLE and the upgrade cannot
+-- complete. Pro and Business below are both under PROD-36684612HM716850Y.
+--
+-- This file only runs on a fresh database (`supabase db reset`). To change a
+-- code on a database that already exists, write a migration -- see
+-- 20260920160000_update_paypal_plan_codes.sql.
+
 INSERT INTO plans (
     code,
     name,
@@ -29,7 +46,7 @@ VALUES
     1
 ),
 (
-    'P-1PL59890TT146894PNJTO7PI',
+    'P-0HG79944PA599763KNKX3UAI',
     'Pro',
     'For growing teams that need SLA policies, shared views, and reporting.',
     29.00,
@@ -50,7 +67,7 @@ VALUES
     2
 ),
 (
-    'P-3EE87724RE6823443NJTPACY',
+    'P-9ML37355RU186980YNKX3UNI',
     'Business',
     'Advanced governance, AI automation, and scale for larger teams.',
     59.00,
@@ -72,4 +89,19 @@ VALUES
     }'::jsonb,
     true,
     3
-);
+)
+-- Re-running the seed refreshes the plan's details instead of failing on the
+-- unique code. It cannot rename a code: a changed code has no conflict to
+-- resolve and would insert a SECOND row for the same plan, so code changes
+-- belong in a migration.
+on conflict (code) do update
+set name             = excluded.name,
+    description      = excluded.description,
+    price_month      = excluded.price_month,
+    seat_limit       = excluded.seat_limit,
+    ticket_limit     = excluded.ticket_limit,
+    storage_limit_mb = excluded.storage_limit_mb,
+    features_json    = excluded.features_json,
+    is_active        = excluded.is_active,
+    sort_order       = excluded.sort_order,
+    updated_at       = now();

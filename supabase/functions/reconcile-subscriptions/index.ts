@@ -283,8 +283,17 @@ async function finishCancellation(
 }
 
 /**
- * A scheduled paid downgrade that has come due: the SAME agreement is revised
- * onto the cheaper plan. Nothing is created and nothing is cancelled.
+ * A scheduled paid downgrade that has come due.
+ *
+ * The agreement was ALREADY revised onto the target plan the day the change
+ * was scheduled, so in the normal case this is purely a database change: flip
+ * plan_id and tenants.plan_id, clear the schedule, touch nothing on PayPal.
+ *
+ * The revise below is a repair, not the main path. It runs only when PayPal
+ * turns out NOT to be on the target plan -- the scheduling-time revise failed,
+ * or the buyer never confirmed it. The local plan is never moved while PayPal
+ * disagrees, because that is exactly how a tenant ends up entitled to one plan
+ * and billed for another.
  */
 async function applyScheduledPlanChange(
   sub: SubscriptionRow,
@@ -348,40 +357,47 @@ async function applyScheduledPlanChange(
     return { outcome: "notReady", invoicesWritten: 0 };
   }
 
-  // PayPal already bills this plan: an earlier run revised the agreement and
-  // only the local write was lost. Revising to the same plan again would just
-  // be rejected, which would leave the change stuck for good.
+  // The expected state: PayPal is already billing the target plan, so there is
+  // nothing to send it and this run only writes to the database.
   const alreadyOnPlan = String(lookup.data.plan_id ?? "") === targetPlan.code;
 
-  const revise = alreadyOnPlan
-    ? { ok: true, approveUrl: null as string | null, issue: null }
-    : await paypal.revise(agreementId, targetPlan.code);
+  if (!alreadyOnPlan) {
+    // Repair: the scheduling-time revise never landed.
+    const revise = await paypal.revise(agreementId, targetPlan.code);
 
-  if (!revise.ok) {
-    console.error("[billing] scheduled revise failed:", {
-      tenant_id: sub.tenant_id,
-      paypal_subscription_id: agreementId,
-      target_plan: targetPlan.name,
-      issue: revise.issue,
-    });
-
-    return { outcome: "notReady", invoicesWritten: 0 };
-  }
-
-  // PayPal wants the buyer to confirm. A downgrade normally does not, so this
-  // is logged loudly; the change stays pending and
-  // BILLING.SUBSCRIPTION.UPDATED applies it if the buyer ever approves.
-  if (revise.approveUrl) {
-    console.error(
-      "[billing] scheduled plan change needs buyer approval; not applied:",
-      {
+    if (!revise.ok) {
+      console.error("[billing] repair revise failed; plan NOT moved:", {
         tenant_id: sub.tenant_id,
         paypal_subscription_id: agreementId,
         target_plan: targetPlan.name,
-      },
-    );
+        issue: revise.issue,
+      });
 
-    return { outcome: "notReady", invoicesWritten: 0 };
+      return { outcome: "notReady", invoicesWritten: 0 };
+    }
+
+    // Only the buyer can approve it, and no buyer is here. Leaving the
+    // schedule in place is the honest outcome: the tenant keeps the plan
+    // PayPal is actually charging them for.
+    if (revise.approveUrl) {
+      console.error(
+        "[billing] scheduled plan change still needs buyer approval; plan " +
+          "NOT moved. The customer has to confirm it from the billing page.",
+        {
+          tenant_id: sub.tenant_id,
+          paypal_subscription_id: agreementId,
+          target_plan: targetPlan.name,
+        },
+      );
+
+      return { outcome: "notReady", invoicesWritten: 0 };
+    }
+
+    logBilling("cron.plan-change.repaired", {
+      tenant_id: sub.tenant_id,
+      paypal_subscription_id: agreementId,
+      target_plan: targetPlan.name,
+    });
   }
 
   const refreshed = alreadyOnPlan ? lookup : await paypal.get(agreementId);

@@ -58,6 +58,14 @@ export function UndoScheduledChangeButton({
         return;
       }
 
+      // Putting the plan back raises the price again, so PayPal asks the buyer
+      // to confirm. The scheduled change stays until they do -- see the
+      // `abort` action -- so there is nothing to announce yet.
+      if ("approvalUrl" in result && result.approvalUrl) {
+        window.location.assign(result.approvalUrl);
+        return;
+      }
+
       // `restored` is false when there was nothing open to undo -- a stale tab,
       // or a second click. Saying so beats a success message for work that did
       // not happen.

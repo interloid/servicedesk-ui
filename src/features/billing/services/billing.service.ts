@@ -236,6 +236,8 @@ export async function abortPlanSwitch(tenantSlug: string): Promise<{
   success: boolean;
   restored?: boolean;
   planName?: string;
+  /** Set when PayPal wants the buyer to confirm putting the plan back. */
+  approvalUrl?: string | null;
   error?: string;
 }> {
   try {
@@ -308,6 +310,7 @@ export async function abortPlanSwitch(tenantSlug: string): Promise<{
       success: true,
       restored: data?.restored ?? false,
       planName: data?.planName ?? undefined,
+      approvalUrl: data?.approvalUrl ?? null,
     };
   } catch (error) {
     console.error("abortPlanSwitch error:", error);

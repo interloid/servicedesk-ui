@@ -520,8 +520,15 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
 
   const paypalPlanCode = String(subscription.plan_id ?? "");
 
-  // A revise the buyer has just approved: pending_plan_id is what they paid
-  // the difference for, next_plan_id a scheduled change reconcile started.
+  // A revise the buyer has just approved. Which change it belongs to decides
+  // WHEN it takes effect:
+  //
+  //   pending_plan_id  an upgrade they paid the difference for -> now
+  //   next_plan_id     a downgrade revised early so PayPal bills the lower
+  //                    rate next cycle -> NOT now. They paid for the dearer
+  //                    plan through next_plan_effective_at and keep it until
+  //                    then; reconcile-subscriptions flips the local plan at
+  //                    that date (and skips the revise, already done here).
   for (const [planId, isPending] of [
     [sub.pending_plan_id, true],
     [sub.next_plan_id, false],
@@ -531,6 +538,22 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
     const plan = await loadPlan(planId);
 
     if (!plan || plan.code !== paypalPlanCode) continue;
+
+    const notDueYet =
+      !isPending &&
+      !!sub.next_plan_effective_at &&
+      new Date(sub.next_plan_effective_at).getTime() > Date.now();
+
+    if (notDueYet) {
+      logBilling("webhook.revise-approved.scheduled", {
+        tenant_id: sub.tenant_id,
+        paypal_subscription_id: subscription.id,
+        target_plan: plan.name,
+        effective_at: sub.next_plan_effective_at,
+      });
+
+      break;
+    }
 
     // Claimed on the plan it is applying, so a redelivered event that finds
     // the change already applied writes nothing a second time.

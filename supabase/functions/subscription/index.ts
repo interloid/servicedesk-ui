@@ -73,6 +73,21 @@ const paypal = createPayPalSubscriptionsClient({
 // order / unapproved agreement is dropped so the tenant can start another one.
 const PENDING_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000;
 
+// What the buyer is told when an upgrade order is captured but the PayPal
+// plan move has not landed. The payment itself always succeeded -- it is
+// invoiced and the money is taken -- so neither of these calls it a failed
+// payment.
+//
+// RETRYABLE: reconcile-subscriptions will apply it (the agreement is simply
+// not ready this second). STUCK: nothing automatic can fix it, so the buyer
+// is pointed at support instead of being told to wait for something that will
+// never happen.
+const UPGRADE_PENDING_MESSAGE =
+  "Payment received. Your plan change is being applied — this can take a few minutes.";
+
+const UPGRADE_STUCK_MESSAGE =
+  "Your payment was received, but your subscription could not be moved to the new plan. Please contact support — we can either apply it or refund you.";
+
 // The exact client the request builds, so helpers below accept it without a
 // generic mismatch against supabase-js's default type parameters.
 const createAdminClient = () =>
@@ -850,8 +865,12 @@ Deno.serve(async (req) => {
     //
     // Both "Reactivate" (a scheduled cancellation) and "Cancel change" (a
     // scheduled downgrade) land here, as does abandoning an unpaid checkout.
-    // No PayPal checkout is involved and no agreement is created: the tenant
-    // simply keeps the plan they are on.
+    // No agreement is ever created: the tenant keeps the one they have and the
+    // plan they are on.
+    //
+    // A scheduled downgrade was revised onto the agreement the day it was
+    // scheduled, so undoing it has to revise BACK -- otherwise PayPal keeps
+    // billing the cheaper plan for a change the tenant just cancelled.
     // =================================================================
     if (action === "abort") {
       const sub = existing;
@@ -910,6 +929,83 @@ Deno.serve(async (req) => {
                 { status: 502 },
               );
             }
+          }
+
+          // PayPal is on the plan the tenant was moving TO. Put it back on the
+          // plan they are actually on, or the next cycle bills the wrong
+          // amount for a change they just undid.
+          const livePlan = await loadPlan(admin, sub.plan_id);
+          const paypalPlanCode = String(lookup.data.plan_id ?? "");
+
+          if (livePlan && paypalPlanCode && paypalPlanCode !== livePlan.code) {
+            const revert = await paypal.revise(agreementId, livePlan.code);
+
+            if (!revert.ok) {
+              console.error("[billing] could not revise back on undo:", {
+                tenant_id: tenantId,
+                paypal_subscription_id: agreementId,
+                current_plan: livePlan.name,
+                issue: revert.issue,
+              });
+
+              return Response.json(
+                {
+                  success: false,
+                  message:
+                    "PayPal could not restore your plan. Please try again in a moment.",
+                },
+                { status: 502 },
+              );
+            }
+
+            // Going back up in price, so PayPal asks the buyer to confirm.
+            //
+            // The scheduled change is deliberately LEFT IN PLACE until they
+            // do: clearing it now would leave the tenant on the dearer plan
+            // locally while PayPal bills the cheaper one. pending_plan_id
+            // carries the plan to settle on, and the UPDATED webhook clears
+            // the schedule when the confirmation lands. If they never
+            // confirm, the downgrade they scheduled simply goes ahead.
+            if (revert.approveUrl) {
+              const { error: pendingError } = await admin
+                .from("subscriptions")
+                .update({
+                  pending_plan_id: livePlan.id,
+                  pending_order_id: null,
+                  pending_paypal_subscription_id: null,
+                  pending_started_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("tenant_id", tenantId);
+
+              if (pendingError) {
+                console.error("[billing] could not record the undo:", {
+                  tenant_id: tenantId,
+                  error: pendingError,
+                });
+              }
+
+              logBilling("scheduled-change.undo-awaiting-approval", {
+                tenant_id: tenantId,
+                paypal_subscription_id: agreementId,
+                current_plan: livePlan.name,
+              });
+
+              return Response.json({
+                success: true,
+                restored: false,
+                planName: livePlan.name,
+                approvalUrl: revert.approveUrl,
+                message:
+                  "Please confirm with PayPal to keep your current plan.",
+              });
+            }
+
+            logBilling("scheduled-change.reverted-on-paypal", {
+              tenant_id: tenantId,
+              paypal_subscription_id: agreementId,
+              current_plan: livePlan.name,
+            });
           }
         }
 
@@ -1118,8 +1214,16 @@ Deno.serve(async (req) => {
         // is invented here (never a second agreement): the pending order stays
         // so reconcile-subscriptions retries the revise, and support can see
         // exactly what is outstanding.
+        //
+        // A CANCELLED/EXPIRED agreement is the end of the line -- PayPal can
+        // never revive it, so no retry will ever apply this plan.
+        const stuck = isDead(liveStatus);
+
         console.error(
-          "[billing] captured upgrade cannot be applied: agreement is not ACTIVE",
+          stuck
+            ? "[billing] PAID UPGRADE IS STUCK: the agreement is dead, so the " +
+                "plan can never be applied. Apply it manually or refund the order."
+            : "[billing] captured upgrade not applied yet: agreement is not ACTIVE",
           {
             tenant_id: tenantId,
             paypal_subscription_id: agreementId,
@@ -1129,48 +1233,84 @@ Deno.serve(async (req) => {
         );
 
         return Response.json(
-          {
-            success: false,
-            message:
-              "Your payment was received, but PayPal could not move your subscription to the new plan. We will retry shortly — please contact support if your plan has not changed within an hour.",
-          },
-          { status: 502 },
+          stuck
+            ? { success: false, message: UPGRADE_STUCK_MESSAGE }
+            : {
+                success: true,
+                message: UPGRADE_PENDING_MESSAGE,
+                planName: plan.name,
+                nextBilling: priceOf(plan),
+                subscriptionId: agreementId,
+              },
+          { status: stuck ? 502 : 200 },
         );
       }
 
       const revise = await paypal.revise(agreementId, plan.code);
 
       if (!revise.ok) {
-        console.error("[billing] revise failed after a captured upgrade:", {
-          tenant_id: tenantId,
-          paypal_subscription_id: agreementId,
-          target_plan: plan.name,
-          issue: revise.issue,
-        });
+        // PLAN_PRODUCT_NOT_COMPATIBLE is permanent: PayPal only revises
+        // between plans of the SAME product, so retrying can never succeed.
+        // Both plans have to live under one product for upgrades to work.
+        const stuck = revise.issue === "PLAN_PRODUCT_NOT_COMPATIBLE";
+
+        console.error(
+          stuck
+            ? "[billing] PAID UPGRADE IS STUCK: the target plan is on a " +
+                "different PayPal product, which /revise cannot bridge. Move " +
+                "both plans under one product, then apply or refund this order."
+            : "[billing] revise failed after a captured upgrade; will retry:",
+          {
+            tenant_id: tenantId,
+            paypal_subscription_id: agreementId,
+            order_id: orderId,
+            current_plan: currentPlan?.name,
+            target_plan: plan.name,
+            issue: revise.issue,
+          },
+        );
 
         return Response.json(
-          {
-            success: false,
-            message:
-              "Your payment was received, but PayPal could not move your subscription to the new plan. We will retry shortly — please contact support if your plan has not changed within an hour.",
-          },
-          { status: 502 },
+          stuck
+            ? { success: false, message: UPGRADE_STUCK_MESSAGE }
+            : {
+                success: true,
+                message: UPGRADE_PENDING_MESSAGE,
+                planName: plan.name,
+                nextBilling: priceOf(plan),
+                subscriptionId: agreementId,
+              },
+          { status: stuck ? 502 : 200 },
         );
       }
 
-      // PayPal wants the buyer to confirm the change. The plan applies when
-      // they do, which arrives as BILLING.SUBSCRIPTION.UPDATED; the pending
-      // row stays so that handler knows what to apply.
+      // PayPal is asking the buyer to confirm the revise, which the upgrade
+      // flow deliberately does not do any more: they have already paid the
+      // difference, so they are sent straight back to billing.
+      //
+      // That means the plan is NOT live yet -- PayPal keeps billing the old
+      // rate until someone approves. The pending order stays set so
+      // reconcile-subscriptions retries, and BILLING.SUBSCRIPTION.UPDATED
+      // applies it if the change is ever approved. The approval link is still
+      // returned for a client that wants it, but nothing uses it today.
       if (revise.approveUrl) {
-        logBilling("upgrade.awaiting-approval", {
-          tenant_id: tenantId,
-          paypal_subscription_id: agreementId,
-          target_plan: plan.name,
-        });
+        console.error(
+          "[billing] PAID UPGRADE NEEDS BUYER APPROVAL, which the flow no " +
+            "longer asks for: the plan will not change until this is " +
+            "approved. Check that the target plan is on the same PayPal " +
+            "product as the current one.",
+          {
+            tenant_id: tenantId,
+            paypal_subscription_id: agreementId,
+            order_id: orderId,
+            current_plan: currentPlan?.name,
+            target_plan: plan.name,
+          },
+        );
 
         return Response.json({
           success: true,
-          message: "Payment received. Please confirm your plan change.",
+          message: UPGRADE_PENDING_MESSAGE,
           planName: plan.name,
           nextBilling: priceOf(plan),
           subscriptionId: agreementId,
@@ -1375,6 +1515,36 @@ Deno.serve(async (req) => {
         }
       }
 
+      // A scheduled downgrade the buyer has just confirmed with PayPal. The
+      // agreement now bills the cheaper plan from its next cycle, but the
+      // tenant keeps the plan they PAID for until next_plan_effective_at, so
+      // nothing is applied here.
+      if (
+        sub.paypal_subscription_id === targetSubscriptionId &&
+        sub.next_plan_id
+      ) {
+        const nextPlan = await loadPlan(admin, sub.next_plan_id);
+        const paypalPlanCode = String(lookup.data.plan_id ?? "");
+
+        if (nextPlan && paypalPlanCode === nextPlan.code) {
+          logBilling("downgrade.confirmed", {
+            tenant_id: tenantId,
+            paypal_subscription_id: targetSubscriptionId,
+            target_plan: nextPlan.name,
+            effective_at: sub.next_plan_effective_at,
+          });
+
+          return Response.json({
+            success: true,
+            scheduled: true,
+            effectiveAt: sub.next_plan_effective_at,
+            planName: nextPlan.name,
+            message:
+              "Plan change confirmed. Your current plan stays active until the end of the billing period.",
+          });
+        }
+      }
+
       const currentPlan = await loadPlan(admin, sub.plan_id);
 
       return Response.json({
@@ -1557,7 +1727,39 @@ Deno.serve(async (req) => {
       });
     }
 
+    // A tenant that has an agreement id on file HAS an agreement until PayPal
+    // itself says otherwise. A lookup that merely failed -- a timeout, a 5xx,
+    // a rate limit -- is not PayPal saying otherwise, and falling through on
+    // it would create a SECOND agreement while the first is still billing.
+    // One tenant, one agreement: when we cannot see it, we change nothing.
+    if (agreementId && !lookup?.ok) {
+      console.error(
+        "[billing] refusing to change plan: the tenant's PayPal subscription " +
+          "could not be read, so a second one is not created",
+        {
+          tenant_id: tenantId,
+          paypal_subscription_id: agreementId,
+          http_status: lookup?.httpStatus,
+          target_plan: targetPlan.name,
+        },
+      );
+
+      return Response.json(
+        {
+          success: false,
+          message:
+            "We could not reach PayPal to check your subscription. Please try again in a moment.",
+        },
+        { status: 502 },
+      );
+    }
+
     // ---- Free -> Paid : the ONLY time an agreement is created ------------
+    //
+    // Reached only when PayPal was READ successfully and reported no usable
+    // agreement: none on file, or one it will never bill again
+    // (APPROVAL_PENDING that was abandoned, CANCELLED, EXPIRED). There is
+    // nothing to revise in that state, so a new agreement is the only option.
     if (!hasLiveAgreement) {
       if (agreementId && lookup?.ok && !isDead(lookup.status)) {
         // APPROVAL_PENDING on the row: an older signup nobody finished.
@@ -1698,6 +1900,37 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Revise the SAME agreement NOW, even though the tenant keeps the plan
+      // they paid for until periodEnd.
+      //
+      // Doing it now rather than at periodEnd closes a real gap: PayPal bills
+      // the next cycle AT periodEnd, so a cron that only revises then can lose
+      // the race and charge the old, higher rate for a cycle the customer had
+      // already downgraded out of. Revised now, PayPal charges the new rate on
+      // its own at the next cycle.
+      //
+      // Entitlements do not move with it -- they come from subscriptions.plan_id,
+      // which stays on the current plan until next_plan_effective_at.
+      //
+      // The schedule above is written FIRST on purpose: if this revise fails,
+      // reconcile-subscriptions still applies the change at periodEnd, so the
+      // worst case is the old behaviour rather than a lost plan change.
+      const revise = await paypal.revise(agreementId!, targetPlan.code);
+
+      if (!revise.ok) {
+        console.error(
+          "[billing] downgrade revise failed; the scheduled change stands " +
+            "and reconcile-subscriptions will apply it at the period end:",
+          {
+            tenant_id: tenantId,
+            paypal_subscription_id: agreementId,
+            current_plan: currentPlan?.name,
+            target_plan: targetPlan.name,
+            issue: revise.issue,
+          },
+        );
+      }
+
       logBilling("downgrade.scheduled", {
         tenant_id: tenantId,
         paypal_subscription_id: agreementId,
@@ -1705,16 +1938,22 @@ Deno.serve(async (req) => {
         target_plan: targetPlan.name,
         amount: targetPrice,
         effective_at: periodEnd.toISOString(),
+        revised: revise.ok,
+        needs_approval: Boolean(revise.approveUrl),
       });
 
       return Response.json({
         success: true,
         scheduled: true,
         effectiveAt: periodEnd.toISOString(),
-        message:
-          "Plan change scheduled. Your current plan stays active until the end of the billing period.",
+        message: revise.approveUrl
+          ? "Please confirm the change with PayPal. Your current plan stays active until the end of the billing period."
+          : "Plan change scheduled. Your current plan stays active until the end of the billing period.",
         subscriptionId: agreementId,
-        approvalUrl: null,
+        // PayPal asks the buyer to confirm a plan change it cannot apply on
+        // the merchant's word alone. Same agreement either way -- confirming
+        // never creates a second one.
+        approvalUrl: revise.approveUrl,
         amountDue: 0,
       });
     }

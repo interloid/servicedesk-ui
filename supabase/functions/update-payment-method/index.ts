@@ -159,8 +159,10 @@ Deno.serve(async (req) => {
       );
     }
 
+    // NULL is how "this tenant has no PayPal agreement" is recorded; there are
+    // no synthetic placeholder ids to filter out any more.
     const paypalSubscriptionId = subscription.paypal_subscription_id;
-    if (!paypalSubscriptionId || paypalSubscriptionId.startsWith("FREE-")) {
+    if (!paypalSubscriptionId) {
       return Response.json(
         {
           success: false,

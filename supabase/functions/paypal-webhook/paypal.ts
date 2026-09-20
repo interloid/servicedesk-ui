@@ -1,4 +1,5 @@
 import { createPayPalTokenProvider } from "../_shared/paypal-auth.ts";
+import { createPayPalSubscriptionsClient } from "../_shared/paypal-subscriptions.ts";
 
 // Required at module load. With a non-null assertion a missing secret became
 // the string "undefined" at runtime, and every webhook then failed as "Invalid
@@ -23,6 +24,14 @@ export const getAccessToken = createPayPalTokenProvider({
   clientId: CLIENT_ID,
   clientSecret: CLIENT_SECRET,
   baseUrl: PAYPAL_BASE_URL,
+});
+
+// The same agreement calls every billing function uses -- get / cancel /
+// suspend / activate / revise -- so a webhook can never act on a subscription
+// in a way the rest of the system would not.
+export const paypal = createPayPalSubscriptionsClient({
+  baseUrl: PAYPAL_BASE_URL,
+  getAccessToken,
 });
 
 export async function verifyWebhookSignature(
@@ -63,59 +72,4 @@ export async function verifyWebhookSignature(
   }
 
   return result.verification_status === "SUCCESS";
-}
-
-export async function getSubscription(
-  subscriptionId: string,
-): Promise<Record<string, unknown>> {
-  const accessToken = await getAccessToken();
-
-  const response = await fetch(
-    `${PAYPAL_BASE_URL}/v1/billing/subscriptions/${subscriptionId}`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-    },
-  );
-
-  if (!response.ok) {
-    console.error(
-      `PayPal get subscription ${subscriptionId} failed:`,
-      response.status,
-      await response.text(),
-    );
-    throw new Error(`Failed to get subscription ${subscriptionId}.`);
-  }
-
-  return response.json();
-}
-
-export async function cancelSubscription(
-  subscriptionId: string,
-): Promise<void> {
-  const accessToken = await getAccessToken();
-
-  const response = await fetch(
-    `${PAYPAL_BASE_URL}/v1/billing/subscriptions/${subscriptionId}/cancel`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ reason: "Replaced by a new subscription" }),
-    },
-  );
-
-  if (!response.ok) {
-    console.error(
-      `PayPal cancel subscription ${subscriptionId} failed:`,
-      response.status,
-      await response.text(),
-    );
-    throw new Error(`Failed to cancel subscription ${subscriptionId}.`);
-  }
 }

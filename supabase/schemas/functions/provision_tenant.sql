@@ -81,14 +81,18 @@ BEGIN
         plan_id,
         paypal_subscription_id,
         status,
+        current_period_start,
         current_period_end,
         seats
     )
     VALUES (
         v_tenant_id,
         p_plan_id,
-        'FREE-' || v_tenant_id,
+        -- A trial has no PayPal agreement; NULL is how "no agreement" is
+        -- recorded everywhere since 20260920120000.
+        NULL,
         'trialing',
+        now(),
         now() + interval '15 days',
         (SELECT seat_limit FROM public.plans WHERE id = p_plan_id)
     );

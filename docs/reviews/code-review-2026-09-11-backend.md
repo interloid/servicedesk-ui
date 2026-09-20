@@ -117,3 +117,26 @@ The edge behaviour that is visible to a caller:
 | RISK-050 | Low      | PayPal API response cast with no runtime validation     | supabase/functions/update-payment-method/index.ts                 | Yes       | Fixed — `parsePayPalSubscriber()` for every caller                       |
 | RISK-051 | Low      | Empty no-op code blocks on idempotency paths            | supabase/functions/\_shared/paypal-payment-method.ts              | Yes       | Fixed — removed                                                          |
 | RISK-052 | Low      | Migration is a byte-identical no-op despite its name    | supabase/migrations/20260831142748_start_new_tenants_on_trial.sql | Partial   | Comment corrected; file kept (in history); intent needs owner decision   |
+
+---
+
+## Superseded by the single-subscription refactor (2026-09-20)
+
+`supabase/migrations/20260920120000_single_paypal_subscription.sql` moved billing
+state onto `public.subscriptions` and made a tenant hold exactly ONE PayPal
+recurring agreement. The findings above still describe real defects and the
+fixes above were real, but four of them were fixes to mechanisms that no longer
+exist. They are listed here so nobody hunts for code that has been removed:
+
+| Finding  | What replaced the fix                                                                                                                                            |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RISK-032 | `createReplacementSubscription()` and its `locked_until` lease are gone. A paid plan change revises the existing agreement, so there is no second one to create. |
+| RISK-033 | The "one open switch per tenant" index is moot: the pending checkout is `subscriptions.pending_*`, and a tenant has one subscriptions row.                       |
+| RISK-027 | The RLS policy went with the table, which `20260920120000_single_paypal_subscription.sql` drops.                                                                 |
+| RISK-043 | `reviseSubscriptionPlan()` moved to `_shared/paypal-subscriptions.ts` as `paypal.revise()`, shared by all three functions.                                       |
+| RISK-048 | `claimSwitch()` / `releaseSwitch()` are gone. Plan changes are claimed inside `apply_subscription_plan()` on `next_plan_id`.                                     |
+
+RISK-049 (cron secret) was already superseded before that refactor: the
+`x-cron-secret` header arrived empty from pg_net, so the cron now authenticates
+with the service role key against `verify_jwt = true` and the function has no
+secret check of its own (see `supabase/config.toml`).

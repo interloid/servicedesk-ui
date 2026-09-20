@@ -457,13 +457,10 @@ export default function BillingDashboard({
                     Then ${pendingUpgrade.planRate.toFixed(2)}/mo, starting with
                     your next billing cycle.
                   </p>
-                  {pendingUpgrade.proratedCredit > 0 && (
-                    <p className="pl-4 text-xs text-emerald-700">
-                      Includes ${pendingUpgrade.proratedCredit.toFixed(2)}{" "}
-                      credit for the unused time on your{" "}
-                      {data.plan?.name ?? "current"} plan.
-                    </p>
-                  )}
+                  <p className="pl-4 text-xs text-emerald-700">
+                    The difference only — your {data.plan?.name ?? "current"}{" "}
+                    payment for this period already counts towards it.
+                  </p>
                 </div>
               </>
             ) : (

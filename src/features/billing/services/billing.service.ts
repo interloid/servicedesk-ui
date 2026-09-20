@@ -133,7 +133,7 @@ export type PlanChangeResult = {
   effectiveAt?: string | null;
   // For upgrades: use PayPal Invoice instead of subscription
   invoice?: boolean;
-  proratedCredit?: number | null;
+  /** Charged once, today: the difference between the plans. */
   amountDue?: number | null;
 };
 
@@ -220,7 +220,6 @@ export async function changeTenantPlan(
       scheduled: data.scheduled ?? false,
       effectiveAt: data.effectiveAt ?? null,
       invoice: data.invoice ?? false,
-      proratedCredit: data.proratedCredit ?? null,
       amountDue: data.amountDue ?? null,
     };
   } catch (error) {

@@ -73,7 +73,7 @@ export interface BillingDashboardData {
   pendingUpgrade?: {
     planName: string;
     planRate: number;
-    proratedCredit: number;
+    /** The upgrade difference: target rate minus the current plan's rate. */
     amountDue: number;
   } | null;
   invoices: Array<{
@@ -167,33 +167,40 @@ export async function fetchTenantBillingData(
     .order("created_at", { ascending: false })
     .maybeSingle();
 
-  const { data: pendingSwitch } = await supabase
-    .from("subscription_switches")
-    .select(
-      "plan_id, effective_at, status, old_plan_id, old_current_period_end, plans!subscription_switches_plan_id_fkey(name, price_month)",
-    )
-    .eq("tenant_id", tenant.id)
-    .in("status", ["pending", "approved"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+  // Both a scheduled change and an unfinished checkout live on the
+  // subscription itself: next_plan_* is committed for the end of the paid
+  // period, pending_* is a checkout the buyer has not completed. Their plans
+  // are read by id rather than joined, so a missing one cannot break the page.
+  type SwitchPlan = { name: string; price_month: number | string } | null;
+
+  const readPlan = async (planId: string | null | undefined) => {
+    if (!planId) return null;
+
+    const { data } = await supabase
+      .from("plans")
+      .select("name, price_month")
+      .eq("id", planId)
+      .maybeSingle();
+
+    return (data as SwitchPlan) ?? null;
+  };
+
+  const nextPlan = await readPlan(sub?.next_plan_id);
+  const pendingPlan = await readPlan(sub?.pending_plan_id);
 
   let scheduledChange: BillingDashboardData["scheduledChange"] = null;
 
-  if (pendingSwitch?.effective_at && pendingSwitch.plans) {
-    const switchPlan = Array.isArray(pendingSwitch.plans)
-      ? pendingSwitch.plans[0]
-      : pendingSwitch.plans;
-    const effectiveAt = new Date(pendingSwitch.effective_at);
+  if (sub?.next_plan_effective_at && nextPlan) {
+    const effectiveAt = new Date(sub.next_plan_effective_at);
     const daysRemaining = Math.max(
       0,
       Math.ceil((effectiveAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
     );
-    const rate = Number(switchPlan?.price_month ?? 0);
+    const rate = Number(nextPlan.price_month ?? 0);
     scheduledChange = {
-      planName: switchPlan?.name ?? "Free",
+      planName: nextPlan.name ?? "Free",
       planRate: rate > 0 ? `$${rate.toFixed(2)}/mo` : "$0.00/mo",
-      effectiveAt: pendingSwitch.effective_at,
+      effectiveAt: sub.next_plan_effective_at,
       daysRemaining,
     };
   }
@@ -252,87 +259,55 @@ export async function fetchTenantBillingData(
 
   const monthlyRate = Number(plan?.price_month ?? 0);
 
-  // A pending switch with an effective date is a scheduled change: the tenant
-  // keeps the current plan (and its charges) until effective_at, then moves to
-  // the target plan. A scheduled downgrade to Free means the subscription is
-  // effectively cancelled -- no further charges are made -- so the dashboard
-  // must stop advertising auto-renewal and the full-rate next payment.
-  const switchPlan = pendingSwitch?.plans
-    ? Array.isArray(pendingSwitch.plans)
-      ? pendingSwitch.plans[0]
-      : pendingSwitch.plans
-    : null;
-  const switchPlanRate = Number(switchPlan?.price_month ?? 0);
-  const hasScheduledSwitch =
-    !!pendingSwitch?.effective_at && switchPlan !== null;
-  const isScheduledFree = hasScheduledSwitch && switchPlanRate === 0;
+  // A committed next plan: the tenant keeps the current plan (and its charges)
+  // until next_plan_effective_at, then moves. A scheduled move to Free is a
+  // cancellation -- no further charges are made -- so the dashboard must stop
+  // advertising auto-renewal and the full-rate next payment.
+  const switchPlanRate = Number(nextPlan?.price_month ?? 0);
+  const hasScheduledSwitch = !!sub?.next_plan_effective_at && nextPlan !== null;
+  const isScheduledFree =
+    hasScheduledSwitch &&
+    (switchPlanRate === 0 || sub?.cancel_at_period_end === true);
 
-  // An immediate upgrade awaiting its one-time PayPal order payment shows a
-  // pending switch with no effective_at (it takes effect right away once the
-  // buyer pays). Surface it so the "Next payment" card can explain the
-  // one-time amount due and the subsequent full-rate subscription.
+  // An upgrade waiting on its one-time PayPal order. Surfaced so the "Next
+  // payment" card can explain the one-off difference due now and the full rate
+  // that follows.
   //
-  // Only while the upgrade is genuinely in progress: once the buyer has paid
-  // and the subscription was switched, the current subscription's plan_id
-  // matches the switch's target, so the one-time display must disappear and
-  // the card falls back to the normal full-rate next payment.
+  // Only while it is genuinely in progress: capturing the order moves plan_id
+  // onto the target and clears pending_order_id, so the one-time display
+  // disappears and the card falls back to the normal next payment.
   let pendingUpgrade: BillingDashboardData["pendingUpgrade"] = null;
   if (
-    pendingSwitch &&
-    !pendingSwitch.effective_at &&
-    pendingSwitch.plans &&
-    ["pending", "approved"].includes(pendingSwitch.status ?? "") &&
-    sub?.plan_id !== pendingSwitch.plan_id
+    sub?.pending_order_id &&
+    pendingPlan &&
+    sub.plan_id !== sub.pending_plan_id
   ) {
-    const switchPlan = Array.isArray(pendingSwitch.plans)
-      ? pendingSwitch.plans[0]
-      : pendingSwitch.plans;
-    const newPlanRate = Number(switchPlan?.price_month ?? 0);
+    const newPlanRate = Number(pendingPlan.price_month ?? 0);
 
     if (newPlanRate > monthlyRate) {
-      const periodEnd = sub?.current_period_end
-        ? new Date(sub.current_period_end)
-        : null;
-      let credit = 0;
-      if (periodEnd && periodEnd.getTime() > Date.now() && monthlyRate > 0) {
-        const periodStart = new Date(
-          periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000,
-        );
-        const totalDays = Math.max(
-          1,
-          Math.ceil(
-            (periodEnd.getTime() - periodStart.getTime()) /
-              (24 * 60 * 60 * 1000),
-          ),
-        );
-        const remainingDays = Math.max(
-          0,
-          Math.ceil((periodEnd.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
-        );
-        credit =
-          Math.round((monthlyRate * remainingDays * 100) / totalDays) / 100;
-      }
-
       pendingUpgrade = {
-        planName: switchPlan?.name ?? "new plan",
+        planName: pendingPlan.name ?? "new plan",
         planRate: newPlanRate,
-        proratedCredit: credit,
-        amountDue: Math.round(Math.max(0, newPlanRate - credit) * 100) / 100,
+        // The difference, not a prorated share: they already paid for this
+        // period on the cheaper plan.
+        amountDue: Math.round((newPlanRate - monthlyRate) * 100) / 100,
       };
     }
   }
 
   const totalAmount = monthlyRate.toFixed(2);
 
-  // The prorated credit is a one-time discount applied at upgrade time, not to
-  // the running subscription's next renewal, so the next due amount is simply
-  // the current monthly rate -- unless a switch is scheduled, in which case it
-  // is the target plan's rate (Free = nothing further is charged).
+  // An upgrade difference is charged once, as its own order, and never
+  // touches the recurring amount: the next due amount is simply the current
+  // monthly rate -- unless a change is scheduled, in which case it is the
+  // target plan's rate (Free = nothing further is charged).
   const nextDueAmount = hasScheduledSwitch ? switchPlanRate : monthlyRate;
   const nextDueAmountFormatted = nextDueAmount.toFixed(2);
 
-  const paypalSubId = sub?.paypal_subscription_id || "";
-  const isFreePlan = paypalSubId.startsWith("FREE-") || monthlyRate === 0;
+  // A tenant with no PayPal agreement has paypal_subscription_id NULL; there
+  // are no synthetic "FREE-" ids any more.
+  const hasAgreement = Boolean(sub?.paypal_subscription_id);
+  const isFreePlan = !hasAgreement || monthlyRate === 0;
 
   const { data: invoiceRows } = await supabase
     .from("invoices")
@@ -451,7 +426,7 @@ export async function fetchTenantBillingData(
   }
 
   const renewalRaw =
-    sub?.current_period_end && !paypalSubId.startsWith("FREE-")
+    sub?.current_period_end && hasAgreement
       ? sub.current_period_end
       : undefined;
 

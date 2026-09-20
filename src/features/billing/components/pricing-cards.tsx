@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -147,14 +147,21 @@ export function PricingCards({
 
   const [isOpen, setIsOpen] = useState(false);
 
-  // 2. Sync open state whenever selectedPlanForSwitch changes
-  useEffect(() => {
-    if (selectedPlanForSwitch) {
-      setIsOpen(true);
-    } else {
-      setIsOpen(false);
-    }
-  }, [selectedPlanForSwitch]);
+  // 2. Sync open state whenever selectedPlanForSwitch changes.
+  //
+  // Adjusting state during render rather than in an effect: React finishes
+  // this render with the new value instead of painting once and re-rendering,
+  // so the dialog cannot flash a frame in the wrong state. Same pattern as
+  // downgrade-dialog.tsx. Closing here matters too -- executePlanSwitch clears
+  // the selection on success while the dialog is still open.
+  const [prevSelectedPlan, setPrevSelectedPlan] = useState(
+    selectedPlanForSwitch,
+  );
+
+  if (selectedPlanForSwitch !== prevSelectedPlan) {
+    setPrevSelectedPlan(selectedPlanForSwitch);
+    setIsOpen(Boolean(selectedPlanForSwitch));
+  }
 
   // 3. Helper function to handle closing gracefully
   const handleClose = () => {
@@ -251,39 +258,7 @@ export function PricingCards({
       ? billingData.renewalDate
       : null;
 
-  const renewalDateRaw = billingData?.renewalDateRaw;
-
   const currentPlanRate = billingData?.plan?.rateValue ?? 0;
-
-  const proratedCredit = (() => {
-    if (!renewalDateRaw || currentPlanRate <= 0) {
-      return 0;
-    }
-
-    const periodEnd = new Date(renewalDateRaw);
-
-    const now = new Date();
-
-    const periodStart = new Date(
-      periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000,
-    );
-
-    const totalDays = Math.max(
-      1,
-      Math.ceil(
-        (periodEnd.getTime() - periodStart.getTime()) / (24 * 60 * 60 * 1000),
-      ),
-    );
-
-    const remainingDays = Math.max(
-      0,
-      Math.ceil((periodEnd.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
-    );
-
-    return (
-      Math.round((currentPlanRate * remainingDays * 100) / totalDays) / 100
-    );
-  })();
 
   const target = selectedPlanForSwitch;
 
@@ -292,9 +267,13 @@ export function PricingCards({
     target !== null &&
     target.priceValue > currentPrice;
 
+  // An upgrade costs the DIFFERENCE, today: the current period is already
+  // paid for at the old rate, so Pro $29 -> Business $59 is $30. No prorated
+  // days, no credit for unused time. The recurring charge becomes the full
+  // rate from the next cycle.
   const upgradeAmount =
     isUpgradeTarget && target
-      ? Math.round(Math.max(0, target.priceValue - proratedCredit) * 100) / 100
+      ? Math.round(Math.max(0, target.priceValue - currentPlanRate) * 100) / 100
       : 0;
 
   const dialogTiming = (() => {
@@ -306,21 +285,19 @@ export function PricingCards({
       };
     }
 
-    const hasCredit = proratedCredit > 0;
-
     return {
       headline: "As soon as PayPal checkout is approved",
 
-      body: hasCredit
+      body: isUpgradeTarget
         ? `You'll pay $${upgradeAmount.toFixed(
             2,
-          )} today ($${target.priceValue.toFixed(
-            2,
-          )} minus your $${proratedCredit.toFixed(2)} credit for unused ${
-            currentPlan?.name ?? "current plan"
-          } time). This one-time payment unlocks ${
+          )} today — the difference between ${
+            currentPlan?.name ?? "your current plan"
+          } ($${currentPlanRate.toFixed(2)}) and ${
             target.name
-          } now, and from next month you'll be billed the full ${
+          } ($${target.priceValue.toFixed(2)}). This one-time payment unlocks ${
+            target.name
+          } now on your existing subscription, and from next month you'll be billed the full ${
             target.price
           }${target.priceSuffix}.`
         : `You'll be redirected to PayPal to approve the new ${
@@ -691,7 +668,7 @@ export function PricingCards({
 
                 {isUpgradeTarget && (
                   <>
-                    {proratedCredit > 0 && target && (
+                    {upgradeAmount > 0 && target && (
                       <div className="w-full rounded-xl border border-border px-4 py-3.5 text-left">
                         <p className="text-sm font-semibold text-foreground">
                           Price breakdown
@@ -711,11 +688,11 @@ export function PricingCards({
                           {currentPlan && (
                             <div className="flex items-center justify-between gap-4 text-sm">
                               <span className="text-emerald-600">
-                                {currentPlan.name} remaining credit
+                                {currentPlan.name} already paid this period
                               </span>
 
                               <span className="font-semibold text-emerald-600">
-                                -${proratedCredit.toFixed(2)}
+                                -${currentPlanRate.toFixed(2)}
                               </span>
                             </div>
                           )}

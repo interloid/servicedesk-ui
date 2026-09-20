@@ -762,11 +762,19 @@ export type Database = {
       };
       subscriptions: {
         Row: {
+          cancel_at_period_end: boolean;
           cancelled_at: string | null;
           created_at: string | null;
-          current_period_end: string;
+          current_period_end: string | null;
+          current_period_start: string | null;
           id: string;
-          paypal_subscription_id: string;
+          next_plan_effective_at: string | null;
+          next_plan_id: string | null;
+          paypal_subscription_id: string | null;
+          pending_order_id: string | null;
+          pending_paypal_subscription_id: string | null;
+          pending_plan_id: string | null;
+          pending_started_at: string | null;
           plan_id: string;
           seats: number;
           status: Database["public"]["Enums"]["subscription_status"];
@@ -774,11 +782,19 @@ export type Database = {
           updated_at: string | null;
         };
         Insert: {
+          cancel_at_period_end?: boolean;
           cancelled_at?: string | null;
           created_at?: string | null;
-          current_period_end: string;
+          current_period_end?: string | null;
+          current_period_start?: string | null;
           id?: string;
-          paypal_subscription_id: string;
+          next_plan_effective_at?: string | null;
+          next_plan_id?: string | null;
+          paypal_subscription_id?: string | null;
+          pending_order_id?: string | null;
+          pending_paypal_subscription_id?: string | null;
+          pending_plan_id?: string | null;
+          pending_started_at?: string | null;
           plan_id: string;
           seats?: number;
           status: Database["public"]["Enums"]["subscription_status"];
@@ -786,11 +802,19 @@ export type Database = {
           updated_at?: string | null;
         };
         Update: {
+          cancel_at_period_end?: boolean;
           cancelled_at?: string | null;
           created_at?: string | null;
-          current_period_end?: string;
+          current_period_end?: string | null;
+          current_period_start?: string | null;
           id?: string;
-          paypal_subscription_id?: string;
+          next_plan_effective_at?: string | null;
+          next_plan_id?: string | null;
+          paypal_subscription_id?: string | null;
+          pending_order_id?: string | null;
+          pending_paypal_subscription_id?: string | null;
+          pending_plan_id?: string | null;
+          pending_started_at?: string | null;
           plan_id?: string;
           seats?: number;
           status?: Database["public"]["Enums"]["subscription_status"];
@@ -798,6 +822,20 @@ export type Database = {
           updated_at?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "subscriptions_next_plan_id_fkey";
+            columns: ["next_plan_id"];
+            isOneToOne: false;
+            referencedRelation: "plans";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "subscriptions_pending_plan_id_fkey";
+            columns: ["pending_plan_id"];
+            isOneToOne: false;
+            referencedRelation: "plans";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "subscriptions_plan_id_fkey";
             columns: ["plan_id"];
@@ -809,66 +847,6 @@ export type Database = {
             foreignKeyName: "subscriptions_tenant_id_fkey";
             columns: ["tenant_id"];
             isOneToOne: true;
-            referencedRelation: "tenants";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      subscription_switches: {
-        Row: {
-          created_at: string | null;
-          id: string;
-          old_current_period_end: string | null;
-          old_plan_id: string | null;
-          old_paypal_subscription_id: string | null;
-          old_seats: number | null;
-          old_status: string | null;
-          paypal_subscription_id: string;
-          plan_id: string;
-          status: string;
-          tenant_id: string;
-          updated_at: string | null;
-        };
-        Insert: {
-          created_at?: string | null;
-          id?: string;
-          old_current_period_end?: string | null;
-          old_plan_id?: string | null;
-          old_paypal_subscription_id?: string | null;
-          old_seats?: number | null;
-          old_status?: string | null;
-          paypal_subscription_id: string;
-          plan_id: string;
-          status?: string;
-          tenant_id: string;
-          updated_at?: string | null;
-        };
-        Update: {
-          created_at?: string | null;
-          id?: string;
-          old_current_period_end?: string | null;
-          old_plan_id?: string | null;
-          old_paypal_subscription_id?: string | null;
-          old_seats?: number | null;
-          old_status?: string | null;
-          paypal_subscription_id?: string;
-          plan_id?: string;
-          status?: string;
-          tenant_id?: string;
-          updated_at?: string | null;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "subscription_switches_plan_id_fkey";
-            columns: ["plan_id"];
-            isOneToOne: false;
-            referencedRelation: "plans";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "subscription_switches_tenant_id_fkey";
-            columns: ["tenant_id"];
-            isOneToOne: false;
             referencedRelation: "tenants";
             referencedColumns: ["id"];
           },
@@ -1195,6 +1173,23 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      apply_subscription_plan: {
+        Args: {
+          p_tenant_id: string;
+          p_plan_id: string | null;
+          p_status?: string | null;
+          p_seats?: number | null;
+          p_current_period_start?: string | null;
+          p_current_period_end?: string | null;
+          p_clear_period_end?: boolean;
+          p_paypal_subscription_id?: string | null;
+          p_clear_paypal_subscription_id?: boolean;
+          p_clear_pending?: boolean;
+          p_clear_next?: boolean;
+          p_expected_next_plan_id?: string | null;
+        };
+        Returns: boolean;
+      };
       current_customer_id: { Args: never; Returns: string };
       current_role: { Args: never; Returns: string };
       current_tenant_id: { Args: never; Returns: string };

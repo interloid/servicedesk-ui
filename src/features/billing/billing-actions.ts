@@ -26,7 +26,6 @@ export async function changeTenantPlanAction(
       scheduled: result.scheduled ?? false,
       effectiveAt: result.effectiveAt ?? null,
       invoice: result.invoice ?? false,
-      proratedCredit: result.proratedCredit ?? null,
       amountDue: result.amountDue ?? null,
     };
   } catch (error) {

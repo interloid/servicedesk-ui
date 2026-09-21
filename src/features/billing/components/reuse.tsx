@@ -169,21 +169,10 @@ export function NoticeBanner({
         };
 
   return (
-    // ONE tree, not a mobile one and a desktop one.
-    //
-    // The two-tree version rendered `action` twice -- both copies live in the
-    // DOM, so every banner button existed twice and the hidden one was still
-    // focusable and still counted by tests and screen readers. It also let the
-    // two layouts drift: `truncate` sat on the desktop title and description
-    // only, quietly cutting any message longer than the one-liners it was
-    // written for, while the same text wrapped fine on a phone.
-    //
-    // Nothing truncates now. A notice exists to be read, and these say things
-    // like which date access ends on -- clipping that is worse than a banner
-    // two lines taller.
     <div
       className={cn(
-        "relative rounded-xl border px-4 py-3 sm:px-5 sm:py-4",
+        "relative w-full rounded-xl border px-4 py-3 sm:px-5 sm:py-4",
+        "overflow-visible",
         styles.box,
       )}
     >
@@ -193,8 +182,9 @@ export function NoticeBanner({
           onClick={onDismiss}
           aria-label="Dismiss notice"
           className={cn(
-            "absolute right-2 top-1/2 z-10 -translate-y-1/2",
-            "flex size-7 items-center justify-center rounded-md",
+            "absolute right-2 top-3 z-10",
+            "sm:right-3 sm:top-1/2 sm:-translate-y-1/2",
+            "flex size-7 shrink-0 items-center justify-center rounded-md",
             "text-current/60 transition-colors",
             "hover:bg-black/5 hover:text-current",
             "focus:outline-none focus:ring-2 focus:ring-current/20",
@@ -206,13 +196,12 @@ export function NoticeBanner({
 
       <div
         className={cn(
-          "flex flex-col gap-3",
+          "flex min-w-0 flex-col gap-3",
           "sm:flex-row sm:items-center sm:gap-4",
-          // Keeps the text and the action clear of the dismiss button at
-          // every width, rather than only on the breakpoint that had it.
-          onDismiss && "pr-7 sm:pr-8",
+          onDismiss && "pr-9 sm:pr-10",
         )}
       >
+        {/* Icon + text */}
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <span
             className={cn(
@@ -223,12 +212,12 @@ export function NoticeBanner({
             <Icon className="size-4" />
           </span>
 
-          {/* min-w-0 is what lets the text wrap instead of forcing the flex
-              row wider than its container. */}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 overflow-visible">
             <h3
               className={cn(
-                "text-sm font-semibold leading-5 break-words",
+                "text-sm font-semibold leading-5",
+                "whitespace-normal break-words",
+                "overflow-visible",
                 styles.title,
               )}
             >
@@ -236,14 +225,31 @@ export function NoticeBanner({
             </h3>
 
             <p
-              className={cn("mt-1 text-xs leading-5 break-words", styles.text)}
+              className={cn(
+                "mt-1 text-xs leading-5",
+                "whitespace-normal break-words",
+                "overflow-visible",
+                styles.text,
+              )}
             >
               {description}
             </p>
           </div>
         </div>
 
-        {action && <div className="w-full shrink-0 sm:w-auto">{action}</div>}
+        {/* Action */}
+        {action && (
+          <div
+            className={cn(
+              "w-full shrink-0",
+              "sm:w-auto",
+              "[&>button]:w-full",
+              "sm:[&>button]:w-auto",
+            )}
+          >
+            {action}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -250,10 +250,18 @@ export function createPayPalSubscriptionsClient({
    * PayPal may answer with an `approve` link when the buyer has to confirm the
    * change (it does for a price increase). The plan is then live only once the
    * buyer approves, which arrives as BILLING.SUBSCRIPTION.UPDATED.
+   *
+   * `redirect` is REQUIRED whenever a buyer could be sent to that approve
+   * link. PayPal's hosted approval page needs a return_url to hand the buyer
+   * back to, and without one it refuses to render -- the buyer gets
+   * "Things don't appear to be working at the moment" instead of the
+   * confirmation screen. Callers with no browser in the loop (the cron) may
+   * omit it: they only log the link, never open it.
    */
   const revise = async (
     subscriptionId: string,
     planCode: string,
+    redirect?: { returnUrl: string; cancelUrl: string; brandName?: string },
   ): Promise<{
     ok: boolean;
     httpStatus: number;
@@ -266,7 +274,19 @@ export function createPayPalSubscriptionsClient({
       {
         method: "POST",
         headers: await authHeaders(),
-        body: JSON.stringify({ plan_id: planCode }),
+        body: JSON.stringify({
+          plan_id: planCode,
+          ...(redirect
+            ? {
+                application_context: {
+                  brand_name: redirect.brandName ?? "ServiceDesk",
+                  user_action: "SUBSCRIBE_NOW",
+                  return_url: redirect.returnUrl,
+                  cancel_url: redirect.cancelUrl,
+                },
+              }
+            : {}),
+        }),
       },
     );
 

@@ -75,6 +75,13 @@ export interface BillingDashboardData {
     planRate: number;
     /** The upgrade difference: target rate minus the current plan's rate. */
     amountDue: number;
+    /**
+     * The difference is PAID and only PayPal's confirmation of the new
+     * monthly rate is outstanding. A price increase always needs the buyer to
+     * approve it, so this is a normal stop on the way -- not a failure -- but
+     * the plan does not move until they do.
+     */
+    awaitingConfirmation: boolean;
   } | null;
   invoices: Array<{
     id: string;
@@ -294,6 +301,8 @@ export async function fetchTenantBillingData(
         // The difference, not a prorated share: they already paid for this
         // period on the cheaper plan.
         amountDue: Math.round((newPlanRate - monthlyRate) * 100) / 100,
+        // Set below, once the invoices are in hand.
+        awaitingConfirmation: false,
       };
     }
   }
@@ -318,6 +327,19 @@ export async function fetchTenantBillingData(
     .eq("tenant_id", tenant.id)
     .order("period_start", { ascending: false })
     .order("invoice_number", { ascending: true });
+
+  // A paid one-time invoice for the pending plan means the capture went
+  // through and the upgrade is waiting on the buyer's PayPal confirmation
+  // rather than on their payment. Read locally: the capture writes this
+  // invoice, so there is no need to ask PayPal on every dashboard load.
+  if (pendingUpgrade) {
+    pendingUpgrade.awaitingConfirmation = (invoiceRows || []).some(
+      (inv) =>
+        inv.invoice_type === "one_time" &&
+        inv.status === "paid" &&
+        inv.plan_name === pendingUpgrade.planName,
+    );
+  }
 
   const invoices = await Promise.all(
     (invoiceRows || []).map(async (inv) => {

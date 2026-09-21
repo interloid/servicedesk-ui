@@ -322,6 +322,81 @@ export async function abortPlanSwitch(tenantSlug: string): Promise<{
   }
 }
 
+/**
+ * Fetches a fresh PayPal approve link for an upgrade whose difference is paid
+ * but whose new monthly rate the buyer never confirmed. Charges nothing.
+ */
+export async function resumeUpgradeApproval(tenantSlug: string): Promise<{
+  success: boolean;
+  error?: string;
+  planName?: string;
+  approvalUrl?: string | null;
+}> {
+  const supabase = await createSupabaseServerClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke("subscription", {
+      body: {
+        action: "resume-approval",
+        tenantSlug,
+      },
+    });
+
+    if (error) {
+      console.error("Resume upgrade approval error:", error);
+
+      let errorBody: { message?: string; error?: string } | null = null;
+
+      try {
+        errorBody = (await error.context?.json()) as {
+          message?: string;
+          error?: string;
+        } | null;
+      } catch {
+        // Ignore response parsing error
+      }
+
+      return {
+        success: false,
+        error:
+          errorBody?.message ??
+          errorBody?.error ??
+          error.message ??
+          "Could not reach PayPal.",
+      };
+    }
+
+    if (!data?.success) {
+      return {
+        success: false,
+        error: data?.message ?? "Could not reach PayPal.",
+      };
+    }
+
+    return {
+      success: true,
+      planName: data?.planName ?? undefined,
+      approvalUrl: data?.approvalUrl ?? null,
+    };
+  } catch (error) {
+    console.error("resumeUpgradeApproval error:", error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Something went wrong.",
+    };
+  }
+}
+
 export async function captureOrderPayment(
   tenantSlug: string,
   orderId: string,

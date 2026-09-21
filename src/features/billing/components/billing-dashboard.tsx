@@ -45,6 +45,7 @@ import InvoiceModal from "./invoice-model";
 import { UpdatePaymentModal } from "./payment-method";
 import { ModalNotice } from "./modal-notice";
 import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
+import { ResumeUpgradeApprovalButton } from "./resume-upgrade-approval-button";
 import {
   DashboardCard,
   DetailRow,
@@ -461,17 +462,39 @@ export default function BillingDashboard({
                 </p>
                 <div className="mt-4 space-y-1 text-sm">
                   <StatusText tone="amber">
-                    Awaiting payment for your upgrade to{" "}
-                    {pendingUpgrade.planName}
+                    {pendingUpgrade.awaitingConfirmation
+                      ? `Confirm your new rate to finish upgrading to ${pendingUpgrade.planName}`
+                      : `Awaiting payment for your upgrade to ${pendingUpgrade.planName}`}
                   </StatusText>
-                  <p className="pl-4 text-xs text-slate-500">
-                    Then ${pendingUpgrade.planRate.toFixed(2)}/mo, starting with
-                    your next billing cycle.
-                  </p>
-                  <p className="pl-4 text-xs text-emerald-700">
-                    The difference only — your {data.plan?.name ?? "current"}{" "}
-                    payment for this period already counts towards it.
-                  </p>
+                  {pendingUpgrade.awaitingConfirmation ? (
+                    <>
+                      <p className="pl-4 text-xs text-slate-500">
+                        PayPal needs you to approve $
+                        {pendingUpgrade.planRate.toFixed(2)}/mo before the plan
+                        switches over. You stay on{" "}
+                        {data.plan?.name ?? "your current plan"} until then.
+                      </p>
+                      <p className="pl-4 text-xs text-emerald-700">
+                        Your ${pendingUpgrade.amountDue.toFixed(2)} payment is
+                        already received — this won&apos;t charge you again.
+                      </p>
+                      <div className="pl-4 pt-2">
+                        <ResumeUpgradeApprovalButton tenantSlug={tenantSlug} />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="pl-4 text-xs text-slate-500">
+                        Then ${pendingUpgrade.planRate.toFixed(2)}/mo, starting
+                        with your next billing cycle.
+                      </p>
+                      <p className="pl-4 text-xs text-emerald-700">
+                        The difference only — your{" "}
+                        {data.plan?.name ?? "current"} payment for this period
+                        already counts towards it.
+                      </p>
+                    </>
+                  )}
                 </div>
               </>
             ) : (

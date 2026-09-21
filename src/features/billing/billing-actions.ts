@@ -106,6 +106,29 @@ export async function confirmOrderPaymentAction(
   }
 }
 
+export async function resumeUpgradeApprovalAction(tenantSlug: string): Promise<{
+  success: boolean;
+  error?: string;
+  planName?: string;
+  approvalUrl?: string | null;
+}> {
+  try {
+    const { resumeUpgradeApproval } =
+      await import("./services/billing.service");
+    const result = await resumeUpgradeApproval(tenantSlug);
+    revalidatePath(`/${tenantSlug}/account/billing`);
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to resume the upgrade confirmation",
+    };
+  }
+}
+
 export async function confirmSubscriptionActivationAction(
   tenantSlug: string,
   subscriptionId: string,

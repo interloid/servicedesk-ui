@@ -783,6 +783,15 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Where PayPal hands the buyer back when a revise needs their approval.
+    // /payment/success re-reads the agreement from PayPal and applies the plan,
+    // so the buyer landing there is what turns an approved revise into a live
+    // plan without waiting for the webhook.
+    const approvalRedirect = {
+      returnUrl: `${FRONTEND_URL}/${tenantSlug}/payment/success`,
+      cancelUrl: `${FRONTEND_URL}/${tenantSlug}/payment/cancel`,
+    };
+
     const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -938,7 +947,12 @@ Deno.serve(async (req) => {
           const paypalPlanCode = String(lookup.data.plan_id ?? "");
 
           if (livePlan && paypalPlanCode && paypalPlanCode !== livePlan.code) {
-            const revert = await paypal.revise(agreementId, livePlan.code);
+            const revert = await paypal.revise(
+              agreementId,
+              livePlan.code,
+              approvalRedirect,
+            );
+            console.log("🚀 ~ revert:", revert);
 
             if (!revert.ok) {
               console.error("[billing] could not revise back on undo:", {
@@ -1246,7 +1260,11 @@ Deno.serve(async (req) => {
         );
       }
 
-      const revise = await paypal.revise(agreementId, plan.code);
+      const revise = await paypal.revise(
+        agreementId,
+        plan.code,
+        approvalRedirect,
+      );
 
       if (!revise.ok) {
         // PLAN_PRODUCT_NOT_COMPATIBLE is permanent: PayPal only revises
@@ -1358,6 +1376,152 @@ Deno.serve(async (req) => {
         planName: plan.name,
         nextBilling: priceOf(plan),
         subscriptionId: agreementId,
+      });
+    }
+
+    // =================================================================
+    // resume-approval -- the buyer paid the upgrade difference but never
+    // confirmed the new recurring rate with PayPal (they closed the tab).
+    //
+    // The money is already in and the plan is owed, so this NEVER charges
+    // again: it only asks PayPal for a fresh approve link for the same
+    // agreement and the same pending plan. Revising an ACTIVE agreement that
+    // already has an unapproved revise simply replaces that pending change.
+    // =================================================================
+    if (action === "resume-approval") {
+      const sub = existing;
+
+      if (!sub.pending_order_id || !sub.pending_plan_id) {
+        return Response.json(
+          { success: false, message: "No upgrade is awaiting confirmation." },
+          { status: 400 },
+        );
+      }
+
+      // Only ever for an upgrade that is genuinely PAID. Without this check a
+      // caller could use this action to skip the checkout entirely.
+      const order = await fetchPaypalOrder(sub.pending_order_id);
+
+      if (String(order.status ?? "").toUpperCase() !== "COMPLETED") {
+        return Response.json(
+          {
+            success: false,
+            message:
+              "This upgrade has not been paid yet. Please complete the checkout first.",
+          },
+          { status: 409 },
+        );
+      }
+
+      const plan = await loadPlan(admin, sub.pending_plan_id);
+      const agreementId = sub.paypal_subscription_id;
+
+      if (!plan || !agreementId) {
+        return Response.json(
+          { success: false, message: "Target plan not found." },
+          { status: 404 },
+        );
+      }
+
+      const lookup = await paypal.get(agreementId);
+
+      if (!lookup.ok) {
+        return Response.json(
+          {
+            success: false,
+            message: "Could not reach PayPal. Please try again in a moment.",
+          },
+          { status: 502 },
+        );
+      }
+
+      // PayPal is already on the target plan: the revise was approved and only
+      // the local write was lost. Finish it here instead of sending the buyer
+      // back to approve something that is already done.
+      if (String(lookup.data.plan_id ?? "") === plan.code) {
+        await applySubscriptionPlan(asBillingAdmin(admin), {
+          tenantId,
+          planId: plan.id,
+          status: "active",
+          seats: seatsOf(plan),
+          periodEnd:
+            nextBillingTime(lookup.data) ?? sub.current_period_end ?? null,
+        });
+
+        logBilling("upgrade.applied", {
+          tenant_id: tenantId,
+          paypal_subscription_id: agreementId,
+          target_plan: plan.name,
+          context: "resume-approval",
+        });
+
+        return Response.json({
+          success: true,
+          message: "Your new plan is active.",
+          planName: plan.name,
+        });
+      }
+
+      if (!canRevise(lookup.status)) {
+        console.error("[billing] cannot resume upgrade approval:", {
+          tenant_id: tenantId,
+          paypal_subscription_id: agreementId,
+          paypal_status: lookup.status,
+          order_id: sub.pending_order_id,
+        });
+
+        return Response.json(
+          { success: false, message: UPGRADE_STUCK_MESSAGE },
+          { status: 502 },
+        );
+      }
+
+      const revise = await paypal.revise(
+        agreementId,
+        plan.code,
+        approvalRedirect,
+      );
+
+      if (!revise.ok) {
+        return Response.json(
+          { success: false, message: UPGRADE_STUCK_MESSAGE },
+          { status: 502 },
+        );
+      }
+
+      logBilling("upgrade.approval-resumed", {
+        tenant_id: tenantId,
+        paypal_subscription_id: agreementId,
+        order_id: sub.pending_order_id,
+        target_plan: plan.name,
+        needs_approval: Boolean(revise.approveUrl),
+      });
+
+      // No approve link means PayPal took the change outright -- apply it.
+      if (!revise.approveUrl) {
+        const refreshed = await paypal.get(agreementId);
+
+        await applySubscriptionPlan(asBillingAdmin(admin), {
+          tenantId,
+          planId: plan.id,
+          status: "active",
+          seats: seatsOf(plan),
+          periodEnd:
+            nextBillingTime(refreshed.data) ?? sub.current_period_end ?? null,
+        });
+
+        return Response.json({
+          success: true,
+          message: "Your new plan is active.",
+          planName: plan.name,
+        });
+      }
+
+      return Response.json({
+        success: true,
+        message: "Please confirm the new monthly rate with PayPal.",
+        planName: plan.name,
+        approvalUrl: revise.approveUrl,
       });
     }
 
@@ -1915,7 +2079,11 @@ Deno.serve(async (req) => {
       // The schedule above is written FIRST on purpose: if this revise fails,
       // reconcile-subscriptions still applies the change at periodEnd, so the
       // worst case is the old behaviour rather than a lost plan change.
-      const revise = await paypal.revise(agreementId!, targetPlan.code);
+      const revise = await paypal.revise(
+        agreementId!,
+        targetPlan.code,
+        approvalRedirect,
+      );
 
       if (!revise.ok) {
         console.error(
@@ -2124,7 +2292,11 @@ Deno.serve(async (req) => {
       );
     }
 
-    const revise = await paypal.revise(agreementId, targetPlan.code);
+    const revise = await paypal.revise(
+      agreementId,
+      targetPlan.code,
+      approvalRedirect,
+    );
 
     if (!revise.ok) {
       return Response.json(

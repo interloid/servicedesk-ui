@@ -578,6 +578,11 @@ async function scheduleCancellation(
         next_plan_id: freePlan.id,
         next_plan_effective_at: periodEnd.toISOString(),
         cancel_at_period_end: true,
+        cancelled_at: now.toISOString(),
+        // The customer asked for this, so the agreement is about to be
+        // SUSPENDED rather than cancelled and "Reactivate" can be offered --
+        // unless the suspend below fails, which rewrites paypal_status.
+        cancellation_source: "customer",
         pending_plan_id: null,
         pending_order_id: null,
         pending_paypal_subscription_id: null,
@@ -626,6 +631,17 @@ async function scheduleCancellation(
           },
         );
       }
+
+      // Recorded from the OUTCOME, not the intent: a suspend that fell back to
+      // a cancel leaves an agreement PayPal can never resume, and the billing
+      // page must not offer "Reactivate" for it.
+      await admin
+        .from("subscriptions")
+        .update({
+          paypal_status: suspended ? "SUSPENDED" : "CANCELLED",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("tenant_id", sub.tenant_id);
     }
 
     logBilling("cancel.scheduled", {
@@ -671,6 +687,18 @@ async function scheduleCancellation(
     clearPeriodEnd: true,
     clearPaypalSubscriptionId: true,
   });
+
+  // Ended outright, with no paid time left to run down. The agreement is gone
+  // and there is nothing to reactivate.
+  await admin
+    .from("subscriptions")
+    .update({
+      cancelled_at: now.toISOString(),
+      cancellation_source: "customer",
+      paypal_status: "CANCELLED",
+      updated_at: now.toISOString(),
+    })
+    .eq("tenant_id", sub.tenant_id);
 
   logBilling("cancel.immediate", {
     tenant_id: sub.tenant_id,
@@ -1630,13 +1658,32 @@ Deno.serve(async (req) => {
           );
         }
 
-        await activatePendingAgreement(asBillingAdmin(admin), paypal, {
-          sub,
-          agreementId: targetSubscriptionId,
-          plan,
-          paypalData: lookup.data,
-          context: "subscription:activate",
-        });
+        const activation = await activatePendingAgreement(
+          asBillingAdmin(admin),
+          paypal,
+          {
+            sub,
+            agreementId: targetSubscriptionId,
+            plan,
+            paypalData: lookup.data,
+            context: "subscription:activate",
+          },
+        );
+
+        // Approved but not charged. Reporting success here is how a buyer
+        // with no balance ends up believing they are on a paid plan, so say
+        // what is actually true and let PAYMENT.SALE.COMPLETED finish it.
+        if (!activation.applied) {
+          return Response.json({
+            success: false,
+            message:
+              activation.paymentStatus === "failed"
+                ? "PayPal could not take your first payment, so your plan has not started. Check your PayPal balance or payment method and try again."
+                : "PayPal has your approval but has not taken the payment yet. Your plan will start as soon as it clears — you don't need to pay again.",
+            planName: plan.name,
+            paymentStatus: activation.paymentStatus,
+          });
+        }
 
         return Response.json({
           success: true,
@@ -1994,6 +2041,11 @@ Deno.serve(async (req) => {
           pending_order_id: null,
           pending_paypal_subscription_id: created.subscriptionId,
           pending_started_at: new Date().toISOString(),
+          // The agreement exists at PayPal but nothing has been charged. Said
+          // out loud from the start, so the window between "checkout created"
+          // and "buyer came back" is not indistinguishable from a healthy
+          // subscription that simply has no payment recorded yet.
+          payment_status: "pending",
           updated_at: new Date().toISOString(),
         })
         .eq("tenant_id", tenantId);

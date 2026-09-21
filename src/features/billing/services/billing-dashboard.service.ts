@@ -69,6 +69,28 @@ export interface BillingDashboardData {
     effectiveAt: string;
     daysRemaining: number;
   } | null;
+  /**
+   * Whether the scheduled cancellation can still be undone.
+   *
+   * Only a cancellation the customer made in the app leaves the agreement
+   * SUSPENDED, which PayPal can resume. One PayPal ended itself, or one the
+   * system ended after an unpaid grace period, leaves it CANCELLED -- and
+   * PayPal never revives a cancelled agreement. Offering "Reactivate" there
+   * only produces an error, so the page must know before it renders.
+   */
+  cancellation?: {
+    source: "customer" | "paypal" | "system" | null;
+    cancelledAt: string | null;
+    canReactivate: boolean;
+    /**
+     * Whether the ending is still recent enough to be worth announcing.
+     *
+     * cancelled_at is only cleared when the tenant subscribes again, so
+     * without a window a tenant who cancelled once and stayed on Free would
+     * be told about it on every page load forever.
+     */
+    endedRecently: boolean;
+  } | null;
 
   /**
    * Set while a recurring charge is failing. `graceEndsAt` is null until
@@ -469,6 +491,37 @@ export async function fetchTenantBillingData(
       ? sub.current_period_end
       : undefined;
 
+  const cancellationSource =
+    (sub?.cancellation_source as "customer" | "paypal" | "system" | null) ??
+    null;
+
+  // Resumable only while PayPal still holds a SUSPENDED agreement. An unknown
+  // status (never cached, or an older row) is treated as resumable: the
+  // `abort` action re-reads the live status and refuses properly if it is
+  // dead, so the cost of guessing wrong here is one clear error message --
+  // where guessing the other way would hide a button that does work.
+  const paypalStatus = (sub?.paypal_status as string | null) ?? null;
+  const agreementIsDead =
+    paypalStatus === "CANCELLED" || paypalStatus === "EXPIRED";
+
+  const cancelledAt = sub?.cancelled_at ?? null;
+  const daysSinceCancelled = cancelledAt
+    ? (Date.now() - new Date(cancelledAt).getTime()) / (24 * 60 * 60 * 1000)
+    : Number.POSITIVE_INFINITY;
+
+  const cancellation =
+    sub?.cancel_at_period_end || cancelledAt
+      ? {
+          source: cancellationSource,
+          cancelledAt,
+          canReactivate:
+            !agreementIsDead &&
+            cancellationSource !== "paypal" &&
+            cancellationSource !== "system",
+          endedRecently: daysSinceCancelled <= 30,
+        }
+      : null;
+
   const failureCount = Number(sub?.payment_failure_count ?? 0);
   const graceEndsAt = sub?.grace_period_ends_at ?? null;
 
@@ -486,6 +539,7 @@ export async function fetchTenantBillingData(
     accountId: tenant.slug.toUpperCase(),
     tenantId: tenant.id,
     billingStatus,
+    cancellation,
     paymentTrouble,
     // Restricted only once PayPal has stopped retrying. A charge that is
     // still being retried leaves the account alone.

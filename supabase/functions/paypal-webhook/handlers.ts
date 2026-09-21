@@ -137,7 +137,8 @@ async function clearPaymentTrouble(sub: SubscriptionRow): Promise<void> {
   const wasInTrouble =
     (sub.payment_failure_count ?? 0) > 0 ||
     sub.grace_period_ends_at !== null ||
-    sub.status === "past_due";
+    sub.status === "past_due" ||
+    sub.payment_status !== "paid";
 
   if (!wasInTrouble) {
     return;
@@ -147,6 +148,8 @@ async function clearPaymentTrouble(sub: SubscriptionRow): Promise<void> {
     .from("subscriptions")
     .update({
       ...HEALTHY_PAYMENT_STATE,
+      paypal_status: "ACTIVE",
+      payment_status: "paid",
       // Only lift past_due. A cancelled or expired row is in that state for
       // reasons a payment does not undo.
       ...(sub.status === "past_due" ? { status: "active" } : {}),
@@ -435,9 +438,21 @@ export async function handleSubscriptionCancelled(event: WebhookEvent) {
 
   const now = new Date().toISOString();
 
+  // PayPal CANCELLED the agreement, which it can never revive. Recording the
+  // source is what stops the billing page offering "Reactivate" for a
+  // cancellation the customer did not make and cannot undo.
+  //
+  // A cancellation the customer DID schedule in the app arrives here too, once
+  // the cron finally cancels the suspended agreement. That one keeps its
+  // 'customer' source -- it is the same ending, reached the way they asked.
   const { error: cancelledAtError } = await admin
     .from("subscriptions")
-    .update({ cancelled_at: now, updated_at: now })
+    .update({
+      cancelled_at: sub.cancelled_at ?? now,
+      cancellation_source: sub.cancellation_source ?? "paypal",
+      paypal_status: "CANCELLED",
+      updated_at: now,
+    })
     .eq("tenant_id", sub.tenant_id);
 
   if (cancelledAtError) {
@@ -547,6 +562,7 @@ export async function handleSubscriptionSuspended(event: WebhookEvent) {
     .update({
       status: "past_due",
       grace_period_ends_at: graceEndsAt,
+      paypal_status: "SUSPENDED",
       updated_at: now.toISOString(),
     })
     .eq("tenant_id", match.sub.tenant_id);
@@ -661,6 +677,62 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
   }
 }
 
+/**
+ * BILLING.SUBSCRIPTION.PAYMENT.SUCCEEDED -> payment_status = paid.
+ *
+ * NOTE: PayPal does not currently send this event. The money for a
+ * subscription arrives as PAYMENT.SALE.COMPLETED, which is what actually
+ * drives invoicing and activation here. This handler exists so that if the
+ * event is enabled on the app, or PayPal adds it, the row is marked paid
+ * rather than the delivery being dropped as unrecognised.
+ *
+ * It is deliberately narrow: it records the collection and applies a plan
+ * that was held back for want of payment. Invoicing stays with
+ * PAYMENT.SALE.COMPLETED, which carries the amount and the capture id.
+ */
+export async function handleSubscriptionPaymentSucceeded(event: WebhookEvent) {
+  const paypalSubscriptionId = event.resource.id;
+
+  if (!paypalSubscriptionId) {
+    throw new Error("Webhook missing subscription id.");
+  }
+
+  const match = await findSubscriptionByAgreement(paypalSubscriptionId);
+
+  if (!match) {
+    console.error(
+      "Subscription not found for payment success:",
+      paypalSubscriptionId,
+    );
+    return;
+  }
+
+  // A signup whose plan was withheld until PayPal collected.
+  if (match.isPending) {
+    const plan = await loadPlan(match.sub.pending_plan_id);
+    const fresh = await paypal.get(paypalSubscriptionId);
+
+    if (plan && fresh.ok) {
+      await activatePendingAgreement(billingAdmin, paypal, {
+        sub: match.sub,
+        agreementId: paypalSubscriptionId,
+        plan,
+        paypalData: fresh.data,
+        context: "webhook:payment-succeeded",
+      });
+    }
+
+    return;
+  }
+
+  await clearPaymentTrouble(match.sub);
+
+  logBilling("payment.succeeded", {
+    tenant_id: match.sub.tenant_id,
+    paypal_subscription_id: paypalSubscriptionId,
+  });
+}
+
 export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
   const paypalSubscriptionId = event.resource.id;
 
@@ -670,7 +742,7 @@ export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
 
   const match = await findSubscriptionByAgreement(paypalSubscriptionId);
 
-  if (!match || match.isPending) {
+  if (!match) {
     console.error(
       "Subscription not found for payment failure:",
       paypalSubscriptionId,
@@ -679,6 +751,38 @@ export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
   }
 
   const nowIso = new Date().toISOString();
+
+  // A SIGNUP whose very first charge failed -- the unfunded-buyer case.
+  //
+  // There is no plan to protect and no dunning cycle to run: the tenant never
+  // got the paid plan, because activatePendingAgreement withholds it until
+  // PayPal has collected. All that is owed here is an honest record, so the
+  // billing page can say the payment failed rather than leaving the checkout
+  // looking like it is still in flight. The tenant keeps the plan they were
+  // already on, and the cron expires the unfunded agreement after its TTL.
+  if (match.isPending) {
+    const { error: pendingError } = await admin
+      .from("subscriptions")
+      .update({
+        payment_status: "failed",
+        last_payment_failure_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("tenant_id", match.sub.tenant_id);
+
+    if (pendingError) {
+      throw pendingError;
+    }
+
+    logBilling("payment.failed", {
+      tenant_id: match.sub.tenant_id,
+      paypal_subscription_id: paypalSubscriptionId,
+      context: "signup",
+      first_failure: true,
+    });
+
+    return;
+  }
 
   // The PLAN STAYS ACTIVE, first failure and every retry alike.
   //
@@ -698,6 +802,7 @@ export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
     .update({
       payment_failure_count: failureCount,
       last_payment_failure_at: nowIso,
+      payment_status: "failed",
       updated_at: nowIso,
     })
     .eq("tenant_id", match.sub.tenant_id);
@@ -751,6 +856,30 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   // this delivery retries the email (the PDF is not regenerated).
   if (alreadyInvoiced?.storage_path && alreadyInvoiced.email_sent_at) {
     return;
+  }
+
+  // A signup whose plan was withheld because PayPal had not collected yet.
+  // THIS is the moment it was waiting for: the money is in, so the plan goes
+  // live now. Without this the row would sit pending forever and the lookup
+  // below -- which only matches a LIVE agreement -- would throw on every
+  // redelivery.
+  const pendingMatch = await findSubscriptionByAgreement(subscriptionId);
+
+  if (pendingMatch?.isPending) {
+    const pendingPlan = await loadPlan(pendingMatch.sub.pending_plan_id);
+    // The payment resource carries no billing_info, so the agreement itself
+    // is re-read: that is what proves the collection.
+    const fresh = await paypal.get(subscriptionId);
+
+    if (pendingPlan && fresh.ok) {
+      await activatePendingAgreement(billingAdmin, paypal, {
+        sub: pendingMatch.sub,
+        agreementId: subscriptionId,
+        plan: pendingPlan,
+        paypalData: fresh.data,
+        context: "webhook:payment-completed",
+      });
+    }
   }
 
   const { data: subscriptionRow, error } = await admin

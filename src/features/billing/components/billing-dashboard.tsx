@@ -256,6 +256,41 @@ export default function BillingDashboard({
   // in its hover hint instead of claiming a banner of its own.
   const isPendingCancellation = data.billingStatus === "cancelled";
   const currentPlanName = data.plan?.name ?? "your plan";
+  // Undoing a cancellation means resuming a suspended PayPal agreement. When
+  // PayPal itself ended it, or the system did after an unpaid grace period,
+  // there is no agreement left to resume. Defaults to true so an older row
+  // with no recorded source keeps the button it has always had.
+  const canReactivate = data.cancellation?.canReactivate ?? true;
+  const cancellationSource = data.cancellation?.source ?? null;
+
+  // Why it cannot be undone, in the customer's own terms. The two reasons are
+  // not interchangeable: one is something they did at PayPal, the other is
+  // something that happened to them because payments stopped. Telling a
+  // customer they cancelled when their card simply expired reads as an
+  // accusation, so the wording follows the recorded source.
+  const cannotReactivateReason =
+    cancellationSource === "system"
+      ? "This subscription ended because we couldn't collect payment, so it can't be reactivated."
+      : cancellationSource === "paypal"
+        ? "You cancelled this subscription in PayPal, so it can't be reactivated here."
+        : "This subscription has already ended at PayPal, so it can't be reactivated.";
+  // A subscription that has ALREADY ended, with the tenant now on Free.
+  //
+  // Nothing is scheduled any more -- the move happened -- so the cancellation
+  // banner above cannot catch this: it keys on a future effective date that
+  // was cleared when the plan was applied. Without this the workspace simply
+  // appears on Free one day, which is at its worst when PayPal ended the
+  // subscription and the change never passed through the app at all.
+  //
+  // `endedRecently` is computed server-side: cancelled_at is only cleared when
+  // the tenant subscribes again, so without a window someone who cancelled
+  // once and stayed on Free would be told about it on every load forever
+  // (banner dismissal is in-memory and resets on reload).
+  const endedOnFree =
+    isFreeTier &&
+    !isPendingCancellation &&
+    Boolean(data.cancellation?.endedRecently);
+
   const showScheduledChangeBanner =
     Boolean(scheduledChange) && !isPendingCancellation;
 
@@ -380,18 +415,63 @@ export default function BillingDashboard({
                 Your {currentPlanName} plan ends on {effectiveDateLabel}.
               </span>
             }
-            description={`You'll keep ${currentPlanName} and all its features until then.`}
+            description={
+              canReactivate
+                ? `You'll keep ${currentPlanName} and all its features until then.`
+                : `${cannotReactivateReason} You'll keep ${currentPlanName} and all its features until ${effectiveDateLabel} — after that, choose a plan to subscribe again.`
+            }
             action={
-              <UndoScheduledChangeButton
-                tenantSlug={tenantSlug}
-                label="Reactivate"
+              /* Reactivate resumes the SAME PayPal agreement, which only
+                 works while that agreement is suspended. Once PayPal has
+                 cancelled it there is nothing to resume, so the way back is a
+                 new subscription, not this button. */
+              canReactivate ? (
+                <UndoScheduledChangeButton
+                  tenantSlug={tenantSlug}
+                  label="Reactivate"
+                  className={cn(
+                    OUTLINE_BUTTON,
+                    "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
+                  )}
+                />
+              ) : (
+                <Button
+                  className={cn(
+                    OUTLINE_BUTTON,
+                    "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
+                  )}
+                  onClick={() => router.push(plansHref)}
+                >
+                  Choose a plan
+                </Button>
+              )
+            }
+            onDismiss={() => dismissBanner("pending-cancellation")}
+          />
+        ) : endedOnFree && !dismissedBanners.includes("ended-on-free") ? (
+          <NoticeBanner
+            tone="amber"
+            icon={Clock}
+            title="Your subscription has ended"
+            description={
+              cancellationSource === "paypal"
+                ? "You cancelled this subscription in PayPal, so your workspace is now on the Free plan. Choose a plan to subscribe again."
+                : cancellationSource === "system"
+                  ? "We couldn't collect payment, so your subscription ended and your workspace is now on the Free plan. Choose a plan to subscribe again."
+                  : "Your subscription has ended and your workspace is now on the Free plan. Choose a plan to subscribe again."
+            }
+            action={
+              <Button
                 className={cn(
                   OUTLINE_BUTTON,
                   "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
                 )}
-              />
+                onClick={() => router.push(plansHref)}
+              >
+                Choose a plan
+              </Button>
             }
-            onDismiss={() => dismissBanner("pending-cancellation")}
+            onDismiss={() => dismissBanner("ended-on-free")}
           />
         ) : null}
 

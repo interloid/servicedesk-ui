@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createPayPalTokenProvider } from "../_shared/paypal-auth.ts";
 import {
+  activatePendingAgreement,
   applySubscriptionPlan,
   canCancel,
   canRevise,
@@ -8,6 +9,7 @@ import {
   createPayPalSubscriptionsClient,
   logBilling,
   nextBillingTime,
+  paymentStatusOf,
   PLAN_COLUMNS,
   priceOf,
   seatsOf,
@@ -272,6 +274,19 @@ async function finishCancellation(
     clearPaypalSubscriptionId: true,
     expectedNextPlanId: sub.next_plan_id,
   });
+
+  // The scheduled cancellation has run its course. The agreement is stopped
+  // for good, so record that even though the customer started this, there is
+  // no longer anything to reactivate.
+  await admin
+    .from("subscriptions")
+    .update({
+      cancelled_at: new Date().toISOString(),
+      cancellation_source: sub.cancellation_source ?? "customer",
+      paypal_status: "CANCELLED",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("tenant_id", sub.tenant_id);
 
   logBilling("cron.cancellation.applied", {
     tenant_id: sub.tenant_id,
@@ -573,6 +588,7 @@ async function enforceGracePeriod(
         .update({
           ...HEALTHY_PAYMENT_STATE,
           status: "active",
+          paypal_status: "ACTIVE",
           updated_at: new Date().toISOString(),
         })
         .eq("tenant_id", sub.tenant_id);
@@ -625,7 +641,15 @@ async function enforceGracePeriod(
 
   const { error } = await admin
     .from("subscriptions")
-    .update({ ...HEALTHY_PAYMENT_STATE, updated_at: new Date().toISOString() })
+    .update({
+      ...HEALTHY_PAYMENT_STATE,
+      cancelled_at: new Date().toISOString(),
+      // Not the customer's doing and not reversible: the agreement was
+      // cancelled above, so there is nothing left to reactivate.
+      cancellation_source: "system",
+      paypal_status: "CANCELLED",
+      updated_at: new Date().toISOString(),
+    })
     .eq("tenant_id", sub.tenant_id);
 
   if (error) {
@@ -650,20 +674,59 @@ async function expireAbandonedSignup(sub: SubscriptionRow): Promise<Outcome> {
 
   const lookup = await paypal.get(pendingId);
 
-  // Approved in the meantime: the ACTIVATED webhook (or the next page load)
-  // applies it. Nothing to expire.
+  const startedAt = sub.pending_started_at
+    ? new Date(sub.pending_started_at).getTime()
+    : 0;
+  const expired = Date.now() - startedAt > PENDING_CHECKOUT_TTL_MS;
+
+  // Approved, and PayPal has an agreement. Whether the tenant gets the plan
+  // depends on whether it was actually PAID for -- an approved agreement on
+  // an unfunded account is ACTIVE at PayPal and still owes its first charge.
   if (
     lookup.ok &&
     (lookup.status === "ACTIVE" || lookup.status === "APPROVED")
   ) {
-    return "notReady";
-  }
+    const paymentStatus = paymentStatusOf(lookup.data);
 
-  const startedAt = sub.pending_started_at
-    ? new Date(sub.pending_started_at).getTime()
-    : 0;
+    // Paid, but the plan never landed -- a missed PAYMENT.SALE.COMPLETED, or
+    // a buyer who closed the tab before the return. Apply it now.
+    if (paymentStatus === "paid") {
+      const plan = await loadPlan(sub.pending_plan_id);
 
-  if (Date.now() - startedAt <= PENDING_CHECKOUT_TTL_MS) {
+      if (!plan) {
+        return "notReady";
+      }
+
+      await activatePendingAgreement(billingAdmin, paypal, {
+        sub,
+        agreementId: pendingId,
+        plan,
+        paypalData: lookup.data,
+        context: "cron:signup-recovered",
+      });
+
+      logBilling("cron.signup.recovered", {
+        tenant_id: sub.tenant_id,
+        paypal_subscription_id: pendingId,
+        target_plan: plan.name,
+      });
+
+      return "applied";
+    }
+
+    // Approved but never funded. Waiting forever would leave an agreement
+    // PayPal may charge later against a checkout nobody is tracking, so past
+    // the TTL it is cancelled like any other abandoned one.
+    if (!expired) {
+      return "notReady";
+    }
+
+    logBilling("cron.signup.unfunded", {
+      tenant_id: sub.tenant_id,
+      paypal_subscription_id: pendingId,
+      payment_status: paymentStatus,
+    });
+  } else if (!expired) {
     return "notReady";
   }
 

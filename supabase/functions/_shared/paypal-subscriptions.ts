@@ -40,6 +40,10 @@ export const SUBSCRIPTION_COLUMNS = [
   "payment_failure_count",
   "last_payment_failure_at",
   "grace_period_ends_at",
+  "cancelled_at",
+  "cancellation_source",
+  "paypal_status",
+  "payment_status",
 ].join(", ");
 
 export type SubscriptionRow = {
@@ -66,7 +70,24 @@ export type SubscriptionRow = {
    * their plan until it passes; the cron drops them to Free afterwards.
    */
   grace_period_ends_at: string | null;
+  cancelled_at: string | null;
+  /** Who ended it; null while the subscription is live. */
+  cancellation_source: CancellationSource | null;
+  /** PayPal's last known status for the agreement. Display cache only. */
+  paypal_status: PayPalSubscriptionStatus | null;
+  /** Whether PayPal has collected. A paid plan is only live while 'paid'. */
+  payment_status: PaymentStatus | null;
 };
+
+/**
+ * Who ended the subscription.
+ *
+ * It decides whether "Reactivate" is offered at all: only a `customer`
+ * cancellation leaves a SUSPENDED agreement PayPal can resume. A `paypal` or
+ * `system` one leaves a CANCELLED agreement that can never come back, so the
+ * tenant has to subscribe again.
+ */
+export type CancellationSource = "customer" | "paypal" | "system";
 
 /**
  * How long a tenant keeps their plan after PayPal gives up retrying.
@@ -129,6 +150,16 @@ export interface PayPalSubscriptionLookup {
   status: PayPalSubscriptionStatus;
   httpStatus: number;
   data: AnyRecord;
+}
+
+/**
+ * PayPal's status as a storable value: the lookup helpers use "" to mean
+ * "could not read it", which is not a status and must not be written as one.
+ */
+export function storableStatus(
+  status: PayPalSubscriptionStatus,
+): Exclude<PayPalSubscriptionStatus, ""> | null {
+  return status === "" ? null : status;
 }
 
 /** Only an ACTIVE agreement can be revised onto another plan. */
@@ -358,6 +389,55 @@ export function nextBillingTime(
   return billingInfo?.next_billing_time ?? null;
 }
 
+export type PaymentStatus = "pending" | "paid" | "failed";
+
+/**
+ * Whether PayPal has actually COLLECTED on this agreement.
+ *
+ * The agreement's own status cannot answer this. APPROVED means the buyer
+ * approved it and nothing has been charged; ACTIVE means PayPal considers it
+ * live, which it also does while a failed first charge sits on it as an
+ * outstanding balance. Reading status alone is how an unfunded buyer ends up
+ * on a paid plan.
+ *
+ * billing_info is the honest source:
+ *
+ *   last_payment            a completed charge -- the only proof of money
+ *   failed_payments_count   charges PayPal tried and lost
+ *   outstanding_balance     what the agreement still owes
+ *
+ * A failure is reported even when a previous cycle was paid: the balance is
+ * owed now, and the dunning flow is what handles it.
+ */
+export function paymentStatusOf(
+  subscription: AnyRecord | null | undefined,
+): PaymentStatus {
+  const billingInfo = subscription?.billing_info as
+    | {
+        last_payment?: { amount?: { value?: string } };
+        failed_payments_count?: number;
+        outstanding_balance?: { value?: string };
+      }
+    | undefined;
+
+  if (!billingInfo) {
+    return "pending";
+  }
+
+  const outstanding = Number(billingInfo.outstanding_balance?.value ?? 0);
+  const failures = Number(billingInfo.failed_payments_count ?? 0);
+
+  if (failures > 0 || outstanding > 0) {
+    return "failed";
+  }
+
+  const lastPaid = Number(billingInfo.last_payment?.amount?.value ?? 0);
+
+  // A zero-value last_payment is not a payment. Free trials and $0 plans do
+  // not reach here: only a PAID plan is gated on this.
+  return lastPaid > 0 ? "paid" : "pending";
+}
+
 /** The plan code PayPal currently bills the agreement on. */
 export function currentPlanCode(
   subscription: AnyRecord | null | undefined,
@@ -430,8 +510,17 @@ export async function applySubscriptionPlan(
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Puts the tenant onto `plan` on the strength of `agreementId`, which PayPal
- * has just reported ACTIVE/APPROVED, and records the payment method.
+ * Puts the tenant onto `plan` on the strength of `agreementId`, and records
+ * the payment method.
+ *
+ * THE PAID PLAN IS NOT APPLIED UNTIL PAYPAL HAS COLLECTED. An approved
+ * agreement is not a paid one: see paymentStatusOf. When nothing has been
+ * charged the agreement is still recorded -- the tenant keeps whatever plan
+ * they had, the checkout stays pending, and PAYMENT.SALE.COMPLETED applies
+ * the plan when the money actually lands.
+ *
+ * The return value says whether the plan was applied, so callers can tell the
+ * buyer the truth.
  *
  * If the row still points at a DIFFERENT live agreement (a replacement created
  * before this architecture, or one that was mid-flight when it shipped), that
@@ -450,7 +539,7 @@ export async function activatePendingAgreement(
     paypalData: AnyRecord;
     context: string;
   },
-): Promise<void> {
+): Promise<{ applied: boolean; paymentStatus: PaymentStatus }> {
   const { sub, agreementId, plan, paypalData } = params;
   const now = new Date().toISOString();
   const periodEnd =
@@ -458,6 +547,33 @@ export async function activatePendingAgreement(
     new Date(Date.now() + 30 * DAY_MS).toISOString();
 
   const previousAgreementId = sub.paypal_subscription_id;
+  const paymentStatus = paymentStatusOf(paypalData);
+
+  // Approved but unfunded: record what PayPal told us and stop. Applying the
+  // plan here is exactly the bug -- a buyer with no balance would get the paid
+  // plan for free until the cron or a failed-payment webhook caught up.
+  if (paymentStatus !== "paid" && priceOf(plan) > 0) {
+    await admin
+      .from("subscriptions")
+      .update({
+        payment_status: paymentStatus,
+        paypal_status: storableStatus(
+          String(paypalData?.status ?? "") as PayPalSubscriptionStatus,
+        ),
+        updated_at: now,
+      })
+      .eq("tenant_id", sub.tenant_id);
+
+    logBilling("agreement.unpaid", {
+      tenant_id: sub.tenant_id,
+      paypal_subscription_id: agreementId,
+      target_plan: plan.name,
+      payment_status: paymentStatus,
+      context: params.context,
+    });
+
+    return { applied: false, paymentStatus };
+  }
 
   await applySubscriptionPlan(admin, {
     tenantId: sub.tenant_id,
@@ -468,6 +584,26 @@ export async function activatePendingAgreement(
     periodEnd,
     paypalSubscriptionId: agreementId,
   });
+
+  // A NEW agreement wipes the last one's ending. Left behind, a stale
+  // cancellation_source would tell the billing page this live subscription
+  // cannot be reactivated, and a stale cancelled_at would date it to the
+  // previous subscription.
+  //
+  // Deliberately not folded into apply_subscription_plan: that runs on every
+  // plan change, including the cron's move to Free, where the cancellation is
+  // the reason for the write and must survive it.
+  await admin
+    .from("subscriptions")
+    .update({
+      cancelled_at: null,
+      cancellation_source: null,
+      paypal_status: "ACTIVE",
+      payment_status: "paid",
+      ...HEALTHY_PAYMENT_STATE,
+      updated_at: now,
+    })
+    .eq("tenant_id", sub.tenant_id);
 
   logBilling("agreement.activated", {
     tenant_id: sub.tenant_id,
@@ -506,6 +642,8 @@ export async function activatePendingAgreement(
     },
     context: params.context,
   });
+
+  return { applied: true, paymentStatus: "paid" };
 }
 
 /** Rounds money to cents without float drift creeping into a PayPal amount. */

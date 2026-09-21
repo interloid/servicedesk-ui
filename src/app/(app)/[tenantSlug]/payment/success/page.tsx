@@ -19,6 +19,9 @@ import {
   confirmSubscriptionActivationAction,
 } from "@/features/billing/billing-actions";
 
+/** How long the buyer gets to read the card before PayPal takes over. */
+const HANDOFF_SECONDS = 4;
+
 function PaymentSuccessContent() {
   const router = useRouter();
   const params = useParams();
@@ -34,6 +37,10 @@ function PaymentSuccessContent() {
   // redirecting from inside the confirm callback) keeps the hand-off visible:
   // the buyer reads what is about to happen before they are sent to PayPal.
   const [rateApprovalUrl, setRateApprovalUrl] = useState<string | null>(null);
+  // Counted down in the open, in the button itself, so the hand-off is
+  // something the buyer watches coming rather than a page that vanishes
+  // under them mid-sentence.
+  const [handOffIn, setHandOffIn] = useState(HANDOFF_SECONDS);
   const subscriptionId = searchParams.get("subscription_id");
   const token = searchParams.get("token");
   const paymentId = subscriptionId ?? token;
@@ -113,12 +120,15 @@ function PaymentSuccessContent() {
   useEffect(() => {
     if (!rateApprovalUrl) return;
 
-    const handOff = setTimeout(() => {
+    if (handOffIn <= 0) {
       window.location.assign(rateApprovalUrl);
-    }, 2500);
+      return;
+    }
 
-    return () => clearTimeout(handOff);
-  }, [rateApprovalUrl]);
+    const tick = setTimeout(() => setHandOffIn((left) => left - 1), 1000);
+
+    return () => clearTimeout(tick);
+  }, [rateApprovalUrl, handOffIn]);
 
   useEffect(() => {
     if (checking || rateApprovalUrl) return;
@@ -218,12 +228,26 @@ function PaymentSuccessContent() {
             </div>
           </div>
 
-          {!checking && !needsRateApproval && (
+          {needsRateApproval ? (
             <p className="text-xs text-muted-foreground">
-              Redirecting to your billing page in{" "}
-              <span className="font-bold text-foreground">{countdown}</span>{" "}
-              seconds...
+              {handOffIn > 0 ? (
+                <>
+                  Taking you to PayPal in{" "}
+                  <span className="font-bold text-foreground">{handOffIn}</span>{" "}
+                  {handOffIn === 1 ? "second" : "seconds"}...
+                </>
+              ) : (
+                "Opening PayPal..."
+              )}
             </p>
+          ) : (
+            !checking && (
+              <p className="text-xs text-muted-foreground">
+                Redirecting to your billing page in{" "}
+                <span className="font-bold text-foreground">{countdown}</span>{" "}
+                seconds...
+              </p>
+            )
           )}
         </CardContent>
 
@@ -235,7 +259,9 @@ function PaymentSuccessContent() {
               onClick={() => window.location.assign(rateApprovalUrl)}
               className="h-10 w-full bg-brand-accent hover:bg-brand-accent/90"
             >
-              Continue to PayPal
+              {handOffIn > 0
+                ? `Continue to PayPal (${handOffIn})`
+                : "Taking you to PayPal…"}
             </Button>
           ) : (
             <Button

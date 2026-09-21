@@ -169,11 +169,21 @@ export function NoticeBanner({
         };
 
   return (
+    // ONE tree, not a mobile one and a desktop one.
+    //
+    // The two-tree version rendered `action` twice -- both copies live in the
+    // DOM, so every banner button existed twice and the hidden one was still
+    // focusable and still counted by tests and screen readers. It also let the
+    // two layouts drift: `truncate` sat on the desktop title and description
+    // only, quietly cutting any message longer than the one-liners it was
+    // written for, while the same text wrapped fine on a phone.
+    //
+    // Nothing truncates now. A notice exists to be read, and these say things
+    // like which date access ends on -- clipping that is worse than a banner
+    // two lines taller.
     <div
       className={cn(
-        "relative rounded-xl border px-4 py-3",
-        "md:px-4 md:py-3",
-        "lg:px-5 lg:py-3",
+        "relative rounded-xl border px-4 py-3 sm:px-5 sm:py-4",
         styles.box,
       )}
     >
@@ -188,72 +198,52 @@ export function NoticeBanner({
             "text-current/60 transition-colors",
             "hover:bg-black/5 hover:text-current",
             "focus:outline-none focus:ring-2 focus:ring-current/20",
-            "md:right-2 md:top-1/2 md:-translate-y-1/2",
           )}
         >
           <X className="size-3.5" />
         </button>
       )}
 
-      <div className="md:hidden">
-        <div className="relative min-h-9 pr-8">
+      <div
+        className={cn(
+          "flex flex-col gap-3",
+          "sm:flex-row sm:items-center sm:gap-4",
+          // Keeps the text and the action clear of the dismiss button at
+          // every width, rather than only on the breakpoint that had it.
+          onDismiss && "pr-7 sm:pr-8",
+        )}
+      >
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           <span
             className={cn(
-              "absolute left-0 top-0 flex size-9 items-center justify-center rounded-lg text-white",
+              "flex size-9 shrink-0 items-center justify-center rounded-lg text-white",
               styles.tile,
             )}
           >
             <Icon className="size-4" />
           </span>
 
-          <h3
-            className={cn(
-              "min-w-0 pl-12 text-sm font-semibold leading-5",
-              styles.title,
-            )}
-          >
-            {title}
-          </h3>
+          {/* min-w-0 is what lets the text wrap instead of forcing the flex
+              row wider than its container. */}
+          <div className="min-w-0 flex-1">
+            <h3
+              className={cn(
+                "text-sm font-semibold leading-5 break-words",
+                styles.title,
+              )}
+            >
+              {title}
+            </h3>
+
+            <p
+              className={cn("mt-1 text-xs leading-5 break-words", styles.text)}
+            >
+              {description}
+            </p>
+          </div>
         </div>
 
-        <p className={cn("mt-2 text-xs leading-4.5", styles.text)}>
-          {description}
-        </p>
-
-        {action && <div className="mt-3 flex w-full">{action}</div>}
-      </div>
-
-      <div
-        className={cn(
-          "hidden md:flex md:items-center md:gap-3",
-          onDismiss ? "md:pr-8" : "md:pr-0",
-        )}
-      >
-        <span
-          className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-lg text-white",
-            styles.tile,
-          )}
-        >
-          <Icon className="size-4" />
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <h3
-            className={cn(
-              "truncate text-sm font-semibold leading-5",
-              styles.title,
-            )}
-          >
-            {title}
-          </h3>
-
-          <p className={cn("mt-0.5 truncate text-xs leading-4", styles.text)}>
-            {description}
-          </p>
-        </div>
-
-        {action && <div className="shrink-0">{action}</div>}
+        {action && <div className="w-full shrink-0 sm:w-auto">{action}</div>}
       </div>
     </div>
   );
@@ -334,7 +324,7 @@ export function LoadingState({ showBanner }: { showBanner: boolean }) {
         {showBanner && (
           <Skeleton className="h-20 w-full rounded-xl bg-slate-100 lg:h-16" />
         )}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <CardSkeleton key={i} />
           ))}

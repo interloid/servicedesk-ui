@@ -666,6 +666,33 @@ async function enforceGracePeriod(
   return "applied";
 }
 
+/**
+ * A downgrade that was sent to PayPal, came back needing the buyer's
+ * approval, and never got it. There is no order and no second agreement --
+ * only the parked intent -- so nothing has to be cancelled or refunded. Past
+ * the TTL it is dropped and the tenant stays on the plan they have.
+ */
+async function expireAbandonedPlanChange(
+  sub: SubscriptionRow,
+): Promise<Outcome> {
+  const startedAt = sub.pending_started_at
+    ? new Date(sub.pending_started_at).getTime()
+    : 0;
+
+  if (Date.now() - startedAt <= PENDING_CHECKOUT_TTL_MS) {
+    return "notReady";
+  }
+
+  await clearPendingCheckout(sub.tenant_id);
+
+  logBilling("cron.plan-change.abandoned", {
+    tenant_id: sub.tenant_id,
+    target_plan_id: sub.pending_plan_id,
+  });
+
+  return "applied";
+}
+
 /** A Free -> Paid checkout the buyer never approved. */
 async function expireAbandonedSignup(sub: SubscriptionRow): Promise<Outcome> {
   const pendingId = sub.pending_paypal_subscription_id;
@@ -886,7 +913,11 @@ Deno.serve(async (req) => {
       try {
         const outcome = sub.pending_order_id
           ? await retryCapturedUpgrade(sub)
-          : await expireAbandonedSignup(sub);
+          : sub.pending_paypal_subscription_id
+            ? await expireAbandonedSignup(sub)
+            : // A pending plan change with no PayPal object of its own: a
+              // downgrade the buyer never approved. Only time clears it.
+              await expireAbandonedPlanChange(sub);
 
         if (outcome === "applied") summary.applied += 1;
         else if (outcome === "notReady") summary.notReady += 1;

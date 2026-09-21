@@ -507,6 +507,86 @@ export async function applySubscriptionPlan(
   return data === true;
 }
 
+/**
+ * Records a plan change the buyer has just APPROVED at PayPal.
+ *
+ * WHEN it takes effect depends on the direction, and only this decides it:
+ *
+ *   cheaper, with paid time left -> scheduled for current_period_end. They
+ *     paid for the dearer plan through that date and keep it until then;
+ *     PayPal already bills the lower rate from the next cycle.
+ *
+ *   anything else -> applied now (an upgrade whose difference is paid, or a
+ *     change with no paid time left to protect).
+ *
+ * Shared by the `activate` action and the UPDATED webhook. Both see the same
+ * approval and must reach the same conclusion: if one applied a downgrade
+ * immediately, whichever arrived first would decide what the customer got.
+ */
+export async function applyApprovedPlanChange(
+  admin: BillingAdminClient,
+  params: {
+    sub: SubscriptionRow;
+    plan: PlanRow;
+    currentPlan: PlanRow | null;
+    paypalData: AnyRecord;
+    context: string;
+  },
+): Promise<{ scheduledFor: string | null }> {
+  const { sub, plan, currentPlan, paypalData } = params;
+
+  const periodEnd = sub.current_period_end
+    ? new Date(sub.current_period_end)
+    : null;
+  const hasPaidTime = periodEnd !== null && periodEnd.getTime() > Date.now();
+  const isDowngrade = priceOf(plan) < priceOf(currentPlan);
+
+  if (isDowngrade && hasPaidTime && periodEnd) {
+    await admin
+      .from("subscriptions")
+      .update({
+        next_plan_id: plan.id,
+        next_plan_effective_at: periodEnd.toISOString(),
+        cancel_at_period_end: false,
+        pending_plan_id: null,
+        pending_order_id: null,
+        pending_paypal_subscription_id: null,
+        pending_started_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("tenant_id", sub.tenant_id);
+
+    logBilling("downgrade.scheduled", {
+      tenant_id: sub.tenant_id,
+      paypal_subscription_id: sub.paypal_subscription_id,
+      current_plan: currentPlan?.name,
+      target_plan: plan.name,
+      effective_at: periodEnd.toISOString(),
+      context: params.context,
+    });
+
+    return { scheduledFor: periodEnd.toISOString() };
+  }
+
+  await applySubscriptionPlan(admin, {
+    tenantId: sub.tenant_id,
+    planId: plan.id,
+    status: "active",
+    seats: seatsOf(plan),
+    periodEnd: nextBillingTime(paypalData) ?? sub.current_period_end ?? null,
+  });
+
+  logBilling("plan-change.applied", {
+    tenant_id: sub.tenant_id,
+    paypal_subscription_id: sub.paypal_subscription_id,
+    current_plan: currentPlan?.name,
+    target_plan: plan.name,
+    context: params.context,
+  });
+
+  return { scheduledFor: null };
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**

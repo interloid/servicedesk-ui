@@ -6,6 +6,7 @@ import {
 } from "../_shared/paypal-payment-method.ts";
 import {
   activatePendingAgreement,
+  applyApprovedPlanChange,
   applySubscriptionPlan,
   canCancel,
   canRevise,
@@ -509,6 +510,22 @@ async function reconcilePendingCheckout(
     }
 
     return sub;
+  }
+
+  // A pending PLAN CHANGE with neither an order nor an agreement of its own:
+  // a downgrade waiting on the buyer's PayPal approval. Nothing was charged
+  // and nothing was promised, so once the TTL passes it is simply dropped --
+  // the tenant stays on the plan they have. If they did approve it, the
+  // UPDATED webhook has already turned it into a real schedule.
+  if (!sub.pending_order_id && expired) {
+    logBilling("plan-change.abandoned", {
+      tenant_id: sub.tenant_id,
+      target_plan_id: sub.pending_plan_id,
+    });
+
+    await clearPendingCheckout(admin, sub.tenant_id);
+
+    return (await loadSubscription(admin, sub.tenant_id)) ?? sub;
   }
 
   // A pending ORDER: only time expires it. A captured one is finished by
@@ -1702,25 +1719,31 @@ Deno.serve(async (req) => {
         const paypalPlanCode = String(lookup.data.plan_id ?? "");
 
         if (plan && paypalPlanCode === plan.code) {
-          await applySubscriptionPlan(asBillingAdmin(admin), {
-            tenantId,
-            planId: plan.id,
-            status: "active",
-            seats: seatsOf(plan),
-            periodEnd:
-              nextBillingTime(lookup.data) ?? sub.current_period_end ?? null,
-          });
+          // Not necessarily an upgrade: a DOWNGRADE awaiting approval is
+          // parked in pending_plan_id too, and applying that here would hand
+          // the buyer the cheaper plan the moment they approved -- cutting
+          // short the period they had already paid for at the higher rate.
+          // The shared helper decides now-or-at-period-end from the prices.
+          const livePlan = await loadPlan(admin, sub.plan_id);
 
-          logBilling("upgrade.applied", {
-            tenant_id: tenantId,
-            paypal_subscription_id: targetSubscriptionId,
-            target_plan: plan.name,
-            context: "activate",
-          });
+          const { scheduledFor } = await applyApprovedPlanChange(
+            asBillingAdmin(admin),
+            {
+              sub,
+              plan,
+              currentPlan: livePlan,
+              paypalData: lookup.data,
+              context: "subscription:activate",
+            },
+          );
 
           return Response.json({
             success: true,
-            message: "Subscription activated successfully.",
+            scheduled: scheduledFor !== null,
+            effectiveAt: scheduledFor,
+            message: scheduledFor
+              ? "Plan change confirmed. Your current plan stays active until the end of the billing period."
+              : "Subscription activated successfully.",
             planName: plan.name,
           });
         }
@@ -2091,6 +2114,88 @@ Deno.serve(async (req) => {
     const hasPaidTime = periodEnd !== null && periodEnd.getTime() > Date.now();
 
     if (targetPrice < currentPrice && hasPaidTime && periodEnd) {
+      // ASK PAYPAL FIRST, then record what it actually accepted.
+      //
+      // The schedule used to be written before this call, on the reasoning
+      // that a failed revise should still leave the cron something to apply.
+      // But PayPal answers a plan change with an approve link when it wants
+      // the buyer to confirm, and a buyer who closes that page has confirmed
+      // nothing -- while the row already said the downgrade was scheduled.
+      // Clicking "Downgrade" and then Back was enough to change the plan.
+      //
+      // Nothing is committed here until either PayPal applies the change
+      // outright, or BILLING.SUBSCRIPTION.UPDATED says the buyer approved it.
+      const revise = await paypal.revise(
+        agreementId!,
+        targetPlan.code,
+        approvalRedirect,
+      );
+
+      if (!revise.ok) {
+        console.error("[billing] downgrade revise failed; nothing scheduled:", {
+          tenant_id: tenantId,
+          paypal_subscription_id: agreementId,
+          current_plan: currentPlan?.name,
+          target_plan: targetPlan.name,
+          issue: revise.issue,
+        });
+
+        return Response.json(
+          {
+            success: false,
+            message:
+              "PayPal could not change your plan. Please try again in a moment.",
+          },
+          { status: 502 },
+        );
+      }
+
+      // Waiting on the buyer. The intent is parked in pending_* -- which is
+      // what "the buyer has not finished this" already means everywhere else
+      // -- and deliberately NOT in next_plan_*, which the billing page and
+      // the cron both read as a committed change. An abandoned one expires on
+      // the same TTL as any other unfinished checkout.
+      if (revise.approveUrl) {
+        const { error: pendingError } = await admin
+          .from("subscriptions")
+          .update({
+            pending_plan_id: targetPlan.id,
+            pending_order_id: null,
+            pending_paypal_subscription_id: null,
+            pending_started_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("tenant_id", tenantId);
+
+        if (pendingError) {
+          console.error("[billing] could not record the pending downgrade:", {
+            tenant_id: tenantId,
+            error: pendingError,
+          });
+        }
+
+        logBilling("downgrade.awaiting-approval", {
+          tenant_id: tenantId,
+          paypal_subscription_id: agreementId,
+          current_plan: currentPlan?.name,
+          target_plan: targetPlan.name,
+        });
+
+        return Response.json({
+          success: true,
+          scheduled: false,
+          message:
+            "Please confirm the change with PayPal. Nothing changes until you do.",
+          subscriptionId: agreementId,
+          approvalUrl: revise.approveUrl,
+          amountDue: 0,
+        });
+      }
+
+      // PayPal took the change without asking the buyer, so it is settled:
+      // it bills the lower rate from the next cycle. The tenant keeps the
+      // plan they paid for until periodEnd -- entitlements come from
+      // subscriptions.plan_id, which does not move until then.
       const { error: scheduleError } = await admin
         .from("subscriptions")
         .update({
@@ -2116,41 +2221,6 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Revise the SAME agreement NOW, even though the tenant keeps the plan
-      // they paid for until periodEnd.
-      //
-      // Doing it now rather than at periodEnd closes a real gap: PayPal bills
-      // the next cycle AT periodEnd, so a cron that only revises then can lose
-      // the race and charge the old, higher rate for a cycle the customer had
-      // already downgraded out of. Revised now, PayPal charges the new rate on
-      // its own at the next cycle.
-      //
-      // Entitlements do not move with it -- they come from subscriptions.plan_id,
-      // which stays on the current plan until next_plan_effective_at.
-      //
-      // The schedule above is written FIRST on purpose: if this revise fails,
-      // reconcile-subscriptions still applies the change at periodEnd, so the
-      // worst case is the old behaviour rather than a lost plan change.
-      const revise = await paypal.revise(
-        agreementId!,
-        targetPlan.code,
-        approvalRedirect,
-      );
-
-      if (!revise.ok) {
-        console.error(
-          "[billing] downgrade revise failed; the scheduled change stands " +
-            "and reconcile-subscriptions will apply it at the period end:",
-          {
-            tenant_id: tenantId,
-            paypal_subscription_id: agreementId,
-            current_plan: currentPlan?.name,
-            target_plan: targetPlan.name,
-            issue: revise.issue,
-          },
-        );
-      }
-
       logBilling("downgrade.scheduled", {
         tenant_id: tenantId,
         paypal_subscription_id: agreementId,
@@ -2158,22 +2228,18 @@ Deno.serve(async (req) => {
         target_plan: targetPlan.name,
         amount: targetPrice,
         effective_at: periodEnd.toISOString(),
-        revised: revise.ok,
-        needs_approval: Boolean(revise.approveUrl),
+        revised: true,
+        needs_approval: false,
       });
 
       return Response.json({
         success: true,
         scheduled: true,
         effectiveAt: periodEnd.toISOString(),
-        message: revise.approveUrl
-          ? "Please confirm the change with PayPal. Your current plan stays active until the end of the billing period."
-          : "Plan change scheduled. Your current plan stays active until the end of the billing period.",
+        message:
+          "Plan change scheduled. Your current plan stays active until the end of the billing period.",
         subscriptionId: agreementId,
-        // PayPal asks the buyer to confirm a plan change it cannot apply on
-        // the merchant's word alone. Same agreement either way -- confirming
-        // never creates a second one.
-        approvalUrl: revise.approveUrl,
+        approvalUrl: null,
         amountDue: 0,
       });
     }

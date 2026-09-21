@@ -6,6 +6,7 @@ import { updateInvoiceStorage } from "./invoice.ts";
 import { paypal } from "./paypal.ts";
 import {
   activatePendingAgreement,
+  applyApprovedPlanChange,
   applySubscriptionPlan,
   HEALTHY_PAYMENT_STATE,
   logBilling,
@@ -641,6 +642,32 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
       break;
     }
 
+    // A pending change is one the buyer has just approved, and its direction
+    // decides when it lands: an upgrade they paid the difference for applies
+    // now, a downgrade is scheduled for the period end they already paid for.
+    // The same helper runs in the activate action, so whichever of the two
+    // arrives first reaches the identical conclusion.
+    if (isPending) {
+      const livePlan = await loadPlan(sub.plan_id);
+
+      const { scheduledFor } = await applyApprovedPlanChange(billingAdmin, {
+        sub,
+        plan,
+        currentPlan: livePlan,
+        paypalData: subscription,
+        context: "webhook:updated",
+      });
+
+      logBilling("webhook.revise-approved", {
+        tenant_id: sub.tenant_id,
+        paypal_subscription_id: subscription.id,
+        target_plan: plan.name,
+        scheduled_for: scheduledFor,
+      });
+
+      break;
+    }
+
     // Claimed on the plan it is applying, so a redelivered event that finds
     // the change already applied writes nothing a second time.
     const applied = await applySubscriptionPlan(billingAdmin, {
@@ -649,7 +676,7 @@ export async function handleSubscriptionUpdated(event: WebhookEvent) {
       status: "active",
       seats: seatsOf(plan),
       periodEnd: nextBilling ?? sub.current_period_end ?? null,
-      expectedNextPlanId: isPending ? null : planId,
+      expectedNextPlanId: planId,
     });
 
     logBilling("webhook.revise-approved", {

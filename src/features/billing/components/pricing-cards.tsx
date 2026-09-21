@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useTransition, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   Clock,
@@ -30,7 +30,12 @@ import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,24 +61,38 @@ export function PricingCards({
   billingData,
 }: PricingCardsProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [isPending, startTransition] = useTransition();
-
   const [loadingPlanCode, setLoadingPlanCode] = useState<string | null>(null);
-
   const [selectedPlanForSwitch, setSelectedPlanForSwitch] =
     useState<FormattedPlan | null>(null);
-
   const [downgradeTarget, setDowngradeTarget] = useState<FormattedPlan | null>(
     null,
   );
-
   const [isCancelOpen, setIsCancelOpen] = useState(false);
-
-  // The scheduled-change confirmation below is a controlled dialog: it has no
-  // AlertDialogTrigger, because the button that opens it lives in a different
-  // part of the tree (the plan card), not next to the dialog.
   const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
+
+  // Check if billing is currently locked/processing or recently cancelled via PayPal
+  const isBillingLocked = billingData?.billingStatus === "cancelled";
+  // Handle PayPal cancellation landing state
+  useEffect(() => {
+    const status = searchParams.get("status");
+    if (status === "cancelled") {
+      toast.error(
+        "PayPal checkout was cancelled. No changes were made to your subscription.",
+      );
+
+      // Reset plan state
+      setSelectedPlanForSwitch(null);
+      setDowngradeTarget(null);
+      setLoadingPlanCode(null);
+
+      // Clean query parameter from URL without page refresh
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, "", newUrl);
+    }
+  }, [searchParams]);
 
   const announceScheduled = (planName: string, effectiveAt: string | null) => {
     const when = effectiveAt
@@ -88,6 +107,7 @@ export function PricingCards({
       `Switch to ${planName} scheduled for ${when}. You keep your current plan until then.`,
     );
   };
+
   const executePlanSwitch = (plan: FormattedPlan) => {
     const scheduledToName = billingData?.scheduledChange?.planName
       ? billingData.scheduledChange.planName.trim().toLowerCase()
@@ -95,10 +115,8 @@ export function PricingCards({
 
     if (scheduledToName && plan.name.trim().toLowerCase() === scheduledToName) {
       toast.info(`You've already scheduled the switch to ${plan.name}.`);
-
       setSelectedPlanForSwitch(null);
       setDowngradeTarget(null);
-
       return;
     }
 
@@ -114,26 +132,22 @@ export function PricingCards({
         }
 
         if (res.approvalUrl) {
+          // Redirecting to PayPal
           window.location.assign(res.approvalUrl);
           return;
         }
 
         if (res.scheduled) {
           announceScheduled(plan.name, res.effectiveAt ?? null);
-
           setSelectedPlanForSwitch(null);
-
           router.refresh();
-
           return;
         }
 
         setSelectedPlanForSwitch(null);
-
         router.refresh();
       } catch (error) {
         console.error("Plan switch error:", error);
-
         toast.error(
           error instanceof Error
             ? error.message
@@ -146,14 +160,6 @@ export function PricingCards({
   };
 
   const [isOpen, setIsOpen] = useState(false);
-
-  // 2. Sync open state whenever selectedPlanForSwitch changes.
-  //
-  // Adjusting state during render rather than in an effect: React finishes
-  // this render with the new value instead of painting once and re-rendering,
-  // so the dialog cannot flash a frame in the wrong state. Same pattern as
-  // downgrade-dialog.tsx. Closing here matters too -- executePlanSwitch clears
-  // the selection on success while the dialog is still open.
   const [prevSelectedPlan, setPrevSelectedPlan] = useState(
     selectedPlanForSwitch,
   );
@@ -163,18 +169,17 @@ export function PricingCards({
     setIsOpen(Boolean(selectedPlanForSwitch));
   }
 
-  // 3. Helper function to handle closing gracefully
   const handleClose = () => {
     if (isPending) return;
-    setIsOpen(false); // Triggers close animation while selectedPlanForSwitch stays intact
+    setIsOpen(false);
   };
 
-  // 4. Reset selectedPlanForSwitch when animation completes
   const handleAnimationEnd = () => {
     if (!isOpen) {
       setSelectedPlanForSwitch(null);
     }
   };
+
   const activeTarget = (currentPlanCode || "").trim().toLowerCase();
 
   const currentPlan =
@@ -185,7 +190,6 @@ export function PricingCards({
     ) ?? null;
 
   const currentPrice = currentPlan?.priceValue ?? null;
-
   const freePlan = plans.find((plan) => plan.priceValue === 0);
 
   const canCancelCurrent =
@@ -196,9 +200,7 @@ export function PricingCards({
     freePlan.id !== currentPlan.id;
 
   const isPendingCancellation = billingData?.billingStatus === "cancelled";
-
   const scheduledChange = billingData?.scheduledChange ?? null;
-
   const hasScheduledDowngrade =
     Boolean(scheduledChange) && !isPendingCancellation;
 
@@ -237,6 +239,13 @@ export function PricingCards({
         : `Upgrade to ${selectedPlanForSwitch.name}`;
 
   const openSwitchDialog = (plan: FormattedPlan) => {
+    if (isBillingLocked) {
+      toast.error(
+        "Your subscription is processing a pending change. Please wait or refresh.",
+      );
+      return;
+    }
+
     if (currentPrice !== null && plan.priceValue < currentPrice) {
       setDowngradeTarget(plan);
       return;
@@ -250,7 +259,6 @@ export function PricingCards({
   };
 
   const usedSeats = billingData?.seats?.used ?? 0;
-
   const totalSeats = billingData?.seats?.total ?? 0;
 
   const renewalDate =
@@ -259,7 +267,6 @@ export function PricingCards({
       : null;
 
   const currentPlanRate = billingData?.plan?.rateValue ?? 0;
-
   const target = selectedPlanForSwitch;
 
   const isUpgradeTarget =
@@ -267,10 +274,6 @@ export function PricingCards({
     target !== null &&
     target.priceValue > currentPrice;
 
-  // An upgrade costs the DIFFERENCE, today: the current period is already
-  // paid for at the old rate, so Pro $29 -> Business $59 is $30. No prorated
-  // days, no credit for unused time. The recurring charge becomes the full
-  // rate from the next cycle.
   const upgradeAmount =
     isUpgradeTarget && target
       ? Math.round(Math.max(0, target.priceValue - currentPlanRate) * 100) / 100
@@ -278,16 +281,11 @@ export function PricingCards({
 
   const dialogTiming = (() => {
     if (!target) {
-      return {
-        headline: "",
-        body: "",
-        deferred: false,
-      };
+      return { headline: "", body: "", deferred: false };
     }
 
     return {
       headline: "As soon as PayPal checkout is approved",
-
       body: isUpgradeTarget
         ? `You'll pay $${upgradeAmount.toFixed(
             2,
@@ -305,7 +303,6 @@ export function PricingCards({
           } subscription. Your current plan stays active until it's live, then you'll be billed ${
             target.price
           }${target.priceSuffix}.`,
-
       deferred: false,
     };
   })();
@@ -315,9 +312,7 @@ export function PricingCards({
       <div className="flex flex-wrap items-stretch justify-center gap-5 xl:gap-6">
         {plans.map((plan, planIdx) => {
           const planId = (plan.id || "").trim().toLowerCase();
-
           const planCode = (plan.code || "").trim().toLowerCase();
-
           const planName = (plan.name || "").trim().toLowerCase();
 
           const isCurrent =
@@ -344,7 +339,6 @@ export function PricingCards({
           plans.slice(0, planIdx).forEach((previous) => {
             previous.features?.forEach((feature) => {
               const key = feature.label.toLowerCase().split(":")[0].trim();
-
               prevFeatureMap.set(
                 key,
                 feature.value as string | number | undefined,
@@ -356,20 +350,15 @@ export function PricingCards({
 
           const additionalFeatures = rawFeatures.filter((feature) => {
             const key = feature.label.toLowerCase().split(":")[0].trim();
-
-            if (!prevFeatureMap.has(key)) {
-              return true;
-            }
+            if (!prevFeatureMap.has(key)) return true;
 
             const previousValue = prevFeatureMap.get(key);
-
             if (
               feature.value !== undefined &&
               feature.value !== previousValue
             ) {
               return true;
             }
-
             return false;
           });
 
@@ -380,6 +369,9 @@ export function PricingCards({
               : isDowngrade
                 ? `Downgrade to ${plan.name}`
                 : `Upgrade to ${plan.name}`;
+
+          // Disable buttons when pending transition, when billing is locked, or if plan is active
+          const isButtonDisabled = isPending || isBillingLocked;
 
           return (
             <Card
@@ -507,6 +499,7 @@ export function PricingCards({
                   )}
                 </div>
 
+                {/* Action Buttons & Status Indicators */}
                 <div className="mt-6 flex flex-col gap-2.5">
                   {isCurrent ? (
                     <>
@@ -514,7 +507,6 @@ export function PricingCards({
                         <>
                           <div className="flex min-h-11.5 items-center justify-center gap-2 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-3 text-center text-xs font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
                             <Clock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" />
-
                             <span>
                               {isPendingCancellation
                                 ? renewalDate
@@ -530,11 +522,11 @@ export function PricingCards({
 
                           <Button
                             variant="outline"
+                            disabled={isPending || isBillingLocked}
                             onClick={() => setIsUndoConfirmOpen(true)}
                             className="h-11 w-full gap-2 rounded-xl border border-emerald-600 bg-background text-sm font-medium text-emerald-700 shadow-none hover:bg-emerald-50/50 dark:border-emerald-500 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
                           >
                             <RotateCcw className="h-4 w-4" />
-
                             {isPendingCancellation
                               ? "Reactivate my plan"
                               : "Keep my current plan"}
@@ -544,7 +536,7 @@ export function PricingCards({
                         canCancelCurrent && (
                           <Button
                             variant="ghost"
-                            disabled={isPending}
+                            disabled={isPending || isBillingLocked}
                             onClick={openCancelDialog}
                             className="h-11 w-full rounded-xl border border-red-200 bg-background text-sm font-medium text-red-600 shadow-none hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-950/30"
                           >
@@ -561,7 +553,6 @@ export function PricingCards({
                       className="h-11 w-full gap-2 rounded-xl border-amber-500! bg-amber-50/70 text-sm font-semibold text-amber-800 shadow-none dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200"
                     >
                       <Clock className="h-4 w-4 shrink-0" />
-
                       <span>
                         Effective on{" "}
                         {scheduledChangeDate ??
@@ -570,24 +561,49 @@ export function PricingCards({
                       </span>
                     </Button>
                   ) : (
-                    <Button
-                      type="button"
-                      variant={isDowngrade ? "outline" : "default"}
-                      disabled={isPending}
-                      onClick={() => openSwitchDialog(plan)}
-                      className={cn(
-                        "h-11 w-full gap-2 rounded-xl text-sm font-semibold shadow-none transition-colors",
-                        isDowngrade
-                          ? "border-border text-emerald-700 hover:border-emerald-600 hover:bg-emerald-50/30 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
-                          : "bg-brand-accent text-white hover:bg-brand-accent/90",
-                      )}
-                    >
-                      {isLoadingThis && (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      )}
+                    /* Wrap in Tooltip when billing is locked / plan updates are disabled */
+                    <TooltipProvider>
+                      <Tooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                          {/* Span wrapper enables mouse hover events on disabled buttons */}
+                          <span
+                            className={cn(
+                              isBillingLocked && "cursor-not-allowed w-full",
+                            )}
+                          >
+                            <Button
+                              type="button"
+                              variant={isDowngrade ? "outline" : "default"}
+                              disabled={isPending || isBillingLocked}
+                              onClick={() => openSwitchDialog(plan)}
+                              className={cn(
+                                "h-11 w-full gap-2 rounded-xl text-sm font-semibold shadow-none transition-colors",
+                                isBillingLocked &&
+                                  "pointer-events-none opacity-60",
+                                isDowngrade
+                                  ? "border-border text-emerald-700 hover:border-emerald-600 hover:bg-emerald-50/30 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
+                                  : "bg-brand-accent text-white hover:bg-brand-accent/90",
+                              )}
+                            >
+                              {isLoadingThis && (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              )}
+                              <span>{ctaLabel}</span>
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
 
-                      <span>{ctaLabel}</span>
-                    </Button>
+                        {isBillingLocked && (
+                          <TooltipContent
+                            side="bottom"
+                            className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs text-white shadow-md dark:bg-zinc-100 dark:text-zinc-900"
+                          >
+                            To change or update your plan, please contact our
+                            support team at support@servicedesk.com.
+                          </TooltipContent>
+                        )}
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
                 </div>
               </div>
@@ -603,18 +619,18 @@ export function PricingCards({
         <AlertDialogContent
           onAnimationEnd={handleAnimationEnd}
           className="
-      w-[calc(100%-2rem)]
-      data-[size=default]:max-w-110
-      data-[size=default]:sm:max-w-125
-      rounded-2xl
-      border
-      border-border
-      bg-background
-      p-0
-      shadow-xl
-      max-h-[calc(100dvh-2rem)]
-      overflow-y-auto
-    "
+            w-[calc(100%-2rem)]
+            data-[size=default]:max-w-110
+            data-[size=default]:sm:max-w-125
+            rounded-2xl
+            border
+            border-border
+            bg-background
+            p-0
+            shadow-xl
+            max-h-[calc(100dvh-2rem)]
+            overflow-y-auto
+          "
         >
           <AlertDialogHeader className="block px-6 pt-5 pb-4 text-left">
             <div className="flex items-center justify-between gap-4">
@@ -628,27 +644,27 @@ export function PricingCards({
                 disabled={isPending}
                 onClick={handleClose}
                 className="
-            absolute
-            right-4
-            top-4
-            z-20
-            flex
-            size-8
-            items-center
-            justify-center
-            rounded-md
-            border-0
-            bg-transparent
-            p-0
-            text-muted-foreground
-            shadow-none
-            hover:bg-transparent
-            hover:text-foreground
-            focus:outline-none
-            focus:ring-2
-            focus:ring-current/20
-            disabled:pointer-events-none
-          "
+                  absolute
+                  right-4
+                  top-4
+                  z-20
+                  flex
+                  size-8
+                  items-center
+                  justify-center
+                  rounded-md
+                  border-0
+                  bg-transparent
+                  p-0
+                  text-muted-foreground
+                  shadow-none
+                  hover:bg-transparent
+                  hover:text-foreground
+                  focus:outline-none
+                  focus:ring-2
+                  focus:ring-current/20
+                  disabled:pointer-events-none
+                "
                 aria-label="Close"
               >
                 <X className="size-4" />
@@ -779,6 +795,7 @@ export function PricingCards({
           freePlan={freePlan ?? null}
         />
       )}
+
       {(isPendingCancellation || hasScheduledDowngrade) && (
         <AlertDialog
           open={isUndoConfirmOpen}
@@ -817,8 +834,7 @@ export function PricingCards({
             </AlertDialogHeader>
             <AlertDialogCancel
               disabled={isPending}
-              className=" absolute right-4 top-4 h-8 w-8 rounded-full border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent
-              hover:text-foreground focus:ring-0 focus:ring-offset-0 "
+              className="absolute right-4 top-4 h-8 w-8 rounded-full border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground focus:ring-0 focus:ring-offset-0"
               aria-label="Close"
             >
               <X className="h-4 w-4" />

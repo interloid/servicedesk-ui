@@ -274,22 +274,6 @@ export default function BillingDashboard({
       : cancellationSource === "paypal"
         ? "You cancelled this subscription in PayPal, so it can't be reactivated here."
         : "This subscription has already ended at PayPal, so it can't be reactivated.";
-  // A subscription that has ALREADY ended, with the tenant now on Free.
-  //
-  // Nothing is scheduled any more -- the move happened -- so the cancellation
-  // banner above cannot catch this: it keys on a future effective date that
-  // was cleared when the plan was applied. Without this the workspace simply
-  // appears on Free one day, which is at its worst when PayPal ended the
-  // subscription and the change never passed through the app at all.
-  //
-  // `endedRecently` is computed server-side: cancelled_at is only cleared when
-  // the tenant subscribes again, so without a window someone who cancelled
-  // once and stayed on Free would be told about it on every load forever
-  // (banner dismissal is in-memory and resets on reload).
-  const endedOnFree =
-    isFreeTier &&
-    !isPendingCancellation &&
-    Boolean(data.cancellation?.endedRecently);
 
   const showScheduledChangeBanner =
     Boolean(scheduledChange) && !isPendingCancellation;
@@ -434,44 +418,9 @@ export default function BillingDashboard({
                     "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
                   )}
                 />
-              ) : (
-                <Button
-                  className={cn(
-                    OUTLINE_BUTTON,
-                    "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
-                  )}
-                  onClick={() => router.push(plansHref)}
-                >
-                  Choose a plan
-                </Button>
-              )
+              ) : undefined
             }
             onDismiss={() => dismissBanner("pending-cancellation")}
-          />
-        ) : endedOnFree && !dismissedBanners.includes("ended-on-free") ? (
-          <NoticeBanner
-            tone="amber"
-            icon={Clock}
-            title="Your subscription has ended"
-            description={
-              cancellationSource === "paypal"
-                ? "You cancelled this subscription in PayPal, so your workspace is now on the Free plan. Choose a plan to subscribe again."
-                : cancellationSource === "system"
-                  ? "We couldn't collect payment, so your subscription ended and your workspace is now on the Free plan. Choose a plan to subscribe again."
-                  : "Your subscription has ended and your workspace is now on the Free plan. Choose a plan to subscribe again."
-            }
-            action={
-              <Button
-                className={cn(
-                  OUTLINE_BUTTON,
-                  "h-9 w-full border-amber-300 text-xs text-amber-900 hover:bg-amber-100 sm:w-auto",
-                )}
-                onClick={() => router.push(plansHref)}
-              >
-                Choose a plan
-              </Button>
-            }
-            onDismiss={() => dismissBanner("ended-on-free")}
           />
         ) : null}
 

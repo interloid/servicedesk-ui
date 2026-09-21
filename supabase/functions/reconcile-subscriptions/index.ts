@@ -4,6 +4,7 @@ import {
   applySubscriptionPlan,
   canCancel,
   canRevise,
+  HEALTHY_PAYMENT_STATE,
   createPayPalSubscriptionsClient,
   logBilling,
   nextBillingTime,
@@ -538,6 +539,109 @@ async function retryCapturedUpgrade(sub: SubscriptionRow): Promise<Outcome> {
   return "applied";
 }
 
+/**
+ * A grace window that has closed.
+ *
+ * PayPal suspended the agreement for non-payment and the tenant was given
+ * PAYMENT_GRACE_DAYS to fix it. This is the end of that: either PayPal is
+ * billing again -- in which case the trouble is over and the window simply
+ * clears -- or it still is not, and the tenant moves to Free.
+ *
+ * PayPal is asked every time rather than trusting the stored status, because
+ * a customer who fixed their card outside the app recovers through
+ * BILLING.SUBSCRIPTION.ACTIVATED, and a missed webhook must not cost them
+ * their plan.
+ */
+async function enforceGracePeriod(
+  sub: SubscriptionRow,
+  freePlan: PlanRow | null,
+): Promise<Outcome> {
+  const agreementId = sub.paypal_subscription_id;
+
+  if (agreementId) {
+    const lookup = await paypal.get(agreementId);
+
+    if (!lookup.ok) {
+      // Never downgrade on a PayPal outage: try again next hour.
+      return "notReady";
+    }
+
+    // Paying again. Clear the dunning state and leave the plan alone.
+    if (lookup.status === "ACTIVE") {
+      const { error } = await admin
+        .from("subscriptions")
+        .update({
+          ...HEALTHY_PAYMENT_STATE,
+          status: "active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("tenant_id", sub.tenant_id);
+
+      if (error) {
+        throw error;
+      }
+
+      logBilling("cron.grace.recovered", {
+        tenant_id: sub.tenant_id,
+        paypal_subscription_id: agreementId,
+      });
+
+      return "applied";
+    }
+
+    if (canCancel(lookup.status)) {
+      // Stop the agreement for good before the tenant is moved off the plan,
+      // so a late reactivation cannot bill someone now on Free.
+      const cancelled = await paypal.cancel(
+        agreementId,
+        "Subscription unpaid past its grace period",
+      );
+
+      if (!cancelled) {
+        return "notReady";
+      }
+    }
+  }
+
+  if (!freePlan) {
+    console.error(
+      "[billing] grace period closed but there is no Free plan to move the " +
+        "tenant to; the plan was NOT changed:",
+      { tenant_id: sub.tenant_id, paypal_subscription_id: agreementId },
+    );
+
+    return "notReady";
+  }
+
+  await applySubscriptionPlan(billingAdmin, {
+    tenantId: sub.tenant_id,
+    planId: freePlan.id,
+    status: "active",
+    seats: seatsOf(freePlan),
+    periodStart: new Date().toISOString(),
+    clearPeriodEnd: true,
+    clearPaypalSubscriptionId: true,
+  });
+
+  const { error } = await admin
+    .from("subscriptions")
+    .update({ ...HEALTHY_PAYMENT_STATE, updated_at: new Date().toISOString() })
+    .eq("tenant_id", sub.tenant_id);
+
+  if (error) {
+    throw error;
+  }
+
+  logBilling("cron.grace.expired", {
+    tenant_id: sub.tenant_id,
+    paypal_subscription_id: agreementId,
+    target_plan: freePlan.name,
+    failure_count: sub.payment_failure_count ?? 0,
+  });
+
+  return "applied";
+}
+
 /** A Free -> Paid checkout the buyer never approved. */
 async function expireAbandonedSignup(sub: SubscriptionRow): Promise<Outcome> {
   const pendingId = sub.pending_paypal_subscription_id;
@@ -630,10 +734,22 @@ Deno.serve(async (req) => {
       throw pendingError;
     }
 
+    // Unpaid subscriptions whose grace window has run out.
+    const { data: graceRows, error: graceError } = await admin
+      .from("subscriptions")
+      .select(SUBSCRIPTION_COLUMNS)
+      .not("grace_period_ends_at", "is", null)
+      .lte("grace_period_ends_at", nowIso);
+
+    if (graceError) {
+      throw graceError;
+    }
+
     const due = (dueRows ?? []) as unknown as SubscriptionRow[];
     const pending = (pendingRows ?? []) as unknown as SubscriptionRow[];
+    const grace = (graceRows ?? []) as unknown as SubscriptionRow[];
 
-    summary.examined = due.length + pending.length;
+    summary.examined = due.length + pending.length + grace.length;
 
     if (summary.examined === 0) {
       return Response.json({ success: true, ...summary });
@@ -682,6 +798,23 @@ Deno.serve(async (req) => {
         console.error(
           `Reconciling subscription for tenant ${sub.tenant_id} failed:`,
           subError,
+        );
+      }
+    }
+
+    for (const sub of grace) {
+      try {
+        const outcome = await enforceGracePeriod(sub, freePlan);
+
+        if (outcome === "applied") summary.applied += 1;
+        else if (outcome === "notReady") summary.notReady += 1;
+        else summary.abandoned += 1;
+      } catch (graceCheckError) {
+        summary.failed += 1;
+
+        console.error(
+          `Enforcing the grace period for tenant ${sub.tenant_id} failed:`,
+          graceCheckError,
         );
       }
     }

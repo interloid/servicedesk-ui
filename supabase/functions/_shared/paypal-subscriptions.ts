@@ -37,6 +37,9 @@ export const SUBSCRIPTION_COLUMNS = [
   "pending_order_id",
   "pending_paypal_subscription_id",
   "pending_started_at",
+  "payment_failure_count",
+  "last_payment_failure_at",
+  "grace_period_ends_at",
 ].join(", ");
 
 export type SubscriptionRow = {
@@ -55,7 +58,30 @@ export type SubscriptionRow = {
   pending_order_id: string | null;
   pending_paypal_subscription_id: string | null;
   pending_started_at: string | null;
+  /** Consecutive failed recurring charges; 0 while the agreement is healthy. */
+  payment_failure_count: number | null;
+  last_payment_failure_at: string | null;
+  /**
+   * Set when PayPal SUSPENDS the agreement for non-payment. The tenant keeps
+   * their plan until it passes; the cron drops them to Free afterwards.
+   */
+  grace_period_ends_at: string | null;
 };
+
+/**
+ * How long a tenant keeps their plan after PayPal gives up retrying.
+ *
+ * Long enough for a billing admin to notice the mail and fix a card over a
+ * weekend, short enough that unpaid access is not indefinite.
+ */
+export const PAYMENT_GRACE_DAYS = 7;
+
+/** Every field that says "this subscription is in payment trouble". */
+export const HEALTHY_PAYMENT_STATE = {
+  payment_failure_count: 0,
+  last_payment_failure_at: null,
+  grace_period_ends_at: null,
+} as const;
 
 export const PLAN_COLUMNS = "id, name, code, price_month, seat_limit";
 

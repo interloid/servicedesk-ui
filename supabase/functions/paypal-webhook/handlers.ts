@@ -7,7 +7,9 @@ import { paypal } from "./paypal.ts";
 import {
   activatePendingAgreement,
   applySubscriptionPlan,
+  HEALTHY_PAYMENT_STATE,
   logBilling,
+  PAYMENT_GRACE_DAYS,
   nextBillingTime,
   PLAN_COLUMNS,
   priceOf,
@@ -121,6 +123,47 @@ async function loadPlan(planId: string | null): Promise<PlanRow | null> {
     .maybeSingle();
 
   return (data as PlanRow | null) ?? null;
+}
+
+/**
+ * A charge went through, so whatever payment trouble the row was carrying is
+ * over: the failure count, the failure timestamp and any grace window all
+ * clear together, and a past_due subscription becomes active again.
+ *
+ * Called on every successful recurring payment. Nothing else clears these --
+ * a plan change in the middle of a dunning cycle must NOT look like a payment.
+ */
+async function clearPaymentTrouble(sub: SubscriptionRow): Promise<void> {
+  const wasInTrouble =
+    (sub.payment_failure_count ?? 0) > 0 ||
+    sub.grace_period_ends_at !== null ||
+    sub.status === "past_due";
+
+  if (!wasInTrouble) {
+    return;
+  }
+
+  const { error } = await admin
+    .from("subscriptions")
+    .update({
+      ...HEALTHY_PAYMENT_STATE,
+      // Only lift past_due. A cancelled or expired row is in that state for
+      // reasons a payment does not undo.
+      ...(sub.status === "past_due" ? { status: "active" } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("tenant_id", sub.tenant_id);
+
+  if (error) {
+    throw error;
+  }
+
+  logBilling("payment.recovered", {
+    tenant_id: sub.tenant_id,
+    paypal_subscription_id: sub.paypal_subscription_id,
+    cleared_failures: sub.payment_failure_count ?? 0,
+    was_suspended: sub.grace_period_ends_at !== null,
+  });
 }
 
 async function loadFreePlan(): Promise<PlanRow | null> {
@@ -479,18 +522,45 @@ export async function handleSubscriptionSuspended(event: WebhookEvent) {
 
   const match = await findSubscriptionByAgreement(paypalSubscriptionId);
 
+  // A cancellation suspends the agreement on purpose (it is what makes
+  // "Reactivate" possible on the same one). That is not a payment problem and
+  // must not open a grace window.
   if (!match || match.isPending || match.sub.cancel_at_period_end) {
     return;
   }
 
+  const now = new Date();
+
+  // PayPal has stopped retrying, so this is where restriction begins -- but
+  // as a deadline, not a cut-off. The tenant keeps the plan they are on until
+  // the window closes; reconcile-subscriptions moves them to Free after it,
+  // and only if PayPal still will not bill. A window already open is left
+  // alone so a redelivered event cannot keep pushing the deadline outwards.
+  const graceEndsAt =
+    match.sub.grace_period_ends_at ??
+    new Date(
+      now.getTime() + PAYMENT_GRACE_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
   const { error } = await admin
     .from("subscriptions")
-    .update({ status: "past_due", updated_at: new Date().toISOString() })
+    .update({
+      status: "past_due",
+      grace_period_ends_at: graceEndsAt,
+      updated_at: now.toISOString(),
+    })
     .eq("tenant_id", match.sub.tenant_id);
 
   if (error) {
     throw error;
   }
+
+  logBilling("payment.suspended", {
+    tenant_id: match.sub.tenant_id,
+    paypal_subscription_id: paypalSubscriptionId,
+    failure_count: match.sub.payment_failure_count ?? 0,
+    grace_period_ends_at: graceEndsAt,
+  });
 }
 
 /**
@@ -608,14 +678,40 @@ export async function handleSubscriptionPaymentFailed(event: WebhookEvent) {
     return;
   }
 
+  const nowIso = new Date().toISOString();
+
+  // The PLAN STAYS ACTIVE, first failure and every retry alike.
+  //
+  // PayPal retries a failed subscription charge on its own schedule before it
+  // gives up, and a customer with an expiring card is still a paying customer
+  // in the meantime. Cutting their access at the first failure punishes them
+  // for a problem PayPal has not finished trying to solve -- and every retry
+  // arrives as another PAYMENT.FAILED, so status would be rewritten on each
+  // one with nothing to distinguish the first from the fifth.
+  //
+  // Only the count moves here. Restriction starts at SUSPENDED, which is
+  // PayPal saying it has stopped trying.
+  const failureCount = (match.sub.payment_failure_count ?? 0) + 1;
+
   const { error } = await admin
     .from("subscriptions")
-    .update({ status: "past_due", updated_at: new Date().toISOString() })
+    .update({
+      payment_failure_count: failureCount,
+      last_payment_failure_at: nowIso,
+      updated_at: nowIso,
+    })
     .eq("tenant_id", match.sub.tenant_id);
 
   if (error) {
     throw error;
   }
+
+  logBilling("payment.failed", {
+    tenant_id: match.sub.tenant_id,
+    paypal_subscription_id: paypalSubscriptionId,
+    failure_count: failureCount,
+    first_failure: failureCount === 1,
+  });
 }
 
 /**
@@ -673,6 +769,9 @@ export async function handlePaymentCompleted(event: WebhookEvent) {
   }
 
   const subscription = subscriptionRow as unknown as SubscriptionWithPlan;
+
+  // Before any invoicing work: the money arrived, so the dunning state goes.
+  await clearPaymentTrouble(subscription);
 
   let plan: EmbeddedPlan | null =
     (Array.isArray(subscription.plans)

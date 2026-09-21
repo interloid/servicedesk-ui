@@ -70,6 +70,16 @@ export interface BillingDashboardData {
     daysRemaining: number;
   } | null;
 
+  /**
+   * Set while a recurring charge is failing. `graceEndsAt` is null until
+   * PayPal gives up retrying and suspends the agreement -- before that the
+   * plan is untouched and this is only a warning.
+   */
+  paymentTrouble?: {
+    failureCount: number;
+    graceEndsAt: string | null;
+    lastFailureAt: string | null;
+  } | null;
   pendingUpgrade?: {
     planName: string;
     planRate: number;
@@ -173,7 +183,11 @@ export async function fetchTenantBillingData(
     // rejects the whole query as ambiguous (PGRST201).
     .select("*, plans!subscriptions_plan_id_fkey(*)")
     .eq("tenant_id", tenant.id)
-    .in("status", ["active", "trialing"])
+    // past_due belongs here: a subscription PayPal has suspended for
+    // non-payment is exactly the one whose billing page the customer needs to
+    // reach. Leaving it out hid the row entirely, so the "Payment failed"
+    // state below could never render.
+    .in("status", ["active", "trialing", "past_due"])
     .order("created_at", { ascending: false })
     .maybeSingle();
 
@@ -455,12 +469,27 @@ export async function fetchTenantBillingData(
       ? sub.current_period_end
       : undefined;
 
+  const failureCount = Number(sub?.payment_failure_count ?? 0);
+  const graceEndsAt = sub?.grace_period_ends_at ?? null;
+
+  const paymentTrouble =
+    failureCount > 0 || graceEndsAt
+      ? {
+          failureCount,
+          graceEndsAt,
+          lastFailureAt: sub?.last_payment_failure_at ?? null,
+        }
+      : null;
+
   return {
     accountName: tenant.name,
     accountId: tenant.slug.toUpperCase(),
     tenantId: tenant.id,
     billingStatus,
-    isSuspended: billingStatus === "past_due",
+    paymentTrouble,
+    // Restricted only once PayPal has stopped retrying. A charge that is
+    // still being retried leaves the account alone.
+    isSuspended: graceEndsAt !== null,
     plan: {
       name: plan?.name ?? "Free",
       rate: isFreePlan ? "$0.00/mo" : `$${monthlyRate.toFixed(2)}/mo`,

@@ -105,6 +105,21 @@ function PaymentSuccessContent() {
       });
   }, [tenantSlug, missingPaymentId, paymentId, isOrderLike]);
 
+  // The confirmation is not optional and is not deferred: the difference has
+  // been charged, and until PayPal has the buyer's approval the agreement
+  // keeps billing the OLD rate. So the hand-off happens on its own, straight
+  // after the capture, rather than waiting behind a button the buyer can walk
+  // past. The short pause is only so they can read why they are moving.
+  useEffect(() => {
+    if (!rateApprovalUrl) return;
+
+    const handOff = setTimeout(() => {
+      window.location.assign(rateApprovalUrl);
+    }, 2500);
+
+    return () => clearTimeout(handOff);
+  }, [rateApprovalUrl]);
+
   useEffect(() => {
     if (checking || rateApprovalUrl) return;
 
@@ -143,7 +158,7 @@ function PaymentSuccessContent() {
               : unverified
                 ? "Payment Not Confirmed"
                 : needsRateApproval
-                  ? "One Step Left"
+                  ? "Confirming Your New Rate"
                   : isScheduled
                     ? "Plan Change Confirmed"
                     : "Payment Successful!"}
@@ -155,9 +170,9 @@ function PaymentSuccessContent() {
                 (unverified
                   ? "We couldn't verify a pending payment or subscription on this device. Check your account page to see if your plan was already activated."
                   : needsRateApproval
-                    ? `Your payment went through. PayPal needs you to confirm the new monthly rate for ${
+                    ? `Your payment went through. We're taking you to PayPal now to confirm the new monthly rate for ${
                         planName ?? "your new plan"
-                      } before the plan switches over — it takes a moment, and you won't be charged again today.`
+                      } - this is the last step, and you won't be charged again today.`
                     : isScheduled
                       ? `Your switch to ${planName} is confirmed, and nothing was charged today. You keep your current plan${
                           effectiveDate ? ` until ${effectiveDate}` : ""
@@ -173,7 +188,7 @@ function PaymentSuccessContent() {
                 Subscription ID
               </span>
               <span className="font-mono font-semibold text-foreground">
-                {paymentId ? paymentId : "—"}
+                {paymentId ? paymentId : "-"}
               </span>
             </div>
             <div className="flex justify-between items-center text-xs">
@@ -214,23 +229,14 @@ function PaymentSuccessContent() {
 
         <CardFooter className="flex-col gap-2">
           {needsRateApproval ? (
-            <>
-              <Button
-                onClick={() => window.location.assign(rateApprovalUrl)}
-                className="h-10 w-full bg-brand-accent hover:bg-brand-accent/90"
-              >
-                Confirm with PayPal
-              </Button>
-              {/* Leaving without confirming is recoverable, not lost: the
-                  billing page keeps offering this same step. */}
-              <Button
-                variant="ghost"
-                onClick={() => router.push(targetRedirectUrl)}
-                className="h-9 w-full text-muted-foreground"
-              >
-                I&apos;ll do this later
-              </Button>
-            </>
+            /* One way on. The button is here for anyone whose redirect is
+               blocked, not as an alternative to it. */
+            <Button
+              onClick={() => window.location.assign(rateApprovalUrl)}
+              className="h-10 w-full bg-brand-accent hover:bg-brand-accent/90"
+            >
+              Continue to PayPal
+            </Button>
           ) : (
             <Button
               onClick={() => router.push(targetRedirectUrl)}

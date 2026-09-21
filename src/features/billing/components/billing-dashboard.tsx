@@ -232,15 +232,12 @@ export default function BillingDashboard({
       })
     : null;
 
-  const planStatus: { label: string; tone: PillTone } = isPaymentFailed
-    ? { label: "Payment overdue", tone: "red" }
-    : isRetrying
-      ? { label: "Payment failed", tone: "amber" }
-      : data.billingStatus === "cancelled"
-        ? { label: `Ends ${data.renewalDate}`, tone: "amber" }
-        : data.billingStatus === "trialing"
-          ? { label: "Trial", tone: "sky" }
-          : { label: "Active", tone: "emerald" };
+  const planStatus: { label: string; tone: PillTone } =
+    data.billingStatus === "cancelled"
+      ? { label: `Ends ${data.renewalDate}`, tone: "amber" }
+      : data.billingStatus === "trialing"
+        ? { label: "Trial", tone: "sky" }
+        : { label: "Active", tone: "emerald" };
 
   const effectiveDateLabel = scheduledChange
     ? new Date(scheduledChange.effectiveAt).toLocaleDateString("en-US", {
@@ -335,62 +332,8 @@ export default function BillingDashboard({
           </Button>
         </div>
 
-        {isPaymentFailed && !dismissedBanners.includes("payment-failed") ? (
-          <NoticeBanner
-            tone="red"
-            icon={AlertTriangle}
-            title={
-              graceEndsLabel
-                ? `Your ${currentPlanName} plan is unpaid`
-                : "Payment failed"
-            }
-            description={
-              <>
-                We couldn&apos;t process your {data.amountDue.next} payment and
-                PayPal has stopped retrying.{" "}
-                {graceEndsLabel
-                  ? `Update your payment method by ${graceEndsLabel} to keep ${currentPlanName} — after that your workspace moves to the Free plan.`
-                  : "Update your payment method to keep your subscription active."}
-              </>
-            }
-            action={
-              <Button
-                className={cn(PRIMARY_BUTTON, "h-9 w-full text-xs sm:w-auto")}
-                onClick={() => setIsUpdatePaymentOpen(true)}
-              >
-                Update payment method
-              </Button>
-            }
-            onDismiss={() => dismissBanner("payment-failed")}
-          />
-        ) : isRetrying && !dismissedBanners.includes("payment-retrying") ? (
-          /* A failure PayPal is still working on. Nothing is restricted and
-             the plan has not moved, so this informs rather than alarms --
-             but it names the fix, because the retries do run out. */
-          <NoticeBanner
-            tone="amber"
-            icon={AlertTriangle}
-            title="We couldn't take your last payment"
-            description={
-              <>
-                PayPal will try your {data.amountDue.next} payment again over
-                the next few days. Your {currentPlanName} plan is unaffected in
-                the meantime — updating your payment method now avoids any
-                interruption.
-              </>
-            }
-            action={
-              <Button
-                className={cn(PRIMARY_BUTTON, "h-9 w-full text-xs sm:w-auto")}
-                onClick={() => setIsUpdatePaymentOpen(true)}
-              >
-                Update payment method
-              </Button>
-            }
-            onDismiss={() => dismissBanner("payment-retrying")}
-          />
-        ) : isPendingCancellation &&
-          !dismissedBanners.includes("pending-cancellation") ? (
+        {isPendingCancellation &&
+        !dismissedBanners.includes("pending-cancellation") ? (
           <NoticeBanner
             tone="amber"
             icon={Clock}

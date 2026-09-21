@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   Check,
   Clock,
@@ -61,7 +61,6 @@ export function PricingCards({
   billingData,
 }: PricingCardsProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [isPending, startTransition] = useTransition();
   const [loadingPlanCode, setLoadingPlanCode] = useState<string | null>(null);
@@ -73,26 +72,29 @@ export function PricingCards({
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
 
-  // Check if billing is currently locked/processing or recently cancelled via PayPal
-  const isBillingLocked = billingData?.billingStatus === "cancelled";
-  // Handle PayPal cancellation landing state
-  useEffect(() => {
-    const status = searchParams.get("status");
-    if (status === "cancelled") {
-      toast.error(
-        "PayPal checkout was cancelled. No changes were made to your subscription.",
-      );
-
-      // Reset plan state
-      setSelectedPlanForSwitch(null);
-      setDowngradeTarget(null);
-      setLoadingPlanCode(null);
-
-      // Clean query parameter from URL without page refresh
-      const newUrl = window.location.pathname;
-      window.history.replaceState({}, "", newUrl);
-    }
-  }, [searchParams]);
+  // ONLY a cancellation that did not come from the app locks plan changes.
+  //
+  // billingStatus is "cancelled" for both kinds, which is why this used to
+  // lock either way -- and locking an APP cancellation traps the customer in
+  // a decision they are allowed to reverse: choosing a paid plan supersedes a
+  // scheduled cancellation, resuming the same suspended agreement and
+  // clearing the schedule. Disabling the buttons made the one route out of it
+  // unreachable.
+  //
+  // The test is canReactivate rather than source === "paypal" so it also
+  // covers the grace period running out, and the app cancel whose suspend
+  // fell back to a real cancel: in every one of those the agreement is dead
+  // at PayPal, which is the thing that actually blocks a plan change here.
+  const cancellation = billingData?.cancellation ?? null;
+  const isBillingLocked =
+    billingData?.billingStatus === "cancelled" &&
+    cancellation?.canReactivate === false;
+  // A cancelled PayPal checkout is announced by /payment/cancel, which the
+  // cancel_url points at: it calls `abort`, says what was restored and sends
+  // the buyer here. Nothing in the app has ever set ?status=cancelled, so the
+  // effect that watched for it could not fire -- and its three state resets
+  // were dead twice over, since arriving here from PayPal is a full page load
+  // onto a freshly mounted component.
 
   const announceScheduled = (planName: string, effectiveAt: string | null) => {
     const when = effectiveAt
@@ -241,7 +243,7 @@ export function PricingCards({
   const openSwitchDialog = (plan: FormattedPlan) => {
     if (isBillingLocked) {
       toast.error(
-        "Your subscription is processing a pending change. Please wait or refresh.",
+        "This subscription was ended at PayPal and can't be changed from here. Please contact support to set up a new one.",
       );
       return;
     }
@@ -369,9 +371,6 @@ export function PricingCards({
               : isDowngrade
                 ? `Downgrade to ${plan.name}`
                 : `Upgrade to ${plan.name}`;
-
-          // Disable buttons when pending transition, when billing is locked, or if plan is active
-          const isButtonDisabled = isPending || isBillingLocked;
 
           return (
             <Card

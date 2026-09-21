@@ -193,14 +193,14 @@ export function NoticeBanner({
           onClick={onDismiss}
           aria-label="Dismiss notice"
           className={cn(
-            "absolute right-2 top-2 z-10",
-            "flex size-6 items-center justify-center rounded-md",
+            "absolute right-2 top-1/2 z-10 -translate-y-1/2",
+            "flex size-7 items-center justify-center rounded-md",
             "text-current/60 transition-colors",
             "hover:bg-black/5 hover:text-current",
             "focus:outline-none focus:ring-2 focus:ring-current/20",
           )}
         >
-          <X className="size-3.5" />
+          <X className="size-4" />
         </button>
       )}
 

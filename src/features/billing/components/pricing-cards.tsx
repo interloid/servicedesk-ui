@@ -71,6 +71,7 @@ export function PricingCards({
   );
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
+  const [downgradeOpen, setDowngradeOpen] = useState(false);
 
   // ONLY a cancellation that did not come from the app locks plan changes.
   //
@@ -250,6 +251,7 @@ export function PricingCards({
 
     if (currentPrice !== null && plan.priceValue < currentPrice) {
       setDowngradeTarget(plan);
+      setDowngradeOpen(true);
       return;
     }
 
@@ -287,24 +289,28 @@ export function PricingCards({
     }
 
     return {
-      headline: "As soon as PayPal checkout is approved",
+      headline: isUpgradeTarget
+        ? `Confirm your ${target.name} upgrade`
+        : `Confirm your ${target.name} subscription`,
+
       body: isUpgradeTarget
-        ? `You'll pay $${upgradeAmount.toFixed(
-            2,
-          )} today — the difference between ${
+        ? `You'll pay $${upgradeAmount.toFixed(2)} today to upgrade from ${
             currentPlan?.name ?? "your current plan"
-          } ($${currentPlanRate.toFixed(2)}) and ${
+          } ($${currentPlanRate.toFixed(2)}/month) to ${
             target.name
-          } ($${target.priceValue.toFixed(2)}). This one-time payment unlocks ${
+          } ($${target.priceValue.toFixed(2)}/month). Your ${
             target.name
-          } now on your existing subscription, and from next month you'll be billed the full ${
+          } plan will be activated immediately, and you'll be charged ${
             target.price
-          }${target.priceSuffix}.`
-        : `You'll be redirected to PayPal to approve the new ${
+          }${target.priceSuffix} from your next billing cycle.`
+        : `You'll be redirected to PayPal to approve your ${
             target.name
-          } subscription. Your current plan stays active until it's live, then you'll be billed ${
+          } subscription at ${
             target.price
-          }${target.priceSuffix}.`,
+          }${target.priceSuffix}. Once PayPal approval is complete, your ${
+            target.name
+          } plan will be activated.`,
+
       deferred: false,
     };
   })();
@@ -498,7 +504,6 @@ export function PricingCards({
                   )}
                 </div>
 
-                {/* Action Buttons & Status Indicators */}
                 <div className="mt-6 flex flex-col gap-2.5">
                   {isCurrent ? (
                     <>
@@ -564,7 +569,6 @@ export function PricingCards({
                     <TooltipProvider>
                       <Tooltip delayDuration={100}>
                         <TooltipTrigger asChild>
-                          {/* Span wrapper enables mouse hover events on disabled buttons */}
                           <span
                             className={cn(
                               isBillingLocked && "cursor-not-allowed w-full",
@@ -773,9 +777,16 @@ export function PricingCards({
 
       <DowngradeDialog
         tenantSlug={tenantSlug}
-        open={Boolean(downgradeTarget)}
+        open={downgradeOpen}
         onOpenChange={(open) => {
-          if (!open) setDowngradeTarget(null);
+          setDowngradeOpen(open);
+
+          if (!open) {
+            // Clear the target after the dialog has started closing.
+            setTimeout(() => {
+              setDowngradeTarget(null);
+            }, 200);
+          }
         }}
         targetPlan={downgradeTarget}
         currentPlan={currentPlan}

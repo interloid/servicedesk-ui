@@ -1,16 +1,14 @@
 "use client";
 
-import React, { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarClock, Loader2, X, XCircle, Zap } from "lucide-react";
 import { toast } from "sonner";
-
 import { FormattedPlan } from "../types";
 import { changeTenantPlanAction } from "../billing-actions";
 import { cn } from "@/lib/utils";
 import { MODAL_BUTTON } from "./modal-buttons";
 import { ModalNotice } from "./modal-notice";
-
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,10 +19,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
 const CONFIRM_DANGER =
   "border-red-600 bg-background text-red-600 hover:border-red-600 hover:bg-red-50 hover:text-red-600 disabled:border-red-300 disabled:bg-background disabled:text-red-300 disabled:opacity-100 dark:hover:bg-red-950/30";
-
 const CONFIRM_ACCENT =
   "border-brand-accent bg-background text-brand-accent hover:border-brand-accent hover:bg-brand-accent/5 hover:text-brand-accent disabled:border-brand-accent/40 disabled:bg-background disabled:text-brand-accent/40 disabled:opacity-100";
 
@@ -53,19 +49,6 @@ export function DowngradeDialog({
 }: DowngradeDialogProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-
-  // Controls the fade-out before closing the dialog.
-  const [isClosing, setIsClosing] = useState(false);
-
-  // Reset the fade-out whenever the dialog is reopened (adjusting state during
-  // render instead of in an effect avoids an extra cascading render).
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setIsClosing(false);
-    }
-  }
 
   const isFreeTarget = targetPlan?.priceValue === 0;
   const targetSeatLimit = targetPlan?.seatLimit ?? 0;
@@ -104,18 +87,16 @@ export function DowngradeDialog({
   })();
 
   /**
-   * Close animation:
-   * 1. Fade the notice out.
-   * 2. Close the dialog after 100ms.
+   * Close the dialog directly.
+   *
+   * The previous implementation faded the notice first and then
+   * closed the dialog after 100ms. Now the complete dialog closes
+   * together using the AlertDialog's own animation.
    */
   const handleClose = () => {
-    if (isPending || isClosing) return;
+    if (isPending) return;
 
-    setIsClosing(true);
-
-    setTimeout(() => {
-      onOpenChange(false);
-    }, 100);
+    onOpenChange(false);
   };
 
   const handleConfirm = () => {
@@ -183,8 +164,8 @@ export function DowngradeDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !isPending) {
-          handleClose();
+        if (!isPending) {
+          onOpenChange(next);
         }
       }}
     >
@@ -211,7 +192,7 @@ export function DowngradeDialog({
             <button
               type="button"
               onClick={handleClose}
-              disabled={isPending || isClosing}
+              disabled={isPending}
               className="
                 -mr-1.5
                 shrink-0
@@ -233,12 +214,7 @@ export function DowngradeDialog({
           </div>
 
           <AlertDialogDescription asChild>
-            <div
-              className={cn(
-                "mt-4 space-y-3 transition-opacity duration-100",
-                isClosing ? "opacity-0" : "opacity-100",
-              )}
-            >
+            <div className="mt-4 space-y-3">
               <ModalNotice
                 icon={timing.deferred ? CalendarClock : Zap}
                 title={`Takes effect: ${timing.headline}`}
@@ -263,7 +239,7 @@ export function DowngradeDialog({
 
         <AlertDialogFooter className="mx-0 mb-0 gap-3 border-t border-border px-4 py-4 sm:justify-end">
           <AlertDialogCancel
-            disabled={isPending || isClosing}
+            disabled={isPending}
             onClick={(e) => {
               // Prevent Radix from closing immediately.
               e.preventDefault();
@@ -277,7 +253,7 @@ export function DowngradeDialog({
 
           <AlertDialogAction
             variant="outline"
-            disabled={isPending || isClosing}
+            disabled={isPending}
             onClick={(e) => {
               e.preventDefault();
               handleConfirm();

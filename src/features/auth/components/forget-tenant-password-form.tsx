@@ -57,7 +57,7 @@ export function ForgotTenantPasswordForm({
           form.setError("root", {
             message:
               response.error ||
-              "Too many attempts from this address — try again in 60 seconds, or contact your admin.",
+              "Too many attempts from this address - try again in 60 seconds, or contact your admin.",
           });
           form.setError("email", { message: "Rate limited" });
           toast.error(response.error || "Too many attempts. Try again later.");
@@ -100,7 +100,7 @@ export function ForgotTenantPasswordForm({
             </h1>
             <p className="text-sm leading-[1.6] text-muted-foreground">
               If that email has an account, a reset link is on its way. It
-              expires in 30 minutes — check spam before asking for another.
+              expires in 30 minutes - check spam before asking for another.
             </p>
 
             <Button

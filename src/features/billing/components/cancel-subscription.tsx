@@ -385,7 +385,7 @@ export function CancelSubscriptionDialog({
                       What&apos;s the reason for cancelling?
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Optional — your feedback helps us improve.
+                      Optional - your feedback helps us improve.
                     </p>
 
                     <RadioGroup

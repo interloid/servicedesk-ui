@@ -79,7 +79,7 @@ export default function PaymentCancelPage() {
         ? `Your plan change was cancelled and your previous plan${planName ? ` (${planName})` : ""} has been restored. No charges were made and nothing was cancelled.`
         : state === "noop"
           ? "Your plan change was cancelled or could not be processed. No charges were made and your plan is unchanged."
-          : "We couldn't confirm the plan status. Please check your account plans page — your current plan is safe.";
+          : "We couldn't confirm the plan status. Please check your account plans page - your current plan is safe.";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/40 p-4">

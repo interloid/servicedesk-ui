@@ -324,7 +324,7 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
         return {
           success: false,
           error:
-            "Too many attempts from this address — try again in 60 seconds, or contact your admin.",
+            "Too many attempts from this address - try again in 60 seconds, or contact your admin.",
           isRateLimited: true,
         };
       }
@@ -381,7 +381,7 @@ export async function sendTenantPasswordResetLink(
         return {
           success: false,
           error:
-            "Too many attempts from this address — try again in 60 seconds.",
+            "Too many attempts from this address - try again in 60 seconds.",
           isRateLimited: true,
         };
       }

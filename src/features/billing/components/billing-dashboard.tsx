@@ -3,7 +3,6 @@
 import { use, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   CalendarClock,
   CalendarDays,
   ChevronLeft,
@@ -218,20 +217,6 @@ export default function BillingDashboard({
       ) ?? invoices.find((inv) => inv.status === "Paid"))
     : undefined;
 
-  const paymentTrouble = data.paymentTrouble ?? null;
-  // PayPal is still retrying: the plan is untouched and nothing is restricted,
-  // so this warns without crying failure.
-  const isRetrying = !!paymentTrouble && paymentTrouble.graceEndsAt === null;
-  const isPaymentFailed = data.isSuspended || data.billingStatus === "past_due";
-
-  const graceEndsLabel = paymentTrouble?.graceEndsAt
-    ? new Date(paymentTrouble.graceEndsAt).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })
-    : null;
-
   const planStatus: { label: string; tone: PillTone } =
     data.billingStatus === "cancelled"
       ? { label: `Ends ${data.renewalDate}`, tone: "amber" }
@@ -270,7 +255,7 @@ export default function BillingDashboard({
       ? "This subscription ended because we couldn't collect payment, so it can't be reactivated."
       : cancellationSource === "paypal"
         ? "You cancelled this subscription in PayPal, so it can't be reactivated here."
-        : "This subscription has already ended at PayPal, so it can't be reactivated.";
+        : "This subscription has already cancelled at PayPal, so it can't be reactivated.";
 
   const showScheduledChangeBanner =
     Boolean(scheduledChange) && !isPendingCancellation;
@@ -295,7 +280,7 @@ export default function BillingDashboard({
     { label: "Seats in use", value: `${usedSeats} of ${totalSeats}` },
     {
       label: renewalLabel,
-      value: hasRenewalDate ? data.renewalDate : "—",
+      value: hasRenewalDate ? data.renewalDate : "-",
     },
     {
       label: "Next payment",
@@ -345,7 +330,7 @@ export default function BillingDashboard({
             description={
               canReactivate
                 ? `You'll keep ${currentPlanName} and all its features until then.`
-                : `${cannotReactivateReason} You'll keep ${currentPlanName} and all its features until ${effectiveDateLabel} — after that, choose a plan to subscribe again.`
+                : `${cannotReactivateReason} You'll keep ${currentPlanName} and all its features until ${effectiveDateLabel} - after that, choose a plan to subscribe again.`
             }
             action={
               /* Reactivate resumes the SAME PayPal agreement, which only
@@ -449,7 +434,7 @@ export default function BillingDashboard({
               <DetailRow
                 icon={CalendarDays}
                 label={renewalLabel}
-                value={hasRenewalDate ? data.renewalDate : "—"}
+                value={hasRenewalDate ? data.renewalDate : "-"}
               />
             </dl>
           </DashboardCard>
@@ -495,7 +480,7 @@ export default function BillingDashboard({
                       </p>
                       <p className="pl-4 text-xs text-emerald-700">
                         Your ${pendingUpgrade.amountDue.toFixed(2)} payment is
-                        already received — this won&apos;t charge you again.
+                        already received - this won&apos;t charge you again.
                       </p>
                       <div className="pl-4 pt-2">
                         <ResumeUpgradeApprovalButton tenantSlug={tenantSlug} />
@@ -508,7 +493,7 @@ export default function BillingDashboard({
                         with your next billing cycle.
                       </p>
                       <p className="pl-4 text-xs text-emerald-700">
-                        The difference only — your{" "}
+                        The difference only - your{" "}
                         {data.plan?.name ?? "current"} payment for this period
                         already counts towards it.
                       </p>

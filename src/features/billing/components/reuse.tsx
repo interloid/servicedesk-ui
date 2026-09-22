@@ -171,8 +171,9 @@ export function NoticeBanner({
   return (
     <div
       className={cn(
-        "relative w-full rounded-xl border px-4 py-3 sm:px-5 sm:py-4",
-        "overflow-visible",
+        "relative w-full rounded-xl border",
+        "px-4 py-3",
+        "sm:px-5 sm:py-4",
         styles.box,
       )}
     >
@@ -182,8 +183,11 @@ export function NoticeBanner({
           onClick={onDismiss}
           aria-label="Dismiss notice"
           className={cn(
-            "absolute right-2 top-3 z-10",
-            "sm:right-3 sm:top-1/2 sm:-translate-y-1/2",
+            "absolute right-2 top-2 z-20",
+
+            // MD+
+            "md:right-3 md:top-1/2 md:-translate-y-1/2",
+
             "flex size-7 shrink-0 items-center justify-center rounded-md",
             "text-current/60 transition-colors",
             "hover:bg-black/5 hover:text-current",
@@ -194,59 +198,133 @@ export function NoticeBanner({
         </button>
       )}
 
+      <div className="md:hidden">
+        <span
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center",
+            "rounded-lg text-white",
+            styles.tile,
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
+
+        <h3
+          className={cn(
+            "mt-2 pr-8",
+            "text-sm font-semibold leading-5",
+            "wrap-break-word",
+            styles.title,
+          )}
+        >
+          {title}
+        </h3>
+
+        <p
+          className={cn(
+            "mt-1",
+            "text-xs leading-5",
+            "wrap-break-word",
+            styles.text,
+          )}
+        >
+          {description}
+        </p>
+
+        {action && (
+          <div className={cn("mt-3 w-full", "[&>button]:w-full")}>{action}</div>
+        )}
+      </div>
       <div
         className={cn(
-          "flex min-w-0 flex-col gap-3",
-          "sm:flex-row sm:items-center sm:gap-4",
-          onDismiss && "pr-9 sm:pr-10",
+          "hidden md:grid lg:hidden",
+          "grid-cols-[auto_minmax(0,1fr)_auto]",
+          "items-center gap-3",
+          onDismiss && "pr-10",
         )}
       >
-        {/* Icon + text */}
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <span
+        <span
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center",
+            "rounded-lg text-white",
+            styles.tile,
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
+
+        <div className="min-w-0">
+          <h3
             className={cn(
-              "flex size-9 shrink-0 items-center justify-center rounded-lg text-white",
-              styles.tile,
+              "text-sm font-semibold leading-5",
+              "wrap-break-word",
+              styles.title,
             )}
           >
-            <Icon className="size-4" />
-          </span>
+            {title}
+          </h3>
 
-          <div className="min-w-0 flex-1 overflow-visible">
-            <h3
-              className={cn(
-                "text-sm font-semibold leading-5",
-                "whitespace-normal break-words",
-                "overflow-visible",
-                styles.title,
-              )}
-            >
-              {title}
-            </h3>
-
-            <p
-              className={cn(
-                "mt-1 text-xs leading-5",
-                "whitespace-normal break-words",
-                "overflow-visible",
-                styles.text,
-              )}
-            >
-              {description}
-            </p>
-          </div>
+          <p
+            className={cn(
+              "mt-1",
+              "text-xs leading-5",
+              "wrap-break-word",
+              styles.text,
+            )}
+          >
+            {description}
+          </p>
         </div>
 
-        {/* Action */}
         {action && (
-          <div
+          <div className={cn("mr-1 shrink-0", "[&>button]:w-auto")}>
+            {action}
+          </div>
+        )}
+      </div>
+
+      <div
+        className={cn(
+          "hidden lg:grid",
+          "grid-cols-[auto_minmax(0,1fr)_auto]",
+          "items-center gap-4",
+          onDismiss && "pr-10",
+        )}
+      >
+        <span
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center",
+            "rounded-lg text-white",
+            styles.tile,
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
+
+        <div className="min-w-0">
+          <h3
             className={cn(
-              "w-full shrink-0",
-              "sm:w-auto",
-              "[&>button]:w-full",
-              "sm:[&>button]:w-auto",
+              "text-sm font-semibold leading-5",
+              "wrap-break-word",
+              styles.title,
             )}
           >
+            {title}
+          </h3>
+
+          <p
+            className={cn(
+              "mt-1",
+              "text-xs leading-5",
+              "wrap-break-word",
+              styles.text,
+            )}
+          >
+            {description}
+          </p>
+        </div>
+        {action && (
+          <div className={cn("mr-1 shrink-0", "[&>button]:w-auto")}>
             {action}
           </div>
         )}

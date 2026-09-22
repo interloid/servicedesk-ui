@@ -101,7 +101,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         setPendingEmail(formData.workEmail);
         setIsSubmitting(false);
         toast.success(
-          "Almost there — verify your email to activate your workspace",
+          "Almost there - verify your email to activate your workspace",
         );
         return;
       }
@@ -129,7 +129,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         <p className="mt-2 text-sm leading-[1.6] text-slate-500">
           We sent a confirmation link to{" "}
           <span className="font-semibold text-slate-800">{pendingEmail}</span>.
-          Click it to verify your email — you&apos;ll be signed in and taken
+          Click it to verify your email - you&apos;ll be signed in and taken
           straight to your workspace.
         </p>
         <p className="mt-4 text-xs text-slate-400">

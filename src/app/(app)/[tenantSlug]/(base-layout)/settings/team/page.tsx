@@ -7,7 +7,10 @@ import { InviteMemberModal } from "@/features/team/components/invite-member-moda
 import { PermissionMatrixModal } from "@/features/team/components/permission-matrix-modal";
 import { SeatUsage } from "@/features/team/components/seat-usage";
 import { TeamTable } from "@/features/team/components/team-table";
-import { canPerformTeamAction, countByStatus } from "@/features/team/types/team";
+import {
+  canPerformTeamAction,
+  countByStatus,
+} from "@/features/team/types/team";
 import {
   getCallerRole,
   getTeamSeats,

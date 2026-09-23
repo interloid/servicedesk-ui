@@ -79,8 +79,7 @@ function fail(
 ) {
   if (error) {
     console.error(
-      `[team] ${userMessage} — ${error.code ?? "?"} ${error.message ?? ""}`
-        .trim(),
+      `[team] ${userMessage} — ${error.code ?? "?"} ${error.message ?? ""}`.trim(),
       error.details ? `\n  details: ${error.details}` : "",
       error.hint ? `\n  hint: ${error.hint}` : "",
     );
@@ -257,8 +256,8 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
         // the workspace was, which is the date we mean by "joined". Invites
         // are excluded: for them created_at is when the mail went out, not a
         // join, and the column says "Not yet joined" instead.
-        joinedAt: row.joined_at ??
-          (status === "Invited" ? null : row.created_at),
+        joinedAt:
+          row.joined_at ?? (status === "Invited" ? null : row.created_at),
         // An invite has no timestamp of its own -- the row is created by the
         // invite, so its created_at IS when the invitation went out.
         invitedAt: row.created_at,
@@ -268,7 +267,8 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
     })
     .filter((member): member is TeamMember => member !== null)
     .sort((a, b) => {
-      const roleOrder = TEAM_ROLE_ORDER[a.role] - TEAM_ROLE_ORDER[b.role] ||
+      const roleOrder =
+        TEAM_ROLE_ORDER[a.role] - TEAM_ROLE_ORDER[b.role] ||
         TEAM_STATUS_ORDER[a.status] - TEAM_STATUS_ORDER[b.status] ||
         a.name.localeCompare(b.name);
       return roleOrder;
@@ -312,9 +312,8 @@ export async function getTeamSeats(): Promise<TeamSeats> {
   // still scoped to their workspace.
   const plan = await getTenantPlanRecord(actor.tenantId);
 
-  const limit = typeof plan?.seatLimit === "number"
-    ? plan.seatLimit
-    : FREE_SEAT_LIMIT;
+  const limit =
+    typeof plan?.seatLimit === "number" ? plan.seatLimit : FREE_SEAT_LIMIT;
 
   return calcTeamSeats(count ?? 0, limit);
 }
@@ -780,9 +779,8 @@ export async function changeMemberStatus(
     .from("memberships")
     .update({
       status: STATUS_TO_DB[values.status],
-      disabled_at: values.status === "Disabled"
-        ? new Date().toISOString()
-        : null,
+      disabled_at:
+        values.status === "Disabled" ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", values.memberId)
@@ -876,10 +874,7 @@ export const getTenantPlanRecord = cache(async function getTenantPlanRecord(
   // PostgREST types an embedded to-one as an array or an object depending on
   // the FK shape, so both forms are handled rather than guessed at.
   const plans = data.plans as
-    | TenantPlanRow
-    | TenantPlanRow[]
-    | null
-    | undefined;
+    TenantPlanRow | TenantPlanRow[] | null | undefined;
 
   const plan = Array.isArray(plans) ? plans[0] : plans;
 

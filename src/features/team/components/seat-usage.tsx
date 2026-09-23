@@ -17,34 +17,34 @@ const STATUS_CARDS: {
   chipTone: string;
   iconTone: string;
 }[] = [
-    {
-      status: "Active",
-      label: "Active",
-      caption: "Members with access",
-      icon: Users,
-      tone: "border-emerald-200/80 bg-emerald-50/70 dark:border-emerald-900/50 dark:bg-emerald-950/30",
-      chipTone: "bg-emerald-100 dark:bg-emerald-900/50",
-      iconTone: "text-emerald-700 dark:text-emerald-300",
-    },
-    {
-      status: "Invited",
-      label: "Invited",
-      caption: "Pending acceptance",
-      icon: Mail,
-      tone: "border-amber-200/80 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/30",
-      chipTone: "bg-amber-100 dark:bg-amber-900/50",
-      iconTone: "text-amber-700 dark:text-amber-300",
-    },
-    {
-      status: "Disabled",
-      label: "Disabled",
-      caption: "No access",
-      icon: UserRoundX,
-      tone: "border-border bg-muted/40",
-      chipTone: "bg-muted",
-      iconTone: "text-muted-foreground",
-    },
-  ];
+  {
+    status: "Active",
+    label: "Active",
+    caption: "Members with access",
+    icon: Users,
+    tone: "border-emerald-200/80 bg-emerald-50/70 dark:border-emerald-900/50 dark:bg-emerald-950/30",
+    chipTone: "bg-emerald-100 dark:bg-emerald-900/50",
+    iconTone: "text-emerald-700 dark:text-emerald-300",
+  },
+  {
+    status: "Invited",
+    label: "Invited",
+    caption: "Pending acceptance",
+    icon: Mail,
+    tone: "border-amber-200/80 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/30",
+    chipTone: "bg-amber-100 dark:bg-amber-900/50",
+    iconTone: "text-amber-700 dark:text-amber-300",
+  },
+  {
+    status: "Disabled",
+    label: "Disabled",
+    caption: "No access",
+    icon: UserRoundX,
+    tone: "border-border bg-muted/40",
+    chipTone: "bg-muted",
+    iconTone: "text-muted-foreground",
+  },
+];
 
 /**
  * The bar changes colour as the plan fills up, so "nearly out of seats" reads

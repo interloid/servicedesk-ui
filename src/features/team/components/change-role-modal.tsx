@@ -134,8 +134,9 @@ function ChangeRoleFields({
         />
         <span className="text-xs font-semibold text-muted-foreground">New</span>
         <span
-          className={`text-sm font-semibold ${changed ? "text-brand-accent" : "text-muted-foreground"
-            }`}
+          className={`text-sm font-semibold ${
+            changed ? "text-brand-accent" : "text-muted-foreground"
+          }`}
         >
           {role}
         </span>

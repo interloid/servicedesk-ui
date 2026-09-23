@@ -1,4 +1,3 @@
-import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -58,39 +57,18 @@ export default function Loading() {
           </div>
         </div>
 
-        <Card className="rounded-[14px] p-4 sm:p-5">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-stretch xl:gap-6">
-            <div className="flex min-w-0 flex-1 items-start">
-              <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-4 w-16 rounded-full" />
-                </div>
-                <Skeleton className="h-7 w-44" />
-                <Skeleton className="h-2.5 w-full rounded-full" />
-                <Skeleton className="h-3 w-28" />
-              </div>
-            </div>
-
-            <div className="flex min-w-0 flex-col gap-2.5 xl:max-w-2xl xl:flex-1 xl:border-l xl:border-border xl:pl-6">
-              <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-3">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-3 rounded-xl border border-border px-3 py-2.5"
-                  >
-                    <Skeleton className="size-9 shrink-0 rounded-full" />
-                    <div className="flex min-w-0 flex-col gap-1.5">
-                      <Skeleton className="h-4 w-16" />
-                      <Skeleton className="h-3 w-24" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <Skeleton className="h-3 w-64 max-w-full" />
-            </div>
+        <div className="flex flex-col gap-3 rounded-[14px] border border-border bg-card p-4 sm:px-5">
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-5 w-16 rounded-full" />
           </div>
-        </Card>
+          <Skeleton className="h-3 w-full rounded-full" />
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:flex sm:gap-x-5">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-4 w-20" />
+            ))}
+          </div>
+        </div>
 
         <div className="flex flex-col gap-3.5">
           <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-start xl:justify-between">

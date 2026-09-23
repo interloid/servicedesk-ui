@@ -73,7 +73,7 @@ export function RemoveMemberModal({
               </>
             ) : (
               <>
-                <li>They will immediately lose access to the workspace.</li>
+                <li>They will lose access to this workspace.</li>
                 <li>Their tickets, comments and other data will remain.</li>
                 <li>You can invite them again later.</li>
               </>

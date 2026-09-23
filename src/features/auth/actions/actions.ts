@@ -12,6 +12,8 @@ import {
   sendTenantPasswordResetLink,
   updatePassword,
   updatePasswordForTenant,
+  checkTenantPasswordAccess,
+  type TenantPasswordAccessResult,
 } from "@/features/auth/services/auth.service";
 import type { ActionResult, LoginSuccess } from "@/features/auth/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -249,25 +251,50 @@ export async function updatePasswordAction(values: UpdatePasswordValues) {
 
 export async function updateTenantPasswordAction(
   values: UpdatePasswordValues,
-  tenantId: string,
-) {
+  tenantSlug: string,
+): Promise<TenantPasswordAccessResult> {
   const validatedFields = updatePasswordSchema.safeParse(values);
 
   if (!validatedFields.success) {
     return {
       success: false,
-      error: "Invalid password fields.",
+      error: "Check the password fields and try again.",
+      reason: "retry",
     };
   }
 
-  if (!tenantId) {
+  if (!tenantSlug) {
     return {
       success: false,
-      error: "Tenant context is missing.",
+      error: "This link is missing its workspace. Request a new one.",
+      reason: "expired",
     };
   }
 
-  return await updatePasswordForTenant(validatedFields.data, tenantId);
+  return await updatePasswordForTenant(validatedFields.data, tenantSlug);
+}
+
+export async function checkTenantPasswordAccessAction(
+  tenantSlug: string,
+): Promise<TenantPasswordAccessResult> {
+  if (!tenantSlug) {
+    return {
+      success: false,
+      error: "This link is missing its workspace. Request a new one.",
+      reason: "expired",
+    };
+  }
+
+  try {
+    return await checkTenantPasswordAccess(tenantSlug);
+  } catch (error) {
+    console.error("[auth] checkTenantPasswordAccess failed", error);
+    return {
+      success: false,
+      error: "We couldn't check your access right now. Try again in a moment.",
+      reason: "retry",
+    };
+  }
 }
 
 export async function confirmEmailAction(

@@ -3,7 +3,8 @@
 import { useState, useTransition, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, CircleAlert } from "lucide-react";
+import Link from "next/link";
+import { Check, CircleAlert, ShieldX } from "lucide-react";
 import { useForm } from "react-hook-form";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -24,14 +25,29 @@ import {
   updatePasswordSchema,
 } from "@/features/auth/schemas/reset-password";
 
-import { APP_ROUTES } from "@/lib/routes";
+import {
+  checkTenantPasswordAccessAction,
+  updateTenantPasswordAction,
+} from "@/features/auth/actions/actions";
+import { tenantForgotPasswordPath, tenantLoginPath } from "@/lib/tenancy";
 import { PageLoader } from "@/components/shared/page-loader";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { PasswordInput } from "@/components/ui/password-input";
 import { toast } from "sonner";
 
-const INVALID_INVITE_MESSAGE =
-  "This invitation link is invalid or has expired.";
+const EXPIRED_LINK_MESSAGE =
+  "This link is invalid or has expired. Request a new one to continue.";
+
+/** Why the form can't be used at all, as opposed to one bad attempt. */
+type BlockedReason = "expired" | "no-access";
+
+/**
+ * Invite: Supabase's own invite mail. Magic link: the mail an existing account
+ * gets when it's invited to another workspace. Both are a first password, not
+ * a reset, and the page says so.
+ */
+const FIRST_PASSWORD_TYPES = new Set(["invite", "magiclink"]);
+const LINK_TYPES = new Set(["invite", "magiclink", "recovery"]);
 
 export default function DirectResetPasswordPage() {
   const router = useRouter();
@@ -41,6 +57,8 @@ export default function DirectResetPasswordPage() {
 
   const [isVerifyingSession, setIsVerifyingSession] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [blockedReason, setBlockedReason] = useState<BlockedReason>("expired");
+  const [isFirstPassword, setIsFirstPassword] = useState(false);
   const [updated, setUpdated] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -71,9 +89,7 @@ export default function DirectResetPasswordPage() {
             );
 
             if (mounted) {
-              setAuthError(
-                "This password reset link is invalid or has expired.",
-              );
+              setAuthError(EXPIRED_LINK_MESSAGE);
             }
 
             return;
@@ -93,11 +109,11 @@ export default function DirectResetPasswordPage() {
         const refreshToken = hashParams.get("refresh_token");
         const type = hashParams.get("type");
 
-        if (
-          (type === "invite" || type === "recovery") &&
-          accessToken &&
-          refreshToken
-        ) {
+        if (type && LINK_TYPES.has(type) && accessToken && refreshToken) {
+          if (mounted) {
+            setIsFirstPassword(FIRST_PASSWORD_TYPES.has(type));
+          }
+
           const { data, error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
@@ -110,9 +126,7 @@ export default function DirectResetPasswordPage() {
             );
 
             if (mounted) {
-              setAuthError(
-                "This password reset link is invalid or has expired.",
-              );
+              setAuthError(EXPIRED_LINK_MESSAGE);
             }
 
             return;
@@ -137,7 +151,25 @@ export default function DirectResetPasswordPage() {
           );
 
           if (mounted) {
-            setAuthError("This password reset link is invalid or has expired.");
+            setAuthError(EXPIRED_LINK_MESSAGE);
+          }
+
+          return;
+        }
+
+        // The link's session proves who they are, not that they still belong
+        // here: a revoked invite or a removed member keeps a working link.
+        const access = await checkTenantPasswordAccessAction(tenantSlug);
+
+        if (!access.success) {
+          // The server already ended the session; clear this tab's copy too.
+          await supabase.auth.signOut({ scope: "local" });
+
+          if (mounted) {
+            setBlockedReason(
+              access.reason === "no-access" ? "no-access" : "expired",
+            );
+            setAuthError(access.error);
           }
 
           return;
@@ -150,7 +182,7 @@ export default function DirectResetPasswordPage() {
         console.error("[Reset Password] Session verification failed:", error);
 
         if (mounted) {
-          setAuthError("This password reset link is invalid or has expired.");
+          setAuthError(EXPIRED_LINK_MESSAGE);
         }
       } finally {
         if (mounted) {
@@ -170,55 +202,37 @@ export default function DirectResetPasswordPage() {
     startTransition(async () => {
       form.clearErrors("root");
 
-      const supabase = createSupabaseClient();
-
       try {
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
+        // Saved on the server, which checks the membership again: an admin
+        // can revoke the invite while this page sits open.
+        const result = await updateTenantPasswordAction(values, tenantSlug);
 
-        if (sessionError || !session) {
-          setAuthError(INVALID_INVITE_MESSAGE);
+        if (!result.success) {
+          if (result.reason === "retry") {
+            form.setError("root", { message: result.error });
+            toast.error(result.error);
+            return;
+          }
 
-          form.setError("root", {
-            message: INVALID_INVITE_MESSAGE,
-          });
-
-          toast.error(INVALID_INVITE_MESSAGE);
-
+          await createSupabaseClient().auth.signOut({ scope: "local" });
+          setBlockedReason(result.reason);
+          setAuthError(result.error);
+          toast.error(result.error);
           return;
         }
 
-        const { error: updateError } = await supabase.auth.updateUser({
-          password: values.password,
-        });
-
-        if (updateError) {
-          console.error(
-            "[Reset Password] Password update failed:",
-            updateError.message,
-          );
-
-          const message = "Failed to update password. Please try again.";
-
-          form.setError("root", {
-            message,
-          });
-
-          toast.error(message);
-
-          return;
-        }
+        // The server signed the link's session out; clear this tab's copy.
+        await createSupabaseClient().auth.signOut({ scope: "local" });
 
         setUpdated(true);
-
-        toast.success("Password updated successfully.");
-
-        await supabase.auth.signOut();
+        toast.success(
+          isFirstPassword
+            ? "Password set. Sign in to open your workspace."
+            : "Password updated. Sign in with your new password.",
+        );
 
         setTimeout(() => {
-          router.push(APP_ROUTES.LOGIN);
+          router.push(tenantLoginPath(tenantSlug));
         }, 2000);
       } catch (error) {
         console.error(
@@ -226,12 +240,10 @@ export default function DirectResetPasswordPage() {
           error,
         );
 
-        const message = "Failed to update password. Please try again.";
+        const message =
+          "We couldn't update your password. Check your connection and try again.";
 
-        form.setError("root", {
-          message,
-        });
-
+        form.setError("root", { message });
         toast.error(message);
       }
     });
@@ -256,26 +268,72 @@ export default function DirectResetPasswordPage() {
                 </span>
 
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                  Password reset complete
+                  {isFirstPassword ? "You're all set" : "Password updated"}
                 </h1>
 
                 <p className="text-sm text-muted-foreground">
-                  Password updated successfully. Redirecting to sign in...
+                  {isFirstPassword
+                    ? "Your password is saved. Taking you to sign in…"
+                    : "Sign in with your new password. Taking you there now…"}
                 </p>
+              </div>
+            ) : authError ? (
+              // A dead link or revoked access can't be fixed by typing, so
+              // the form goes away and the way forward takes its place.
+              <div className="flex flex-col items-start gap-3">
+                <span
+                  aria-hidden
+                  className="flex size-11 items-center justify-center rounded-xl bg-destructive/10 text-destructive"
+                >
+                  {blockedReason === "no-access" ? (
+                    <ShieldX className="size-5.5" strokeWidth={2} />
+                  ) : (
+                    <CircleAlert className="size-5.5" strokeWidth={2} />
+                  )}
+                </span>
+
+                <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                  {blockedReason === "no-access"
+                    ? "Access removed"
+                    : "Link expired"}
+                </h1>
+
+                <p className="text-sm leading-[1.6] text-muted-foreground">
+                  {authError}
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                  <Button asChild variant="outline" className="h-10.5">
+                    <Link href={tenantLoginPath(tenantSlug)}>
+                      Back to sign in
+                    </Link>
+                  </Button>
+                  {blockedReason === "expired" && (
+                    <Button asChild className="h-10.5 font-semibold">
+                      <Link href={tenantForgotPasswordPath(tenantSlug)}>
+                        Request a new link
+                      </Link>
+                    </Button>
+                  )}
+                </div>
               </div>
             ) : (
               <>
                 <div className="flex flex-col gap-1.5">
                   <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                    Set new password
+                    {isFirstPassword
+                      ? "Set your password"
+                      : "Set a new password"}
                   </h1>
 
                   <p className="text-sm text-muted-foreground">
-                    Enter your new password below.
+                    {isFirstPassword
+                      ? "Choose a password to finish joining the workspace. At least 8 characters."
+                      : "Choose a new password for your account. At least 8 characters."}
                   </p>
                 </div>
 
-                {(authError || form.formState.errors.root) && (
+                {form.formState.errors.root && (
                   <Alert
                     variant="destructive"
                     className="rounded-[10px] px-3.5 py-3"
@@ -283,7 +341,7 @@ export default function DirectResetPasswordPage() {
                     <CircleAlert className="size-4.5" aria-hidden />
 
                     <AlertDescription className="text-sm">
-                      {authError || form.formState.errors.root?.message}
+                      {form.formState.errors.root?.message}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -300,7 +358,7 @@ export default function DirectResetPasswordPage() {
                       <FormControl>
                         <PasswordInput
                           placeholder="••••••••"
-                          disabled={isPending || Boolean(authError)}
+                          disabled={isPending}
                           className="h-11 rounded-sm pr-10 text-sm"
                           {...field}
                         />
@@ -323,7 +381,7 @@ export default function DirectResetPasswordPage() {
                       <FormControl>
                         <PasswordInput
                           placeholder="••••••••"
-                          disabled={isPending || Boolean(authError)}
+                          disabled={isPending}
                           className="h-11 rounded-lg text-sm"
                           {...field}
                         />
@@ -336,14 +394,16 @@ export default function DirectResetPasswordPage() {
 
                 <Button
                   type="submit"
-                  disabled={isPending || Boolean(authError)}
+                  disabled={isPending}
                   className="h-11 font-semibold"
                 >
                   {isPending ? (
                     <span className="flex items-center gap-2">
                       <LoadingSpinner />
-                      Updating...
+                      Saving...
                     </span>
+                  ) : isFirstPassword ? (
+                    "Set password"
                   ) : (
                     "Update password"
                   )}

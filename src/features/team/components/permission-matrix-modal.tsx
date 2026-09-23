@@ -59,7 +59,7 @@ export function PermissionMatrixModal() {
         <Button
           variant="outline"
           size="sm"
-          className="h-10 gap-2 rounded-lg px-4 text-sm font-semibold shadow-none"
+          className="h-10 gap-2 bg-white rounded-lg px-4 text-sm font-semibold shadow-none"
         >
           <UserShield className="size-4" aria-hidden />
           View permissions

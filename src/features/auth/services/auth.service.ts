@@ -357,10 +357,23 @@ export async function sendTenantPasswordResetLink(
     const { data: user } = await supabase
       .from("users")
       .select("id")
-      .eq("email", email)
+      .eq("email", email.trim().toLowerCase())
       .maybeSingle();
 
     if (!user) {
+      return { success: true };
+    }
+
+    // Revoking an invite or removing a member deletes the membership but not
+    // the login, so without this a revoked invitee could still mail themselves
+    // a link and set a password. Same silent success as an unknown address,
+    // so the form never reveals who was removed.
+    const tenantId = await getTenantIdBySlug(slug);
+    const access = tenantId
+      ? await getTenantMembershipAccess(user.id, tenantId)
+      : "no-membership";
+
+    if (access !== "allowed") {
       return { success: true };
     }
 
@@ -424,68 +437,160 @@ export async function updatePassword(values: UpdatePasswordValues) {
   return { success: true };
 }
 
+type TenantMembershipAccess = "allowed" | "no-membership" | "disabled";
+
+/**
+ * Whether this user may still set a password for this workspace. An invited
+ * or active membership may; a disabled one, or none at all (a revoked invite
+ * or a removed member), may not.
+ *
+ * Read with the admin client: the user may have no readable membership left,
+ * and "no row" has to mean revoked, not "RLS hid it".
+ */
+async function getTenantMembershipAccess(
+  userId: string,
+  tenantId: string,
+): Promise<TenantMembershipAccess> {
+  const admin = createSupabaseAdminClient();
+
+  const { data, error } = await admin
+    .from("memberships")
+    .select("status")
+    .eq("user_id", userId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle<{ status: string }>();
+
+  if (error) {
+    // Fail closed: a password must not be set on a lookup we couldn't make.
+    console.error("[auth] membership lookup failed:", error.message);
+    throw error;
+  }
+
+  if (!data) {
+    return "no-membership";
+  }
+
+  return data.status === "disabled" ? "disabled" : "allowed";
+}
+
+const EXPIRED_LINK_MESSAGE =
+  "This link is invalid or has expired. Request a new one to continue.";
+
+const TENANT_ACCESS_MESSAGES: Record<
+  Exclude<TenantMembershipAccess, "allowed">,
+  string
+> = {
+  "no-membership":
+    "You no longer have access to this workspace. If you were invited, the invitation was revoked. Ask your workspace admin to invite you again.",
+  disabled:
+    "Your access to this workspace has been turned off. Contact your workspace admin to have it turned back on.",
+};
+
+export type TenantPasswordAccessResult =
+  | { success: true }
+  | {
+      success: false;
+      error: string;
+      /** expired / no-access end the page; retry keeps the form open. */
+      reason: "expired" | "no-access" | "retry";
+    };
+
+/**
+ * Run before the reset page shows its form and again before the password is
+ * saved. The link's session is valid on its own -- it's Supabase's, not ours
+ * -- so without this a revoked invitee's old link still set a password.
+ *
+ * A denied session is signed out on the way, so the leftover login can't be
+ * used anywhere else either.
+ */
+export async function checkTenantPasswordAccess(
+  tenantSlug: string,
+): Promise<TenantPasswordAccessResult> {
+  const supabase = await createSupabaseServerClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { success: false, error: EXPIRED_LINK_MESSAGE, reason: "expired" };
+  }
+
+  const tenantId = await getTenantIdBySlug(tenantSlug);
+  const access = tenantId
+    ? await getTenantMembershipAccess(user.id, tenantId)
+    : "no-membership";
+
+  if (access !== "allowed") {
+    await supabase.auth.signOut();
+    return {
+      success: false,
+      error: TENANT_ACCESS_MESSAGES[access],
+      reason: "no-access",
+    };
+  }
+
+  return { success: true };
+}
+
+/** Supabase's own wording is written for developers; these are for people. */
+function passwordUpdateMessage(error: { code?: string; message: string }) {
+  switch (error.code) {
+    case "same_password":
+      return "That's your current password. Choose a different one.";
+    case "weak_password":
+      return "That password is too easy to guess. Try a longer one with a mix of letters, numbers, and symbols.";
+    case "session_not_found":
+    case "session_expired":
+      return EXPIRED_LINK_MESSAGE;
+    default:
+      return "We couldn't update your password. Try again in a moment.";
+  }
+}
+
 export async function updatePasswordForTenant(
   payload: UpdatePasswordValues,
   tenantSlug: string,
-) {
-  const { password } = payload;
-
+): Promise<TenantPasswordAccessResult> {
   try {
+    const access = await checkTenantPasswordAccess(tenantSlug);
+
+    if (!access.success) {
+      return access;
+    }
+
     const supabase = await createSupabaseServerClient();
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return {
-        success: false,
-        error:
-          "Your session has expired. Please request a new password reset link.",
-      };
-    }
-
-    const tenantId = await getTenantIdBySlug(tenantSlug);
-
-    if (!tenantId) {
-      return {
-        success: false,
-        error: "Tenant not found.",
-      };
-    }
-    const { data: membership, error: membershipError } = await supabase
-      .from("memberships")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("tenant_id", tenantId)
-      .maybeSingle();
-
-    if (membershipError || !membership) {
-      return {
-        success: false,
-        error:
-          "Unauthorized: You do not belong to this organization workspace.",
-      };
-    }
-
     const { error: updateError } = await supabase.auth.updateUser({
-      password,
+      password: payload.password,
     });
 
     if (updateError) {
+      console.error(
+        "[auth] tenant password update failed:",
+        updateError.code,
+        updateError.message,
+      );
+      const error = passwordUpdateMessage(updateError);
       return {
         success: false,
-        error: updateError.message,
+        error,
+        reason: error === EXPIRED_LINK_MESSAGE ? "expired" : "retry",
       };
     }
+
+    // Done with the link's session: the person signs in with the new
+    // password, which also runs the invite-to-active step on a fresh token.
+    await supabase.auth.signOut();
 
     return { success: true };
   } catch (err) {
     console.error("[SUPABASE_UPDATE_PASSWORD_ERROR]:", err);
     return {
       success: false,
-      error: "An unexpected error occurred while updating your password.",
+      error: "We couldn't update your password. Try again in a moment.",
+      reason: "retry",
     };
   }
 }

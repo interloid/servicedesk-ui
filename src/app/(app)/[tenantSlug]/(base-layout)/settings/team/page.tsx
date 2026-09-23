@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
-import { Card } from "@/components/ui/card";
-
 import { InviteMemberModal } from "@/features/team/components/invite-member-modal";
 import { PermissionMatrixModal } from "@/features/team/components/permission-matrix-modal";
 import { SeatUsage } from "@/features/team/components/seat-usage";
@@ -18,11 +16,10 @@ import {
   serverNow,
 } from "@/features/team/services/team.service";
 
+// No canonical: every route lives under /[tenantSlug]/, so a bare
+// "/settings/team" pointed browsers and crawlers at a 404.
 export const metadata: Metadata = {
   title: "Team & roles",
-  alternates: {
-    canonical: "/settings/team",
-  },
 };
 
 export default async function TeamAndRolesPage() {
@@ -58,14 +55,14 @@ export default async function TeamAndRolesPage() {
           </div>
 
           <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto *:flex-1 sm:*:flex-none">
-            {canInvite && <InviteMemberModal seats={seats} />}
+            {canInvite && (
+              <InviteMemberModal seats={seats} callerRole={callerRole} />
+            )}
             <PermissionMatrixModal />
           </div>
         </div>
 
-        <Card className="rounded-[14px] p-4 sm:p-5">
-          <SeatUsage seats={seats} counts={counts} />
-        </Card>
+        <SeatUsage seats={seats} counts={counts} />
 
         <TeamTable members={members} callerRole={callerRole} now={now} />
       </div>

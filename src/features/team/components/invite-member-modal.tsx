@@ -57,14 +57,34 @@ interface InviteMemberModalProps {
    * saves the customer from typing out an invite that was never going to send.
    */
   seats: TeamSeats;
+  /**
+   * Hides the roles this person may not hand out. Only a Tenant Admin can
+   * invite a Tenant Admin or Billing Admin; the server enforces the same rule.
+   */
+  callerRole: TeamRole | null;
 }
+
+/** Mirrors ADMIN_ONLY_INVITE_ROLES in team.service.ts. */
+const ADMIN_ONLY_INVITE_ROLES: readonly TeamRole[] = [
+  "Tenant Admin",
+  "Billing Admin",
+];
 
 type InviteForm = {
   email: string;
   role: TeamRole;
 };
 
-export function InviteMemberModal({ children, seats }: InviteMemberModalProps) {
+export function InviteMemberModal({
+  children,
+  seats,
+  callerRole,
+}: InviteMemberModalProps) {
+  const invitableRoles = TEAM_ROLE_VALUES.filter(
+    (role) =>
+      callerRole === "Tenant Admin" || !ADMIN_ONLY_INVITE_ROLES.includes(role),
+  );
+
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -134,7 +154,8 @@ export function InviteMemberModal({ children, seats }: InviteMemberModalProps) {
             Invite a member
           </DialogTitle>
           <DialogDescription>
-            They&apos;ll receive an email invitation that expires in 7 days.
+            They&apos;ll receive an email invitation. The link expires in 1 hour
+            — use Resend invite if they miss it.
           </DialogDescription>
         </DialogHeader>
 
@@ -195,8 +216,12 @@ export function InviteMemberModal({ children, seats }: InviteMemberModalProps) {
                       position="popper"
                       className="p-1"
                     >
-                      {TEAM_ROLE_VALUES.map((role) => (
-                        <SelectItem key={role} value={role}>
+                      {invitableRoles.map((role) => (
+                        <SelectItem
+                          key={role}
+                          value={role}
+                          className="p-2 cursor-pointer"
+                        >
                           {role}
                         </SelectItem>
                       ))}

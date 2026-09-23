@@ -58,8 +58,17 @@ type PostgrestFailure = {
   hint?: string | null;
 };
 
+/**
+ * Raised by the enforce_team_seat_limit trigger. The app checks seats before
+ * writing too, but only the trigger holds a lock, so it is what stops two
+ * invites sent at the same moment from both taking the last seat.
+ */
+const SEAT_LIMIT_SQLSTATE = "TS409";
+
 function toFailureCode(pgCode: string | undefined): TeamFailureCode {
   switch (pgCode) {
+    case SEAT_LIMIT_SQLSTATE:
+      return "seat-limit-reached";
     case "42501":
       return "action-not-allowed";
     case "23505":
@@ -85,10 +94,26 @@ function fail(
     );
   }
 
+  if (error?.code === SEAT_LIMIT_SQLSTATE) {
+    return new TeamError(
+      "All of your seats are in use. Remove or disable someone, or upgrade to add more.",
+      { status: 409, code: "seat-limit-reached" },
+    );
+  }
+
   return new TeamError(userMessage, {
     status,
     code: toFailureCode(error?.code),
   });
+}
+
+function seatLimitError(seats: TeamSeats) {
+  return new TeamError(
+    `Your plan includes ${seats.limit} seat${
+      seats.limit === 1 ? "" : "s"
+    } and all ${seats.limit} are in use. Remove or disable someone, or upgrade to add more.`,
+    { status: 409, code: "seat-limit-reached" },
+  );
 }
 
 const ROLE_TO_DB: Record<TeamRole, string> = {
@@ -126,41 +151,64 @@ type TeamActor = {
 };
 
 /**
- * Wrapped in React's `cache` so one render resolves the actor once. Without it
- * listTeamMembers, getTeamSeats and getCallerRole each paid for their own
- * getUser + getClaims round trip before reading a single row.
+ * Wrapped in React's `cache` so one render resolves the actor once. It takes no
+ * arguments on purpose: `cache` matches arguments by identity, and every
+ * createSupabaseServerClient() call returns a new object, so keying it on the
+ * client (as it used to be) missed on every call.
+ *
+ * The role comes from the live membership row, not the JWT claim. The claim
+ * lives until the token refreshes (up to an hour), so a removed, disabled or
+ * demoted member kept their old powers here for that long.
  */
-const getActorOrNull = cache(async function getActorOrNull(
-  supabase: SupabaseClient,
-): Promise<TeamActor | null> {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+const getActorOrNull = cache(
+  async function getActorOrNull(): Promise<TeamActor | null> {
+    const supabase = await createSupabaseServerClient();
 
-  if (error || !user) {
-    return null;
-  }
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
 
-  const { data: claims } = await supabase.auth.getClaims();
-  const tenantId = claims?.claims?.tenant_id as string | undefined;
-  const tenantRole = claims?.claims?.tenant_role as string | undefined;
-  const tenantSlug = claims?.claims?.tenant_slug as string | undefined;
+    if (error || !user) {
+      return null;
+    }
 
-  if (!tenantId) {
-    return null;
-  }
+    const { data: claims } = await supabase.auth.getClaims();
+    const tenantId = claims?.claims?.tenant_id as string | undefined;
+    const tenantSlug = claims?.claims?.tenant_slug as string | undefined;
 
-  return {
-    userId: user.id,
-    tenantId,
-    tenantSlug: tenantSlug ?? null,
-    role: (tenantRole && ROLE_FROM_DB[tenantRole]) || null,
-  };
-});
+    if (!tenantId) {
+      return null;
+    }
 
-async function requireActor(supabase: SupabaseClient): Promise<TeamActor> {
-  const actor = await getActorOrNull(supabase);
+    // Admin client: this must see "no row" as "removed", never as "RLS hid it".
+    const { data: live, error: liveError } = await createSupabaseAdminClient()
+      .from("memberships")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("tenant_id", tenantId)
+      .eq("status", "active")
+      .maybeSingle<{ role: string }>();
+
+    if (liveError) {
+      throw fail("We couldn't check your access to this workspace.", liveError);
+    }
+
+    if (!live) {
+      return null;
+    }
+
+    return {
+      userId: user.id,
+      tenantId,
+      tenantSlug: tenantSlug ?? null,
+      role: ROLE_FROM_DB[live.role] ?? null,
+    };
+  },
+);
+
+async function requireActor(): Promise<TeamActor> {
+  const actor = await getActorOrNull();
 
   if (!actor) {
     throw new TeamError("Sign in to do that.", {
@@ -219,7 +267,7 @@ type MemberRow = {
 
 export async function listTeamMembers(): Promise<TeamMember[]> {
   const supabase = await createSupabaseServerClient();
-  const currentUserId = (await getActorOrNull(supabase))?.userId ?? null;
+  const currentUserId = (await getActorOrNull())?.userId ?? null;
 
   // Staff only. Portal customers are members of the tenant but they are not
   // the team, and they must never appear on a screen that can disable an
@@ -290,7 +338,7 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
  */
 export async function getTeamSeats(): Promise<TeamSeats> {
   const supabase = await createSupabaseServerClient();
-  const actor = await getActorOrNull(supabase);
+  const actor = await getActorOrNull();
 
   if (!actor) {
     return calcTeamSeats(0, FREE_SEAT_LIMIT);
@@ -332,9 +380,7 @@ export const serverNow = cache(async function serverNow(): Promise<number> {
 });
 
 export async function getCallerRole(): Promise<TeamRole | null> {
-  const supabase = await createSupabaseServerClient();
-
-  return (await getActorOrNull(supabase))?.role ?? null;
+  return (await getActorOrNull())?.role ?? null;
 }
 
 /**
@@ -445,9 +491,18 @@ async function emailWorkspaceLink(
   }
 }
 
+/**
+ * Roles only a Tenant Admin may hand out. A Manager can invite and edit the
+ * team, but inviting a second address of their own as Tenant Admin would be a
+ * way to promote themselves.
+ */
+const ADMIN_ONLY_INVITE_ROLES: readonly TeamRole[] = [
+  "Tenant Admin",
+  "Billing Admin",
+];
+
 export async function inviteMember(values: InviteMemberValues): Promise<void> {
-  const supabase = await createSupabaseServerClient();
-  const actor = await requireActor(supabase);
+  const actor = await requireActor();
 
   assertRole(
     actor,
@@ -455,15 +510,20 @@ export async function inviteMember(values: InviteMemberValues): Promise<void> {
     "Only a Tenant Admin or Manager can invite people.",
   );
 
+  if (
+    ADMIN_ONLY_INVITE_ROLES.includes(values.role) &&
+    actor.role !== "Tenant Admin"
+  ) {
+    throw new TeamError(
+      `Only a Tenant Admin can invite someone as ${values.role}.`,
+      { status: 403, code: "action-not-allowed" },
+    );
+  }
+
   const seats = await getTeamSeats();
 
   if (!hasSeatLeft(seats)) {
-    throw new TeamError(
-      `Your plan includes ${seats.limit} seat${
-        seats.limit === 1 ? "" : "s"
-      } and all ${seats.limit} are in use. Remove or disable someone, or upgrade to add more.`,
-      { status: 409, code: "seat-limit-reached" },
-    );
+    throw seatLimitError(seats);
   }
 
   const email = values.email.trim().toLowerCase();
@@ -488,58 +548,99 @@ export async function inviteMember(values: InviteMemberValues): Promise<void> {
     );
   }
 
-  let authUserId: string;
+  if (existingUser) {
+    // 2. Already on this team?
+    const { data: existingMembership, error: existingMembershipError } =
+      await admin
+        .from("memberships")
+        .select("id")
+        .eq("tenant_id", actor.tenantId)
+        .eq("user_id", existingUser.id)
+        .limit(1)
+        .maybeSingle();
+
+    if (existingMembershipError) {
+      throw fail(
+        "We couldn't check whether that person is already on your team.",
+        existingMembershipError,
+      );
+    }
+
+    if (existingMembership) {
+      throw new TeamError("That person is already on this team.", {
+        status: 409,
+        code: "already-member",
+      });
+    }
+
+    // 3. Stop-gap until sessions can switch workspace. The access-token hook
+    // picks one membership per user, active ones first, so someone who
+    // already belongs to another workspace always signs in there: this
+    // invite would never be accepted and would hold a seat forever.
+    const { count: elsewhere, error: elsewhereError } = await admin
+      .from("memberships")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", existingUser.id)
+      .neq("tenant_id", actor.tenantId)
+      .neq("status", "disabled");
+
+    if (elsewhereError) {
+      throw fail(
+        "We couldn't check whether that person belongs to another workspace.",
+        elsewhereError,
+      );
+    }
+
+    if (elsewhere) {
+      throw new TeamError(
+        "That person already belongs to another workspace and can't join a second one yet.",
+        { status: 409, code: "already-member" },
+      );
+    }
+  }
 
   // An account that exists but was never confirmed can still be invited the
   // normal way, so "already in the users table" is not the test -- only a
   // registered account needs the magic-link path.
   const isRegisteredAccount = await isRegistered(admin, existingUser?.id);
 
-  // 2. Existing user
+  let authUserId: string;
+  let createdAuthUserId: string | null = null;
+
   if (existingUser) {
     authUserId = existingUser.id;
   } else {
-    // 3. New user → Supabase invitation, which also sends the mail
-    const invited = await emailSupabaseInvite(
-      admin,
-      email,
-      name,
-      actor.tenantSlug,
-    );
+    // 4. New address: create the account WITHOUT mailing it. The invite goes
+    // out last, once the membership exists, so a failure in between can't
+    // leave someone holding a link to a workspace they were never added to.
+    const { data: created, error: createError } =
+      await admin.auth.admin.createUser({
+        email,
+        email_confirm: false,
+        user_metadata: { full_name: name },
+      });
 
-    if (!invited?.user?.id) {
-      throw new TeamError(
+    if (createError || !created?.user?.id) {
+      throw fail(
         "We couldn't create an account for that email. Try again.",
-        { status: 400, code: "unknown" },
+        createError,
+        400,
       );
     }
 
-    authUserId = invited.user.id;
+    authUserId = created.user.id;
+    createdAuthUserId = created.user.id;
   }
 
-  // 4. Check membership for THIS tenant
-  const { data: existingMembership, error: existingMembershipError } =
-    await admin
-      .from("memberships")
-      .select("id, user_id, status")
-      .eq("tenant_id", actor.tenantId)
-      .eq("user_id", authUserId)
-      .limit(1)
-      .maybeSingle();
-
-  if (existingMembershipError) {
-    throw fail(
-      "We couldn't check whether that person is already on your team.",
-      existingMembershipError,
-    );
-  }
-
-  if (existingMembership) {
-    throw new TeamError("That person is already on this team.", {
-      status: 409,
-      code: "already-member",
-    });
-  }
+  // Undo the account created above if a later step fails, so a retry starts
+  // clean instead of finding a half-made user.
+  const rollbackNewUser = async () => {
+    if (!createdAuthUserId) return;
+    const { error } = await admin.auth.admin.deleteUser(createdAuthUserId);
+    if (error) {
+      console.error("[team] rollback of new invitee failed:", error.message);
+    }
+  };
 
   // 5. Ensure application profile exists
   const { error: profileError } = await admin.from("users").upsert(
@@ -552,10 +653,11 @@ export async function inviteMember(values: InviteMemberValues): Promise<void> {
   );
 
   if (profileError) {
+    await rollbackNewUser();
     throw fail("We couldn't create that person's profile.", profileError);
   }
 
-  // 6. Create membership
+  // 6. Create membership. The seat trigger re-checks the limit under a lock.
   const { error: membershipError } = await admin.from("memberships").insert({
     tenant_id: actor.tenantId,
     user_id: authUserId,
@@ -565,18 +667,16 @@ export async function inviteMember(values: InviteMemberValues): Promise<void> {
   });
 
   if (membershipError) {
+    await rollbackNewUser();
     throw fail("We couldn't add them to your team.", membershipError, 409);
   }
 
-  // 7. Only step 3 sends mail, and only for an address Supabase had never
-  // seen. Anyone who already had a row gets told here instead -- a registered
-  // account by magic link, an unconfirmed one by the normal invite.
-  if (existingUser) {
-    if (isRegisteredAccount) {
-      await emailWorkspaceLink(email, actor.tenantSlug);
-    } else {
-      await emailSupabaseInvite(admin, email, name, actor.tenantSlug);
-    }
+  // 7. Mail last, for every path. If this fails the membership stays pending
+  // and "Resend invite" retries the mail.
+  if (isRegisteredAccount) {
+    await emailWorkspaceLink(email, actor.tenantSlug);
+  } else {
+    await emailSupabaseInvite(admin, email, name, actor.tenantSlug);
   }
 }
 
@@ -610,7 +710,7 @@ async function isRegistered(
 
 export async function resendInvite(values: ResendInviteValues): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  const actor = await requireActor(supabase);
+  const actor = await requireActor();
   assertRole(
     actor,
     ["Tenant Admin", "Manager"],
@@ -727,7 +827,7 @@ export async function changeMemberRole(
   values: ChangeMemberRoleValues,
 ): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  const actor = await requireActor(supabase);
+  const actor = await requireActor();
   assertRole(actor, ["Tenant Admin"], "Only a Tenant Admin can change roles.");
 
   await assertNotSelf(
@@ -745,6 +845,9 @@ export async function changeMemberRole(
       updated_at: new Date().toISOString(),
     })
     .eq("id", values.memberId)
+    // Staff only, like the roster: a portal customer's membership id must not
+    // be promotable to Agent through a direct action call.
+    .in("role", [...STAFF_ROLES])
     .select("id");
 
   if (error) {
@@ -763,7 +866,7 @@ export async function changeMemberStatus(
   values: ChangeMemberStatusValues,
 ): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  const actor = await requireActor(supabase);
+  const actor = await requireActor();
   assertRole(
     actor,
     ["Tenant Admin"],
@@ -778,6 +881,29 @@ export async function changeMemberStatus(
     "cannot-change-own-role",
   );
 
+  // Disabled members don't hold a seat, so switching one back on takes one.
+  // Without this, disable → invite → re-enable walked straight past the plan
+  // limit. (The seat trigger enforces the same rule under a lock.)
+  if (values.status === "Active") {
+    const { data: target, error: targetError } = await supabase
+      .from("memberships")
+      .select("status")
+      .eq("id", values.memberId)
+      .maybeSingle<{ status: string }>();
+
+    if (targetError) {
+      throw fail("We couldn't look that member up.", targetError);
+    }
+
+    if (target?.status === "disabled") {
+      const seats = await getTeamSeats();
+
+      if (!hasSeatLeft(seats)) {
+        throw seatLimitError(seats);
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from("memberships")
     .update({
@@ -787,6 +913,7 @@ export async function changeMemberStatus(
       updated_at: new Date().toISOString(),
     })
     .eq("id", values.memberId)
+    .in("role", [...STAFF_ROLES])
     .select("id");
 
   if (error) {
@@ -803,7 +930,7 @@ export async function changeMemberStatus(
 
 export async function removeMember(values: RemoveMemberValues): Promise<void> {
   const supabase = await createSupabaseServerClient();
-  const actor = await requireActor(supabase);
+  const actor = await requireActor();
   assertRole(
     actor,
     ["Tenant Admin"],
@@ -822,6 +949,7 @@ export async function removeMember(values: RemoveMemberValues): Promise<void> {
     .from("memberships")
     .delete()
     .eq("id", values.memberId)
+    .in("role", [...STAFF_ROLES])
     .select("id");
 
   if (error) {

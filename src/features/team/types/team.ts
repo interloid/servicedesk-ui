@@ -271,8 +271,14 @@ export const FREE_SEAT_LIMIT = 2;
 
 export const CURRENT_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
 
+/**
+ * The roles that make up a workspace's team: shown on the roster, counted as
+ * seats, and editable from the Team page. `platform_admin` is deliberately
+ * left out -- it is our account, not the customer's, so it must not use one of
+ * their seats or be demotable/removable by their Tenant Admin (it used to show
+ * up labelled "Agent"). The seat trigger in the database uses the same list.
+ */
 export const STAFF_ROLES = [
-  "platform_admin",
   "tenant_admin",
   "manager",
   "agent",

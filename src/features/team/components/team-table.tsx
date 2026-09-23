@@ -7,8 +7,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  FilterX,
   MailPlus,
-  MoreVertical,
+  MoreHorizontalIcon,
   Pause,
   Play,
   Search,
@@ -69,9 +70,9 @@ const TH =
 
 const TEAM_STATUS_BADGE: Record<TeamStatus, string> = {
   Active:
-    "border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
+    "border-none bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
   Invited:
-    "border-transparent bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300",
+    "border-none bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
   Disabled: "border-transparent bg-muted text-muted-foreground",
 };
 
@@ -253,7 +254,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
             failure: `We couldn't revoke the invitation to ${member.email}.`,
           }
         : {
-            success: `${displayName(member)} was removed from the team and can no longer sign in.`,
+            success: `${displayName(member)} was removed from the team and no longer has access.`,
             failure: `We couldn't remove ${displayName(member)}.`,
           },
       () => setRemoveTarget(null),
@@ -301,11 +302,11 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
               }),
             disabled
               ? {
-                  success: `${displayName(member)} is active again and can sign in.`,
+                  success: `${displayName(member)} is active again.`,
                   failure: `We couldn't activate ${displayName(member)}.`,
                 }
               : {
-                  success: `${displayName(member)} was deactivated and can't sign in until you activate them again.`,
+                  success: `${displayName(member)} was deactivated and has no access until you activate them again.`,
                   failure: `We couldn't deactivate ${displayName(member)}.`,
                 },
           ),
@@ -337,13 +338,6 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
           <span className="truncate">{member.name}</span>
-          {member.isSelf && (
-            /* Tinted to match the avatar fallback, so the row that is you
-               reads as one accent rather than a grey outline bolted on. */
-            <Badge className="shrink-0 rounded-full border-transparent bg-brand-accent/10 px-2 py-0 text-[10px] font-semibold tracking-[0.06em] text-brand-accent uppercase">
-              You
-            </Badge>
-          )}
         </span>
         <span className="truncate text-xs text-muted-foreground">
           {member.email}
@@ -406,7 +400,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
           className="p-1"
         >
           {TEAM_ROLE_VALUES.map((role) => (
-            <SelectItem key={role} value={role}>
+            <SelectItem key={role} value={role} className="p-2 cursor-pointer">
               {role}
             </SelectItem>
           ))}
@@ -435,18 +429,11 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
       );
     }
 
-    const relative = formatRelativeTime(member.joinedAt, now);
-
     return (
       <div className="flex flex-col gap-0.5">
         <span className="text-sm font-medium whitespace-nowrap text-foreground">
           {joined}
         </span>
-        {relative && (
-          <span className="text-xs whitespace-nowrap text-muted-foreground">
-            {relative}
-          </span>
-        )}
       </div>
     );
   };
@@ -460,7 +447,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
           className="inline-flex size-9 items-center justify-center text-sm text-muted-foreground"
           aria-label="No actions available"
         >
-          —
+          Nil
         </span>
       );
     }
@@ -473,9 +460,9 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
             size="icon"
             disabled={busy}
             aria-label={`Actions for ${member.name}`}
-            className="size-9 rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="size-9 rounded-lg border border-none text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            <MoreVertical />
+            <MoreHorizontalIcon />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
@@ -487,6 +474,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
                 variant={action.destructive ? "destructive" : "default"}
                 disabled={busy}
                 onSelect={action.run}
+                className="p-2"
               >
                 <Icon />
                 {action.label}
@@ -496,6 +484,13 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
         </DropdownMenuContent>
       </DropdownMenu>
     );
+  };
+
+  const clearFilters = () => {
+    setQuery("");
+    setStatusFilter("All");
+    setRoleFilter("All");
+    setPage(1);
   };
 
   const emptyMessage = hasActiveFilters
@@ -523,7 +518,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
                 setPage(1);
               }}
               placeholder="Search members by name or email…"
-              className="h-10 pl-9 text-sm sm:h-10"
+              className="h-10 bg-card pl-9 text-sm sm:h-10"
               aria-label="Search members"
             />
           </div>
@@ -537,7 +532,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
               }}
             >
               <SelectTrigger
-                className="min-h-10 w-full min-w-0 sm:h-10 sm:w-37.5"
+                className="min-h-10 w-full min-w-0 bg-card sm:h-10 sm:w-37.5"
                 aria-label="Filter by status"
               >
                 <SelectValue />
@@ -548,9 +543,15 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
                 position="popper"
                 className="p-1"
               >
-                <SelectItem value="All">All statuses</SelectItem>
+                <SelectItem value="All" className="p-2">
+                  All statuses
+                </SelectItem>
                 {TEAM_STATUS_VALUES.map((status) => (
-                  <SelectItem key={status} value={status}>
+                  <SelectItem
+                    key={status}
+                    value={status}
+                    className="p-2 cursor-pointer"
+                  >
                     {status}
                   </SelectItem>
                 ))}
@@ -565,7 +566,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
               }}
             >
               <SelectTrigger
-                className="min-h-10 w-full min-w-0 sm:h-10 sm:w-40"
+                className="min-h-10 w-full min-w-0 bg-card sm:h-10 sm:w-40"
                 aria-label="Filter by role"
               >
                 <SelectValue />
@@ -578,12 +579,27 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
               >
                 <SelectItem value="All">All roles</SelectItem>
                 {TEAM_ROLE_VALUES.map((role) => (
-                  <SelectItem key={role} value={role}>
+                  <SelectItem
+                    key={role}
+                    value={role}
+                    className="p-2 cursor-pointer"
+                  >
                     {role}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={clearFilters}
+              disabled={!hasActiveFilters}
+              className="h-10 bg-card"
+            >
+              <FilterX className="size-4" />
+              Clear filters
+            </Button>
           </div>
         </div>
       </div>
@@ -591,7 +607,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
       <div className="overflow-hidden rounded-[14px] border border-border bg-card">
         <Table className="min-w-227.5">
           <TableHeader>
-            <TableRow className="h-14 border-border bg-muted/40 hover:bg-muted/40">
+            <TableRow className="h-14 border-border bg-card hover:bg-card">
               <TableHead className={TH}>Member</TableHead>
               <TableHead className={`${TH} w-37.5`}>Status</TableHead>
               <TableHead className={`${TH} w-57.5`}>Role</TableHead>

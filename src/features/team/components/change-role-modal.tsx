@@ -119,7 +119,7 @@ function ChangeRoleFields({
       <DialogHeader className="pr-6">
         <DialogTitle className={TEAM_DIALOG_TITLE}>Change role</DialogTitle>
         <DialogDescription>
-          {`Change the role for ${member.email || member.name}'s role.`}
+          {`Choose a new role for ${member.email || member.name}.`}
         </DialogDescription>
       </DialogHeader>
 
@@ -163,7 +163,11 @@ function ChangeRoleFields({
             className="p-1"
           >
             {TEAM_ROLE_VALUES.map((value) => (
-              <SelectItem key={value} value={value}>
+              <SelectItem
+                key={value}
+                value={value}
+                className="p-2 cursor-pointer"
+              >
                 {value}
               </SelectItem>
             ))}

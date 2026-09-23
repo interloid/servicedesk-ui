@@ -246,21 +246,21 @@ Fix RISK-002 first. It is the only finding where data leaves the server to someo
 
 ## 📋 6. Risk Tracking Table
 
-| Risk ID  | Priority | Risk (Short Description)                 | File                                                              | Completed | Reason if Not Completed                              |
-| -------- | -------- | ---------------------------------------- | ----------------------------------------------------------------- | --------- | ---------------------------------------------------- |
-| RISK-001 | High     | Self-protection guards compare wrong ids | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — compares the target's user_id     |
-| RISK-002 | High     | Team page has no server-side role check  | `src/app/(app)/[tenantSlug]/(base-layout)/settings/team/page.tsx` | Yes       | Fixed 2026-09-23 — notFound() for non-admin/manager  |
-| RISK-003 | High     | Existing-user invite sends no email      | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — magic link for existing accounts  |
-| RISK-004 | Medium   | Server action rejection shows no error   | `src/features/team/components/team-table.tsx`                     | Yes       | Fixed 2026-09-23 — try/catch/finally + error toast   |
-| RISK-005 | Medium   | Auth called six times per render         | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — getActorOrNull wrapped in cache() |
-| RISK-006 | Medium   | Unsafe casts hide query shape changes    | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — .returns<T>() and typed rows      |
-| RISK-007 | Medium   | Debug console.log left in resend path    | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — debug log deleted                 |
-| RISK-008 | Medium   | Relative time can mismatch on hydration  | `src/features/team/components/team-table.tsx`                     | Yes       | Fixed 2026-09-23 — `now` passed from the server      |
-| RISK-009 | Low      | Status order duplicated in two files     | `src/features/team/team.ts`                                       | Yes       | Fixed 2026-09-23 — service imports TEAM_STATUS_ORDER |
-| RISK-010 | Low      | Eight exports have no consumer           | `src/features/team/team.ts`                                       | Yes       | Fixed 2026-09-23 — unused exports deleted            |
-| RISK-011 | Low      | Permission matrix has two dead keys      | `src/features/team/team.ts`                                       | Yes       | Fixed 2026-09-23 — resend/revoke keys now checked    |
-| RISK-012 | Low      | Invite return value and schema unused    | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — void return, fullName dropped     |
-| RISK-013 | Low      | Service lacks server-only import         | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — server-only imported              |
+| Risk ID  | Priority | Risk (Short Description)                 | File                                                              | Completed | Reason if Not Completed                                                                                                  |
+| -------- | -------- | ---------------------------------------- | ----------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------ |
+| RISK-001 | High     | Self-protection guards compare wrong ids | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — compares the target's user_id                                                                         |
+| RISK-002 | High     | Team page has no server-side role check  | `src/app/(app)/[tenantSlug]/(base-layout)/settings/team/page.tsx` | Yes       | Fixed 2026-09-23 — notFound() for non-admin/manager                                                                      |
+| RISK-003 | High     | Existing-user invite sends no email      | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — magic link for existing accounts                                                                      |
+| RISK-004 | Medium   | Server action rejection shows no error   | `src/features/team/components/team-table.tsx`                     | Yes       | Fixed 2026-09-23 — try/catch/finally + error toast                                                                       |
+| RISK-005 | Medium   | Auth called six times per render         | `src/features/team/services/team.service.ts`                      | Yes       | Re-fixed as RISK-018 in code-review-2026-09-23-followup.md — the first cache() was keyed on a fresh client and never hit |
+| RISK-006 | Medium   | Unsafe casts hide query shape changes    | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — .returns<T>() and typed rows                                                                          |
+| RISK-007 | Medium   | Debug console.log left in resend path    | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — debug log deleted                                                                                     |
+| RISK-008 | Medium   | Relative time can mismatch on hydration  | `src/features/team/components/team-table.tsx`                     | Yes       | Fixed 2026-09-23 — `now` passed from the server                                                                          |
+| RISK-009 | Low      | Status order duplicated in two files     | `src/features/team/team.ts`                                       | Yes       | Fixed 2026-09-23 — service imports TEAM_STATUS_ORDER                                                                     |
+| RISK-010 | Low      | Eight exports have no consumer           | `src/features/team/team.ts`                                       | Yes       | Fixed 2026-09-23 — unused exports deleted                                                                                |
+| RISK-011 | Low      | Permission matrix has two dead keys      | `src/features/team/team.ts`                                       | Yes       | Fixed 2026-09-23 — resend/revoke keys now checked                                                                        |
+| RISK-012 | Low      | Invite return value and schema unused    | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — void return, fullName dropped                                                                         |
+| RISK-013 | Low      | Service lacks server-only import         | `src/features/team/services/team.service.ts`                      | Yes       | Fixed 2026-09-23 — server-only imported                                                                                  |
 
 > All 13 findings were fixed on 2026-09-23. `npx tsc --noEmit`, `npx eslint` and `npx next build` all pass.
 

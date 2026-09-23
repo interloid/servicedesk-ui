@@ -1,0 +1,317 @@
+import { MembershipRole } from "@/types/team-members";
+
+export const TEAM_ROLE_VALUES = [
+  "Tenant Admin",
+  "Manager",
+  "Agent",
+  "Billing Admin",
+] as const;
+
+export type TeamRole = (typeof TEAM_ROLE_VALUES)[number];
+
+export const TEAM_ROLE_ORDER: Record<TeamRole, number> = {
+  "Tenant Admin": 0,
+  Manager: 1,
+  Agent: 2,
+  "Billing Admin": 3,
+};
+
+export const TEAM_ROLE_DESCRIPTIONS: Record<TeamRole, string> = {
+  "Tenant Admin":
+    "Has full control over the workspace, including team management, settings, billing, and subscriptions.",
+  Manager:
+    "Manages tickets and team members, assigns work, and oversees day-to-day support operations.",
+  Agent:
+    "Handles assigned tickets, communicates with customers, and works on resolving support requests.",
+  "Billing Admin":
+    "Manages billing, subscriptions, invoices, payment methods, and plan-related changes.",
+};
+
+/**
+ * The one-liner that sits under a role in a table row. Deliberately shorter
+ * than TEAM_ROLE_DESCRIPTIONS, which has room to breathe inside a dialog --
+ * the row version has to survive next to a select at narrow widths.
+ */
+export const TEAM_ROLE_SUMMARIES: Record<TeamRole, string> = {
+  "Tenant Admin": "Full workspace access",
+  Manager: "Manages tickets and team",
+  Agent: "Handles assigned tickets",
+  "Billing Admin": "Manages billing and invoices",
+};
+
+export const TEAM_PERMISSION_AREAS = [
+  "tickets",
+  "billing",
+  "team",
+  "settings",
+] as const;
+
+export type TeamPermissionArea = (typeof TEAM_PERMISSION_AREAS)[number];
+
+export const TEAM_PERMISSION_AREA_LABELS: Record<TeamPermissionArea, string> = {
+  tickets: "Tickets",
+  billing: "Billing",
+  team: "Team",
+  settings: "Settings",
+};
+
+export const TEAM_PERMISSION_MATRIX: Record<
+  TeamRole,
+  Record<TeamPermissionArea, string>
+> = {
+  "Tenant Admin": {
+    tickets: "Full",
+    billing: "Full",
+    team: "Full",
+    settings: "Full",
+  },
+  Manager: {
+    tickets: "Full",
+    billing: "View",
+    team: "Invite & edit",
+    settings: "Edit",
+  },
+  Agent: {
+    tickets: "Own queue",
+    billing: "None",
+    team: "None",
+    settings: "None",
+  },
+  "Billing Admin": {
+    tickets: "None",
+    billing: "Full",
+    team: "None",
+    settings: "None",
+  },
+};
+
+export const TEAM_ACTION_PERMISSIONS: Record<
+  TeamActionKey,
+  { rowRole: string; writeRoles: TeamRole[] }
+> = {
+  invite: { rowRole: "All", writeRoles: ["Tenant Admin", "Manager"] },
+  resend: { rowRole: "All", writeRoles: ["Tenant Admin", "Manager"] },
+  revoke: { rowRole: "All", writeRoles: ["Tenant Admin"] },
+  role: { rowRole: "All", writeRoles: ["Tenant Admin"] },
+  status: { rowRole: "All", writeRoles: ["Tenant Admin"] },
+  remove: { rowRole: "All", writeRoles: ["Tenant Admin"] },
+};
+
+export const TEAM_ACTION_KEYS = [
+  "invite",
+  "resend",
+  "revoke",
+  "role",
+  "status",
+  "remove",
+] as const;
+
+export type TeamActionKey = (typeof TEAM_ACTION_KEYS)[number];
+
+export function canPerformTeamAction(
+  action: TeamActionKey,
+  role: TeamRole,
+): boolean {
+  return TEAM_ACTION_PERMISSIONS[action].writeRoles.includes(role);
+}
+
+export const TEAM_STATUS_VALUES = ["Active", "Invited", "Disabled"] as const;
+
+export type TeamStatus = (typeof TEAM_STATUS_VALUES)[number];
+
+export const TEAM_STATUS_ORDER: Record<TeamStatus, number> = {
+  Active: 0,
+  Invited: 1,
+  Disabled: 2,
+};
+
+export const TEAM_STATUS_DESCRIPTIONS: Record<TeamStatus, string> = {
+  Active: "Has access to the workspace.",
+  Invited: "Waiting on the invite email to be accepted.",
+  Disabled: "Can't sign in. Kept to restore access later.",
+};
+
+export const TEAM_STATUS_HAS_DOT: Record<TeamStatus, boolean> = {
+  Active: true,
+  Invited: true,
+  Disabled: true,
+};
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: TeamRole;
+  status: TeamStatus;
+  isSelf: boolean;
+  joinedAt: string | null;
+  /** When the invitation was created. Drives "Invited 2 days ago". */
+  invitedAt: string | null;
+  /** When access was switched off. Drives "Deactivated 3 days ago". */
+  disabledAt: string | null;
+  invitedBy: string | null;
+}
+
+export interface TeamSeats {
+  used: number;
+  limit: number;
+  seatsLeft: number;
+}
+
+export function getTeamSeats(used: number, limit: number): TeamSeats {
+  return {
+    used,
+    limit,
+    seatsLeft: limit > 0 ? Math.max(0, limit - used) : 0,
+  };
+}
+
+export function hasSeatLeft(seats: TeamSeats): boolean {
+  return seats.limit === 0 || seats.seatsLeft > 0;
+}
+
+export const TEAM_FAILURE_CODE_VALUES = [
+  "member-not-found",
+  "action-not-allowed",
+  "already-member",
+  "invite-already-sent",
+  "seat-limit-reached",
+  "cannot-change-own-role",
+  "cannot-remove-self",
+  "email-required",
+  "validation",
+  "unknown",
+] as const;
+
+export type TeamFailureCode = (typeof TEAM_FAILURE_CODE_VALUES)[number];
+
+export interface TeamActionResult<T = undefined> {
+  ok: boolean;
+  data?: T;
+  failureCode?: TeamFailureCode;
+  message?: string;
+}
+
+export const TEAM_OK: TeamActionResult = { ok: true };
+
+export type TeamStatusCounts = Record<TeamStatus, number>;
+
+export function countByStatus(members: TeamMember[]): TeamStatusCounts {
+  const counts: TeamStatusCounts = { Active: 0, Invited: 0, Disabled: 0 };
+
+  for (const member of members) {
+    counts[member.status] += 1;
+  }
+
+  return counts;
+}
+
+/**
+ * "12 Mar 2026" for the Joined column.
+ *
+ * Pinned to en-GB and UTC on purpose: the table is server-rendered and then
+ * hydrated, and a locale- or zone-dependent string would differ between the
+ * two and trip a hydration mismatch.
+ */
+export function formatAbsoluteDate(iso: string | null): string | null {
+  if (!iso) {
+    return null;
+  }
+
+  const parsed = Date.parse(iso);
+
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(parsed);
+}
+
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 365 * 24 * 60 * 60 * 1000],
+  ["month", 30 * 24 * 60 * 60 * 1000],
+  ["day", 24 * 60 * 60 * 1000],
+  ["hour", 60 * 60 * 1000],
+  ["minute", 60 * 1000],
+];
+
+/**
+ * "2 days ago" for the timestamps under a status badge.
+ *
+ * Rounds to whole units and stops at minutes, so the server render and the
+ * client hydration agree: anything finer would tick over between the two and
+ * React would report a text mismatch on a screen nobody was interacting with.
+ */
+export function formatRelativeTime(
+  iso: string | null,
+  now: number = Date.now(),
+): string | null {
+  if (!iso) {
+    return null;
+  }
+
+  const then = Date.parse(iso);
+
+  if (Number.isNaN(then)) {
+    return null;
+  }
+
+  const elapsed = now - then;
+  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+  for (const [unit, size] of RELATIVE_UNITS) {
+    if (Math.abs(elapsed) >= size) {
+      return formatter.format(-Math.round(elapsed / size), unit);
+    }
+  }
+
+  return "just now";
+}
+
+export type TenantPlanRow = {
+  name?: string | null;
+  seat_limit?: number | null;
+  features_json?: Record<string, unknown>;
+};
+export type Entitlements = {
+  savedViews: boolean;
+  branding: boolean;
+  businessHours: boolean;
+  auditLogs: boolean;
+  advancedRoles: boolean;
+  /** -1 means unlimited. */
+  slaPolicies: number;
+};
+export type TenantPlanRecord = {
+  planName: string;
+  seatLimit: number | null;
+  /** Seats bought on the subscription, which can differ from the plan's cap. */
+  seats: number | null;
+  featuresJson: Record<string, unknown> | undefined;
+};
+
+export const FREE_SEAT_LIMIT = 2;
+
+export const FREE_ENTITLEMENTS: Entitlements = {
+  savedViews: false,
+  branding: false,
+  businessHours: false,
+  auditLogs: false,
+  advancedRoles: false,
+  slaPolicies: 1,
+};
+export const CURRENT_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
+
+export const STAFF_ROLES = [
+  "platform_admin",
+  "tenant_admin",
+  "manager",
+  "agent",
+  "billing_admin",
+] as const satisfies readonly MembershipRole[];

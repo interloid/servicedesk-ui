@@ -230,7 +230,7 @@ export function safeNext(
   return next;
 }
 
-async function requestOrigin(): Promise<string> {
+export async function requestOrigin(): Promise<string> {
   const configured = new URL(env.NEXT_PUBLIC_SITE_URL);
   const requestHeaders = await headers();
   const host = requestHeaders.get("host");

@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 import { CancelSubscriptionDialog } from "./cancel-subscription";
 import { DowngradeDialog } from "./downgrade-dialog";
 import { MODAL_BUTTON } from "./modal-buttons";
-import { ModalNotice } from "./modal-notice";
+import { ModalNotice } from "@/components/shared/modal-notice";
 import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
 
 import { Card } from "@/components/ui/card";

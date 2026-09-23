@@ -2,7 +2,7 @@ import type { ComponentType, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-type NoticeTone = "accent" | "amber" | "neutral";
+type NoticeTone = "accent" | "amber" | "neutral" | "danger";
 
 const TONES: Record<
   NoticeTone,
@@ -28,6 +28,13 @@ const TONES: Record<
     icon: "text-muted-foreground",
     title: "text-foreground",
     body: "text-muted-foreground",
+  },
+  danger: {
+    box: "border-destructive/30 bg-destructive/5 dark:bg-destructive/10",
+    tile: "bg-destructive/10 text-destructive",
+    icon: "text-destructive",
+    title: "text-foreground",
+    body: "text-secondary-foreground",
   },
 };
 

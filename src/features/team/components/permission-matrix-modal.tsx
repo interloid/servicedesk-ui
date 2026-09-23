@@ -34,7 +34,7 @@ import {
   TEAM_PERMISSION_MATRIX,
   TEAM_ROLE_SUMMARIES,
   TEAM_ROLE_VALUES,
-} from "@/features/team/team";
+} from "@/features/team/types/team";
 
 /**
  * Values are plain text. Glyphs beside "Full" and "None" only ever decorated

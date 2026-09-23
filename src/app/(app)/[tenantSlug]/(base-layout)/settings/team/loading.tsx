@@ -73,7 +73,7 @@ export default function Loading() {
             </div>
 
             <div className="flex min-w-0 flex-col gap-2.5 xl:max-w-2xl xl:flex-1 xl:border-l xl:border-border xl:pl-6">
-              <div className="grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-3">
                 {Array.from({ length: 3 }).map((_, index) => (
                   <div
                     key={index}

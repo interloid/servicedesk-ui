@@ -6,7 +6,7 @@ import type {
   TeamSeats,
   TeamStatus,
   TeamStatusCounts,
-} from "@/features/team/team";
+} from "@/features/team/types/team";
 
 const STATUS_CARDS: {
   status: TeamStatus;
@@ -17,34 +17,34 @@ const STATUS_CARDS: {
   chipTone: string;
   iconTone: string;
 }[] = [
-  {
-    status: "Active",
-    label: "Active",
-    caption: "Members with access",
-    icon: Users,
-    tone: "border-emerald-200/80 bg-emerald-50/70 dark:border-emerald-900/50 dark:bg-emerald-950/30",
-    chipTone: "bg-emerald-100 dark:bg-emerald-900/50",
-    iconTone: "text-emerald-700 dark:text-emerald-300",
-  },
-  {
-    status: "Invited",
-    label: "Invited",
-    caption: "Pending acceptance",
-    icon: Mail,
-    tone: "border-amber-200/80 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/30",
-    chipTone: "bg-amber-100 dark:bg-amber-900/50",
-    iconTone: "text-amber-700 dark:text-amber-300",
-  },
-  {
-    status: "Disabled",
-    label: "Disabled",
-    caption: "No access",
-    icon: UserRoundX,
-    tone: "border-border bg-muted/40",
-    chipTone: "bg-muted",
-    iconTone: "text-muted-foreground",
-  },
-];
+    {
+      status: "Active",
+      label: "Active",
+      caption: "Members with access",
+      icon: Users,
+      tone: "border-emerald-200/80 bg-emerald-50/70 dark:border-emerald-900/50 dark:bg-emerald-950/30",
+      chipTone: "bg-emerald-100 dark:bg-emerald-900/50",
+      iconTone: "text-emerald-700 dark:text-emerald-300",
+    },
+    {
+      status: "Invited",
+      label: "Invited",
+      caption: "Pending acceptance",
+      icon: Mail,
+      tone: "border-amber-200/80 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/30",
+      chipTone: "bg-amber-100 dark:bg-amber-900/50",
+      iconTone: "text-amber-700 dark:text-amber-300",
+    },
+    {
+      status: "Disabled",
+      label: "Disabled",
+      caption: "No access",
+      icon: UserRoundX,
+      tone: "border-border bg-muted/40",
+      chipTone: "bg-muted",
+      iconTone: "text-muted-foreground",
+    },
+  ];
 
 /**
  * The bar changes colour as the plan fills up, so "nearly out of seats" reads
@@ -132,7 +132,10 @@ export function SeatUsage({ seats, counts }: SeatUsageProps) {
       </div>
 
       <div className="flex min-w-0 flex-col gap-2.5 xl:max-w-2xl xl:flex-1 xl:border-l xl:border-border xl:pl-6">
-        <div className="grid grid-cols-1 gap-2.5 min-[420px]:grid-cols-3">
+        {/* Three across, except on a phone: at 425px each card got ~120px,
+            which wrapped "5 Active" onto two lines. 480px is the first width
+            where all three fit on one line. */}
+        <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-3">
           {STATUS_CARDS.map((card) => {
             const Icon = card.icon;
             return (

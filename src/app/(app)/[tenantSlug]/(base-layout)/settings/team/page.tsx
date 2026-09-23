@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 
@@ -6,11 +7,12 @@ import { InviteMemberModal } from "@/features/team/components/invite-member-moda
 import { PermissionMatrixModal } from "@/features/team/components/permission-matrix-modal";
 import { SeatUsage } from "@/features/team/components/seat-usage";
 import { TeamTable } from "@/features/team/components/team-table";
-import { canPerformTeamAction, countByStatus } from "@/features/team/team";
+import { canPerformTeamAction, countByStatus } from "@/features/team/types/team";
 import {
   getCallerRole,
   getTeamSeats,
   listTeamMembers,
+  serverNow,
 } from "@/features/team/services/team.service";
 
 export const metadata: Metadata = {
@@ -21,10 +23,19 @@ export const metadata: Metadata = {
 };
 
 export default async function TeamAndRolesPage() {
-  const [members, seats, callerRole] = await Promise.all([
+  // Gate on the server, before anything is read. The only other guard is
+  // RoleRouteGuard, which runs in a useEffect after the page has rendered --
+  // by then the whole roster has already been sent to the browser.
+  const callerRole = await getCallerRole();
+
+  if (callerRole !== "Tenant Admin" && callerRole !== "Manager") {
+    notFound();
+  }
+
+  const [members, seats, now] = await Promise.all([
     listTeamMembers(),
     getTeamSeats(),
-    getCallerRole(),
+    serverNow(),
   ]);
 
   const canInvite = callerRole
@@ -53,7 +64,7 @@ export default async function TeamAndRolesPage() {
           <SeatUsage seats={seats} counts={counts} />
         </Card>
 
-        <TeamTable members={members} callerRole={callerRole} />
+        <TeamTable members={members} callerRole={callerRole} now={now} />
       </div>
     </div>
   );

@@ -12,14 +12,14 @@ import {
   removeMemberSchema,
   resendInviteSchema,
 } from "@/features/team/schemas/team";
-import type { TeamActionResult } from "@/features/team/team";
+import type { TeamActionResult } from "@/features/team/types/team";
 import {
-  TeamError,
   changeMemberRole,
   changeMemberStatus,
   inviteMember,
   removeMember,
   resendInvite,
+  TeamError,
 } from "@/features/team/services/team.service";
 
 function toFailure(

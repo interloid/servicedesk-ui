@@ -9,8 +9,17 @@
  * read differently.
  */
 
+/**
+ * The close cross, with the ghost button's filled hover box taken off it so it
+ * reads as a glyph rather than a third action beside the footer pair. Done
+ * from the outside on purpose: `components/ui/dialog.tsx` is a shadcn
+ * component and every other dialog in the app still wants the default.
+ */
+const TEAM_DIALOG_CLOSE =
+  "[&>[data-slot=dialog-close]]:text-muted-foreground [&>[data-slot=dialog-close]]:hover:bg-transparent [&>[data-slot=dialog-close]]:hover:text-foreground [&>[data-slot=dialog-close]]:dark:hover:bg-transparent";
+
 /** Roomier than the dialog default, which left the content tight to the edge. */
-export const TEAM_DIALOG_CONTENT = "p-5";
+export const TEAM_DIALOG_CONTENT = `p-5 ${TEAM_DIALOG_CLOSE}`;
 
 /** 18px semibold, the same weight in all four dialogs. */
 export const TEAM_DIALOG_TITLE = "text-lg font-semibold tracking-tight";

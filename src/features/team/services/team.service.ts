@@ -1,5 +1,8 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import "server-only";
 
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+import { env } from "@/config/env";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
@@ -19,15 +22,16 @@ import type {
   TeamStatus,
   TenantPlanRecord,
   TenantPlanRow,
-} from "@/features/team/team";
+} from "@/features/team/types/team";
 import {
-  getTeamSeats as calcTeamSeats,
   CURRENT_SUBSCRIPTION_STATUSES,
   FREE_SEAT_LIMIT,
+  getTeamSeats as calcTeamSeats,
   hasSeatLeft,
   STAFF_ROLES,
   TEAM_ROLE_ORDER,
-} from "@/features/team/team";
+  TEAM_STATUS_ORDER,
+} from "@/features/team/types/team";
 
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { cache } from "react";
@@ -75,7 +79,8 @@ function fail(
 ) {
   if (error) {
     console.error(
-      `[team] ${userMessage} — ${error.code ?? "?"} ${error.message ?? ""}`.trim(),
+      `[team] ${userMessage} — ${error.code ?? "?"} ${error.message ?? ""}`
+        .trim(),
       error.details ? `\n  details: ${error.details}` : "",
       error.hint ? `\n  hint: ${error.hint}` : "",
     );
@@ -121,7 +126,12 @@ type TeamActor = {
   role: TeamRole | null;
 };
 
-async function getActorOrNull(
+/**
+ * Wrapped in React's `cache` so one render resolves the actor once. Without it
+ * listTeamMembers, getTeamSeats and getCallerRole each paid for their own
+ * getUser + getClaims round trip before reading a single row.
+ */
+const getActorOrNull = cache(async function getActorOrNull(
   supabase: SupabaseClient,
 ): Promise<TeamActor | null> {
   const {
@@ -148,7 +158,7 @@ async function getActorOrNull(
     tenantSlug: tenantSlug ?? null,
     role: (tenantRole && ROLE_FROM_DB[tenantRole]) || null,
   };
-}
+});
 
 async function requireActor(supabase: SupabaseClient): Promise<TeamActor> {
   const actor = await getActorOrNull(supabase);
@@ -218,13 +228,14 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
   const { data, error } = await supabase
     .from("memberships")
     .select(MEMBER_SELECT)
-    .in("role", [...STAFF_ROLES]);
+    .in("role", [...STAFF_ROLES])
+    .returns<MemberRow[]>();
 
   if (error) {
     throw fail("Couldn't load the team.", error);
   }
 
-  return ((data as unknown as MemberRow[] | null) ?? [])
+  return (data ?? [])
     .map((row): TeamMember | null => {
       const status = STATUS_FROM_DB[row.status] ?? "Active";
       const role = ROLE_FROM_DB[row.role] ?? "Agent";
@@ -246,8 +257,8 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
         // the workspace was, which is the date we mean by "joined". Invites
         // are excluded: for them created_at is when the mail went out, not a
         // join, and the column says "Not yet joined" instead.
-        joinedAt:
-          row.joined_at ?? (status === "Invited" ? null : row.created_at),
+        joinedAt: row.joined_at ??
+          (status === "Invited" ? null : row.created_at),
         // An invite has no timestamp of its own -- the row is created by the
         // invite, so its created_at IS when the invitation went out.
         invitedAt: row.created_at,
@@ -257,19 +268,12 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
     })
     .filter((member): member is TeamMember => member !== null)
     .sort((a, b) => {
-      const roleOrder =
-        TEAM_ROLE_ORDER[a.role] - TEAM_ROLE_ORDER[b.role] ||
-        STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+      const roleOrder = TEAM_ROLE_ORDER[a.role] - TEAM_ROLE_ORDER[b.role] ||
+        TEAM_STATUS_ORDER[a.status] - TEAM_STATUS_ORDER[b.status] ||
         a.name.localeCompare(b.name);
       return roleOrder;
     });
 }
-
-const STATUS_ORDER: Record<TeamStatus, number> = {
-  Active: 0,
-  Invited: 1,
-  Disabled: 2,
-};
 
 /**
  * Seats used and allowed on the tenant's current plan.
@@ -308,24 +312,27 @@ export async function getTeamSeats(): Promise<TeamSeats> {
   // still scoped to their workspace.
   const plan = await getTenantPlanRecord(actor.tenantId);
 
-  const limit =
-    typeof plan?.seatLimit === "number" ? plan.seatLimit : FREE_SEAT_LIMIT;
+  const limit = typeof plan?.seatLimit === "number"
+    ? plan.seatLimit
+    : FREE_SEAT_LIMIT;
 
   return calcTeamSeats(count ?? 0, limit);
 }
 
+/**
+ * The server's clock for this render, handed to the table so its relative
+ * times ("2 days ago") come out the same on the server and on hydration.
+ * Lives here rather than in the page because calling Date.now() in a component
+ * body is a render-purity violation.
+ */
+export const serverNow = cache(async function serverNow(): Promise<number> {
+  return Date.now();
+});
+
 export async function getCallerRole(): Promise<TeamRole | null> {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.auth.getUser();
 
-  if (error || !data.user) {
-    return null;
-  }
-
-  const { data: claims } = await supabase.auth.getClaims();
-  const tenantRole = claims?.claims?.tenant_role as string | undefined;
-
-  return (tenantRole && ROLE_FROM_DB[tenantRole]) || null;
+  return (await getActorOrNull(supabase))?.role ?? null;
 }
 
 /**
@@ -364,9 +371,79 @@ async function inviteRedirectTo(
   return `${origin}${tenantPath(slug, TENANT_ROUTES.RESET_PASSWORD)}`;
 }
 
-export async function inviteMember(
-  values: InviteMemberValues,
-): Promise<TeamMember> {
+/**
+ * Mails a brand-new or still-unconfirmed account its invite link. Supabase
+ * only accepts this for an address it has never confirmed; a registered one
+ * goes through emailWorkspaceLink instead.
+ */
+async function emailSupabaseInvite(
+  admin: SupabaseClient,
+  email: string,
+  name: string,
+  slug: string | null,
+) {
+  const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+    data: { full_name: name },
+    redirectTo: await inviteRedirectTo(slug),
+  });
+
+  if (error) {
+    throw fail(
+      "We couldn't email that person their invite. Try again.",
+      error,
+      400,
+    );
+  }
+
+  return data;
+}
+
+/**
+ * Mails a workspace link to someone who already has an account.
+ *
+ * `inviteUserByEmail` only works for an address Supabase has never seen -- it
+ * rejects a registered one -- so an existing user used to get no mail at all:
+ * the membership was created, the screen said "Invite sent", and nobody ever
+ * told them. A magic link is the equivalent for an account that exists.
+ *
+ * Sent from a throwaway anon client, never the request-bound one. The
+ * request-bound client stores a PKCE verifier in the INVITER's cookies, and
+ * the invitee's browser has none, so the link would fail for them. This client
+ * has no cookie storage, so the session arrives in the URL fragment -- which is
+ * what the tenant reset-password page already reads.
+ */
+async function emailWorkspaceLink(
+  email: string,
+  slug: string | null,
+): Promise<void> {
+  const redirectTo = await inviteRedirectTo(slug);
+
+  const mailer = createClient(
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        flowType: "implicit",
+      },
+    },
+  );
+
+  const { error } = await mailer.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false, emailRedirectTo: redirectTo },
+  });
+
+  if (error) {
+    // The membership already exists by the time this runs, so the invite is
+    // not undone -- the row stays pending and "Resend invite" retries the mail.
+    throw fail("We couldn't email that person their workspace link.", error);
+  }
+}
+
+export async function inviteMember(values: InviteMemberValues): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const actor = await requireActor(supabase);
 
@@ -388,7 +465,10 @@ export async function inviteMember(
   }
 
   const email = values.email.trim().toLowerCase();
-  const name = values.fullName?.trim() || email.split("@")[0] || "Team member";
+  // The invite form collects an email and a role, nothing else, so the
+  // account starts out named after the address. They can change it on first
+  // sign-in.
+  const name = email.split("@")[0] || "Team member";
 
   const admin = createSupabaseAdminClient();
 
@@ -407,25 +487,28 @@ export async function inviteMember(
   }
 
   let authUserId: string;
-  let isExistingUser = false;
+
+  // An account that exists but was never confirmed can still be invited the
+  // normal way, so "already in the users table" is not the test -- only a
+  // registered account needs the magic-link path.
+  const isRegisteredAccount = await isRegistered(admin, existingUser?.id);
 
   // 2. Existing user
   if (existingUser) {
     authUserId = existingUser.id;
-    isExistingUser = true;
   } else {
-    // 3. New user → Supabase invitation
-    const { data: invited, error: inviteError } =
-      await admin.auth.admin.inviteUserByEmail(email, {
-        data: { full_name: name },
-        redirectTo: await inviteRedirectTo(actor.tenantSlug),
-      });
+    // 3. New user → Supabase invitation, which also sends the mail
+    const invited = await emailSupabaseInvite(
+      admin,
+      email,
+      name,
+      actor.tenantSlug,
+    );
 
-    if (inviteError || !invited?.user?.id) {
-      throw fail(
+    if (!invited?.user?.id) {
+      throw new TeamError(
         "We couldn't create an account for that email. Try again.",
-        inviteError,
-        400,
+        { status: 400, code: "unknown" },
       );
     }
 
@@ -471,54 +554,56 @@ export async function inviteMember(
   }
 
   // 6. Create membership
-  const { data: membership, error: membershipError } = await admin
-    .from("memberships")
-    .insert({
-      tenant_id: actor.tenantId,
-      user_id: authUserId,
-      role: ROLE_TO_DB[values.role],
-      status: "invited",
-      invited_by: actor.userId,
-    })
-    .select(
-      `
-      id,
-      role,
-      status,
-      invited_by,
-      joined_at,
-      created_at,
-      user:users!memberships_user_id_fkey (
-        id,
-        email,
-        full_name,
-        avatar_url
-      )
-    `,
-    )
-    .single();
+  const { error: membershipError } = await admin.from("memberships").insert({
+    tenant_id: actor.tenantId,
+    user_id: authUserId,
+    role: ROLE_TO_DB[values.role],
+    status: "invited",
+    invited_by: actor.userId,
+  });
 
   if (membershipError) {
     throw fail("We couldn't add them to your team.", membershipError, 409);
   }
 
-  // 7. Existing user → custom Resend email
+  // 7. Only step 3 sends mail, and only for an address Supabase had never
+  // seen. Anyone who already had a row gets told here instead -- a registered
+  // account by magic link, an unconfirmed one by the normal invite.
+  if (existingUser) {
+    if (isRegisteredAccount) {
+      await emailWorkspaceLink(email, actor.tenantSlug);
+    } else {
+      await emailSupabaseInvite(admin, email, name, actor.tenantSlug);
+    }
+  }
+}
 
-  const row = membership as unknown as MemberRow;
+type InviteRow = {
+  id: string;
+  status: string;
+  user: { email: string | null } | null;
+};
 
-  return {
-    id: row.id,
-    name: row.user?.full_name || name,
-    email: row.user?.email || email,
-    avatarUrl: row.user?.avatar_url ?? null,
-    role: ROLE_FROM_DB[row.role] ?? "Agent",
-    status: "Invited",
-    isSelf: false,
-    joinedAt: null,
-    invitedAt: row.created_at,
-    disabledAt: null,
-    invitedBy: actor.userId,
-  };
+/**
+ * True once the person has actually signed in and set a password. An invited
+ * account exists in auth but stays unconfirmed until then, and Supabase will
+ * still re-send an invite to one of those.
+ */
+async function isRegistered(
+  admin: SupabaseClient,
+  userId: string | undefined,
+): Promise<boolean> {
+  if (!userId) {
+    return false;
+  }
+
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+
+  if (error || !data.user) {
+    return false;
+  }
+
+  return Boolean(data.user.email_confirmed_at ?? data.user.confirmed_at);
 }
 
 export async function resendInvite(values: ResendInviteValues): Promise<void> {
@@ -534,17 +619,13 @@ export async function resendInvite(values: ResendInviteValues): Promise<void> {
     .from("memberships")
     .select("id, status, user:users!memberships_user_id_fkey ( email )")
     .eq("id", values.memberId)
-    .maybeSingle();
+    .maybeSingle<InviteRow>();
 
   if (error) {
     throw fail("Couldn't find that invitation.", error);
   }
 
-  const member = rawMember as unknown as {
-    id: string;
-    status: string;
-    user: { email: string | null } | null;
-  } | null;
+  const member = rawMember;
 
   if (!member) {
     throw new TeamError("That invitation no longer exists.", {
@@ -560,7 +641,6 @@ export async function resendInvite(values: ResendInviteValues): Promise<void> {
     });
   }
 
-  const admin = createSupabaseAdminClient();
   const email = member.user?.email;
 
   if (!email) {
@@ -570,13 +650,74 @@ export async function resendInvite(values: ResendInviteValues): Promise<void> {
     });
   }
 
-  const { error: sendError } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: await inviteRedirectTo(actor.tenantSlug),
-  });
-  console.log("🚀 ~ resendInvite ~ sendError:", sendError);
+  // Supabase rejects inviteUserByEmail for an address it already knows, so a
+  // pending invite whose account exists has to be resent as a magic link. The
+  // confirmed_at check is what tells the two apart.
+  const admin = createSupabaseAdminClient();
 
-  if (sendError) {
-    throw fail("We couldn't resend the invite.", sendError);
+  const { data: authUser } = await admin
+    .from("users")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle<{ id: string }>();
+
+  const hasAccount = await isRegistered(admin, authUser?.id);
+
+  if (hasAccount) {
+    await emailWorkspaceLink(email, actor.tenantSlug);
+    return;
+  }
+
+  await emailSupabaseInvite(
+    admin,
+    email,
+    email.split("@")[0] || "Team member",
+    actor.tenantSlug,
+  );
+}
+
+/**
+ * The auth user behind a membership row.
+ *
+ * `memberId` is a membership id and `actor.userId` is an auth user id, so the
+ * two are never equal -- comparing them directly is what let a Tenant Admin
+ * demote or delete their own membership through a direct action call.
+ */
+async function getMemberUserId(
+  supabase: SupabaseClient,
+  memberId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("memberships")
+    .select("user_id")
+    .eq("id", memberId)
+    .maybeSingle();
+
+  if (error) {
+    throw fail("We couldn't look that member up.", error);
+  }
+
+  return (data?.user_id as string | undefined) ?? null;
+}
+
+async function assertNotSelf(
+  supabase: SupabaseClient,
+  actor: TeamActor,
+  memberId: string,
+  message: string,
+  code: TeamFailureCode,
+) {
+  const targetUserId = await getMemberUserId(supabase, memberId);
+
+  if (targetUserId === null) {
+    throw new TeamError("That member no longer exists.", {
+      status: 404,
+      code: "member-not-found",
+    });
+  }
+
+  if (targetUserId === actor.userId) {
+    throw new TeamError(message, { status: 409, code });
   }
 }
 
@@ -587,12 +728,13 @@ export async function changeMemberRole(
   const actor = await requireActor(supabase);
   assertRole(actor, ["Tenant Admin"], "Only a Tenant Admin can change roles.");
 
-  if (values.memberId === actor.userId) {
-    throw new TeamError("You can't change your own role.", {
-      status: 409,
-      code: "cannot-change-own-role",
-    });
-  }
+  await assertNotSelf(
+    supabase,
+    actor,
+    values.memberId,
+    "You can't change your own role.",
+    "cannot-change-own-role",
+  );
 
   const { data, error } = await supabase
     .from("memberships")
@@ -626,19 +768,21 @@ export async function changeMemberStatus(
     "Only a Tenant Admin can enable or disable members.",
   );
 
-  if (values.memberId === actor.userId) {
-    throw new TeamError("You can't change your own status.", {
-      status: 409,
-      code: "cannot-change-own-role",
-    });
-  }
+  await assertNotSelf(
+    supabase,
+    actor,
+    values.memberId,
+    "You can't change your own status.",
+    "cannot-change-own-role",
+  );
 
   const { data, error } = await supabase
     .from("memberships")
     .update({
       status: STATUS_TO_DB[values.status],
-      disabled_at:
-        values.status === "Disabled" ? new Date().toISOString() : null,
+      disabled_at: values.status === "Disabled"
+        ? new Date().toISOString()
+        : null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", values.memberId)
@@ -665,12 +809,13 @@ export async function removeMember(values: RemoveMemberValues): Promise<void> {
     "Only a Tenant Admin can remove members.",
   );
 
-  if (values.memberId === actor.userId) {
-    throw new TeamError("You can't remove yourself.", {
-      status: 409,
-      code: "cannot-remove-self",
-    });
-  }
+  await assertNotSelf(
+    supabase,
+    actor,
+    values.memberId,
+    "You can't remove yourself.",
+    "cannot-remove-self",
+  );
 
   const { data, error } = await supabase
     .from("memberships")
@@ -731,7 +876,10 @@ export const getTenantPlanRecord = cache(async function getTenantPlanRecord(
   // PostgREST types an embedded to-one as an array or an object depending on
   // the FK shape, so both forms are handled rather than guessed at.
   const plans = data.plans as
-    TenantPlanRow | TenantPlanRow[] | null | undefined;
+    | TenantPlanRow
+    | TenantPlanRow[]
+    | null
+    | undefined;
 
   const plan = Array.isArray(plans) ? plans[0] : plans;
 

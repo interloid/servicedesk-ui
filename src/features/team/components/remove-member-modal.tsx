@@ -22,7 +22,7 @@ import {
   TEAM_MODAL_BUTTON,
   TEAM_MODAL_BUTTON_DANGER,
 } from "@/features/team/components/modal-buttons";
-import type { TeamMember } from "@/features/team/team";
+import type { TeamMember } from "@/features/team/types/team";
 
 interface RemoveMemberModalProps {
   member: TeamMember | null;

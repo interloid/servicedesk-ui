@@ -35,7 +35,7 @@ import {
   TEAM_ROLE_VALUES,
   type TeamMember,
   type TeamRole,
-} from "@/features/team/team";
+} from "@/features/team/types/team";
 
 interface ChangeRoleModalProps {
   member: TeamMember | null;
@@ -134,9 +134,8 @@ function ChangeRoleFields({
         />
         <span className="text-xs font-semibold text-muted-foreground">New</span>
         <span
-          className={`text-sm font-semibold ${
-            changed ? "text-brand-accent" : "text-muted-foreground"
-          }`}
+          className={`text-sm font-semibold ${changed ? "text-brand-accent" : "text-muted-foreground"
+            }`}
         >
           {role}
         </span>
@@ -152,7 +151,7 @@ function ChangeRoleFields({
         >
           <SelectTrigger
             id="change-role"
-            className={`w-full ${TEAM_MODAL_CONTROL}`}
+            className={`w-full min-h-10 ${TEAM_MODAL_CONTROL}`}
           >
             <SelectValue />
           </SelectTrigger>

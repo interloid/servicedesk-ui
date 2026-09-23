@@ -51,7 +51,7 @@ import {
   type TeamMember,
   type TeamRole,
   type TeamStatus,
-} from "@/features/team/team";
+} from "@/features/team/types/team";
 import {
   changeMemberRoleAction,
   changeMemberStatusAction,
@@ -93,14 +93,14 @@ function getInitials(name: string, email: string): string {
 }
 
 /** The timestamp line under a status badge, or null when there is nothing to say. */
-function statusDetail(member: TeamMember): string | null {
+function statusDetail(member: TeamMember, now: number): string | null {
   if (member.status === "Invited") {
-    const when = formatRelativeTime(member.invitedAt);
+    const when = formatRelativeTime(member.invitedAt, now);
     return when ? `Invited ${when}` : null;
   }
 
   if (member.status === "Disabled") {
-    const when = formatRelativeTime(member.disabledAt);
+    const when = formatRelativeTime(member.disabledAt, now);
     return when ? `Deactivated ${when}` : null;
   }
 
@@ -110,6 +110,13 @@ function statusDetail(member: TeamMember): string | null {
 interface TeamTableProps {
   members: TeamMember[];
   callerRole: TeamRole | null;
+  /**
+   * The server's clock at render time. Reading Date.now() here instead would
+   * give the server render and the hydration that follows two different
+   * answers, and a row that crosses a minute boundary between them trips a
+   * hydration mismatch.
+   */
+  now: number;
 }
 
 interface RowAction {
@@ -119,7 +126,7 @@ interface RowAction {
   run: () => void;
 }
 
-export function TeamTable({ members, callerRole }: TeamTableProps) {
+export function TeamTable({ members, callerRole, now }: TeamTableProps) {
   const [isPending, startTransition] = useTransition();
   const [pendingId, setPendingId] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
@@ -144,31 +151,42 @@ export function TeamTable({ members, callerRole }: TeamTableProps) {
   ) => {
     setPendingId(memberId);
     startTransition(async () => {
-      const result = await action();
-      if (
-        result &&
-        typeof result === "object" &&
-        "ok" in result &&
-        !result.ok
-      ) {
-        const message =
-          (result as { message?: string }).message ??
-          "That didn't work. Try again.";
-        toast.error(message);
-      } else {
-        toast.success(success);
-        onDone?.();
+      try {
+        const result = await action();
+        if (
+          result &&
+          typeof result === "object" &&
+          "ok" in result &&
+          !result.ok
+        ) {
+          const message =
+            (result as { message?: string }).message ??
+            "That didn't work. Try again.";
+          toast.error(message);
+        } else {
+          toast.success(success);
+          onDone?.();
+        }
+      } catch (error) {
+        // A dropped connection or a deploy mid-request rejects the call
+        // itself. Without this the row just went quiet: no toast either way.
+        console.error("[team] action failed", error);
+        toast.error("That didn't work. Check your connection and try again.");
+      } finally {
+        setPendingId(null);
       }
-      setPendingId(null);
     });
   };
 
   const canRole = callerRole ? canPerformTeamAction("role", callerRole) : false;
-  const canInvite = callerRole
-    ? canPerformTeamAction("invite", callerRole)
-    : false;
   const canRemove = callerRole
     ? canPerformTeamAction("remove", callerRole)
+    : false;
+  const canResend = callerRole
+    ? canPerformTeamAction("resend", callerRole)
+    : false;
+  const canRevoke = callerRole
+    ? canPerformTeamAction("revoke", callerRole)
     : false;
   const canStatus = callerRole
     ? canPerformTeamAction("status", callerRole)
@@ -224,7 +242,7 @@ export function TeamTable({ members, callerRole }: TeamTableProps) {
     const actions: RowAction[] = [];
 
     if (member.status === "Invited") {
-      if (canInvite) {
+      if (canResend) {
         actions.push({
           label: "Resend invite",
           icon: MailPlus,
@@ -236,7 +254,7 @@ export function TeamTable({ members, callerRole }: TeamTableProps) {
             ),
         });
       }
-      if (canRemove) {
+      if (canRevoke) {
         actions.push({
           label: "Revoke invitation",
           icon: Trash2,
@@ -307,7 +325,7 @@ export function TeamTable({ members, callerRole }: TeamTableProps) {
   );
 
   const renderStatus = (member: TeamMember) => {
-    const detail = statusDetail(member);
+    const detail = statusDetail(member, now);
 
     return (
       <div className="flex flex-col items-start gap-1">
@@ -389,7 +407,7 @@ export function TeamTable({ members, callerRole }: TeamTableProps) {
       );
     }
 
-    const relative = formatRelativeTime(member.joinedAt);
+    const relative = formatRelativeTime(member.joinedAt, now);
 
     return (
       <div className="flex flex-col gap-0.5">

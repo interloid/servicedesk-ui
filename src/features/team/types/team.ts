@@ -85,6 +85,21 @@ export const TEAM_PERMISSION_MATRIX: Record<
   },
 };
 
+export type TeamActionKey =
+  "invite" | "resend" | "revoke" | "role" | "status" | "remove";
+
+export type TeamFailureCode =
+  | "member-not-found"
+  | "action-not-allowed"
+  | "already-member"
+  | "invite-already-sent"
+  | "seat-limit-reached"
+  | "cannot-change-own-role"
+  | "cannot-remove-self"
+  | "email-required"
+  | "validation"
+  | "unknown";
+
 export const TEAM_ACTION_PERMISSIONS: Record<
   TeamActionKey,
   { rowRole: string; writeRoles: TeamRole[] }
@@ -96,17 +111,6 @@ export const TEAM_ACTION_PERMISSIONS: Record<
   status: { rowRole: "All", writeRoles: ["Tenant Admin"] },
   remove: { rowRole: "All", writeRoles: ["Tenant Admin"] },
 };
-
-export const TEAM_ACTION_KEYS = [
-  "invite",
-  "resend",
-  "revoke",
-  "role",
-  "status",
-  "remove",
-] as const;
-
-export type TeamActionKey = (typeof TEAM_ACTION_KEYS)[number];
 
 export function canPerformTeamAction(
   action: TeamActionKey,
@@ -123,18 +127,6 @@ export const TEAM_STATUS_ORDER: Record<TeamStatus, number> = {
   Active: 0,
   Invited: 1,
   Disabled: 2,
-};
-
-export const TEAM_STATUS_DESCRIPTIONS: Record<TeamStatus, string> = {
-  Active: "Has access to the workspace.",
-  Invited: "Waiting on the invite email to be accepted.",
-  Disabled: "Can't sign in. Kept to restore access later.",
-};
-
-export const TEAM_STATUS_HAS_DOT: Record<TeamStatus, boolean> = {
-  Active: true,
-  Invited: true,
-  Disabled: true,
 };
 
 export interface TeamMember {
@@ -171,29 +163,12 @@ export function hasSeatLeft(seats: TeamSeats): boolean {
   return seats.limit === 0 || seats.seatsLeft > 0;
 }
 
-export const TEAM_FAILURE_CODE_VALUES = [
-  "member-not-found",
-  "action-not-allowed",
-  "already-member",
-  "invite-already-sent",
-  "seat-limit-reached",
-  "cannot-change-own-role",
-  "cannot-remove-self",
-  "email-required",
-  "validation",
-  "unknown",
-] as const;
-
-export type TeamFailureCode = (typeof TEAM_FAILURE_CODE_VALUES)[number];
-
 export interface TeamActionResult<T = undefined> {
   ok: boolean;
   data?: T;
   failureCode?: TeamFailureCode;
   message?: string;
 }
-
-export const TEAM_OK: TeamActionResult = { ok: true };
 
 export type TeamStatusCounts = Record<TeamStatus, number>;
 
@@ -279,15 +254,6 @@ export type TenantPlanRow = {
   seat_limit?: number | null;
   features_json?: Record<string, unknown>;
 };
-export type Entitlements = {
-  savedViews: boolean;
-  branding: boolean;
-  businessHours: boolean;
-  auditLogs: boolean;
-  advancedRoles: boolean;
-  /** -1 means unlimited. */
-  slaPolicies: number;
-};
 export type TenantPlanRecord = {
   planName: string;
   seatLimit: number | null;
@@ -298,14 +264,6 @@ export type TenantPlanRecord = {
 
 export const FREE_SEAT_LIMIT = 2;
 
-export const FREE_ENTITLEMENTS: Entitlements = {
-  savedViews: false,
-  branding: false,
-  businessHours: false,
-  auditLogs: false,
-  advancedRoles: false,
-  slaPolicies: 1,
-};
 export const CURRENT_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
 
 export const STAFF_ROLES = [

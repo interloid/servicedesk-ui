@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { TEAM_ROLE_VALUES } from "@/features/team/team";
+import { TEAM_ROLE_VALUES } from "@/features/team/types/team";
 
 const email = z
   .string()
@@ -9,12 +9,6 @@ const email = z
   .min(1, "Please enter an email address.")
   .max(254, "That email is too long.")
   .email("Please enter a valid email address.");
-
-const fullName = z
-  .string()
-  .trim()
-  .max(120, "Keep the name under 120 characters.")
-  .optional();
 
 const memberId = z.uuid("Pick a member.");
 
@@ -32,7 +26,6 @@ const memberStatusInput = z.object({
 
 const inviteMemberInput = z.object({
   email,
-  fullName,
   role,
 });
 

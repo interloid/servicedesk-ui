@@ -45,7 +45,7 @@ import {
   TEAM_ROLE_VALUES,
   type TeamRole,
   type TeamSeats,
-} from "@/features/team/team";
+} from "@/features/team/types/team";
 import { inviteMemberAction } from "@/features/team/team-actions";
 import { Info, TriangleAlert, UserPlus } from "lucide-react";
 
@@ -90,16 +90,23 @@ export function InviteMemberModal({ children, seats }: InviteMemberModalProps) {
     };
 
     startTransition(async () => {
-      const result = await inviteMemberAction(values);
+      try {
+        const result = await inviteMemberAction(values);
 
-      if (!result.ok) {
-        toast.error(result.message ?? "We couldn't send that invite.");
-        return;
+        if (!result.ok) {
+          toast.error(result.message ?? "We couldn't send that invite.");
+          return;
+        }
+
+        toast.success("Invite sent.");
+        reset();
+        setOpen(false);
+      } catch (error) {
+        // The call itself can reject on a dropped connection. Without this the
+        // dialog just sat there with no toast and no explanation.
+        console.error("[team] inviteMemberAction failed", error);
+        toast.error("We couldn't send that invite. Check your connection.");
       }
-
-      toast.success("Invite sent.");
-      reset();
-      setOpen(false);
     });
   };
 

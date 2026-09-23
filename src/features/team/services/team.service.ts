@@ -267,7 +267,10 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
     })
     .filter((member): member is TeamMember => member !== null)
     .sort((a, b) => {
+      // The signed-in person always leads, so "You" is the first row whatever
+      // their role.
       const roleOrder =
+        Number(b.isSelf) - Number(a.isSelf) ||
         TEAM_ROLE_ORDER[a.role] - TEAM_ROLE_ORDER[b.role] ||
         TEAM_STATUS_ORDER[a.status] - TEAM_STATUS_ORDER[b.status] ||
         a.name.localeCompare(b.name);

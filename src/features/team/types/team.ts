@@ -39,6 +39,11 @@ export const TEAM_ROLE_SUMMARIES: Record<TeamRole, string> = {
   "Billing Admin": "Manages billing and invoices",
 };
 
+/** "a Manager", "an Agent" -- for sentences like "Priya is now an Agent." */
+export function roleWithArticle(role: TeamRole): string {
+  return `${/^[AEIOU]/.test(role) ? "an" : "a"} ${role}`;
+}
+
 export const TEAM_PERMISSION_AREAS = [
   "tickets",
   "billing",

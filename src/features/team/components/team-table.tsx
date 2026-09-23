@@ -48,6 +48,7 @@ import {
   canPerformTeamAction,
   formatAbsoluteDate,
   formatRelativeTime,
+  roleWithArticle,
   type TeamMember,
   type TeamRole,
   type TeamStatus,
@@ -119,6 +120,11 @@ interface TeamTableProps {
   now: number;
 }
 
+/** Invited accounts start out named after their email prefix, so fall back to the address. */
+function displayName(member: TeamMember): string {
+  return member.name.trim() || member.email;
+}
+
 interface RowAction {
   label: string;
   icon: LucideIcon;
@@ -143,10 +149,15 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
     null,
   );
 
+  /**
+   * `failure` is the "We couldn't …" line for this action. The server usually
+   * sends a more specific reason, so it's only used when it doesn't, or when
+   * the request never came back.
+   */
   const run = (
     memberId: string,
     action: () => Promise<unknown>,
-    success: string,
+    { success, failure }: { success: string; failure: string },
     onDone?: () => void,
   ) => {
     setPendingId(memberId);
@@ -160,8 +171,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
           !result.ok
         ) {
           const message =
-            (result as { message?: string }).message ??
-            "That didn't work. Try again.";
+            (result as { message?: string }).message ?? `${failure} Try again.`;
           toast.error(message);
         } else {
           toast.success(success);
@@ -171,7 +181,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
         // A dropped connection or a deploy mid-request rejects the call
         // itself. Without this the row just went quiet: no toast either way.
         console.error("[team] action failed", error);
-        toast.error("That didn't work. Check your connection and try again.");
+        toast.error(`${failure} Check your connection and try again.`);
       } finally {
         setPendingId(null);
       }
@@ -226,7 +236,10 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
     run(
       member.id,
       () => changeMemberRoleAction({ memberId: member.id, role }),
-      "Role updated.",
+      {
+        success: `${displayName(member)} is now ${roleWithArticle(role)}.`,
+        failure: `We couldn't change ${displayName(member)}'s role.`,
+      },
       () => setRoleTarget(null),
     );
 
@@ -234,7 +247,15 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
     run(
       member.id,
       () => removeMemberAction({ memberId: member.id }),
-      member.status === "Invited" ? "Invitation revoked." : "Member removed.",
+      member.status === "Invited"
+        ? {
+            success: `Invitation to ${member.email} revoked. Their invite link no longer works.`,
+            failure: `We couldn't revoke the invitation to ${member.email}.`,
+          }
+        : {
+            success: `${displayName(member)} was removed from the team and can no longer sign in.`,
+            failure: `We couldn't remove ${displayName(member)}.`,
+          },
       () => setRemoveTarget(null),
     );
 
@@ -247,11 +268,10 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
           label: "Resend invite",
           icon: MailPlus,
           run: () =>
-            run(
-              member.id,
-              () => resendInviteAction({ memberId: member.id }),
-              "Invite sent.",
-            ),
+            run(member.id, () => resendInviteAction({ memberId: member.id }), {
+              success: `Invite resent to ${member.email}.`,
+              failure: `We couldn't resend the invite to ${member.email}.`,
+            }),
         });
       }
       if (canRevoke) {
@@ -279,7 +299,15 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
                 memberId: member.id,
                 status: disabled ? "Active" : "Disabled",
               }),
-            disabled ? "Member activated." : "Member deactivated.",
+            disabled
+              ? {
+                  success: `${displayName(member)} is active again and can sign in.`,
+                  failure: `We couldn't activate ${displayName(member)}.`,
+                }
+              : {
+                  success: `${displayName(member)} was deactivated and can't sign in until you activate them again.`,
+                  failure: `We couldn't deactivate ${displayName(member)}.`,
+                },
           ),
       });
     }

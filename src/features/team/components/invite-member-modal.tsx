@@ -41,6 +41,7 @@ import {
 } from "@/features/team/schemas/team";
 import {
   hasSeatLeft,
+  roleWithArticle,
   TEAM_ROLE_DESCRIPTIONS,
   TEAM_ROLE_VALUES,
   type TeamRole,
@@ -94,18 +95,24 @@ export function InviteMemberModal({ children, seats }: InviteMemberModalProps) {
         const result = await inviteMemberAction(values);
 
         if (!result.ok) {
-          toast.error(result.message ?? "We couldn't send that invite.");
+          toast.error(
+            result.message ?? `We couldn't send the invite to ${values.email}.`,
+          );
           return;
         }
 
-        toast.success("Invite sent.");
+        toast.success(
+          `Invite sent to ${values.email}. They'll join as ${roleWithArticle(values.role)} once they accept.`,
+        );
         reset();
         setOpen(false);
       } catch (error) {
         // The call itself can reject on a dropped connection. Without this the
         // dialog just sat there with no toast and no explanation.
         console.error("[team] inviteMemberAction failed", error);
-        toast.error("We couldn't send that invite. Check your connection.");
+        toast.error(
+          `We couldn't send the invite to ${values.email}. Check your connection and try again.`,
+        );
       }
     });
   };

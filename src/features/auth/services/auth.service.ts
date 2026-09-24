@@ -474,7 +474,7 @@ async function getTenantMembershipAccess(
 }
 
 const EXPIRED_LINK_MESSAGE =
-  "This link is invalid or has expired. Request a new one to continue.";
+  "Email links work once and expire after an hour, so this one has either been used or run out. Request a new link and open it from the newest email.";
 
 const TENANT_ACCESS_MESSAGES: Record<
   Exclude<TenantMembershipAccess, "allowed">,

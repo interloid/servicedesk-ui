@@ -603,7 +603,7 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
                 setQuery(event.target.value);
                 setPage(1);
               }}
-              placeholder="Search members by name or email…"
+              placeholder="Search by name or email..."
               className="h-10 bg-card pl-9 text-sm sm:h-10"
               aria-label="Search members"
             />
@@ -693,20 +693,22 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-border bg-card">
-        <Table className="min-w-227.5 table-fixed">
+        {/* Fixed columns (768px) plus room for a name and email in Member;
+            narrower than that and the table scrolls instead of overlapping. */}
+        <Table className="min-w-262 table-fixed">
           <TableHeader>
             <TableRow className="h-14 border-border bg-card hover:bg-card">
               {/* No width: Member takes whatever the fixed columns leave. */}
               <TableHead className={TH}>Member</TableHead>
 
               {/* Fits "Deactivated 3 minutes ago" on one line. */}
-              <TableHead className={`${TH} w-50`}>Status</TableHead>
+              <TableHead className={`${TH} w-62`}>Status</TableHead>
 
-              <TableHead className={`${TH} w-40`}>Role</TableHead>
+              <TableHead className={`${TH} w-64`}>Role</TableHead>
 
-              <TableHead className={`${TH} w-32`}>Joined</TableHead>
+              <TableHead className={`${TH} w-36`}>Joined</TableHead>
 
-              <TableHead className={`${TH} w-20 text-center`}>
+              <TableHead className={`${TH} w-36 text-center`}>
                 Actions
               </TableHead>
             </TableRow>

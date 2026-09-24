@@ -45,6 +45,8 @@ interface ChangeRoleModalProps {
    * instead of making the admin pick it a second time.
    */
   initialRole?: TeamRole | null;
+  /** The roles this caller may hand out. Defaults to all of them. */
+  roles?: readonly TeamRole[];
   isPending: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (member: TeamMember, role: TeamRole) => void;
@@ -53,6 +55,7 @@ interface ChangeRoleModalProps {
 export function ChangeRoleModal({
   member,
   initialRole,
+  roles = TEAM_ROLE_VALUES,
   isPending,
   onOpenChange,
   onConfirm,
@@ -88,6 +91,7 @@ export function ChangeRoleModal({
             key={`${shown.member.id}:${shown.role}`}
             member={shown.member}
             initialRole={shown.role}
+            roles={roles}
             isPending={isPending}
             onCancel={() => onOpenChange(false)}
             onConfirm={onConfirm}
@@ -101,12 +105,14 @@ export function ChangeRoleModal({
 function ChangeRoleFields({
   member,
   initialRole,
+  roles,
   isPending,
   onCancel,
   onConfirm,
 }: {
   member: TeamMember;
   initialRole: TeamRole;
+  roles: readonly TeamRole[];
   isPending: boolean;
   onCancel: () => void;
   onConfirm: (member: TeamMember, role: TeamRole) => void;
@@ -162,7 +168,7 @@ function ChangeRoleFields({
             position="popper"
             className="p-1"
           >
-            {TEAM_ROLE_VALUES.map((value) => (
+            {roles.map((value) => (
               <SelectItem
                 key={value}
                 value={value}

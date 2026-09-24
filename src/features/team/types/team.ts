@@ -72,8 +72,9 @@ export const TEAM_PERMISSION_MATRIX: Record<
   },
   Manager: {
     tickets: "Full",
-    billing: "View",
-    team: "Invite & edit",
+    billing: "None",
+    // Everything a Tenant Admin can do to the team, except touch the admins.
+    team: "Full",
     settings: "Edit",
   },
   Agent: {
@@ -111,10 +112,10 @@ export const TEAM_ACTION_PERMISSIONS: Record<
 > = {
   invite: { rowRole: "All", writeRoles: ["Tenant Admin", "Manager"] },
   resend: { rowRole: "All", writeRoles: ["Tenant Admin", "Manager"] },
-  revoke: { rowRole: "All", writeRoles: ["Tenant Admin"] },
-  role: { rowRole: "All", writeRoles: ["Tenant Admin"] },
-  status: { rowRole: "All", writeRoles: ["Tenant Admin"] },
-  remove: { rowRole: "All", writeRoles: ["Tenant Admin"] },
+  revoke: { rowRole: "All", writeRoles: ["Tenant Admin", "Manager"] },
+  role: { rowRole: "All", writeRoles: ["Tenant Admin", "Manager"] },
+  status: { rowRole: "All", writeRoles: ["Tenant Admin", "Manager"] },
+  remove: { rowRole: "All", writeRoles: ["Tenant Admin", "Manager"] },
 };
 
 export function canPerformTeamAction(
@@ -122,6 +123,43 @@ export function canPerformTeamAction(
   role: TeamRole,
 ): boolean {
   return TEAM_ACTION_PERMISSIONS[action].writeRoles.includes(role);
+}
+
+/**
+ * Roles only a Tenant Admin may hand out or touch. A Manager can invite and
+ * edit the team, but granting Tenant Admin or Billing Admin -- to someone else
+ * or to a second address of their own -- would be a way to promote
+ * themselves, and editing an admin would let them demote the people above
+ * them.
+ */
+export const ADMIN_ONLY_ROLES: readonly TeamRole[] = [
+  "Tenant Admin",
+  "Billing Admin",
+];
+
+/** The roles `caller` may give someone, by invite or by a role change. */
+export function assignableRoles(caller: TeamRole | null): TeamRole[] {
+  if (caller === "Tenant Admin") {
+    return [...TEAM_ROLE_VALUES];
+  }
+
+  return TEAM_ROLE_VALUES.filter((role) => !ADMIN_ONLY_ROLES.includes(role));
+}
+
+/**
+ * Whether `caller` may change the role or status of, or remove, someone who
+ * holds `target`.
+ * The action itself must also be allowed for the caller's role.
+ */
+export function canEditMemberWithRole(
+  caller: TeamRole | null,
+  target: TeamRole,
+): boolean {
+  if (caller === "Tenant Admin") {
+    return true;
+  }
+
+  return caller === "Manager" && !ADMIN_ONLY_ROLES.includes(target);
 }
 
 export const TEAM_STATUS_VALUES = ["Active", "Invited", "Disabled"] as const;

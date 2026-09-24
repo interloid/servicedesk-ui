@@ -28,6 +28,8 @@ import type {
   TenantPlanRow,
 } from "@/features/team/types/team";
 import {
+  ADMIN_ONLY_ROLES,
+  canEditMemberWithRole,
   CURRENT_SUBSCRIPTION_STATUSES,
   FREE_SEAT_LIMIT,
   getTeamSeats as calcTeamSeats,
@@ -778,16 +780,6 @@ function invitationEmailHtml({
 </html>`;
 }
 
-/**
- * Roles only a Tenant Admin may hand out. A Manager can invite and edit the
- * team, but inviting a second address of their own as Tenant Admin would be a
- * way to promote themselves.
- */
-const ADMIN_ONLY_INVITE_ROLES: readonly TeamRole[] = [
-  "Tenant Admin",
-  "Billing Admin",
-];
-
 export async function inviteMember(values: InviteMemberValues): Promise<void> {
   const actor = await requireActor();
 
@@ -797,10 +789,7 @@ export async function inviteMember(values: InviteMemberValues): Promise<void> {
     "Only a Tenant Admin or Manager can invite people.",
   );
 
-  if (
-    ADMIN_ONLY_INVITE_ROLES.includes(values.role) &&
-    actor.role !== "Tenant Admin"
-  ) {
+  if (ADMIN_ONLY_ROLES.includes(values.role) && actor.role !== "Tenant Admin") {
     throw new TeamError(
       `Only a Tenant Admin can invite someone as ${values.role}.`,
       { status: 403, code: "action-not-allowed" },
@@ -1096,48 +1085,61 @@ export async function resendInvite(values: ResendInviteValues): Promise<void> {
 }
 
 /**
- * The auth user behind a membership row.
+ * The staff membership a team action is aimed at, read through the caller's
+ * own client so RLS keeps it inside their tenant. Also refuses actions on
+ * yourself and, for a Manager, on anyone holding an admin role -- a Manager
+ * has the admin's team powers over Agents and Managers, but must not be able
+ * to demote, disable or remove the admins above them.
  *
- * `memberId` is a membership id and `actor.userId` is an auth user id, so the
- * two are never equal -- comparing them directly is what let a Tenant Admin
- * demote or delete their own membership through a direct action call.
+ * RLS lets only a Tenant Admin write memberships, so every write that follows this check goes through the admin
+ * client, pinned to the tenant and to the role read here.
  */
-async function getMemberUserId(
+async function getEditableMember(
   supabase: SupabaseClient,
+  actor: TeamActor,
   memberId: string,
-): Promise<string | null> {
+  selfMessage: string,
+  selfCode: TeamFailureCode,
+): Promise<{ userId: string; role: TeamRole }> {
   const { data, error } = await supabase
     .from("memberships")
-    .select("user_id")
+    .select("user_id, role")
     .eq("id", memberId)
-    .maybeSingle();
+    .eq("tenant_id", actor.tenantId)
+    .in("role", [...STAFF_ROLES])
+    .maybeSingle<{ user_id: string; role: string }>();
 
   if (error) {
     throw fail("We couldn't look that member up.", error);
   }
 
-  return (data?.user_id as string | undefined) ?? null;
-}
+  const role = data ? ROLE_FROM_DB[data.role] : undefined;
 
-async function assertNotSelf(
-  supabase: SupabaseClient,
-  actor: TeamActor,
-  memberId: string,
-  message: string,
-  code: TeamFailureCode,
-) {
-  const targetUserId = await getMemberUserId(supabase, memberId);
-
-  if (targetUserId === null) {
+  if (!data || !role) {
     throw new TeamError("That member no longer exists.", {
       status: 404,
       code: "member-not-found",
     });
   }
 
-  if (targetUserId === actor.userId) {
-    throw new TeamError(message, { status: 409, code });
+  // Compare user ids: `memberId` is a membership id and never equals
+  // `actor.userId`, which is what once let an admin demote or delete their
+  // own membership through a direct action call.
+  if (data.user_id === actor.userId) {
+    throw new TeamError(selfMessage, { status: 409, code: selfCode });
   }
+
+  if (!canEditMemberWithRole(actor.role, role)) {
+    throw new TeamError(
+      `Only a Tenant Admin can manage ${roleWithArticle(role)}.`,
+      {
+        status: 403,
+        code: "action-not-allowed",
+      },
+    );
+  }
+
+  return { userId: data.user_id, role };
 }
 
 export async function changeMemberRole(
@@ -1145,9 +1147,20 @@ export async function changeMemberRole(
 ): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const actor = await requireActor();
-  assertRole(actor, ["Tenant Admin"], "Only a Tenant Admin can change roles.");
+  assertRole(
+    actor,
+    ["Tenant Admin", "Manager"],
+    "Only a Tenant Admin or Manager can change roles.",
+  );
 
-  await assertNotSelf(
+  if (ADMIN_ONLY_ROLES.includes(values.role) && actor.role !== "Tenant Admin") {
+    throw new TeamError(
+      `Only a Tenant Admin can make someone ${roleWithArticle(values.role)}.`,
+      { status: 403, code: "action-not-allowed" },
+    );
+  }
+
+  const target = await getEditableMember(
     supabase,
     actor,
     values.memberId,
@@ -1155,16 +1168,19 @@ export async function changeMemberRole(
     "cannot-change-own-role",
   );
 
-  const { data, error } = await supabase
+  // RLS lets only a Tenant Admin write memberships, so the Manager's change --
+  // checked above -- is written with the admin client. Pinned to the tenant
+  // and to the role we just read, so a row that changed in between (say an
+  // admin promoted them meanwhile) is left alone rather than overwritten.
+  const { data, error } = await createSupabaseAdminClient()
     .from("memberships")
     .update({
       role: ROLE_TO_DB[values.role],
       updated_at: new Date().toISOString(),
     })
     .eq("id", values.memberId)
-    // Staff only, like the roster: a portal customer's membership id must not
-    // be promotable to Agent through a direct action call.
-    .in("role", [...STAFF_ROLES])
+    .eq("tenant_id", actor.tenantId)
+    .eq("role", ROLE_TO_DB[target.role])
     .select("id");
 
   if (error) {
@@ -1172,10 +1188,10 @@ export async function changeMemberRole(
   }
 
   if (!data || data.length === 0) {
-    throw new TeamError("That member no longer exists.", {
-      status: 404,
-      code: "member-not-found",
-    });
+    throw new TeamError(
+      "That person's role changed while you were editing it. Refresh and try again.",
+      { status: 409, code: "member-not-found" },
+    );
   }
 }
 
@@ -1186,11 +1202,11 @@ export async function changeMemberStatus(
   const actor = await requireActor();
   assertRole(
     actor,
-    ["Tenant Admin"],
-    "Only a Tenant Admin can enable or disable members.",
+    ["Tenant Admin", "Manager"],
+    "Only a Tenant Admin or Manager can enable or disable members.",
   );
 
-  await assertNotSelf(
+  const target = await getEditableMember(
     supabase,
     actor,
     values.memberId,
@@ -1202,17 +1218,17 @@ export async function changeMemberStatus(
   // Without this, disable → invite → re-enable walked straight past the plan
   // limit. (The seat trigger enforces the same rule under a lock.)
   if (values.status === "Active") {
-    const { data: target, error: targetError } = await supabase
+    const { data: current, error: currentError } = await supabase
       .from("memberships")
       .select("status")
       .eq("id", values.memberId)
       .maybeSingle<{ status: string }>();
 
-    if (targetError) {
-      throw fail("We couldn't look that member up.", targetError);
+    if (currentError) {
+      throw fail("We couldn't look that member up.", currentError);
     }
 
-    if (target?.status === "disabled") {
+    if (current?.status === "disabled") {
       const seats = await getTeamSeats();
 
       if (!hasSeatLeft(seats)) {
@@ -1221,7 +1237,7 @@ export async function changeMemberStatus(
     }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await createSupabaseAdminClient()
     .from("memberships")
     .update({
       status: STATUS_TO_DB[values.status],
@@ -1230,7 +1246,8 @@ export async function changeMemberStatus(
       updated_at: new Date().toISOString(),
     })
     .eq("id", values.memberId)
-    .in("role", [...STAFF_ROLES])
+    .eq("tenant_id", actor.tenantId)
+    .eq("role", ROLE_TO_DB[target.role])
     .select("id");
 
   if (error) {
@@ -1250,11 +1267,11 @@ export async function removeMember(values: RemoveMemberValues): Promise<void> {
   const actor = await requireActor();
   assertRole(
     actor,
-    ["Tenant Admin"],
-    "Only a Tenant Admin can remove members.",
+    ["Tenant Admin", "Manager"],
+    "Only a Tenant Admin or Manager can remove members.",
   );
 
-  await assertNotSelf(
+  const target = await getEditableMember(
     supabase,
     actor,
     values.memberId,
@@ -1262,11 +1279,12 @@ export async function removeMember(values: RemoveMemberValues): Promise<void> {
     "cannot-remove-self",
   );
 
-  const { data, error } = await supabase
+  const { data, error } = await createSupabaseAdminClient()
     .from("memberships")
     .delete()
     .eq("id", values.memberId)
-    .in("role", [...STAFF_ROLES])
+    .eq("tenant_id", actor.tenantId)
+    .eq("role", ROLE_TO_DB[target.role])
     .select("id");
 
   if (error) {

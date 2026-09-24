@@ -40,10 +40,10 @@ import {
   type InviteMemberValues,
 } from "@/features/team/schemas/team";
 import {
+  assignableRoles,
   hasSeatLeft,
   roleWithArticle,
   TEAM_ROLE_DESCRIPTIONS,
-  TEAM_ROLE_VALUES,
   type TeamRole,
   type TeamSeats,
 } from "@/features/team/types/team";
@@ -64,12 +64,6 @@ interface InviteMemberModalProps {
   callerRole: TeamRole | null;
 }
 
-/** Mirrors ADMIN_ONLY_INVITE_ROLES in team.service.ts. */
-const ADMIN_ONLY_INVITE_ROLES: readonly TeamRole[] = [
-  "Tenant Admin",
-  "Billing Admin",
-];
-
 type InviteForm = {
   email: string;
   role: TeamRole;
@@ -80,10 +74,7 @@ export function InviteMemberModal({
   seats,
   callerRole,
 }: InviteMemberModalProps) {
-  const invitableRoles = TEAM_ROLE_VALUES.filter(
-    (role) =>
-      callerRole === "Tenant Admin" || !ADMIN_ONLY_INVITE_ROLES.includes(role),
-  );
+  const invitableRoles = assignableRoles(callerRole);
 
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();

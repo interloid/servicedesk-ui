@@ -46,6 +46,8 @@ import {
 import {
   TEAM_ROLE_VALUES,
   TEAM_STATUS_VALUES,
+  assignableRoles,
+  canEditMemberWithRole,
   canPerformTeamAction,
   formatAbsoluteDate,
   formatRelativeTime,
@@ -190,6 +192,11 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
   };
 
   const canRole = callerRole ? canPerformTeamAction("role", callerRole) : false;
+  // A Manager may only hand out and edit the non-admin roles; the server
+  // enforces the same rule.
+  const rolesToOffer = assignableRoles(callerRole);
+  const canEdit = (member: TeamMember) =>
+    !member.isSelf && canEditMemberWithRole(callerRole, member.role);
   const canRemove = callerRole
     ? canPerformTeamAction("remove", callerRole)
     : false;
@@ -275,7 +282,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
             }),
         });
       }
-      if (canRevoke) {
+      if (canRevoke && canEdit(member)) {
         actions.push({
           label: "Revoke invitation",
           icon: Trash2,
@@ -287,7 +294,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
       return actions;
     }
 
-    if (canStatus) {
+    if (canStatus && canEdit(member)) {
       const disabled = member.status === "Disabled";
       actions.push({
         label: disabled ? "Activate member" : "Deactivate member",
@@ -313,7 +320,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
       });
     }
 
-    if (canRemove) {
+    if (canRemove && canEdit(member)) {
       actions.push({
         label: "Remove member",
         icon: Trash2,
@@ -367,7 +374,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
   };
 
   const renderRole = (member: TeamMember, busy: boolean) => {
-    if (!canRole || member.isSelf) {
+    if (!canRole || !canEdit(member)) {
       return (
         <span className="text-sm font-semibold text-foreground">
           {member.role}
@@ -399,7 +406,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
           position="popper"
           className="p-1"
         >
-          {TEAM_ROLE_VALUES.map((role) => (
+          {rolesToOffer.map((role) => (
             <SelectItem key={role} value={role} className="p-2 cursor-pointer">
               {role}
             </SelectItem>
@@ -704,6 +711,7 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
         initialRole={roleTarget?.role ?? null}
         isPending={isPending && pendingId === roleTarget?.member.id}
         onOpenChange={(open) => !open && setRoleTarget(null)}
+        roles={rolesToOffer}
         onConfirm={changeRole}
       />
 

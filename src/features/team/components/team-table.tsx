@@ -83,7 +83,7 @@ const TEAM_STATUS_BADGE: Record<TeamStatus, string> = {
     "border-none bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
   Invited:
     "border-none bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
-  Disabled: "border-transparent bg-muted text-muted-foreground",
+  Disabled: "border-none bg-muted text-muted-foreground",
 };
 
 function getInitials(name: string, email: string): string {
@@ -384,8 +384,9 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
           {member.status}
         </Badge>
         {detail && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock className="size-3 shrink-0" aria-hidden />
+          // The cell doesn't wrap by default; this line may need to.
+          <span className="flex items-start gap-1 text-xs whitespace-normal text-muted-foreground">
+            <Clock className="mt-0.5 size-3 shrink-0" aria-hidden />
             {detail}
           </span>
         )}
@@ -695,13 +696,15 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
         <Table className="min-w-227.5 table-fixed">
           <TableHeader>
             <TableRow className="h-14 border-border bg-card hover:bg-card">
-              <TableHead className={`${TH} w-[60%]`}>Member</TableHead>
+              {/* No width: Member takes whatever the fixed columns leave. */}
+              <TableHead className={TH}>Member</TableHead>
 
-              <TableHead className={`${TH} w-30`}>Status</TableHead>
+              {/* Fits "Deactivated 3 minutes ago" on one line. */}
+              <TableHead className={`${TH} w-50`}>Status</TableHead>
 
-              <TableHead className={`${TH} w-35`}>Role</TableHead>
+              <TableHead className={`${TH} w-40`}>Role</TableHead>
 
-              <TableHead className={`${TH} w-20`}>Joined</TableHead>
+              <TableHead className={`${TH} w-32`}>Joined</TableHead>
 
               <TableHead className={`${TH} w-20 text-center`}>
                 Actions

@@ -211,7 +211,38 @@ export default function DirectResetPasswordPage() {
       const supabase = createSupabaseClient();
 
       try {
-        const code = new URLSearchParams(window.location.search).get("code");
+        // Supabase sends a dead link back with the reason in the URL
+        // (#error=access_denied&error_code=otp_expired, or ?error=… on the
+        // code flow) and no tokens. Stop there: falling through to
+        // getSession() would pick up whoever is already signed in on this
+        // browser and offer to change THEIR password.
+        const searchParams = new URLSearchParams(window.location.search);
+        const linkParams = new URLSearchParams(
+          window.location.hash.substring(1),
+        );
+        const linkError =
+          searchParams.get("error_code") ??
+          searchParams.get("error") ??
+          linkParams.get("error_code") ??
+          linkParams.get("error");
+
+        if (linkError) {
+          console.error("[Reset Password] Link rejected:", linkError);
+
+          window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname,
+          );
+
+          if (mounted) {
+            setAuthError(EXPIRED_LINK_MESSAGE);
+          }
+
+          return;
+        }
+
+        const code = searchParams.get("code");
 
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);

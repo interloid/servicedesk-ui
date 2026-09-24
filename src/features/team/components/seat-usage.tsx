@@ -67,7 +67,7 @@ export function SeatUsage({ seats, counts }: SeatUsageProps) {
           ? "bg-red-500 opacity-30"
           : "bg-teal-700 dark:bg-emerald-400",
       // Active people are fine however full the plan is, so the dot stays green.
-      dot: "bg-emerald-500 dark:bg-emerald-400",
+      dot: "bg-teal-700 dark:bg-emerald-400",
     },
     {
       key: "invited",

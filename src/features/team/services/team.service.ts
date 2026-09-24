@@ -41,6 +41,10 @@ import {
 } from "@/features/team/types/team";
 
 import { requestOrigin } from "@/features/auth/services/auth.service";
+import {
+  LINK_ACTION_PARAM,
+  LINK_ACTIONS,
+} from "@/features/auth/schemas/reset-password";
 import { cache } from "react";
 
 export class TeamError extends Error {
@@ -439,7 +443,7 @@ async function inviteRedirectTo(
 
   const origin = await requestOrigin();
 
-  return `${origin}${tenantPath(slug, TENANT_ROUTES.RESET_PASSWORD)}`;
+  return `${origin}${tenantPath(slug, TENANT_ROUTES.RESET_PASSWORD)}?${LINK_ACTION_PARAM}=${LINK_ACTIONS.INVITE}`;
 }
 
 /**

@@ -28,6 +28,8 @@ import { AuthCard, AuthShell } from "@/features/auth/components/auth-card";
 import { createSupabaseClient } from "@/lib/supabase/client";
 
 import {
+  LINK_ACTION_PARAM,
+  LINK_ACTIONS,
   UpdatePasswordValues,
   updatePasswordSchema,
 } from "@/features/auth/schemas/reset-password";
@@ -45,6 +47,9 @@ import { tenantLoginPath } from "@/lib/tenancy";
 
 const EXPIRED_LINK_MESSAGE =
   "Email links work once and expire after an hour, so this one has either been used or run out. Request a new link and open it from the newest email.";
+
+const EXPIRED_INVITE_MESSAGE =
+  "Invitation links work once and expire after an hour, so this one has either been used or run out. Contact your admin to send you a new invitation.";
 
 /** Why the form can't be used at all, as opposed to one bad attempt. */
 type BlockedReason = "expired" | "no-access";
@@ -92,6 +97,7 @@ function StatusPanel({
   status,
   note,
   footer,
+  plainFooter = false,
 }: {
   tone: StatusTone;
   icon: ComponentType<{ className?: string; strokeWidth?: number }>;
@@ -101,6 +107,8 @@ function StatusPanel({
   status: string;
   note?: ReactNode;
   footer: ReactNode;
+  /** A message rather than a button: white, so it doesn't read as a tray of actions. */
+  plainFooter?: boolean;
 }) {
   const styles = STATUS_TONES[tone];
 
@@ -152,7 +160,12 @@ function StatusPanel({
         <p className="text-center text-xs text-muted-foreground">{note}</p>
       )}
 
-      <div className="-mx-5 -mb-6 flex flex-col gap-2 rounded-b-2xl border-t bg-muted/50 px-5 py-4 md:-mx-8 md:-mb-8 md:px-8">
+      <div
+        className={cn(
+          "-mx-5 -mb-6 flex flex-col gap-2 rounded-b-2xl border-t px-5 py-4 md:-mx-8 md:-mb-8 md:px-8",
+          plainFooter ? "bg-card" : "bg-muted/50",
+        )}
+      >
         {footer}
       </div>
     </>
@@ -190,6 +203,10 @@ export default function DirectResetPasswordPage() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [blockedReason, setBlockedReason] = useState<BlockedReason>("expired");
   const [isFirstPassword, setIsFirstPassword] = useState(false);
+  // From the link's `action` key: an invite link, as opposed to a forgotten
+  // password. Decides whether a dead link sends them to sign in or to their
+  // admin.
+  const [isInviteLink, setIsInviteLink] = useState(false);
   // Who the link signed in as, so a blocked person knows which address to
   // give their admin. Captured before the blocked session is signed out.
   const [linkEmail, setLinkEmail] = useState<string | null>(null);
@@ -209,6 +226,19 @@ export default function DirectResetPasswordPage() {
 
     const verifyAuthSession = async () => {
       const supabase = createSupabaseClient();
+
+      // Read before any replaceState below strips the query.
+      const isInvite =
+        new URLSearchParams(window.location.search).get(LINK_ACTION_PARAM) ===
+        LINK_ACTIONS.INVITE;
+      const expiredMessage = isInvite
+        ? EXPIRED_INVITE_MESSAGE
+        : EXPIRED_LINK_MESSAGE;
+
+      if (mounted) {
+        setIsInviteLink(isInvite);
+        setIsFirstPassword(isInvite);
+      }
 
       try {
         // Supabase sends a dead link back with the reason in the URL
@@ -236,7 +266,7 @@ export default function DirectResetPasswordPage() {
           );
 
           if (mounted) {
-            setAuthError(EXPIRED_LINK_MESSAGE);
+            setAuthError(expiredMessage);
           }
 
           return;
@@ -254,7 +284,7 @@ export default function DirectResetPasswordPage() {
             );
 
             if (mounted) {
-              setAuthError(EXPIRED_LINK_MESSAGE);
+              setAuthError(expiredMessage);
             }
 
             return;
@@ -291,7 +321,7 @@ export default function DirectResetPasswordPage() {
             );
 
             if (mounted) {
-              setAuthError(EXPIRED_LINK_MESSAGE);
+              setAuthError(expiredMessage);
             }
 
             return;
@@ -316,7 +346,7 @@ export default function DirectResetPasswordPage() {
           );
 
           if (mounted) {
-            setAuthError(EXPIRED_LINK_MESSAGE);
+            setAuthError(expiredMessage);
           }
 
           return;
@@ -351,7 +381,7 @@ export default function DirectResetPasswordPage() {
         console.error("[Reset Password] Session verification failed:", error);
 
         if (mounted) {
-          setAuthError(EXPIRED_LINK_MESSAGE);
+          setAuthError(expiredMessage);
         }
       } finally {
         if (mounted) {
@@ -458,7 +488,9 @@ export default function DirectResetPasswordPage() {
                 title={
                   blockedReason === "no-access"
                     ? "Access removed"
-                    : "Link expired"
+                    : isInviteLink
+                      ? "Invitation expired"
+                      : "Link expired"
                 }
                 description={authError}
                 email={linkEmail}
@@ -466,18 +498,28 @@ export default function DirectResetPasswordPage() {
                   blockedReason === "no-access" ? "No access" : "Link expired"
                 }
                 note={
-                  // An invitee has no password yet, so their admin resending
-                  // the invite is as good a way back as a reset link.
-                  blockedReason === "expired" && isFirstPassword
+                  blockedReason === "expired" &&
+                  isFirstPassword &&
+                  !isInviteLink
                     ? "Opening an invitation? Your workspace admin can also resend it from Team & roles."
                     : undefined
                 }
+                plainFooter={isInviteLink}
                 footer={
-                  <Button asChild className="h-10 w-full font-semibold">
-                    <Link href={tenantLoginPath(tenantSlug)}>
-                      Back to sign in
-                    </Link>
-                  </Button>
+                  // An invitee has no password yet, so sign in leads nowhere;
+                  // only their admin can send a new invitation. Button height,
+                  // so the card is the same size either way.
+                  isInviteLink ? (
+                    <p className="flex h-10 items-center justify-center text-center text-sm font-semibold text-foreground">
+                      Contact your admin to get a new invitation.
+                    </p>
+                  ) : (
+                    <Button asChild className="h-10 w-full font-semibold">
+                      <Link href={tenantLoginPath(tenantSlug)}>
+                        Back to sign in
+                      </Link>
+                    </Button>
+                  )
                 }
               />
             ) : (

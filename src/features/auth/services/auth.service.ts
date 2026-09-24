@@ -30,6 +30,8 @@ import { EMPTY_TENANT_CLAIMS, getTenantClaims } from "../claims";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { ForgotPasswordValues } from "../schemas/forgot-password";
 import {
+  LINK_ACTION_PARAM,
+  LINK_ACTIONS,
   updatePasswordSchema,
   type UpdatePasswordValues,
 } from "../schemas/reset-password";
@@ -380,7 +382,7 @@ export async function sendTenantPasswordResetLink(
     const redirectTo = `${origin}${tenantPath(
       slug,
       TENANT_ROUTES.RESET_PASSWORD,
-    )}`;
+    )}?${LINK_ACTION_PARAM}=${LINK_ACTIONS.RESET}`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,

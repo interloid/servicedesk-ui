@@ -64,7 +64,12 @@ export default async function TeamAndRolesPage() {
 
         <SeatUsage seats={seats} counts={counts} />
 
-        <TeamTable members={members} callerRole={callerRole} now={now} />
+        <TeamTable
+          members={members}
+          callerRole={callerRole}
+          seats={seats}
+          now={now}
+        />
       </div>
     </div>
   );

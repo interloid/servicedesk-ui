@@ -36,12 +36,12 @@ import {
   checkTenantPasswordAccessAction,
   updateTenantPasswordAction,
 } from "@/features/auth/actions/actions";
-import { tenantForgotPasswordPath, tenantLoginPath } from "@/lib/tenancy";
 import { PageLoader } from "@/components/shared/page-loader";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { PasswordInput } from "@/components/ui/password-input";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { tenantLoginPath } from "@/lib/tenancy";
 
 const EXPIRED_LINK_MESSAGE =
   "Email links work once and expire after an hour, so this one has either been used or run out. Request a new link and open it from the newest email.";
@@ -473,26 +473,11 @@ export default function DirectResetPasswordPage() {
                     : undefined
                 }
                 footer={
-                  blockedReason === "expired" ? (
-                    <>
-                      <Button asChild className="h-10 w-full font-semibold">
-                        <Link href={tenantForgotPasswordPath(tenantSlug)}>
-                          Request a new link
-                        </Link>
-                      </Button>
-                      <Button asChild variant="outline" className="h-10 w-full">
-                        <Link href={tenantLoginPath(tenantSlug)}>
-                          Back to sign in
-                        </Link>
-                      </Button>
-                    </>
-                  ) : (
-                    <Button asChild className="h-10 w-full font-semibold">
-                      <Link href={tenantLoginPath(tenantSlug)}>
-                        Back to sign in
-                      </Link>
-                    </Button>
-                  )
+                  <Button asChild className="h-10 w-full font-semibold">
+                    <Link href={tenantLoginPath(tenantSlug)}>
+                      Back to sign in
+                    </Link>
+                  </Button>
                 }
               />
             ) : (

@@ -42,6 +42,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import {
   TEAM_ROLE_VALUES,
@@ -51,9 +57,11 @@ import {
   canPerformTeamAction,
   formatAbsoluteDate,
   formatRelativeTime,
+  hasSeatLeft,
   roleWithArticle,
   type TeamMember,
   type TeamRole,
+  type TeamSeats,
   type TeamStatus,
 } from "@/features/team/types/team";
 import {
@@ -114,6 +122,8 @@ function statusDetail(member: TeamMember, now: number): string | null {
 interface TeamTableProps {
   members: TeamMember[];
   callerRole: TeamRole | null;
+  /** Used to block re-enabling a disabled member when every seat is taken. */
+  seats: TeamSeats;
   /**
    * The server's clock at render time. Reading Date.now() here instead would
    * give the server render and the hydration that follows two different
@@ -132,10 +142,12 @@ interface RowAction {
   label: string;
   icon: LucideIcon;
   destructive?: boolean;
+  /** Why the action can't run. The item stays, greyed out, with this as its tooltip. */
+  blockedReason?: string;
   run: () => void;
 }
 
-export function TeamTable({ members, callerRole, now }: TeamTableProps) {
+export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
   const [isPending, startTransition] = useTransition();
   const [pendingId, setPendingId] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
@@ -196,7 +208,9 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
   // enforces the same rule.
   const rolesToOffer = assignableRoles(callerRole);
   const canEdit = (member: TeamMember) =>
-    !member.isSelf && canEditMemberWithRole(callerRole, member.role);
+    !member.isSelf &&
+    !member.isOwner &&
+    canEditMemberWithRole(callerRole, member.role);
   const canRemove = callerRole
     ? canPerformTeamAction("remove", callerRole)
     : false;
@@ -299,6 +313,12 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
       actions.push({
         label: disabled ? "Activate member" : "Deactivate member",
         icon: disabled ? Play : Pause,
+        // Disabled members don't hold a seat, so turning one back on takes
+        // one. The server re-checks this; the menu only explains it.
+        blockedReason:
+          disabled && !hasSeatLeft(seats)
+            ? "No seats available. Free a seat or upgrade."
+            : undefined,
         run: () =>
           run(
             member.id,
@@ -446,6 +466,35 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
   };
 
   const renderActions = (member: TeamMember, busy: boolean) => {
+    // Same menu button as every other row, switched off, so the owner row
+    // explains itself instead of reading as a missing action.
+    if (member.isOwner && !member.isSelf) {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* A disabled button fires no pointer events, so the span
+                  carries the hover and keyboard focus for the tooltip. */}
+              <span tabIndex={0} className="inline-flex rounded-lg">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled
+                  aria-label={`Actions for ${member.name} (workspace owner)`}
+                  className="size-9 rounded-lg border border-none text-muted-foreground cursor-pointer"
+                >
+                  <MoreHorizontalIcon />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={0} className="translate-y-0">
+              Tenant owner cannot be updated.{" "}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
     const rowActions = member.isSelf ? [] : buildRowActions(member);
 
     if (rowActions.length === 0) {
@@ -473,21 +522,50 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          {rowActions.map((action) => {
-            const Icon = action.icon;
-            return (
-              <DropdownMenuItem
-                key={action.label}
-                variant={action.destructive ? "destructive" : "default"}
-                disabled={busy}
-                onSelect={action.run}
-                className="p-2"
-              >
-                <Icon />
-                {action.label}
-              </DropdownMenuItem>
-            );
-          })}
+          <TooltipProvider>
+            {rowActions.map((action) => {
+              const Icon = action.icon;
+
+              if (!action.blockedReason) {
+                return (
+                  <DropdownMenuItem
+                    key={action.label}
+                    variant={action.destructive ? "destructive" : "default"}
+                    disabled={busy}
+                    onSelect={action.run}
+                    className="p-2 cursor-pointer"
+                  >
+                    <Icon />
+                    {action.label}
+                  </DropdownMenuItem>
+                );
+              }
+
+              // Not `disabled`: a disabled item takes no pointer events, so
+              // its tooltip would never open. It looks and acts disabled
+              // instead, and selecting it does nothing.
+              return (
+                <Tooltip key={action.label}>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuItem
+                      aria-disabled
+                      onSelect={(event) => event.preventDefault()}
+                      // Hovering focuses a menu item, which would light it
+                      // up like a live action; `!` beats the base item's
+                      // focus colours.
+                      className="p-2 cursor-not-allowed opacity-50 focus:bg-transparent! focus:text-popover-foreground! focus:**:text-popover-foreground!"
+                    >
+                      <Icon />
+                      {action.label}
+                    </DropdownMenuItem>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    {action.blockedReason}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </TooltipProvider>
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -584,7 +662,9 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
                 position="popper"
                 className="p-1"
               >
-                <SelectItem value="All">All roles</SelectItem>
+                <SelectItem value="All" className="p-2">
+                  All roles
+                </SelectItem>
                 {TEAM_ROLE_VALUES.map((role) => (
                   <SelectItem
                     key={role}
@@ -612,13 +692,17 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-border bg-card">
-        <Table className="min-w-227.5">
+        <Table className="min-w-227.5 table-fixed">
           <TableHeader>
             <TableRow className="h-14 border-border bg-card hover:bg-card">
-              <TableHead className={TH}>Member</TableHead>
-              <TableHead className={`${TH} w-37.5`}>Status</TableHead>
-              <TableHead className={`${TH} w-57.5`}>Role</TableHead>
-              <TableHead className={`${TH} w-37.5`}>Joined</TableHead>
+              <TableHead className={`${TH} w-[60%]`}>Member</TableHead>
+
+              <TableHead className={`${TH} w-30`}>Status</TableHead>
+
+              <TableHead className={`${TH} w-35`}>Role</TableHead>
+
+              <TableHead className={`${TH} w-20`}>Joined</TableHead>
+
               <TableHead className={`${TH} w-20 text-center`}>
                 Actions
               </TableHead>
@@ -648,15 +732,19 @@ export function TeamTable({ members, callerRole, now }: TeamTableProps) {
                     <TableCell className="px-4 py-3.5">
                       {renderIdentity(member)}
                     </TableCell>
+
                     <TableCell className="px-4 py-3.5 align-middle">
                       {renderStatus(member)}
                     </TableCell>
+
                     <TableCell className="px-4 py-3.5 align-middle">
                       {renderRole(member, busy)}
                     </TableCell>
+
                     <TableCell className="px-4 py-3.5 align-middle">
                       {renderJoined(member)}
                     </TableCell>
+
                     <TableCell className="px-4 py-3.5 text-center align-middle">
                       <div className="flex justify-center">
                         {renderActions(member, busy)}

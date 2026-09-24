@@ -123,6 +123,15 @@ function seatLimitError(seats: TeamSeats) {
   );
 }
 
+function enableSeatLimitError(limit: number) {
+  return new TeamError(
+    `No seats available. Your team is using all ${limit} available seat${
+      limit === 1 ? "" : "s"
+    }. Upgrade your plan or disable another active member before enabling this user.`,
+    { status: 409, code: "seat-limit-reached" },
+  );
+}
+
 const ROLE_TO_DB: Record<TeamRole, string> = {
   "Tenant Admin": "tenant_admin",
   Manager: "manager",
@@ -324,6 +333,7 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
             : row.created_at,
         disabledAt: row.disabled_at,
         invitedBy: row.inviter?.full_name ?? row.invited_by,
+        isOwner: role === "Tenant Admin" && row.invited_by === null,
       };
     })
     .filter((member): member is TeamMember => member !== null)
@@ -1103,11 +1113,15 @@ async function getEditableMember(
 ): Promise<{ userId: string; role: TeamRole }> {
   const { data, error } = await supabase
     .from("memberships")
-    .select("user_id, role")
+    .select("user_id, role, invited_by")
     .eq("id", memberId)
     .eq("tenant_id", actor.tenantId)
     .in("role", [...STAFF_ROLES])
-    .maybeSingle<{ user_id: string; role: string }>();
+    .maybeSingle<{
+      user_id: string;
+      role: string;
+      invited_by: string | null;
+    }>();
 
   if (error) {
     throw fail("We couldn't look that member up.", error);
@@ -1127,6 +1141,16 @@ async function getEditableMember(
   // own membership through a direct action call.
   if (data.user_id === actor.userId) {
     throw new TeamError(selfMessage, { status: 409, code: selfCode });
+  }
+
+  // The workspace owner is the Tenant Admin nobody invited. Other Tenant
+  // Admins were invited by someone and must not be able to demote, disable or
+  // remove the person who created the workspace.
+  if (role === "Tenant Admin" && data.invited_by === null) {
+    throw new TeamError("The workspace owner can't be changed or removed.", {
+      status: 403,
+      code: "action-not-allowed",
+    });
   }
 
   if (!canEditMemberWithRole(actor.role, role)) {
@@ -1232,7 +1256,7 @@ export async function changeMemberStatus(
       const seats = await getTeamSeats();
 
       if (!hasSeatLeft(seats)) {
-        throw seatLimitError(seats);
+        throw enableSeatLimitError(seats.limit);
       }
     }
   }
@@ -1251,6 +1275,12 @@ export async function changeMemberStatus(
     .select("id");
 
   if (error) {
+    // The trigger caught a seat taken between the check above and this write.
+    if (error.code === SEAT_LIMIT_SQLSTATE) {
+      const seats = await getTeamSeats();
+      throw enableSeatLimitError(seats.limit);
+    }
+
     throw fail("We couldn't update that member.", error);
   }
 

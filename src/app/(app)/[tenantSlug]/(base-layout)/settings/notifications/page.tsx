@@ -10,7 +10,7 @@ export default function NotificationsPage() {
   return (
     <ComingSoon
       title="Notification center"
-      description="Choose what updates you and your team receive — right in the app, by email, or elsewhere. Coming soon."
+      description="Choose what updates you and your team receive - right in the app, by email, or elsewhere. Coming soon."
     />
   );
 }

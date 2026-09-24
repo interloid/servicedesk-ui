@@ -146,7 +146,7 @@ export function InviteMemberModal({
           </DialogTitle>
           <DialogDescription>
             They&apos;ll receive an email invitation. The link expires in 1 hour
-            — use Resend invite if they miss it.
+            - use Resend invite if they miss it.
           </DialogDescription>
         </DialogHeader>
 

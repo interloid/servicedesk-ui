@@ -186,6 +186,11 @@ export interface TeamMember {
   /** When access was switched off. Drives "Deactivated 3 days ago". */
   disabledAt: string | null;
   invitedBy: string | null;
+  /**
+   * The Tenant Admin who created the workspace: a Tenant Admin membership
+   * nobody invited. Nobody else can change, disable or remove them.
+   */
+  isOwner: boolean;
 }
 
 export interface TeamSeats {

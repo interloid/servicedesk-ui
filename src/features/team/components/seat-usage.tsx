@@ -32,8 +32,10 @@ interface Segment {
   key: string;
   label: string;
   count: number;
-  /** Colour of the bar segment and the matching legend dot. */
+  /** Colour of the bar segment and, unless `dot` is set, the legend dot. */
   fill: string;
+  /** Legend dot colour when it shouldn't follow the bar. */
+  dot?: string;
 }
 
 interface SeatUsageProps {
@@ -44,6 +46,7 @@ interface SeatUsageProps {
 export function SeatUsage({ seats, counts }: SeatUsageProps) {
   const hasLimit = seats.limit > 0;
   const isFull = hasLimit && seats.seatsLeft === 0;
+  const isOver = hasLimit && seats.used > seats.limit;
   const tone = seatTone(seats);
 
   // Without a limit there is no "free" part, so the bar is split across the
@@ -58,7 +61,13 @@ export function SeatUsage({ seats, counts }: SeatUsageProps) {
       key: "active",
       label: "Active",
       count: counts.Active,
-      fill: isFull ? "bg-red-500" : "bg-teal-700 dark:bg-emerald-400",
+      fill: isOver
+        ? "bg-red-500"
+        : isFull
+          ? "bg-red-500 opacity-30"
+          : "bg-teal-700 dark:bg-emerald-400",
+      // Active people are fine however full the plan is, so the dot stays green.
+      dot: "bg-emerald-500 dark:bg-emerald-400",
     },
     {
       key: "invited",
@@ -129,7 +138,7 @@ export function SeatUsage({ seats, counts }: SeatUsageProps) {
           {segments.map((segment) => (
             <li key={segment.key} className="flex items-center gap-2">
               <span
-                className={`size-2.5 shrink-0 rounded-full ${segment.fill}`}
+                className={`size-2.5 shrink-0 rounded-full ${segment.dot ?? segment.fill}`}
                 aria-hidden
               />
               <span className="text-muted-foreground">{segment.label}</span>

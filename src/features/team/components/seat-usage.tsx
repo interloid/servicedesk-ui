@@ -80,7 +80,7 @@ export function SeatUsage({ seats, counts }: SeatUsageProps) {
   if (hasLimit) {
     segments.push({
       key: "free",
-      label: "Free",
+      label: "Remaining",
       count: seats.seatsLeft,
       fill: "bg-slate-200 dark:bg-slate-700",
     });

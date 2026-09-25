@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowRight, Crown, Info, TriangleAlert } from "lucide-react";
 
 import { ModalNotice } from "@/components/shared/modal-notice";
 import { Button } from "@/components/ui/button";
@@ -45,20 +45,28 @@ interface ChangeRoleModalProps {
    * instead of making the admin pick it a second time.
    */
   initialRole?: TeamRole | null;
+  primaryOnly?: boolean;
   /** The roles this caller may hand out. Defaults to all of them. */
   roles?: readonly TeamRole[];
   isPending: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (member: TeamMember, role: TeamRole) => void;
+  /**
+   * Set only when the caller owns the workspace. Offers "Mark as primary"
+   * while Tenant Admin is the chosen role, which hands ownership over.
+   */
+  onMakePrimary?: (member: TeamMember) => void;
 }
 
 export function ChangeRoleModal({
   member,
   initialRole,
+  primaryOnly = false,
   roles = TEAM_ROLE_VALUES,
   isPending,
   onOpenChange,
   onConfirm,
+  onMakePrimary,
 }: ChangeRoleModalProps) {
   // Radix keeps the dialog mounted while it animates closed, but the table
   // drops the target the instant it closes. Rendering off `member` alone
@@ -68,6 +76,7 @@ export function ChangeRoleModal({
   const [shown, setShown] = React.useState<{
     member: TeamMember;
     role: TeamRole;
+    primaryOnly: boolean;
   } | null>(null);
 
   const role = member ? (initialRole ?? member.role) : null;
@@ -75,9 +84,11 @@ export function ChangeRoleModal({
   if (
     member &&
     role &&
-    (shown?.member.id !== member.id || shown.role !== role)
+    (shown?.member.id !== member.id ||
+      shown.role !== role ||
+      shown.primaryOnly !== primaryOnly)
   ) {
-    setShown({ member, role });
+    setShown({ member, role, primaryOnly });
   }
 
   return (
@@ -88,13 +99,15 @@ export function ChangeRoleModal({
           // was just opened. One shared dialog otherwise keeps the previous
           // selection and "Update role" would quietly apply the wrong one.
           <ChangeRoleFields
-            key={`${shown.member.id}:${shown.role}`}
+            key={`${shown.member.id}:${shown.role}:${shown.primaryOnly ? "primary" : "role"}`}
             member={shown.member}
             initialRole={shown.role}
+            primaryOnly={shown.primaryOnly}
             roles={roles}
             isPending={isPending}
             onCancel={() => onOpenChange(false)}
             onConfirm={onConfirm}
+            onMakePrimary={onMakePrimary}
           />
         )}
       </DialogContent>
@@ -105,20 +118,92 @@ export function ChangeRoleModal({
 function ChangeRoleFields({
   member,
   initialRole,
+  primaryOnly,
   roles,
   isPending,
   onCancel,
   onConfirm,
+  onMakePrimary,
 }: {
   member: TeamMember;
   initialRole: TeamRole;
+  primaryOnly: boolean;
   roles: readonly TeamRole[];
   isPending: boolean;
   onCancel: () => void;
   onConfirm: (member: TeamMember, role: TeamRole) => void;
+  onMakePrimary?: (member: TeamMember) => void;
 }) {
   const [role, setRole] = React.useState<TeamRole>(initialRole);
+  // Second step of "Mark as primary": the footer asks before handing over.
+  const [confirmingPrimary, setConfirmingPrimary] = React.useState(primaryOnly);
   const changed = role !== member.role;
+  // Only an active member can own the workspace, and only as a Tenant Admin.
+  const canMakePrimary =
+    onMakePrimary !== undefined &&
+    member.status === "Active" &&
+    role === "Tenant Admin";
+  const who = member.name || member.email;
+
+  if (primaryOnly || confirmingPrimary) {
+    return (
+      <>
+        <DialogHeader className="pr-6">
+          <DialogTitle className={TEAM_DIALOG_TITLE}>
+            Mark as primary
+          </DialogTitle>
+          <DialogDescription>
+            {`Make ${who} the primary owner of this workspace?`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <ModalNotice
+          icon={TriangleAlert}
+          tone="amber"
+          title="What happens next"
+        >
+          <ul className="flex list-disc flex-col gap-1 pl-4 text-xs leading-normal">
+            {member.role !== "Tenant Admin" && (
+              <li>{who} will become a Tenant Admin.</li>
+            )}
+            <li>
+              {who} will own the workspace. Nobody else can change, disable or
+              remove them.
+            </li>
+            <li>
+              You stay a Tenant Admin, but other admins will be able to change
+              your role or remove you.
+            </li>
+            <li>Only {who} can move ownership again.</li>
+          </ul>
+        </ModalNotice>
+
+        <DialogFooter className={TEAM_DIALOG_FOOTER}>
+          {!primaryOnly && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isPending}
+              onClick={() => setConfirmingPrimary(false)}
+              className={TEAM_MODAL_BUTTON}
+            >
+              Back
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            disabled={isPending || onMakePrimary === undefined}
+            onClick={() => onMakePrimary?.(member)}
+            className={`${TEAM_MODAL_BUTTON} ${TEAM_MODAL_BUTTON_PRIMARY}`}
+          >
+            {isPending ? "Updating…" : "Confirm"}
+          </Button>
+        </DialogFooter>
+      </>
+    );
+  }
 
   return (
     <>
@@ -198,6 +283,19 @@ function ChangeRoleFields({
         >
           Cancel
         </Button>
+        {canMakePrimary && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isPending}
+            onClick={() => setConfirmingPrimary(true)}
+            className={TEAM_MODAL_BUTTON}
+          >
+            <Crown className="size-4" aria-hidden />
+            Mark as primary
+          </Button>
+        )}
         <Button
           type="button"
           size="sm"

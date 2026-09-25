@@ -100,6 +100,10 @@ export function InviteMemberModal({
       email: data.email,
       role: data.role,
     };
+    const toastId = toast.loading(`Sending invite to ${values.email}…`);
+
+    reset();
+    setOpen(false);
 
     startTransition(async () => {
       try {
@@ -108,21 +112,20 @@ export function InviteMemberModal({
         if (!result.ok) {
           toast.error(
             result.message ?? `We couldn't send the invite to ${values.email}.`,
+            { id: toastId },
           );
           return;
         }
 
         toast.success(
           `Invite sent to ${values.email}. They'll join as ${roleWithArticle(values.role)} once they accept.`,
+          { id: toastId },
         );
-        reset();
-        setOpen(false);
       } catch (error) {
-        // The call itself can reject on a dropped connection. Without this the
-        // dialog just sat there with no toast and no explanation.
         console.error("[team] inviteMemberAction failed", error);
         toast.error(
           `We couldn't send the invite to ${values.email}. Check your connection and try again.`,
+          { id: toastId },
         );
       }
     });
@@ -132,7 +135,10 @@ export function InviteMemberModal({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {children ?? (
-          <Button className="h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90">
+          <Button
+            disabled={isPending}
+            className="h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90"
+          >
             <UserPlus className="size-4" aria-hidden />
             Invite member
           </Button>

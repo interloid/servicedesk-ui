@@ -187,10 +187,10 @@ export interface TeamMember {
   disabledAt: string | null;
   invitedBy: string | null;
   /**
-   * The Tenant Admin who created the workspace: a Tenant Admin membership
-   * nobody invited. Nobody else can change, disable or remove them.
+   * The workspace owner (memberships.is_primary): whoever signed up, until
+   * they transfer ownership. Nobody else can change, disable or remove them.
    */
-  isOwner: boolean;
+  isPrimary: boolean;
 }
 
 export interface TeamSeats {

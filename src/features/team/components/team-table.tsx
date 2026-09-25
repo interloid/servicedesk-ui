@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Crown,
   FilterX,
   MailPlus,
   MoreHorizontalIcon,
@@ -69,6 +70,7 @@ import {
   changeMemberStatusAction,
   removeMemberAction,
   resendInviteAction,
+  transferOwnershipAction,
 } from "@/features/team/team-actions";
 import { ChangeRoleModal } from "@/features/team/components/change-role-modal";
 import { RemoveMemberModal } from "@/features/team/components/remove-member-modal";
@@ -159,6 +161,7 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
   const [roleTarget, setRoleTarget] = React.useState<{
     member: TeamMember;
     role: TeamRole | null;
+    primaryOnly?: boolean;
   } | null>(null);
   const [removeTarget, setRemoveTarget] = React.useState<TeamMember | null>(
     null,
@@ -209,7 +212,7 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
   const rolesToOffer = assignableRoles(callerRole);
   const canEdit = (member: TeamMember) =>
     !member.isSelf &&
-    !member.isOwner &&
+    !member.isPrimary &&
     canEditMemberWithRole(callerRole, member.role);
   const canRemove = callerRole
     ? canPerformTeamAction("remove", callerRole)
@@ -223,6 +226,10 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
   const canStatus = callerRole
     ? canPerformTeamAction("status", callerRole)
     : false;
+  // Only the owner can hand the workspace over; the database checks the same.
+  const callerIsPrimary = members.some(
+    (member) => member.isSelf && member.isPrimary,
+  );
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -281,6 +288,17 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
       () => setRemoveTarget(null),
     );
 
+  const transferOwnership = (member: TeamMember) =>
+    run(
+      member.id,
+      () => transferOwnershipAction({ memberId: member.id }),
+      {
+        success: `${displayName(member)} now owns this workspace.`,
+        failure: `We couldn't transfer ownership to ${displayName(member)}.`,
+      },
+      () => setRoleTarget(null),
+    );
+
   const buildRowActions = (member: TeamMember): RowAction[] => {
     const actions: RowAction[] = [];
 
@@ -306,6 +324,19 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
       }
 
       return actions;
+    }
+
+    if (
+      callerIsPrimary &&
+      member.role === "Tenant Admin" &&
+      member.status === "Active" &&
+      canEdit(member)
+    ) {
+      actions.push({
+        label: "Make primary",
+        icon: Crown,
+        run: () => setRoleTarget({ member, role: null, primaryOnly: true }),
+      });
     }
 
     if (canStatus && canEdit(member)) {
@@ -365,6 +396,12 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-foreground">
           <span className="truncate">{member.name}</span>
+          {member.isPrimary && (
+            <Badge className="h-5 shrink-0 gap-1 border-none bg-brand-accent/10 px-1.5 text-[11px] font-semibold text-brand-accent">
+              <Crown className="size-3" aria-hidden />
+              Owner
+            </Badge>
+          )}
         </span>
         <span className="truncate text-xs text-muted-foreground">
           {member.email}
@@ -466,37 +503,46 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
     );
   };
 
+  /**
+   * Same menu button as every other row, switched off, with the reason on
+   * hover -- so a locked row explains itself instead of reading as a missing
+   * action.
+   */
+  const renderLockedActions = (member: TeamMember, reason: string) => (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {/* A disabled button fires no pointer events, so the span
+              carries the hover and keyboard focus for the tooltip. */}
+          <span tabIndex={0} className="inline-flex rounded-lg">
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled
+              aria-label={`Actions for ${member.name} (${reason})`}
+              className="size-9 cursor-pointer rounded-lg border border-none text-muted-foreground"
+            >
+              <MoreHorizontalIcon />
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" sideOffset={0} className="translate-y-0">
+          {reason}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+
   const renderActions = (member: TeamMember, busy: boolean) => {
-    // Same menu button as every other row, switched off, so the owner row
-    // explains itself instead of reading as a missing action.
-    if (member.isOwner && !member.isSelf) {
-      return (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              {/* A disabled button fires no pointer events, so the span
-                  carries the hover and keyboard focus for the tooltip. */}
-              <span tabIndex={0} className="inline-flex rounded-lg">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled
-                  aria-label={`Actions for ${member.name} (workspace owner)`}
-                  className="size-9 rounded-lg border border-none text-muted-foreground cursor-pointer"
-                >
-                  <MoreHorizontalIcon />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={0} className="translate-y-0">
-              Tenant owner cannot be updated.{" "}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      );
+    if (member.isSelf) {
+      return renderLockedActions(member, "You can't change your own role.");
     }
 
-    const rowActions = member.isSelf ? [] : buildRowActions(member);
+    if (member.isPrimary) {
+      return renderLockedActions(member, "Tenant owner cannot be updated.");
+    }
+
+    const rowActions = buildRowActions(member);
 
     if (rowActions.length === 0) {
       return (
@@ -806,6 +852,8 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
         onOpenChange={(open) => !open && setRoleTarget(null)}
         roles={rolesToOffer}
         onConfirm={changeRole}
+        primaryOnly={roleTarget?.primaryOnly}
+        onMakePrimary={callerIsPrimary ? transferOwnership : undefined}
       />
 
       <RemoveMemberModal

@@ -37,14 +37,20 @@ const removeMemberInput = z.object({
   memberId,
 });
 
+const transferOwnershipInput = z.object({
+  memberId,
+});
+
 export const inviteMemberSchema = inviteMemberInput;
 export const resendInviteSchema = resendInviteInput;
 export const changeMemberRoleSchema = memberRoleInput;
 export const changeMemberStatusSchema = memberStatusInput;
 export const removeMemberSchema = removeMemberInput;
+export const transferOwnershipSchema = transferOwnershipInput;
 
 export type InviteMemberValues = z.infer<typeof inviteMemberSchema>;
 export type ResendInviteValues = z.infer<typeof resendInviteSchema>;
 export type ChangeMemberRoleValues = z.infer<typeof changeMemberRoleSchema>;
 export type ChangeMemberStatusValues = z.infer<typeof changeMemberStatusSchema>;
 export type RemoveMemberValues = z.infer<typeof removeMemberSchema>;
+export type TransferOwnershipValues = z.infer<typeof transferOwnershipSchema>;

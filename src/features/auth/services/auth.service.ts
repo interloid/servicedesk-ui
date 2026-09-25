@@ -36,6 +36,7 @@ import {
   type UpdatePasswordValues,
 } from "../schemas/reset-password";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { enqueueEmail } from "@/lib/email/email-queue";
 
 export class AuthError extends Error {
   readonly status: number;
@@ -295,7 +296,16 @@ export async function logout(): Promise<void> {
   }
 }
 
-export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
+type PasswordResetResult = {
+  success: boolean;
+  error?: string;
+  /** Never set now: sending is queued, and the queue retries a Supabase 429. */
+  isRateLimited?: boolean;
+};
+
+export async function sendPasswordResetLink(
+  payload: ForgotPasswordValues,
+): Promise<PasswordResetResult> {
   const { email } = payload;
 
   try {
@@ -314,28 +324,14 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
       process.env.NEXT_PUBLIC_SITE_URL || ""
     }/reset-password`;
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo,
-    });
-
-    if (error) {
-      if (
-        error.status === 429 ||
-        error.message.toLowerCase().includes("rate limit")
-      ) {
-        return {
-          success: false,
-          error:
-            "Too many attempts from this address - try again in 60 seconds, or contact your admin.",
-          isRateLimited: true,
-        };
-      }
-
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
+    // Queued: the form answers without waiting on Supabase's auth API. A
+    // Supabase rate limit (429) is retried by the queue with a backoff; the
+    // per-IP limit in resetPasswordAction still turns away repeat requests.
+    await enqueueEmail(
+      "password_reset",
+      { email, redirectTo },
+      { dedupeKey: `reset:${email.trim().toLowerCase()}` },
+    );
 
     return { success: true };
   } catch (err) {
@@ -350,7 +346,7 @@ export async function sendPasswordResetLink(payload: ForgotPasswordValues) {
 export async function sendTenantPasswordResetLink(
   payload: ForgotPasswordValues,
   slug: string,
-) {
+): Promise<PasswordResetResult> {
   const { email } = payload;
 
   try {
@@ -384,24 +380,15 @@ export async function sendTenantPasswordResetLink(
       TENANT_ROUTES.RESET_PASSWORD,
     )}?${LINK_ACTION_PARAM}=${LINK_ACTIONS.RESET}`;
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo,
-    });
-
-    if (error) {
-      if (
-        error.status === 429 ||
-        error.message.toLowerCase().includes("rate limit")
-      ) {
-        return {
-          success: false,
-          error:
-            "Too many attempts from this address - try again in 60 seconds.",
-          isRateLimited: true,
-        };
-      }
-      return { success: false, error: error.message };
-    }
+    // Queued, like sendPasswordResetLink above.
+    await enqueueEmail(
+      "password_reset",
+      { email, redirectTo },
+      {
+        tenantId: tenantId ?? undefined,
+        dedupeKey: `reset:${email.trim().toLowerCase()}`,
+      },
+    );
 
     return { success: true };
   } catch (err) {

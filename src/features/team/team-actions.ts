@@ -11,6 +11,7 @@ import {
   inviteMemberSchema,
   removeMemberSchema,
   resendInviteSchema,
+  transferOwnershipSchema,
 } from "@/features/team/schemas/team";
 import type { TeamActionResult } from "@/features/team/types/team";
 import {
@@ -20,6 +21,7 @@ import {
   removeMember,
   resendInvite,
   TeamError,
+  transferOwnership,
 } from "@/features/team/services/team.service";
 
 function toFailure(
@@ -177,6 +179,33 @@ export async function removeMemberAction(
       error,
       "We couldn't remove that member. Try again in a moment.",
       "removeMemberAction",
+    );
+  }
+}
+
+export async function transferOwnershipAction(
+  values: unknown,
+): Promise<TeamActionResult> {
+  const parsed = transferOwnershipSchema.safeParse(values);
+  console.log("🚀 ~ transferOwnershipAction ~ parsed:", parsed);
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      failureCode: "validation",
+      message: "Pick who should own the workspace.",
+    };
+  }
+
+  try {
+    await transferOwnership(parsed.data);
+    await revalidateTeam();
+    return { ok: true };
+  } catch (error) {
+    return toFailure(
+      error,
+      "We couldn't transfer ownership. Try again in a moment.",
+      "transferOwnershipAction",
     );
   }
 }

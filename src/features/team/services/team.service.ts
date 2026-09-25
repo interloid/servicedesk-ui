@@ -2,11 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import {
-  EmailNotConfiguredError,
-  escapeHtml,
-  sendEmail,
-} from "@/lib/email/send-email";
+import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
@@ -17,6 +13,7 @@ import type {
   InviteMemberValues,
   RemoveMemberValues,
   ResendInviteValues,
+  TransferOwnershipValues,
 } from "@/features/team/schemas/team";
 import type {
   TeamFailureCode,
@@ -254,6 +251,7 @@ const MEMBER_SELECT = `
   role,
   status,
   invited_by,
+  is_primary,
   joined_at,
   disabled_at,
   created_at,
@@ -274,6 +272,7 @@ type MemberRow = {
   role: string;
   status: string;
   invited_by: string | null;
+  is_primary: boolean;
   joined_at: string | null;
   disabled_at: string | null;
   created_at: string;
@@ -337,7 +336,7 @@ export async function listTeamMembers(): Promise<TeamMember[]> {
             : row.created_at,
         disabledAt: row.disabled_at,
         invitedBy: row.inviter?.full_name ?? row.invited_by,
-        isOwner: role === "Tenant Admin" && row.invited_by === null,
+        isPrimary: row.is_primary,
       };
     })
     .filter((member): member is TeamMember => member !== null)
@@ -444,354 +443,6 @@ async function inviteRedirectTo(
   const origin = await requestOrigin();
 
   return `${origin}${tenantPath(slug, TENANT_ROUTES.RESET_PASSWORD)}?${LINK_ACTION_PARAM}=${LINK_ACTIONS.INVITE}`;
-}
-
-/**
- * Sends the team invitation -- always the "You've been invited" email, never a
- * sign-in email, whatever state the person's auth account is in.
- *
- * Supabase's own invite (`inviteUserByEmail`, which mails the project's
- * "Invite user" template) only works for an address that has never confirmed
- * an account. Anyone who has -- they accepted an earlier invite and were later
- * removed, or they signed up themselves -- gets `email_exists` back. There is
- * no Supabase call that sends the invite template to such an account, so for
- * them we ask Supabase for a sign-in link WITHOUT sending it
- * (`generateLink({ type: "magiclink" })`) and send our own invitation email
- * carrying that link.
- *
- * Both links land on /{slug}/reset-password, which checks the membership is
- * still pending/active before it shows anything (a revoked invite gets
- * "Access removed"). Each link is single-use and expires after the project's
- * OTP expiry.
- */
-async function emailTeamInvitation(
-  admin: SupabaseClient,
-  {
-    userId,
-    email,
-    name,
-    role,
-    tenantId,
-    slug,
-  }: {
-    userId: string;
-    email: string;
-    name: string;
-    role: TeamRole;
-    tenantId: string;
-    slug: string | null;
-  },
-): Promise<void> {
-  const redirectTo = await inviteRedirectTo(slug);
-
-  if (!(await isRegistered(admin, userId))) {
-    const { error } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: { full_name: name },
-      redirectTo,
-    });
-
-    if (error) {
-      throw fail(
-        "We couldn't email that person their invite. Try again.",
-        error,
-        400,
-      );
-    }
-
-    return;
-  }
-
-  const { data: link, error: linkError } = await admin.auth.admin.generateLink({
-    type: "magiclink",
-    email,
-    options: { redirectTo },
-  });
-
-  const actionLink = link?.properties?.action_link;
-
-  if (linkError || !actionLink) {
-    throw fail(
-      "We couldn't create an invitation link for that person. Try again.",
-      linkError,
-      400,
-    );
-  }
-
-  const { data: tenant } = await admin
-    .from("tenants")
-    .select("name")
-    .eq("id", tenantId)
-    .maybeSingle<{ name: string }>();
-
-  const workspace = tenant?.name ?? "your team";
-
-  try {
-    await sendEmail({
-      to: email,
-      subject: `You've been invited to ${workspace}`,
-      html: invitationEmailHtml({ workspace, role, link: actionLink }),
-      text: `You've been invited to join ${workspace} as ${roleWithArticle(role)}.\n\nAccept the invitation: ${actionLink}\n\nThis link works once and expires in 1 hour. If it has expired, ask your admin to resend the invite.`,
-    });
-  } catch (error) {
-    console.error("[team] invitation email failed:", error);
-    throw new TeamError(
-      error instanceof EmailNotConfiguredError
-        ? "Invitation email isn't set up for existing accounts yet. Ask your administrator to configure it."
-        : "We couldn't email that person their invite. Try again.",
-      { status: 502, code: "unknown" },
-    );
-  }
-}
-
-function invitationEmailHtml({
-  workspace,
-  role,
-  link,
-}: {
-  workspace: string;
-  role: TeamRole;
-  link: string;
-}): string {
-  const safeWorkspace = escapeHtml(workspace);
-  const safeRole = escapeHtml(roleWithArticle(role));
-  const safeLink = escapeHtml(link);
-
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>You're Invited</title>
-</head>
-
-<body
-  style="
-    margin: 0;
-    padding: 0;
-    background-color: #f8fafc;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    color: #0f172a;
-  "
->
-  <table
-    role="presentation"
-    width="100%"
-    cellspacing="0"
-    cellpadding="0"
-    border="0"
-    style="
-      background-color: #f8fafc;
-      padding: 40px 16px;
-    "
-  >
-    <tr>
-      <td align="center">
-
-        <!-- Main Card -->
-        <table
-          role="presentation"
-          width="100%"
-          cellspacing="0"
-          cellpadding="0"
-          border="0"
-          style="
-            max-width: 520px;
-            background-color: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            overflow: hidden;
-          "
-        >
-
-          <!-- Header -->
-          <tr>
-            <td
-              style="
-                padding: 32px 32px 24px;
-                text-align: center;
-              "
-            >
-              <!-- Logo -->
-              <div
-                style="
-                  width: 40px;
-                  height: 40px;
-                  line-height: 40px;
-                  margin: 0 auto 14px;
-                  background-color: #0f766e;
-                  color: #ffffff;
-                  border-radius: 10px;
-                  font-size: 18px;
-                  font-weight: 800;
-                  text-align: center;
-                "
-              >
-                S
-              </div>
-
-              <!-- Brand -->
-              <div
-                style="
-                  font-size: 18px;
-                  line-height: 24px;
-                  font-weight: 700;
-                  color: #0f172a;
-                "
-              >
-                ServiceDesk Pro
-              </div>
-            </td>
-          </tr>
-
-          <!-- Content -->
-          <tr>
-            <td
-              style="
-                padding: 8px 40px 40px;
-                text-align: center;
-              "
-            >
-
-              <!-- Heading -->
-              <h1
-                style="
-                  margin: 0 0 16px;
-                  font-size: 26px;
-                  line-height: 34px;
-                  font-weight: 700;
-                  color: #0f172a;
-                "
-              >
-                You're Invited
-              </h1>
-
-              <!-- Description -->
-              <p
-                style="
-                  margin: 0 0 16px;
-                  font-size: 15px;
-                  line-height: 24px;
-                  color: #475569;
-                "
-              >
-                You've been invited to join
-                <strong>${safeWorkspace}</strong>
-                as ${safeRole}.
-              </p>
-
-              <p
-                style="
-                  margin: 0 0 28px;
-                  font-size: 15px;
-                  line-height: 24px;
-                  color: #64748b;
-                "
-              >
-                Accept your invitation below to create your account
-                and get started with your workspace.
-              </p>
-
-              <!-- Accept Invitation Button -->
-              <table
-                role="presentation"
-                width="100%"
-                cellspacing="0"
-                cellpadding="0"
-                border="0"
-              >
-                <tr>
-                  <td align="center">
-                    <a
-                      href="${safeLink}"
-                      style="
-                        display: inline-block;
-                        padding: 13px 28px;
-                        background-color: #0f766e;
-                        color: #ffffff;
-                        text-decoration: none;
-                        font-size: 14px;
-                        font-weight: 600;
-                        line-height: 20px;
-                        border-radius: 8px;
-                        border: 1px solid #0f766e;
-                      "
-                    >
-                      Accept invitation
-                    </a>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Spacer -->
-              <div style="height: 28px;"></div>
-
-              <!-- Security Note -->
-              <div
-                style="
-                  padding: 14px 16px;
-                  background-color: #f0fdfa;
-                  border: 1px solid #ccfbf1;
-                  border-radius: 8px;
-                  text-align: left;
-                "
-              >
-                <p
-                  style="
-                    margin: 0;
-                    font-size: 12px;
-                    line-height: 19px;
-                    color: #475569;
-                  "
-                >
-                  If you weren't expecting this invitation,
-                  you can safely ignore this email.
-                </p>
-              </div>
-
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td
-              style="
-                padding: 20px 32px;
-                border-top: 1px solid #f1f5f9;
-                text-align: center;
-              "
-            >
-              <p
-                style="
-                  margin: 0;
-                  font-size: 12px;
-                  line-height: 18px;
-                  color: #94a3b8;
-                "
-              >
-                © 2026 ServiceDesk Pro. All rights reserved.
-              </p>
-
-              <p
-                style="
-                  margin: 6px 0 0;
-                  font-size: 12px;
-                  line-height: 18px;
-                  color: #94a3b8;
-                "
-              >
-                This is an automated email. Please don't reply.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
 }
 
 export async function inviteMember(values: InviteMemberValues): Promise<void> {
@@ -999,9 +650,10 @@ export async function inviteMember(values: InviteMemberValues): Promise<void> {
     }
   }
 
-  // 7. Mail last: always the team invitation, never a sign-in email. If this
-  // fails the membership stays pending and "Resend invite" retries the mail.
-  await emailTeamInvitation(admin, {
+  // 7. Mail last: always the team invitation, never a sign-in email. Queued,
+  // so the invite answers without waiting on the auth API and Resend; the
+  // queue retries a failed send, and "Resend invite" queues a fresh one.
+  await queueTeamInvitation({
     userId: authUserId,
     email,
     name,
@@ -1011,6 +663,35 @@ export async function inviteMember(values: InviteMemberValues): Promise<void> {
   });
 }
 
+async function queueTeamInvitation({
+  slug,
+  ...invite
+}: {
+  userId: string;
+  email: string;
+  name: string;
+  role: TeamRole;
+  tenantId: string;
+  slug: string | null;
+}): Promise<void> {
+  try {
+    await enqueueEmail(
+      "team_invitation",
+      { ...invite, redirectTo: await inviteRedirectTo(slug) },
+      {
+        tenantId: invite.tenantId,
+        dedupeKey: `${invite.tenantId}:${invite.userId}`,
+      },
+    );
+  } catch (error) {
+    console.error("[team] queueing the invitation email failed:", error);
+    throw new TeamError(
+      "We couldn't email that person their invite. Use Resend invite to try again.",
+      { status: 502, code: "unknown" },
+    );
+  }
+}
+
 type InviteRow = {
   id: string;
   role: string;
@@ -1018,28 +699,6 @@ type InviteRow = {
   user_id: string;
   user: { email: string | null; full_name: string | null } | null;
 };
-
-/**
- * True once the person has actually signed in and set a password. An invited
- * account exists in auth but stays unconfirmed until then, and Supabase will
- * still re-send an invite to one of those.
- */
-async function isRegistered(
-  admin: SupabaseClient,
-  userId: string | undefined,
-): Promise<boolean> {
-  if (!userId) {
-    return false;
-  }
-
-  const { data, error } = await admin.auth.admin.getUserById(userId);
-
-  if (error || !data.user) {
-    return false;
-  }
-
-  return Boolean(data.user.email_confirmed_at ?? data.user.confirmed_at);
-}
 
 export async function resendInvite(values: ResendInviteValues): Promise<void> {
   const supabase = await createSupabaseServerClient();
@@ -1088,7 +747,7 @@ export async function resendInvite(values: ResendInviteValues): Promise<void> {
   }
 
   // Same email as the first invite: the team invitation, never a sign-in link.
-  await emailTeamInvitation(createSupabaseAdminClient(), {
+  await queueTeamInvitation({
     userId: member.user_id,
     email,
     name: member.user?.full_name || email.split("@")[0] || "Team member",
@@ -1117,14 +776,14 @@ async function getEditableMember(
 ): Promise<{ userId: string; role: TeamRole }> {
   const { data, error } = await supabase
     .from("memberships")
-    .select("user_id, role, invited_by")
+    .select("user_id, role, is_primary")
     .eq("id", memberId)
     .eq("tenant_id", actor.tenantId)
     .in("role", [...STAFF_ROLES])
     .maybeSingle<{
       user_id: string;
       role: string;
-      invited_by: string | null;
+      is_primary: boolean;
     }>();
 
   if (error) {
@@ -1147,10 +806,10 @@ async function getEditableMember(
     throw new TeamError(selfMessage, { status: 409, code: selfCode });
   }
 
-  // The workspace owner is the Tenant Admin nobody invited. Other Tenant
-  // Admins were invited by someone and must not be able to demote, disable or
-  // remove the person who created the workspace.
-  if (role === "Tenant Admin" && data.invited_by === null) {
+  // Other Tenant Admins must not be able to demote, disable or remove the
+  // workspace owner. Ownership moves only through transferOwnership. (The
+  // protect_primary_membership trigger enforces the same in the database.)
+  if (data.is_primary) {
     throw new TeamError("The workspace owner can't be changed or removed.", {
       status: 403,
       code: "action-not-allowed",
@@ -1330,6 +989,57 @@ export async function removeMember(values: RemoveMemberValues): Promise<void> {
       status: 404,
       code: "member-not-found",
     });
+  }
+}
+
+/**
+ * Hands the workspace to another active team member. Only the owner can, and
+ * the check lives in transfer_tenant_ownership(), which reads the tenant and
+ * the caller from the session rather than from anything passed in. The new
+ * owner becomes a Tenant Admin if they weren't one; the old owner stays a
+ * Tenant Admin, and can now be managed like any other.
+ */
+export async function transferOwnership(
+  values: TransferOwnershipValues,
+): Promise<void> {
+  const actor = await requireActor();
+
+  const supabase = await createSupabaseServerClient();
+
+  const { error } = await supabase.rpc("transfer_tenant_ownership", {
+    p_new_owner_membership_id: values.memberId,
+  });
+
+  if (!error) {
+    return;
+  }
+
+  console.error(
+    `[team] ownership transfer in ${actor.tenantId} failed — ${error.code ?? "?"} ${error.message}`,
+  );
+
+  switch (error.code) {
+    case "42501":
+      throw new TeamError("Only the workspace owner can transfer ownership.", {
+        status: 403,
+        code: "action-not-allowed",
+      });
+    case "P0001":
+      throw new TeamError("That member no longer exists.", {
+        status: 404,
+        code: "member-not-found",
+      });
+    case "OT409":
+      // Raised with a message written for the user.
+      throw new TeamError(error.message, {
+        status: 409,
+        code: "action-not-allowed",
+      });
+    default:
+      throw new TeamError(
+        "We couldn't transfer ownership. Try again in a moment.",
+        { status: 500, code: "unknown" },
+      );
   }
 }
 

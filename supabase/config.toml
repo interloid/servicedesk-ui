@@ -443,6 +443,12 @@ verify_jwt = false
 [functions.reconcile-subscriptions]
 verify_jwt = true
 
+# Sends queued mail (public.email_jobs). Called by pg_cron every minute while a
+# job is due, with the service role key as a bearer token. The gateway checks
+# the signature; the function itself then requires role = service_role.
+[functions.email-jobs]
+verify_jwt = true
+
 [analytics]
 enabled = true
 port = 54327

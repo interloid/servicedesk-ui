@@ -133,7 +133,6 @@ export function SeatUsage({ seats, counts }: SeatUsageProps) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-        {/* Two by two on a phone, one row from sm. */}
         <ul className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm sm:flex sm:flex-wrap sm:gap-x-5">
           {segments.map((segment) => (
             <li key={segment.key} className="flex items-center gap-2">

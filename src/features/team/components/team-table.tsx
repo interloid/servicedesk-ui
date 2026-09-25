@@ -140,6 +140,12 @@ function displayName(member: TeamMember): string {
   return member.name.trim() || member.email;
 }
 
+function displayRole(member: TeamMember): string {
+  return member.isPrimary && member.role === "Tenant Admin"
+    ? "Primary Tenant Admin"
+    : member.role;
+}
+
 interface RowAction {
   label: string;
   icon: LucideIcon;
@@ -435,7 +441,7 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
     if (!canRole || !canEdit(member)) {
       return (
         <span className="text-sm font-semibold text-foreground">
-          {member.role}
+          {displayRole(member)}
         </span>
       );
     }
@@ -512,8 +518,6 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          {/* A disabled button fires no pointer events, so the span
-              carries the hover and keyboard focus for the tooltip. */}
           <span tabIndex={0} className="inline-flex rounded-lg">
             <Button
               variant="ghost"
@@ -543,6 +547,17 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
     }
 
     const rowActions = buildRowActions(member);
+
+    if (
+      rowActions.length === 0 &&
+      callerRole === "Manager" &&
+      !canEditMemberWithRole(callerRole, member.role)
+    ) {
+      return renderLockedActions(
+        member,
+        `This is a ${member.role}, so cannot update.`,
+      );
+    }
 
     if (rowActions.length === 0) {
       return (
@@ -739,15 +754,11 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-border bg-card">
-        {/* Fixed columns (768px) plus room for a name and email in Member;
-            narrower than that and the table scrolls instead of overlapping. */}
         <Table className="min-w-262 table-fixed">
           <TableHeader>
             <TableRow className="h-14 border-border bg-card hover:bg-card">
-              {/* No width: Member takes whatever the fixed columns leave. */}
               <TableHead className={TH}>Member</TableHead>
 
-              {/* Fits "Deactivated 3 minutes ago" on one line. */}
               <TableHead className={`${TH} w-62`}>Status</TableHead>
 
               <TableHead className={`${TH} w-64`}>Role</TableHead>

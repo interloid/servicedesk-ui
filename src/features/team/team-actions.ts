@@ -187,7 +187,6 @@ export async function transferOwnershipAction(
   values: unknown,
 ): Promise<TeamActionResult> {
   const parsed = transferOwnershipSchema.safeParse(values);
-  console.log("🚀 ~ transferOwnershipAction ~ parsed:", parsed);
 
   if (!parsed.success) {
     return {

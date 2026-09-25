@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import InvoiceModal from "./invoice-model";
 import { UpdatePaymentModal } from "./payment-method";
-import { ModalNotice } from "./modal-notice";
+import { ModalNotice } from "@/components/shared/modal-notice";
 import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
 import { ResumeUpgradeApprovalButton } from "./resume-upgrade-approval-button";
 import {

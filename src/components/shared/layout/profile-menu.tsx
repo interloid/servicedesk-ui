@@ -76,7 +76,7 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
             </Avatar>
 
             <div className="hidden sm:flex min-w-0 flex-col items-start">
-              <span className="max-w-32 lg:max-w-40 truncate text-sm font-semibold text-foreground">
+              <span className="max-w-32 lg:max-w-40 truncate text-sm font-semibold text-foreground capitalize">
                 {identity.user.name}
               </span>
               <span className="max-w-32 lg:max-w-40 truncate text-xs text-muted-foreground">
@@ -92,7 +92,7 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
           className="w-60 rounded-xl p-0"
         >
           <DropdownMenuLabel className="flex flex-col gap-0.5 border-b px-3.5 py-3 font-normal">
-            <span className="text-sm font-semibold text-foreground">
+            <span className="text-sm font-semibold text-foreground capitalize">
               {identity.user.name}
             </span>
 

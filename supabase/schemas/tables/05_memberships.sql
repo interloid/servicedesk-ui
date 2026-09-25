@@ -31,6 +31,12 @@ create table if not exists public.memberships
 
     disabled_at timestamptz,
 
+    -- The workspace owner. Set by provision_tenant at signup, moved only by
+    -- transfer_tenant_ownership(); protect_primary_membership() guards it.
+    is_primary boolean
+        not null
+        default false,
+
     created_at timestamptz
         not null
         default now(),
@@ -43,3 +49,7 @@ create table if not exists public.memberships
         unique(tenant_id, user_id)
 );
 
+-- One owner per workspace.
+create unique index if not exists uq_memberships_primary_per_tenant
+    on public.memberships (tenant_id)
+    where is_primary;

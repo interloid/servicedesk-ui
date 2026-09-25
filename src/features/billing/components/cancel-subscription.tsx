@@ -30,7 +30,7 @@ import { cancelSubscriptionAction } from "../billing-actions";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import type { FormattedPlan } from "../types";
 import { MODAL_BUTTON } from "./modal-buttons";
-import { ModalNotice } from "./modal-notice";
+import { ModalNotice } from "@/components/shared/modal-notice";
 
 // Matches the destructive confirm on the downgrade dialog: outlined red rather
 // than solid, so the dismissive action stays the visually quieter one.

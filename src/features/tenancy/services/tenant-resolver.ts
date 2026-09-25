@@ -1,5 +1,5 @@
 import "server-only";
-
+import { cache } from "react";
 import { headers } from "next/headers";
 import {
   PORTAL_BASE_DOMAIN,
@@ -7,6 +7,7 @@ import {
   tenantLabelFromHost,
 } from "@/lib/tenancy";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type TenantContext = {
   id: string;
@@ -178,3 +179,20 @@ function mapTenantContext(row: TenantLookupRow): TenantContext {
     portalUrl: `${row.slug}.${baseDomain}`,
   };
 }
+
+export const getSessionTenantSlug = cache(
+  async function getSessionTenantSlug(): Promise<string | null> {
+    const supabase = await createSupabaseServerClient();
+
+    const { data, error } = await supabase.auth.getClaims();
+
+    if (error) {
+      console.error("[tenancy] session claims lookup failed:", error.message);
+      return null;
+    }
+
+    const slug = data?.claims?.tenant_slug as string | undefined;
+
+    return isValidTenantSlug(slug) ? slug : null;
+  },
+);

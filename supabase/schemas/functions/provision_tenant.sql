@@ -111,18 +111,27 @@ BEGIN
     );
 
 
+    -- The person signing up owns the workspace. is_primary is guarded by
+    -- protect_primary_membership(); this transaction-local setting is what
+    -- lets the founding row carry it.
+    PERFORM set_config('app.ownership_change', 'on', true);
+
     INSERT INTO public.memberships (
         tenant_id,
         user_id,
         role,
-        status
+        status,
+        is_primary
     )
     VALUES (
         v_tenant_id,
         p_user_id,
         'tenant_admin',
-        'active'
+        'active',
+        true
     );
+
+    PERFORM set_config('app.ownership_change', 'off', true);
 
     INSERT INTO public.business_hours (
         tenant_id,

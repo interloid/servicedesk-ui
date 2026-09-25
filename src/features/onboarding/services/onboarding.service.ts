@@ -6,8 +6,23 @@ import {
   createSupabaseServerClient,
 } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { signUpWithPkce } from "@/lib/supabase/pkce";
+import {
+  EMAIL_ALREADY_REGISTERED_MESSAGE,
+  signUpWithPkce,
+} from "@/lib/supabase/pkce";
+import { enqueueEmail } from "@/lib/email/email-queue";
+import type { TeamRole } from "@/features/team/types/team";
 import { registerSchema, RegisterInput } from "../schemas/onboarding.schema";
+
+// The invite payload uses TeamRole labels; the signup form sends DB values.
+const ONBOARDING_ROLE_LABEL: Record<
+  "agent" | "manager" | "billing_admin",
+  TeamRole
+> = {
+  agent: "Agent",
+  manager: "Manager",
+  billing_admin: "Billing Admin",
+};
 
 export interface Timezone {
   id: string;
@@ -96,6 +111,17 @@ export async function registerTenant(payload: RegisterInput) {
       p_day_end: day_end,
       p_sla: sla,
     });
+
+    // 23503 on users_id_fkey: the user id has no auth account behind it.
+    // The identities check in signUpWithPkce should stop that first; this
+    // keeps the raw constraint text off the signup form if it ever doesn't.
+    if (error?.code === "23503") {
+      console.error(
+        "[Onboarding] provision_tenant FK violation:",
+        error.message,
+      );
+      throw new Error(EMAIL_ALREADY_REGISTERED_MESSAGE);
+    }
 
     if (error || !data?.[0]) {
       throw new Error(error?.message || "Tenant provisioning failed.");
@@ -190,15 +216,23 @@ export async function registerTenant(payload: RegisterInput) {
 
               continue;
             }
-            const { error: emailError } =
-              await adminSupabase.auth.resetPasswordForEmail(inviteEmail, {
-                redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
-              });
-
-            if (emailError) {
+            // Queued: signup shouldn't wait on one auth API call per invitee.
+            try {
+              await enqueueEmail(
+                "password_reset",
+                {
+                  email: inviteEmail,
+                  redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
+                },
+                {
+                  tenantId: provisioned.tenant_id,
+                  dedupeKey: `reset:${inviteEmail}`,
+                },
+              );
+            } catch (emailError) {
               console.error(
-                `[Onboarding] Failed to send notification email to ${inviteEmail}:`,
-                emailError.message,
+                `[Onboarding] Failed to queue notification email to ${inviteEmail}:`,
+                emailError,
               );
 
               invitationResults.push({
@@ -220,16 +254,23 @@ export async function registerTenant(payload: RegisterInput) {
             continue;
           }
 
-          const { data: inviteData, error: inviteError } =
-            await adminSupabase.auth.admin.inviteUserByEmail(inviteEmail, {
-              redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
-              data: {
-                tenant_id: provisioned.tenant_id,
-                role: invite.role,
-              },
+          // Create the account without mailing it; the invite email is queued
+          // below once the membership exists. user_metadata carries tenant_id
+          // and role as inviteUserByEmail's `data` used to: the avatar storage
+          // policies read tenant_id from it.
+          const metadata = {
+            tenant_id: provisioned.tenant_id,
+            role: invite.role,
+          };
+
+          const { data: created, error: inviteError } =
+            await adminSupabase.auth.admin.createUser({
+              email: inviteEmail,
+              email_confirm: false,
+              user_metadata: metadata,
             });
 
-          if (inviteError || !inviteData.user) {
+          if (inviteError || !created?.user) {
             console.error(
               `[Onboarding] Failed to invite ${inviteEmail}:`,
               inviteError?.message,
@@ -244,7 +285,7 @@ export async function registerTenant(payload: RegisterInput) {
             continue;
           }
 
-          const invitedUser = inviteData.user;
+          const invitedUser = created.user;
 
           const { error: userError } = await adminSupabase.from("users").upsert(
             {
@@ -299,6 +340,40 @@ export async function registerTenant(payload: RegisterInput) {
               email: inviteEmail,
               status: "failed",
               message: "Unable to add the invited user to the organization.",
+            });
+
+            continue;
+          }
+
+          try {
+            await enqueueEmail(
+              "team_invitation",
+              {
+                userId: invitedUser.id,
+                email: inviteEmail,
+                name: "",
+                role: ONBOARDING_ROLE_LABEL[invite.role],
+                tenantId: provisioned.tenant_id,
+                redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
+                metadata,
+              },
+              {
+                tenantId: provisioned.tenant_id,
+                dedupeKey: `${provisioned.tenant_id}:${invitedUser.id}`,
+              },
+            );
+          } catch (emailError) {
+            // The membership stands; Resend invite on the team page retries.
+            console.error(
+              `[Onboarding] Failed to queue invitation to ${inviteEmail}:`,
+              emailError,
+            );
+
+            invitationResults.push({
+              email: inviteEmail,
+              status: "invited",
+              message:
+                "User was invited, but the email could not be sent. Resend it from the team page.",
             });
 
             continue;

@@ -301,13 +301,14 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
             text-sm
             font-bold
             text-foreground
+            capitalize
           "
                   >
                     {identity?.org.name ?? "Tenant Workspace"}
                   </span>
                 </TooltipTrigger>
 
-                <TooltipContent>
+                <TooltipContent className="capitalize">
                   {identity?.org.name ?? "Tenant Workspace"}
                 </TooltipContent>
               </Tooltip>

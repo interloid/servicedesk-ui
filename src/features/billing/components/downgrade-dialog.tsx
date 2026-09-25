@@ -8,7 +8,7 @@ import { FormattedPlan } from "../types";
 import { changeTenantPlanAction } from "../billing-actions";
 import { cn } from "@/lib/utils";
 import { MODAL_BUTTON } from "./modal-buttons";
-import { ModalNotice } from "./modal-notice";
+import { ModalNotice } from "@/components/shared/modal-notice";
 import {
   AlertDialog,
   AlertDialogAction,

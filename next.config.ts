@@ -1,8 +1,6 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
-// Content-Security-Policy is not set here: it carries a per-request nonce, so
-// src/proxy.ts sets it (see src/lib/csp.ts).
 const securityHeaders = [
   {
     key: "Strict-Transport-Security",

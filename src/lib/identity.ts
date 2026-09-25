@@ -25,7 +25,7 @@ export async function getShellIdentity(
     return null;
   }
 
-  const { tenantId, tenantRole, tenantSlug: sessionTenantSlug } = claims;
+  const { tenantId, tenantSlug: sessionTenantSlug } = claims;
 
   if (!tenantId || !sessionTenantSlug) {
     return null;
@@ -38,6 +38,29 @@ export async function getShellIdentity(
   const tenant = await getTenantContext();
 
   if (tenant && tenant.id !== tenantId) {
+    return null;
+  }
+
+  // The claims above live until the access token refreshes (up to an hour),
+  // so on their own they let a removed or disabled member keep using the app,
+  // and a demoted one keep their old role, until then. The live row decides.
+  const { data: liveMembership, error: liveMembershipError } = await supabase
+    .from("memberships")
+    .select("role")
+    .eq("user_id", user.id)
+    .eq("tenant_id", tenantId)
+    .eq("status", "active")
+    .maybeSingle<{ role: string }>();
+
+  if (liveMembershipError) {
+    console.error(
+      "[identity] membership lookup failed:",
+      liveMembershipError.message,
+    );
+    return null;
+  }
+
+  if (!liveMembership) {
     return null;
   }
 
@@ -168,7 +191,7 @@ export async function getShellIdentity(
       email: user.email ?? "",
       initials,
       avatarUrl: profile?.avatar_url ?? "",
-      role: tenantRole ?? "customer",
+      role: liveMembership.role,
     },
   };
 }

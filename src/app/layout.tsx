@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { siteConfig } from "@/config/site";
 import { Providers } from "./providers";
@@ -42,17 +41,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // The CSP is nonce-based (see src/lib/csp.ts), and a nonce only exists per
-  // request. Reading it here renders every page dynamically: a page
-  // prerendered at build time would ship scripts without the nonce, and the
-  // browser would block them.
-  const nonce = (await headers()).get("x-nonce") ?? undefined;
-
   return (
     <html
       lang="en"
@@ -68,7 +61,6 @@ export default async function RootLayout({
       <body className="h-full">
         <script
           type="application/ld+json"
-          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               "@context": "https://schema.org",

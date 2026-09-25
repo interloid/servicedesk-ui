@@ -262,6 +262,62 @@ export type Database = {
           },
         ];
       };
+      email_jobs: {
+        Row: {
+          attempts: number;
+          created_at: string;
+          id: string;
+          kind: string;
+          last_error: string | null;
+          locked_at: string | null;
+          max_attempts: number;
+          payload: Json;
+          run_after: string;
+          sent_at: string | null;
+          status: string;
+          tenant_id: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          kind: string;
+          last_error?: string | null;
+          locked_at?: string | null;
+          max_attempts?: number;
+          payload?: Json;
+          run_after?: string;
+          sent_at?: string | null;
+          status?: string;
+          tenant_id?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          attempts?: number;
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          last_error?: string | null;
+          locked_at?: string | null;
+          max_attempts?: number;
+          payload?: Json;
+          run_after?: string;
+          sent_at?: string | null;
+          status?: string;
+          tenant_id?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "email_jobs_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       invoices: {
         Row: {
           amount: number;
@@ -357,6 +413,7 @@ export type Database = {
           disabled_at: string | null;
           id: string;
           invited_by: string | null;
+          is_primary: boolean;
           joined_at: string | null;
           role: Database["public"]["Enums"]["membership_role"];
           status: Database["public"]["Enums"]["membership_status"];
@@ -369,6 +426,7 @@ export type Database = {
           disabled_at?: string | null;
           id?: string;
           invited_by?: string | null;
+          is_primary?: boolean;
           joined_at?: string | null;
           role: Database["public"]["Enums"]["membership_role"];
           status?: Database["public"]["Enums"]["membership_status"];
@@ -381,6 +439,7 @@ export type Database = {
           disabled_at?: string | null;
           id?: string;
           invited_by?: string | null;
+          is_primary?: boolean;
           joined_at?: string | null;
           role?: Database["public"]["Enums"]["membership_role"];
           status?: Database["public"]["Enums"]["membership_status"];
@@ -1190,6 +1249,10 @@ export type Database = {
         };
         Returns: boolean;
       };
+      claim_email_jobs: {
+        Args: { p_limit?: number; p_lease?: unknown };
+        Returns: Database["public"]["Tables"]["email_jobs"]["Row"][];
+      };
       current_customer_id: { Args: never; Returns: string };
       current_role: { Args: never; Returns: string };
       current_tenant_id: { Args: never; Returns: string };
@@ -1223,6 +1286,10 @@ export type Database = {
           tenant_name: string;
           tenant_slug: string;
         }[];
+      };
+      transfer_tenant_ownership: {
+        Args: { p_new_owner_membership_id: string };
+        Returns: undefined;
       };
       reports_overview: {
         Args: { p_days?: number; p_weeks?: number };

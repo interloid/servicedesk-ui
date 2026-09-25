@@ -27,6 +27,9 @@ export function appendQueryParam(url: string, key: string, value: string) {
   return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 }
 
+export const EMAIL_ALREADY_REGISTERED_MESSAGE =
+  "An account with this email already exists. Sign in instead, or reset your password if you've forgotten it.";
+
 type SignUpWithPkceParams = {
   email: string;
   password: string;
@@ -76,6 +79,17 @@ export async function signUpWithPkce({
         json?.error_description ||
         "Failed to create authentication user.",
     );
+  }
+
+  // With email confirmation on, signing up an address that already has an
+  // account doesn't fail: to avoid revealing who is registered, Supabase
+  // answers 200 with a made-up user whose id exists nowhere and whose
+  // `identities` is empty. Carrying on would insert that id into
+  // public.users and trip users_id_fkey.
+  const identities = json?.user?.identities ?? json?.identities;
+
+  if (Array.isArray(identities) && identities.length === 0) {
+    throw new Error(EMAIL_ALREADY_REGISTERED_MESSAGE);
   }
 
   return {

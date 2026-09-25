@@ -12,7 +12,11 @@ BEGIN;
 CREATE OR REPLACE FUNCTION public.custom_access_token_hook(event jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
-STABLE
+-- VOLATILE, not STABLE: the body UPDATEs memberships to activate an invite on
+-- first sign-in, and a STABLE function cannot write. Must match migration
+-- 20260821103013, or the next `supabase db diff` would revert the live hook
+-- to STABLE and every sign-in with a membership would error.
+VOLATILE
 SECURITY DEFINER
 SET search_path = public
 AS $$
@@ -131,8 +135,21 @@ $$;
 -- Permissions
 ------------------------------------------------------------
 
+GRANT USAGE
+ON SCHEMA public
+TO supabase_auth_admin;
+
 GRANT EXECUTE
 ON FUNCTION public.custom_access_token_hook(jsonb)
+TO supabase_auth_admin;
+
+-- The hook reads memberships/tenants and activates invites.
+GRANT SELECT, UPDATE
+ON TABLE public.memberships
+TO supabase_auth_admin;
+
+GRANT SELECT
+ON TABLE public.tenants
 TO supabase_auth_admin;
 
 REVOKE EXECUTE

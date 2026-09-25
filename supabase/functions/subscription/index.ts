@@ -997,7 +997,6 @@ Deno.serve(async (req) => {
               livePlan.code,
               approvalRedirect,
             );
-            console.log("🚀 ~ revert:", revert);
 
             if (!revert.ok) {
               console.error("[billing] could not revise back on undo:", {

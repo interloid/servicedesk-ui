@@ -79,6 +79,7 @@ const RESERVED_LABELS = new Set([
   "sla",
   "kb",
   "macros",
+  "unauthorized",
 ]);
 
 export const IS_LOCAL_HOST = PORTAL_BASE_HOSTNAME === "localhost";
@@ -152,6 +153,7 @@ export const TENANT_ROUTES = {
 
   SETTINGS: {
     TEAM: "/settings/team",
+    PORTAL: "/settings/customer-portal",
     BRANDING: "/settings/branding",
     CHANNELS: "/settings/channels",
     INTEGRATIONS: "/settings/integrations",
@@ -182,6 +184,23 @@ export function defaultTenantLanding(role: string | null | undefined): string {
   return DEFAULT_TENANT_PATH;
 }
 
+/**
+ * The roles that may hold the agent dashboard. `customer` is a membership role
+ * like any other, so a portal customer's session looks like a member session
+ * everywhere a role is compared -- this is the single place that draws the
+ * line. platform_admin is not a tenant role and never reaches the shell.
+ */
+const STAFF_ROLES = new Set<string>([
+  "tenant_admin",
+  "manager",
+  "agent",
+  "billing_admin",
+]);
+
+export function isStaffRole(role: string | null | undefined): boolean {
+  return typeof role === "string" && STAFF_ROLES.has(role);
+}
+
 export function isTenantRouteAllowed(
   role: string | null | undefined,
   tenantRelativePath: string,
@@ -208,6 +227,9 @@ const SESSION_TOLERANT_PATHS = new Set<string>([TENANT_ROUTES.RESET_PASSWORD]);
 export const CENTRAL_PATHS = new Set<string>([
   APP_ROUTES.SETUP,
   APP_ROUTES.LOGIN,
+  // Reachable without a staff session, and deliberately outside every tenant:
+  // it is where a customer is sent instead of the dashboard.
+  APP_ROUTES.UNAUTHORIZED,
 ]);
 
 const CENTRAL_APP_FORM_PATHS = new Set<string>([
@@ -244,6 +266,21 @@ export function isInfrastructurePath(pathname: string): boolean {
 
 export function isTenantPublicPath(tenantRelativePath: string): boolean {
   return TENANT_PUBLIC_PATHS.has(tenantRelativePath);
+}
+
+/**
+ * The customer portal (/{slug}/portal/*) runs its own sign-in and guards every
+ * screen with getPortalIdentity, scoped to the tenant in the URL. None of the
+ * agent-app rules apply to it: its visitors have no agent session, and a
+ * customer's session may belong to another tenant's portal.
+ */
+export const PORTAL_PATH_PREFIX = "/portal";
+
+export function isPortalPath(tenantRelativePath: string): boolean {
+  return (
+    tenantRelativePath === PORTAL_PATH_PREFIX ||
+    tenantRelativePath.startsWith(`${PORTAL_PATH_PREFIX}/`)
+  );
 }
 
 export function allowsExistingSession(tenantRelativePath: string): boolean {

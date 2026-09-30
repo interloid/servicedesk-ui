@@ -10,32 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15";
-  };
-  graphql_public: {
-    Tables: {
-      [_ in never]: never;
-    };
-    Views: {
-      [_ in never]: never;
-    };
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json;
-          operationName?: string;
-          query?: string;
-          variables?: Json;
-        };
-        Returns: Json;
-      };
-    };
-    Enums: {
-      [_ in never]: never;
-    };
-    CompositeTypes: {
-      [_ in never]: never;
-    };
+    PostgrestVersion: "14.5";
   };
   public: {
     Tables: {
@@ -218,6 +193,74 @@ export type Database = {
           },
         ];
       };
+      csat_ratings: {
+        Row: {
+          agent_user_id: string | null;
+          comment: string | null;
+          created_at: string;
+          customer_id: string;
+          id: string;
+          resolved_at: string;
+          score: number;
+          tenant_id: string;
+          ticket_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          agent_user_id?: string | null;
+          comment?: string | null;
+          created_at?: string;
+          customer_id: string;
+          id?: string;
+          resolved_at: string;
+          score: number;
+          tenant_id: string;
+          ticket_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          agent_user_id?: string | null;
+          comment?: string | null;
+          created_at?: string;
+          customer_id?: string;
+          id?: string;
+          resolved_at?: string;
+          score?: number;
+          tenant_id?: string;
+          ticket_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "csat_ratings_agent_user_id_fkey";
+            columns: ["agent_user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "csat_ratings_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "csat_ratings_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "csat_ratings_ticket_id_fkey";
+            columns: ["ticket_id"];
+            isOneToOne: false;
+            referencedRelation: "tickets";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       customers: {
         Row: {
           company: string | null;
@@ -226,6 +269,9 @@ export type Database = {
           full_name: string;
           id: string;
           phone: string | null;
+          portal_last_login_at: string | null;
+          portal_onboarded_at: string | null;
+          portal_password_prompted_at: string | null;
           portal_user_id: string | null;
           tenant_id: string;
           updated_at: string;
@@ -237,6 +283,9 @@ export type Database = {
           full_name: string;
           id?: string;
           phone?: string | null;
+          portal_last_login_at?: string | null;
+          portal_onboarded_at?: string | null;
+          portal_password_prompted_at?: string | null;
           portal_user_id?: string | null;
           tenant_id: string;
           updated_at?: string;
@@ -248,6 +297,9 @@ export type Database = {
           full_name?: string;
           id?: string;
           phone?: string | null;
+          portal_last_login_at?: string | null;
+          portal_onboarded_at?: string | null;
+          portal_password_prompted_at?: string | null;
           portal_user_id?: string | null;
           tenant_id?: string;
           updated_at?: string;
@@ -326,6 +378,7 @@ export type Database = {
           billing_email: string | null;
           created_at: string | null;
           currency: string;
+          email_sent_at: string | null;
           id: string;
           invoice_number: string | null;
           invoice_type: string | null;
@@ -338,12 +391,15 @@ export type Database = {
           paypal_txn_id: string | null;
           period_end: string;
           period_start: string;
+          plan_name: string | null;
+          seats: number | null;
           status: Database["public"]["Enums"]["invoice_status"];
           storage_path: string | null;
           subscription_id: string | null;
           subtotal: number | null;
           tax: number | null;
           tenant_id: string;
+          updated_at: string | null;
         };
         Insert: {
           amount: number;
@@ -352,6 +408,7 @@ export type Database = {
           billing_email?: string | null;
           created_at?: string | null;
           currency?: string;
+          email_sent_at?: string | null;
           id?: string;
           invoice_number?: string | null;
           invoice_type?: string | null;
@@ -364,12 +421,15 @@ export type Database = {
           paypal_txn_id?: string | null;
           period_end: string;
           period_start: string;
+          plan_name?: string | null;
+          seats?: number | null;
           status: Database["public"]["Enums"]["invoice_status"];
           storage_path?: string | null;
           subscription_id?: string | null;
           subtotal?: number | null;
           tax?: number | null;
           tenant_id: string;
+          updated_at?: string | null;
         };
         Update: {
           amount?: number;
@@ -378,6 +438,7 @@ export type Database = {
           billing_email?: string | null;
           created_at?: string | null;
           currency?: string;
+          email_sent_at?: string | null;
           id?: string;
           invoice_number?: string | null;
           invoice_type?: string | null;
@@ -390,14 +451,24 @@ export type Database = {
           paypal_txn_id?: string | null;
           period_end?: string;
           period_start?: string;
+          plan_name?: string | null;
+          seats?: number | null;
           status?: Database["public"]["Enums"]["invoice_status"];
           storage_path?: string | null;
           subscription_id?: string | null;
           subtotal?: number | null;
           tax?: number | null;
           tenant_id?: string;
+          updated_at?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "invoices_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "invoices_tenant_id_fkey";
             columns: ["tenant_id"];
@@ -558,6 +629,90 @@ export type Database = {
           },
         ];
       };
+      payment_methods: {
+        Row: {
+          card_bin: string | null;
+          card_brand: string | null;
+          card_country: string | null;
+          card_expiry_month: number | null;
+          card_expiry_year: number | null;
+          card_issuer: string | null;
+          card_last4: string | null;
+          created_at: string | null;
+          id: string;
+          is_default: boolean;
+          payment_source_type: string;
+          paypal_customer_id: string | null;
+          paypal_email: string | null;
+          paypal_payer_country: string | null;
+          paypal_payer_name: string | null;
+          paypal_payment_token_id: string | null;
+          status: string;
+          subscription_id: string | null;
+          tenant_id: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          card_bin?: string | null;
+          card_brand?: string | null;
+          card_country?: string | null;
+          card_expiry_month?: number | null;
+          card_expiry_year?: number | null;
+          card_issuer?: string | null;
+          card_last4?: string | null;
+          created_at?: string | null;
+          id?: string;
+          is_default?: boolean;
+          payment_source_type?: string;
+          paypal_customer_id?: string | null;
+          paypal_email?: string | null;
+          paypal_payer_country?: string | null;
+          paypal_payer_name?: string | null;
+          paypal_payment_token_id?: string | null;
+          status?: string;
+          subscription_id?: string | null;
+          tenant_id: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          card_bin?: string | null;
+          card_brand?: string | null;
+          card_country?: string | null;
+          card_expiry_month?: number | null;
+          card_expiry_year?: number | null;
+          card_issuer?: string | null;
+          card_last4?: string | null;
+          created_at?: string | null;
+          id?: string;
+          is_default?: boolean;
+          payment_source_type?: string;
+          paypal_customer_id?: string | null;
+          paypal_email?: string | null;
+          paypal_payer_country?: string | null;
+          paypal_payer_name?: string | null;
+          paypal_payment_token_id?: string | null;
+          status?: string;
+          subscription_id?: string | null;
+          tenant_id?: string;
+          updated_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "payment_methods_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "payment_methods_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       plans: {
         Row: {
           code: string;
@@ -714,10 +869,12 @@ export type Database = {
           business_hours_id: string | null;
           created_at: string;
           escalate_on_breach: boolean;
+          escalate_to_role: Database["public"]["Enums"]["membership_role"];
           id: string;
           is_default: boolean;
           name: string;
           notify_before_breach: boolean;
+          notify_before_mins: number;
           status: Database["public"]["Enums"]["sla_policy_status"];
           tenant_id: string;
           updated_at: string;
@@ -727,10 +884,12 @@ export type Database = {
           business_hours_id?: string | null;
           created_at?: string;
           escalate_on_breach?: boolean;
+          escalate_to_role?: Database["public"]["Enums"]["membership_role"];
           id?: string;
           is_default?: boolean;
           name: string;
           notify_before_breach?: boolean;
+          notify_before_mins?: number;
           status?: Database["public"]["Enums"]["sla_policy_status"];
           tenant_id: string;
           updated_at?: string;
@@ -740,10 +899,12 @@ export type Database = {
           business_hours_id?: string | null;
           created_at?: string;
           escalate_on_breach?: boolean;
+          escalate_to_role?: Database["public"]["Enums"]["membership_role"];
           id?: string;
           is_default?: boolean;
           name?: string;
           notify_before_breach?: boolean;
+          notify_before_mins?: number;
           status?: Database["public"]["Enums"]["sla_policy_status"];
           tenant_id?: string;
           updated_at?: string;
@@ -819,16 +980,62 @@ export type Database = {
           },
         ];
       };
+      subscription_cancellation_reasons: {
+        Row: {
+          created_at: string;
+          id: string;
+          reason: string;
+          subscription_id: string | null;
+          tenant_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          reason: string;
+          subscription_id?: string | null;
+          tenant_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          reason?: string;
+          subscription_id?: string | null;
+          tenant_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "subscription_cancellation_reasons_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "subscription_cancellation_reasons_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       subscriptions: {
         Row: {
           cancel_at_period_end: boolean;
+          cancellation_source: string | null;
           cancelled_at: string | null;
           created_at: string | null;
           current_period_end: string | null;
           current_period_start: string | null;
+          grace_period_ends_at: string | null;
           id: string;
+          last_payment_failure_at: string | null;
           next_plan_effective_at: string | null;
           next_plan_id: string | null;
+          payment_failure_count: number;
+          payment_method_id: string | null;
+          payment_status: string | null;
+          paypal_status: string | null;
           paypal_subscription_id: string | null;
           pending_order_id: string | null;
           pending_paypal_subscription_id: string | null;
@@ -842,13 +1049,20 @@ export type Database = {
         };
         Insert: {
           cancel_at_period_end?: boolean;
+          cancellation_source?: string | null;
           cancelled_at?: string | null;
           created_at?: string | null;
           current_period_end?: string | null;
           current_period_start?: string | null;
+          grace_period_ends_at?: string | null;
           id?: string;
+          last_payment_failure_at?: string | null;
           next_plan_effective_at?: string | null;
           next_plan_id?: string | null;
+          payment_failure_count?: number;
+          payment_method_id?: string | null;
+          payment_status?: string | null;
+          paypal_status?: string | null;
           paypal_subscription_id?: string | null;
           pending_order_id?: string | null;
           pending_paypal_subscription_id?: string | null;
@@ -862,13 +1076,20 @@ export type Database = {
         };
         Update: {
           cancel_at_period_end?: boolean;
+          cancellation_source?: string | null;
           cancelled_at?: string | null;
           created_at?: string | null;
           current_period_end?: string | null;
           current_period_start?: string | null;
+          grace_period_ends_at?: string | null;
           id?: string;
+          last_payment_failure_at?: string | null;
           next_plan_effective_at?: string | null;
           next_plan_id?: string | null;
+          payment_failure_count?: number;
+          payment_method_id?: string | null;
+          payment_status?: string | null;
+          paypal_status?: string | null;
           paypal_subscription_id?: string | null;
           pending_order_id?: string | null;
           pending_paypal_subscription_id?: string | null;
@@ -886,6 +1107,13 @@ export type Database = {
             columns: ["next_plan_id"];
             isOneToOne: false;
             referencedRelation: "plans";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "subscriptions_payment_method_id_fkey";
+            columns: ["payment_method_id"];
+            isOneToOne: false;
+            referencedRelation: "payment_methods";
             referencedColumns: ["id"];
           },
           {
@@ -1234,24 +1462,44 @@ export type Database = {
     Functions: {
       apply_subscription_plan: {
         Args: {
-          p_tenant_id: string;
-          p_plan_id: string | null;
-          p_status?: string | null;
-          p_seats?: number | null;
-          p_current_period_start?: string | null;
-          p_current_period_end?: string | null;
-          p_clear_period_end?: boolean;
-          p_paypal_subscription_id?: string | null;
+          p_clear_next?: boolean;
           p_clear_paypal_subscription_id?: boolean;
           p_clear_pending?: boolean;
-          p_clear_next?: boolean;
-          p_expected_next_plan_id?: string | null;
+          p_clear_period_end?: boolean;
+          p_current_period_end?: string;
+          p_current_period_start?: string;
+          p_expected_next_plan_id?: string;
+          p_paypal_subscription_id?: string;
+          p_plan_id: string;
+          p_seats?: number;
+          p_status?: string;
+          p_tenant_id: string;
         };
         Returns: boolean;
       };
       claim_email_jobs: {
-        Args: { p_limit?: number; p_lease?: unknown };
-        Returns: Database["public"]["Tables"]["email_jobs"]["Row"][];
+        Args: { p_lease?: string; p_limit?: number };
+        Returns: {
+          attempts: number;
+          created_at: string;
+          id: string;
+          kind: string;
+          last_error: string | null;
+          locked_at: string | null;
+          max_attempts: number;
+          payload: Json;
+          run_after: string;
+          sent_at: string | null;
+          status: string;
+          tenant_id: string | null;
+          updated_at: string;
+        }[];
+        SetofOptions: {
+          from: "*";
+          to: "email_jobs";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
       };
       current_customer_id: { Args: never; Returns: string };
       current_role: { Args: never; Returns: string };
@@ -1264,6 +1512,34 @@ export type Database = {
       };
       get_tenant_by_slug: { Args: { p_slug: string }; Returns: Json };
       is_active_membership: { Args: never; Returns: boolean };
+      portal_complete_onboarding: {
+        Args: { p_tenant_slug: string; p_user_id: string };
+        Returns: Json;
+      };
+      portal_create_request: {
+        Args: {
+          p_description: string;
+          p_email: string;
+          p_full_name?: string;
+          p_priority?: Database["public"]["Enums"]["ticket_priority"];
+          p_subject: string;
+          p_tenant_slug: string;
+          p_user_id?: string;
+        };
+        Returns: Json;
+      };
+      portal_link_user: {
+        Args: {
+          p_full_name?: string;
+          p_tenant_slug: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
+      portal_mark_password_prompted: {
+        Args: { p_tenant_slug: string; p_user_id: string };
+        Returns: Json;
+      };
       process_sla_breaches: { Args: never; Returns: number };
       provision_tenant: {
         Args: {
@@ -1287,16 +1563,16 @@ export type Database = {
           tenant_slug: string;
         }[];
       };
-      transfer_tenant_ownership: {
-        Args: { p_new_owner_membership_id: string };
-        Returns: undefined;
-      };
       reports_overview: {
         Args: { p_days?: number; p_weeks?: number };
         Returns: Json;
       };
       show_limit: { Args: never; Returns: number };
       show_trgm: { Args: { "": string }; Returns: string[] };
+      transfer_tenant_ownership: {
+        Args: { p_new_owner_membership_id: string };
+        Returns: undefined;
+      };
     };
     Enums: {
       audit_action:
@@ -1326,7 +1602,8 @@ export type Database = {
         | "ticket_closed"
         | "mention"
         | "billing"
-        | "system";
+        | "system"
+        | "sla_breach";
       sla_event_status: "pending" | "completed" | "breached";
       sla_event_type: "first_response" | "resolution";
       sla_policy_status: "active" | "paused" | "draft";
@@ -1461,9 +1738,6 @@ export type CompositeTypes<
     : never;
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       audit_action: [
@@ -1496,6 +1770,7 @@ export const Constants = {
         "mention",
         "billing",
         "system",
+        "sla_breach",
       ],
       sla_event_status: ["pending", "completed", "breached"],
       sla_event_type: ["first_response", "resolution"],

@@ -1,10 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import { invitationEmailHtml, roleWithArticle } from "./invitation-template.ts";
+import { portalSignInEmailHtml } from "./portal-sign-in-template.ts";
 
 // Sends the mail queued in public.email_jobs: team invitations and password
-// resets (through Supabase Auth) and our own invitation email (through
-// Resend).
+// resets (through Supabase Auth), and our own invitation and customer-portal
+// sign-in emails (through Resend).
 //
 // One caller:
 //   1. pg_cron every minute while a job is due -- the sender and retry path
@@ -58,6 +59,12 @@ type TeamInvitationPayload = {
 type PasswordResetPayload = {
   email: string;
   redirectTo: string;
+};
+
+type PortalSignInPayload = {
+  email: string;
+  redirectTo: string;
+  tenantName: string;
 };
 
 /** Retrying won't fix it (mail not configured, unknown kind): fail at once. */
@@ -214,9 +221,66 @@ async function sendPasswordReset({
   }
 }
 
+/**
+ * A customer's sign-in link for the support portal.
+ *
+ * Not signInWithOtp: the link it sends is PKCE, and exchanging the code needs
+ * the verifier cookie of the browser that asked -- this function has none. So
+ * the link is generated here without sending, and carries the hashed token
+ * straight to the portal callback, which verifies it server-side (verifyOtp).
+ * That also makes it work on a different device from the one that asked.
+ *
+ * generateLink needs an existing user, and a first-time customer has none.
+ * The account is created confirmed: it is inert (no membership, no session)
+ * until the link in THIS email is clicked, and clicking it is the proof of
+ * address. The Next.js side has already turned team emails away.
+ */
+async function sendPortalSignIn({
+  email,
+  redirectTo,
+  tenantName,
+}: PortalSignInPayload): Promise<void> {
+  const { error: createError } = await admin.auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+
+  // An existing account is the normal case for a returning customer.
+  if (createError && createError.code !== "email_exists") {
+    throw new Error(`createUser failed: ${createError.message}`);
+  }
+
+  const { data: link, error: linkError } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+  });
+
+  const hashedToken = link?.properties?.hashed_token;
+
+  if (linkError || !hashedToken) {
+    throw new Error(
+      `generateLink failed: ${linkError?.message ?? "no hashed_token"}`,
+    );
+  }
+
+  const url = new URL(redirectTo);
+  url.searchParams.set("token_hash", hashedToken);
+  url.searchParams.set("type", "magiclink");
+
+  const signInLink = url.toString();
+
+  await sendResend({
+    to: email,
+    subject: `Your sign-in link for ${tenantName} Support`,
+    html: portalSignInEmailHtml({ workspace: tenantName, link: signInLink }),
+    text: `Sign in to ${tenantName} Support: ${signInLink}\n\nThis link works once and expires in 1 hour. If you didn't ask to sign in, you can ignore this email.`,
+  });
+}
+
 const HANDLERS: Record<string, (payload: never) => Promise<void>> = {
   team_invitation: sendTeamInvitation,
   password_reset: sendPasswordReset,
+  portal_sign_in: sendPortalSignIn,
 };
 
 async function runJob(job: EmailJob): Promise<boolean> {

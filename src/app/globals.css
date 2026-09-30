@@ -89,6 +89,7 @@
   --color-brand-accent-foreground: var(--brand-accent-foreground);
   --color-brand-badge: var(--brand-badge);
   --color-brand-badge-foreground: var(--brand-badge-foreground);
+  --color-brand-strong: var(--brand-strong);
   --color-brand-hover: var(--brand-hover);
   --color-brand-pressed: var(--brand-pressed);
 
@@ -105,6 +106,10 @@
 :root {
   --radius: 0.625rem;
   --brand-base: #166534;
+  /* Brand green for marks on a light surface -- active tab underline, a
+     selected row. Not --brand-base: that one is a button background, and it
+     is too dark to read as a mark once the page goes dark. */
+  --brand-strong: var(--brand-base);
   --brand-hover: #0d9488;
   --brand-pressed: #115e59;
   --brand-accent: #0f766e;
@@ -172,6 +177,9 @@
 [data-theme="dark"] {
   --brand-hover: #16a34a;
   --brand-pressed: #166534;
+  /* #16a34a on the dark card is 4.4:1; #166534 is 2.5:1, under the 3:1 a
+     non-text mark needs. */
+  --brand-strong: var(--brand-hover);
 
   --background: var(--color-slate-950);
   --foreground: var(--color-slate-50);

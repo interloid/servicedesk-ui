@@ -12,9 +12,11 @@ import {
   defaultTenantLanding,
   isCentralPath,
   isInfrastructurePath,
+  isPortalPath,
   isTenantPublicPath,
   isTenantRouteAllowed,
   isValidTenantSlug,
+  isStaffRole,
   sessionTenantDestination,
   stripTenantPrefix,
   tenantLabelFromHost,
@@ -23,6 +25,8 @@ import {
 } from "@/lib/tenancy";
 
 import { readTenantClaims } from "@/features/auth/claims";
+
+import { APP_ROUTES } from "@/lib/routes";
 
 import { env } from "./config/env";
 
@@ -44,9 +48,12 @@ function withSessionCookies(
   return target;
 }
 
+type SessionTenant = { slug: string | null; role: string | null };
+
+// undefined means the claims could not be read at all.
 async function resolveSessionTenant(
   supabase: SupabaseClient,
-): Promise<{ slug: string; role: string | null } | undefined> {
+): Promise<SessionTenant | undefined> {
   const { data: claimsData, error: claimsError } =
     await supabase.auth.getClaims();
 
@@ -57,14 +64,43 @@ async function resolveSessionTenant(
 
   const claims = readTenantClaims(claimsData?.claims);
 
-  if (!claims.tenantSlug) {
-    return undefined;
-  }
-
   return {
     slug: claims.tenantSlug,
     role: claims.tenantRole,
   };
+}
+
+/**
+ * A portal customer, identified by the role claim and never by a missing slug.
+ *
+ * The access token hook picks any non-disabled membership, and a customer has
+ * one (portal_link_user gives them role = 'customer'), so their token carries a
+ * real tenant_id and tenant_slug. Reading "no tenant" as "customer" therefore
+ * never matches, and the customer fell through to the agent dashboard.
+ */
+function isCustomerSession(sessionTenant: SessionTenant | undefined): boolean {
+  return sessionTenant !== undefined && sessionTenant.role === "customer";
+}
+
+/**
+ * The mirror of isCustomerSession, for the portal branches below. Drawn from the
+ * same STAFF_ROLES set the agent shell uses, so "who counts as staff" is decided
+ * in exactly one place -- if the two drifted, a role could pass the shell and
+ * fail the portal, or the reverse.
+ *
+ * A valid slug is part of the test, not a convenience: the only thing done with
+ * a staff session here is send it to that tenant's dashboard, and a session with
+ * no readable tenant has nowhere to go. Narrowing on it is what lets the callers
+ * use the result without re-checking.
+ */
+function isStaffSession(
+  sessionTenant: SessionTenant | undefined,
+): sessionTenant is SessionTenant & { slug: string } {
+  return (
+    sessionTenant !== undefined &&
+    isStaffRole(sessionTenant.role) &&
+    isValidTenantSlug(sessionTenant.slug)
+  );
 }
 
 function rememberTenant(response: NextResponse, slug: string): NextResponse {
@@ -147,19 +183,26 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
       const sessionTenant = await resolveSessionTenant(supabase);
 
       if (isValidTenantSlug(sessionTenant?.slug)) {
-        return withSessionCookies(
-          NextResponse.redirect(
-            new URL(
-              sessionTenantDestination(
-                sessionTenant!.slug,
-                "/",
-                sessionTenant?.role,
+        // A customer is sent here *because* they have no agent dashboard, so
+        // they must be allowed to render it. Bouncing them would resolve
+        // defaultTenantLanding("customer") to /tickets -- the very route that
+        // turned them away -- and ping-pong between the two forever. Only staff
+        // have a landing page worth sending them to.
+        if (!isCustomerSession(sessionTenant)) {
+          return withSessionCookies(
+            NextResponse.redirect(
+              new URL(
+                sessionTenantDestination(
+                  sessionTenant!.slug,
+                  "/",
+                  sessionTenant?.role,
+                ),
+                request.url,
               ),
-              request.url,
             ),
-          ),
-          response,
-        );
+            response,
+          );
+        }
       }
     }
 
@@ -171,7 +214,53 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
   if (pathTenant) {
     const { slug, rest } = pathTenant;
 
-    let sessionTenant: { slug: string; role: string | null } | undefined;
+    if (isPortalPath(rest)) {
+      // The portal runs its own sign-in, so an anonymous visitor is expected
+      // here and is not turned away. A *staff* session is not: the portal
+      // resolves identity through getPortalIdentity, which returns null for
+      // anyone holding a team membership, and the page then redirects to the
+      // customer magic-link form -- a customer sign-in surface shown to an
+      // agent. Say no here instead.
+      if (user) {
+        const sessionTenant = await resolveSessionTenant(supabase);
+
+        if (isStaffSession(sessionTenant)) {
+          // Their own dashboard, not /unauthorized: that page explains that
+          // "your account is a customer account" and links to a portal, which is
+          // nonsense for an agent who mistyped a URL. Bouncing to the landing
+          // page is also what every other staff guard in this file does, and it
+          // cannot ping-pong, since the dashboard is a route they are allowed.
+          return withSessionCookies(
+            NextResponse.redirect(
+              new URL(
+                sessionTenantDestination(
+                  sessionTenant.slug,
+                  "/",
+                  sessionTenant.role,
+                ),
+                request.url,
+              ),
+            ),
+            response,
+          );
+        }
+      }
+
+      const requestHeaders = new Headers(request.headers);
+
+      requestHeaders.set("x-tenant-slug", slug);
+
+      return withSessionCookies(
+        NextResponse.next({
+          request: {
+            headers: requestHeaders,
+          },
+        }),
+        response,
+      );
+    }
+
+    let sessionTenant: SessionTenant | undefined;
 
     if (user) {
       sessionTenant = await resolveSessionTenant(supabase);
@@ -195,6 +284,17 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
 
     const isPublic = isTenantPublicPath(rest);
 
+    // A customer holds a real membership, so nothing above turns them away and
+    // the agent app would happily render the dashboard on their session. Say no
+    // here instead: the page is tenant-less, so no workspace chrome leaks. The
+    // sign-in pages stay reachable (isPublic) so an agent can still sign in.
+    if (user && isCustomerSession(sessionTenant) && !isPublic) {
+      const denied = new URL(APP_ROUTES.UNAUTHORIZED, request.url);
+      denied.searchParams.set("tenant", slug);
+
+      return withSessionCookies(NextResponse.redirect(denied), response);
+    }
+
     if (!user && !isPublic) {
       const nextPath = rest === "/" ? null : `${rest}${url.search}`;
 
@@ -207,7 +307,9 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
     }
 
     const bounceAuthedVisitor =
-      user && (rest === "/" || (isPublic && !allowsExistingSession(rest)));
+      user &&
+      !isCustomerSession(sessionTenant) &&
+      (rest === "/" || (isPublic && !allowsExistingSession(rest)));
 
     if (bounceAuthedVisitor) {
       return rememberTenant(
@@ -277,7 +379,54 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
           response,
         );
       }
-      let sessionTenant: { slug: string; role: string | null } | undefined;
+      if (isPortalPath(pathname)) {
+        // Same staff check as the path-prefix branch above, and for the same
+        // reason: without it this rewrite hands a staff session the customer
+        // magic-link screen. Kept in step with that branch deliberately -- two
+        // copies of one rule is the cost of the file's two routing modes.
+        if (user) {
+          const sessionTenant = await resolveSessionTenant(supabase);
+
+          if (isStaffSession(sessionTenant)) {
+            // Same destination as the path-prefix branch: their own dashboard.
+            return withSessionCookies(
+              NextResponse.redirect(
+                new URL(
+                  sessionTenantDestination(
+                    sessionTenant.slug,
+                    "/",
+                    sessionTenant.role,
+                  ),
+                  request.url,
+                ),
+              ),
+              response,
+            );
+          }
+        }
+
+        const requestHeaders = new Headers(request.headers);
+
+        requestHeaders.set("x-tenant-slug", slugFromSubdomain);
+
+        return withSessionCookies(
+          NextResponse.rewrite(
+            new URL(
+              tenantPath(slugFromSubdomain, `${pathname}${url.search}`),
+              request.url,
+            ),
+            {
+              request: {
+                headers: requestHeaders,
+              },
+              headers: response.headers,
+            },
+          ),
+          response,
+        );
+      }
+
+      let sessionTenant: SessionTenant | undefined;
 
       if (user) {
         sessionTenant = await resolveSessionTenant(supabase);
@@ -302,6 +451,17 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
         }
       }
 
+      if (
+        user &&
+        isCustomerSession(sessionTenant) &&
+        !isTenantPublicPath(pathname)
+      ) {
+        const denied = new URL(APP_ROUTES.UNAUTHORIZED, request.url);
+        denied.searchParams.set("tenant", slugFromSubdomain);
+
+        return withSessionCookies(NextResponse.redirect(denied), response);
+      }
+
       if (!user && !isTenantPublicPath(pathname)) {
         const loginUrl = new URL("/login", request.url);
 
@@ -313,6 +473,7 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
       }
       if (
         user &&
+        !isCustomerSession(sessionTenant) &&
         (pathname === ROOT_PATH ||
           (isTenantPublicPath(pathname) && !allowsExistingSession(pathname)))
       ) {

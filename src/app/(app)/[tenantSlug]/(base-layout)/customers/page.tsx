@@ -1,16 +1,36 @@
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/shared/coming-soon";
+
+import CustomersTable from "@/features/customers/components/customers-table";
+import {
+  fetchTenantCustomers,
+  serverNow,
+} from "@/features/customers/services/customers.service";
+import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
 
 export const metadata: Metadata = {
   title: "Customers",
-  description: "Manage your customers and accounts",
+  description: "Companies and the people who raise tickets from them.",
 };
 
-export default function CustomersPage() {
+export default async function CustomersPage({
+  params,
+}: {
+  params: Promise<{ tenantSlug: string }>;
+}) {
+  const { tenantSlug } = await params;
+  // Independent reads, so they go out together rather than one after another.
+  const [customers, now, tenant] = await Promise.all([
+    fetchTenantCustomers(tenantSlug),
+    serverNow(),
+    getTenantContext(tenantSlug),
+  ]);
+
   return (
-    <ComingSoon
-      title="Customers"
-      description="Manage and organize your customers, companies, and their contact details from one place. Coming soon."
+    <CustomersTable
+      tenant={tenantSlug}
+      tenantName={tenant?.name ?? null}
+      initialCustomers={customers}
+      now={now}
     />
   );
 }

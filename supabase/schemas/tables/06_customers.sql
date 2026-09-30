@@ -32,6 +32,12 @@ create table if not exists public.customers
 
     phone text,
 
+    portal_onboarded_at timestamptz,
+
+    portal_password_prompted_at timestamptz,
+
+    portal_last_login_at timestamptz,
+
     created_at timestamptz
         not null
         default now(),

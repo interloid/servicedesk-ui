@@ -5,7 +5,9 @@ import { RoleRouteGuard } from "@/components/shared/layout/role-route-guard";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getShellIdentity } from "@/lib/identity";
-import { notFound } from "next/navigation";
+import { APP_ROUTES } from "@/lib/routes";
+import { isStaffRole } from "@/lib/tenancy";
+import { notFound, redirect } from "next/navigation";
 
 export default async function DashboardLayout({
   children,
@@ -30,6 +32,17 @@ export default async function DashboardLayout({
   // loop forever for exactly the broken sessions this guard catches.
   if (!identity) {
     notFound();
+  }
+
+  // Backstop for the proxy's customer check. A customer does have a live
+  // membership, so getShellIdentity resolves for them and `identity` is not
+  // null -- without this the dashboard renders on a customer's session if the
+  // proxy is ever bypassed. /unauthorized is a central, tenant-less path, so it
+  // cannot bounce back in here.
+  if (!isStaffRole(identity.user.role)) {
+    redirect(
+      `${APP_ROUTES.UNAUTHORIZED}?tenant=${encodeURIComponent(tenantSlug)}`,
+    );
   }
 
   return (

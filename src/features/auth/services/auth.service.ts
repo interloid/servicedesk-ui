@@ -233,10 +233,22 @@ export function safeNext(
   return next;
 }
 
+function isLoopbackHost(host: string | null): host is string {
+  return Boolean(host && /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host));
+}
+
 export async function requestOrigin(): Promise<string> {
   const configured = new URL(env.NEXT_PUBLIC_SITE_URL);
   const requestHeaders = await headers();
   const host = requestHeaders.get("host");
+
+  // `next dev` with a production NEXT_PUBLIC_SITE_URL would otherwise mint
+  // links to production -- and the PKCE verifier cookie lives on localhost, so
+  // the code could never be exchanged there. Dev only: in production a
+  // localhost Host header is exactly the spoof the allow-list exists to stop.
+  if (process.env.NODE_ENV === "development" && isLoopbackHost(host)) {
+    return `http://${host}`;
+  }
 
   if (!isTrustedHost(host, env.NEXT_PUBLIC_SITE_URL)) {
     if (host) {

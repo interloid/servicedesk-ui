@@ -410,6 +410,16 @@ export async function getCallerRole(): Promise<TeamRole | null> {
 }
 
 /**
+ * The signed-in member's user id, from the same cached actor read as
+ * getCallerRole. Exported because the features that write a row naming the
+ * inviter (`memberships.invited_by`) need the id and not the display role, and
+ * a second lookup would be a second round trip for the same row.
+ */
+export async function getCallerUserId(): Promise<string | null> {
+  return (await getActorOrNull())?.userId ?? null;
+}
+
+/**
  * Where the link in an invite email comes back to.
  *
  * An invited person has an account but no password, so landing them on the

@@ -51,18 +51,20 @@ import {
  * The customer's Profile settings: photo, name, and the email they sign in
  * with. Laid out like the team app's ProfileModal so the two read as one
  * product; the team-only parts (role, company, SLA alerts) are left out.
+ *
+ * Nothing in here names the workspace. A customer has exactly one account
+ * here, the header already carries their name, and a tenant name in the
+ * subtitle told them nothing they were not already looking at.
  */
 export function PortalProfileDialog({
   open,
   onOpenChange,
   tenantSlug,
-  tenantName,
   customer,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   tenantSlug: string;
-  tenantName: string;
   customer: PortalCustomer;
 }) {
   const [isSaving, setIsSaving] = useState(false);
@@ -72,13 +74,16 @@ export function PortalProfileDialog({
       open={open}
       onOpenChange={(next) => !isSaving && onOpenChange(next)}
     >
-      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] gap-5 overflow-y-auto rounded-2xl p-5 sm:max-w-md sm:p-6">
+      {/* The close button has no hover wash: it is the one control in here
+          that is neither about the profile nor destructive, and the grey
+          circle behind it read as a button waiting to be pressed. */}
+      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] gap-5 overflow-y-auto rounded-2xl p-5 sm:max-w-md sm:p-6 [&_[data-slot=dialog-close]]:hover:bg-transparent">
         <DialogHeader className="gap-1 text-left">
           <DialogTitle className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
             Profile settings
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            Customer · {tenantName} Support
+            Your photo, name and the email you sign in with.
           </DialogDescription>
         </DialogHeader>
 

@@ -329,6 +329,34 @@ export function isPortalRequestSort(value: string): value is PortalRequestSort {
   return Object.hasOwn(PORTAL_REQUEST_SORTS, value);
 }
 
+/**
+ * How many requests one page of the list holds.
+ *
+ * Five, not ten: the rows are cards, and a card is a title, a preview, a
+ * relative time and a status pill -- roughly 110px with the gaps, so five of
+ * them are about a screen and a half and the count line above the pager is
+ * still on it. Ten is two full screens, which is the treadmill a page break
+ * exists to stop: the reader scrolls past the end of the list without seeing
+ * the pager, and asks again for what they were already looking at. The cost is
+ * more pages on a long list, which is the cheaper of the two mistakes for a
+ * control that is Previous / Next and nothing else.
+ */
+export const PORTAL_REQUESTS_PER_PAGE = 5;
+
+/** One page of the requests list, plus what the pager needs to draw itself. */
+export type PortalRequestPage = {
+  requests: PortalRequestSummary[];
+  /** Every row matching the filters, not just this page. 0 when none match. */
+  total: number;
+  /**
+   * The page actually read, after clamping to the last one. Compared against
+   * the number in the URL by the page, which redirects when they disagree --
+   * see listPortalRequests.
+   */
+  page: number;
+  perPage: number;
+};
+
 export type PortalMessageAuthor = "agent" | "customer" | "system";
 
 export type PortalMessage = {

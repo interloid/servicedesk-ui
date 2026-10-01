@@ -32,6 +32,7 @@ import {
   submitRequestAction,
 } from "@/features/portal/actions/portal.actions";
 import { PortalAttachmentPicker } from "@/features/portal/components/portal-attachment-picker";
+import { PortalCentered } from "@/features/portal/components/portal-shell";
 import { applyFieldErrors } from "@/features/portal/form-errors";
 import {
   portalToastError,
@@ -189,7 +190,7 @@ export function PortalNewRequestForm({
   );
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-7xl md:px-6">
       <Link
         href={backHref}
         className="inline-flex items-center gap-1 rounded-md text-sm font-semibold text-brand-ink underline-offset-4 transition-colors hover:text-brand-ink hover:underline"
@@ -440,29 +441,31 @@ function GuestConfirmation({
   email: string;
 }) {
   return (
-    <div className="mx-auto w-full max-w-120 rounded-2xl border bg-card p-6 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.06)] sm:p-8">
-      <span
-        aria-hidden
-        className="mx-auto flex size-14 items-center justify-center rounded-full bg-brand-accent/10 text-brand-accent ring-8 ring-brand-accent/5"
-      >
-        <CheckCircle2 className="size-7" />
-      </span>
+    <PortalCentered width="max-w-120">
+      <div className="w-full rounded-2xl border bg-card p-6 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.06)] sm:p-8">
+        <span
+          aria-hidden
+          className="mx-auto flex size-14 items-center justify-center rounded-full bg-brand-accent/10 text-brand-accent ring-8 ring-brand-accent/5"
+        >
+          <CheckCircle2 className="size-7" />
+        </span>
 
-      <h1 className="mt-5 text-2xl font-bold tracking-tight text-foreground">
-        We&apos;ve got it
-      </h1>
+        <h1 className="mt-5 text-2xl font-bold tracking-tight text-foreground">
+          We&apos;ve got it
+        </h1>
 
-      <p className="mt-2 text-sm leading-[1.6] text-muted-foreground">
-        Your request is with our team. We&apos;ll reply to{" "}
-        <strong className="font-bold text-foreground">{email}</strong>. Sign in
-        with that address any time to follow it here.
-      </p>
+        <p className="mt-2 text-sm leading-[1.6] text-muted-foreground">
+          Your request is with our team. We&apos;ll reply to{" "}
+          <strong className="font-bold text-foreground">{email}</strong>. Sign
+          in with that address any time to follow it here.
+        </p>
 
-      <Button asChild size="lg" className="mt-6 h-11 px-6 font-semibold">
-        <Link href={portalPath(tenantSlug, PORTAL_ROUTES.LOGIN)}>
-          Sign in to track it
-        </Link>
-      </Button>
-    </div>
+        <Button asChild size="lg" className="mt-6 h-11 px-6 font-semibold">
+          <Link href={portalPath(tenantSlug, PORTAL_ROUTES.LOGIN)}>
+            Sign in to track it
+          </Link>
+        </Button>
+      </div>
+    </PortalCentered>
   );
 }

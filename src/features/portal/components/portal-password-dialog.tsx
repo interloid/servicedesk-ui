@@ -51,7 +51,8 @@ export function PortalPasswordDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] gap-5 overflow-y-auto rounded-2xl p-5 sm:max-w-md sm:p-6">
+      {/* As in the profile dialog: no hover wash on the cross. */}
+      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] gap-5 overflow-y-auto rounded-2xl p-5 sm:max-w-md sm:p-6 [&_[data-slot=dialog-close]]:hover:bg-transparent">
         <DialogHeader className="gap-1 text-left">
           <DialogTitle className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
             Change password
@@ -133,7 +134,12 @@ function PasswordForm({
           onSubmit={form.handleSubmit(onSubmit)}
           className="flex flex-col gap-4"
         >
-          <PortalPasswordFields control={form.control} />
+          {/* No checklist: see PortalPasswordFields on why the dialog is
+              quieter than the first-password page. */}
+          <PortalPasswordFields
+            control={form.control}
+            showRequirements={false}
+          />
 
           <div className="mt-1 grid grid-cols-2 gap-2.5 border-t pt-5 sm:flex sm:justify-end sm:gap-3">
             <Button

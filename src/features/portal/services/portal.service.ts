@@ -13,6 +13,7 @@ import {
   describeBusinessHours,
   initialsFrom,
   MAX_ATTACHMENTS_PER_MESSAGE,
+  PORTAL_REQUESTS_PER_PAGE,
   PORTAL_ROUTES,
   portalPath,
   toPortalState,
@@ -27,8 +28,8 @@ import {
   type PortalNextStep,
   type PortalPriority,
   type PortalRequestDetail,
+  type PortalRequestPage,
   type PortalRequestSort,
-  type PortalRequestSummary,
   type PortalSupportHours,
   type PortalTenant,
   type PortalTicketStatus,
@@ -964,6 +965,7 @@ type RequestFilters = {
   search?: string;
   state?: string;
   sort?: PortalRequestSort;
+  page?: number;
 };
 
 /** Long enough for two lines on a wide row; the UI truncates the rest. */
@@ -990,68 +992,141 @@ const STATE_TO_STATUSES: Record<string, PortalTicketStatus[]> = {
  * `requester_customer_id = <the caller's customer row>`, so no ownership filter
  * is repeated here. The tenant_id filter is belt-and-braces for the case where
  * one person is a customer of several tenants on the same auth user.
+ *
+ * One page, plus the total behind the filters. The total comes from
+ * `count: "exact"` rather than from the rows returned, because the length of
+ * the page cannot tell "ten requests, and that is all of them" from "ten of
+ * eighty-seven", and a pager built on that guess invents a second page for
+ * everyone whose first page happens to come back short.
+ *
+ * The page is clamped to the last one that exists. A hand-edited or stale
+ * `?page=9` is not an error worth rendering as one -- the reader gets the last
+ * page of real results, and the page component redirects so the URL agrees with
+ * what was shown.
  */
 export async function listPortalRequests(
   identity: PortalIdentity,
   filters: RequestFilters = {},
-): Promise<PortalRequestSummary[]> {
+): Promise<PortalRequestPage> {
   const supabase = await createSupabaseServerClient();
   const order = SORT_ORDER[filters.sort ?? "updated"];
 
-  let query = supabase
-    .from("tickets")
-    .select(
-      "id, number, subject, description, status, priority, created_at, updated_at, resolved_at",
-    )
-    .eq("tenant_id", identity.tenant.id)
-    .eq("requester_customer_id", identity.customer.id)
+  /**
+   * The filtered set, with no order and no window.
+   *
+   * A closure rather than a value because the count and the page are two
+   * different requests -- `head` is a property of the select, not something
+   * that can be added afterwards -- and the filters are written once here so
+   * they cannot be applied to one and forgotten on the other. That is how a
+   * total ends up counting rows the page does not show.
+   */
+  function filtered(head: boolean) {
+    let query = supabase
+      .from("tickets")
+      // The count is asked for only by the call that reads it. Asking PostgREST
+      // for an exact count on the page as well makes it count the same set a
+      // second time on every page load, for a number this already has.
+      .select(TICKET_LIST_COLUMNS, head ? { count: "exact", head } : undefined)
+      .eq("tenant_id", identity.tenant.id)
+      .eq("requester_customer_id", identity.customer.id);
+
+    const statuses = filters.state
+      ? STATE_TO_STATUSES[filters.state]
+      : undefined;
+
+    if (statuses) {
+      query = query.in("status", statuses);
+    }
+
+    const term = filters.search?.trim();
+
+    if (term) {
+      // Escaped so a comma or parenthesis in the search box cannot break out
+      // of the PostgREST or() grammar into another filter.
+      const safe = term.replace(/[,()\\]/g, "\\$&");
+      query = query.or(`subject.ilike.%${safe}%,description.ilike.%${safe}%`);
+    }
+
+    return query;
+  }
+
+  // The total comes from `count: "exact"` rather than from the rows returned,
+  // because the length of a page cannot tell "ten requests, and that is all of
+  // them" from "ten of eighty-seven", and a pager built on that guess invents a
+  // second page for everyone whose first page happens to come back short.
+  //
+  // head: true, so PostgREST answers with the number in a header and an empty
+  // body. Without it this query would download a full row -- subject,
+  // description and all -- for every request the customer has ever raised, on
+  // every page load, to read one integer. No order and no range on it, since
+  // neither can change how many rows match.
+  const { count, error: countError } = await filtered(true);
+
+  if (countError) {
+    console.error("[portal] request count failed:", countError.message);
+    return {
+      requests: [],
+      total: 0,
+      page: 1,
+      perPage: PORTAL_REQUESTS_PER_PAGE,
+    };
+  }
+
+  const total = count ?? 0;
+  const lastPage = Math.max(1, Math.ceil(total / PORTAL_REQUESTS_PER_PAGE));
+
+  // A hand-edited or stale `?page=9` is not an error worth rendering as one: the
+  // reader gets the last page that exists, and the page component redirects so
+  // the URL ends up agreeing with what was shown. Number.isFinite rather than
+  // `> 0` is the test, because `?page=abc` reaches here as NaN and NaN > 0 is
+  // false, which would quietly send a typo to page 1 with no correction.
+  const requested = Math.trunc(filters.page ?? 1);
+  const page = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 1), lastPage)
+    : 1;
+
+  const from = (page - 1) * PORTAL_REQUESTS_PER_PAGE;
+
+  const { data, error } = await filtered(false)
     .order(order.column, { ascending: order.ascending })
-    .limit(100);
-
-  const statuses = filters.state ? STATE_TO_STATUSES[filters.state] : undefined;
-
-  if (statuses) {
-    query = query.in("status", statuses);
-  }
-
-  const search = filters.search?.trim();
-
-  if (search) {
-    // Escaped so a comma or parenthesis in the search box cannot break out of
-    // the PostgREST or() grammar into another filter.
-    const safe = search.replace(/[,()\\]/g, "\\$&");
-    query = query.or(`subject.ilike.%${safe}%,description.ilike.%${safe}%`);
-  }
-
-  const { data, error } = await query;
+    .range(from, from + PORTAL_REQUESTS_PER_PAGE - 1);
 
   if (error) {
-    console.error("[portal] request list failed:", error.message);
-    return [];
+    console.error("[portal] request page failed:", error.message);
+    return { requests: [], total, page, perPage: PORTAL_REQUESTS_PER_PAGE };
   }
 
-  return (data ?? []).map((row) => {
-    const status = row.status as PortalTicketStatus;
+  return {
+    requests: (data ?? []).map((row) => {
+      const status = row.status as PortalTicketStatus;
 
-    return {
-      id: row.id,
-      number: row.number,
-      subject: row.subject,
-      status,
-      priority: row.priority as PortalPriority,
-      state: toPortalState(status),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      resolvedAt: row.resolved_at,
-      // Trimmed here so a 10,000-character description is not shipped to
-      // the browser to show one line of it.
-      preview: (row.description ?? "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, PREVIEW_LENGTH),
-    };
-  });
+      return {
+        id: row.id,
+        number: row.number,
+        subject: row.subject,
+        status,
+        priority: row.priority as PortalPriority,
+        state: toPortalState(status),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        resolvedAt: row.resolved_at,
+        // Trimmed here so a 10,000-character description is not shipped to
+        // the browser to show one line of it.
+        preview: (row.description ?? "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, PREVIEW_LENGTH),
+      };
+    }),
+    total,
+    page,
+    perPage: PORTAL_REQUESTS_PER_PAGE,
+  };
 }
+
+/** The columns a list row needs. One string so the count and the page agree. */
+const TICKET_LIST_COLUMNS =
+  "id, number, subject, description, status, priority, created_at, updated_at, resolved_at";
 
 type CreateRequestInput = {
   slug: string;

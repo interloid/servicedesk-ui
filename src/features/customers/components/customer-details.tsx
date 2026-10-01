@@ -108,7 +108,11 @@ export default function CustomerDetailPage({
 
           <div className="mt-4 flex min-w-0 items-center gap-3.5 sm:gap-5">
             <div className="relative shrink-0">
-              <Avatar className="size-14 sm:size-20">
+              {/* White edge plus a hairline green ring: on the page's white
+                  card a bare circular photo has no defined edge and reads as a
+                  hole, and at 56px on a phone the 2px border is most of what
+                  tells you where the photo ends. */}
+              <Avatar className="size-14 overflow-hidden border-2 border-white shadow-sm ring-1 ring-gray-400 sm:size-20 dark:ring-emerald-800">
                 {customer.avatarUrl ? (
                   <AvatarImage
                     src={customer.avatarUrl}
@@ -116,6 +120,9 @@ export default function CustomerDetailPage({
                     className="object-cover"
                   />
                 ) : null}
+                {/* Still here because AvatarImage only renders once the load
+                    succeeds: without a fallback a customer with no photo, or
+                    with a broken URL, shows an empty circle. */}
                 <AvatarFallback className="bg-brand-accent/10 text-xl font-bold text-brand-accent">
                   {customerInitials(customer.fullName, customer.email)}
                 </AvatarFallback>
@@ -138,7 +145,9 @@ export default function CustomerDetailPage({
                     </span>
                     <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
                       <Building2 aria-hidden className="size-4 shrink-0" />
-                      <span className="truncate">{customer.company}</span>
+                      <span className="truncate uppercase">
+                        {customer.company}
+                      </span>
                     </span>
                   </>
                 ) : null}
@@ -201,19 +210,20 @@ export default function CustomerDetailPage({
         ) : null}
 
         {tab === "tickets" ? (
+          /*
+           * No section heading here. The tab strip already says "Tickets" and
+           * says how many, and a heading repeating both above the table only
+           * pushed the first row down by 68px -- so the card is the table, with
+           * the pager under it when there is more than one page.
+           */
           <section className={cn(CARD, "overflow-hidden")}>
-            <SectionHeader icon={ReceiptText} title="All tickets">
-              <span className="text-xs text-muted-foreground">
-                {tickets.total} total
-              </span>
-            </SectionHeader>
             <TicketTable
               tickets={tickets.tickets}
               now={now}
               href={ticketsRouteHref}
             />
             {tickets.pageCount > 1 ? (
-              <div className="flex flex-col items-center justify-between gap-3 border-t px-5 py-3 text-sm text-muted-foreground sm:flex-row sm:px-6">
+              <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:px-6">
                 <span>
                   Showing {(tickets.page - 1) * CUSTOMER_TICKET_PAGE_SIZE + 1}–
                   {Math.min(
@@ -281,7 +291,12 @@ function Overview({
           label="Company"
           value={
             customer.company ? (
-              <span className="block truncate">{customer.company}</span>
+              /* Shouting, because a company name here is a label rather than a
+                 sentence: it is the one stat card whose value is a word, and
+                 mixed case read as a sentence fragment next to three numbers. */
+              <span className="block truncate uppercase">
+                {customer.company}
+              </span>
             ) : (
               <span className="text-muted-foreground">—</span>
             )
@@ -403,6 +418,7 @@ function Overview({
             tickets={ticketPage.tickets.slice(0, RECENT_TICKETS)}
             now={now}
             href={ticketsRouteHref}
+            className="border-t"
           />
         </section>
       </div>
@@ -725,14 +741,20 @@ function TicketTable({
   tickets,
   now,
   href,
+  className,
 }: {
   tickets: CustomerTicket[];
   now: number;
   href: string;
+  /** The rule under a section heading. Only passed where one is drawn. */
+  className?: string;
 }) {
   if (tickets.length === 0) {
     return (
-      <div className="flex flex-col items-center px-5 pt-2 pb-8 text-center">
+      // pt-6 rather than the pt-2 a heading would want: the Tickets tab draws
+      // no heading, and a message 8px under the card's top edge reads as a
+      // mistake.
+      <div className="flex flex-col items-center px-5 pt-6 pb-10 text-center">
         <p className="text-sm text-muted-foreground">
           No tickets raised by this customer yet.
         </p>
@@ -751,7 +773,7 @@ function TicketTable({
   const cell = "px-4 py-3.5 sm:px-6 sm:py-4";
 
   return (
-    <div className="@container border-t">
+    <div className={cn("@container", className)}>
       <Table className="table-fixed text-sm">
         <TableHeader>
           <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50 dark:border-border dark:bg-muted/40 dark:hover:bg-muted/40">
@@ -783,6 +805,10 @@ function TicketTable({
                 #{ticket.number ?? "—"}
               </TableCell>
               <TableCell className={cell}>
+                {/* One line, ellipsised: the subject only has to be
+                    recognisable here, not readable, and title carries the rest
+                    on hover. A wrapping subject would make one row taller than
+                    the rest and the row would stop reading as a row. */}
                 <Link
                   href={href}
                   title={ticket.subject}

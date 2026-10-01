@@ -75,11 +75,15 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
               </AvatarFallback>
             </Avatar>
 
+            {/* max-w-40 / lg:max-w-48 rather than 32/40: the header is the only
+                place a long name is shown, and it was truncating a full word
+                before the dropdown -- which has the room to show it in full --
+                was even open. */}
             <div className="hidden sm:flex min-w-0 flex-col items-start">
-              <span className="max-w-32 lg:max-w-40 truncate text-sm font-semibold text-foreground capitalize">
+              <span className="max-w-40 lg:max-w-48 truncate text-sm font-semibold text-foreground capitalize">
                 {identity.user.name}
               </span>
-              <span className="max-w-32 lg:max-w-40 truncate text-xs text-muted-foreground">
+              <span className="max-w-40 lg:max-w-48 truncate text-xs text-muted-foreground">
                 {displayRole}
               </span>
             </div>
@@ -89,7 +93,9 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
         <DropdownMenuContent
           align="end"
           sideOffset={13}
-          className="w-60 rounded-xl p-0"
+          // w-72, up from w-60: the label carries "Role · Organisation" on one
+          // line and was wrapping in a panel barely wider than its own items.
+          className="w-72 rounded-xl p-0"
         >
           <DropdownMenuLabel className="flex flex-col gap-0.5 border-b px-3.5 py-3 font-normal">
             <span className="text-sm font-semibold text-foreground capitalize">

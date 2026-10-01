@@ -182,7 +182,11 @@ export function PortalRequestDetailView({
   const { created, updated } = describeHeader(request);
 
   return (
-    <div className="mx-auto w-full max-w-4xl">
+    // max-w-5xl, matching the request list and the help centre. This page was
+    // the one portal column narrower than its siblings, and the thread is the
+    // widest thing in the portal -- a 1024px column gives the bubbles room to
+    // keep their max-w-* and still read as a conversation.
+    <div className="mx-auto w-full max-w-7xl md:px-6">
       <Link
         href={portalPath(tenantSlug, PORTAL_ROUTES.REQUESTS)}
         className="inline-flex items-center gap-1.5 rounded-md text-sm font-semibold text-brand-ink underline-offset-4 hover:text-brand-ink hover:underline"
@@ -203,13 +207,14 @@ export function PortalRequestDetailView({
         </Alert>
       ) : null}
 
-      {/* No card. This is a conversation, and a conversation does not arrive in
-          a box: the page was three levels of nesting deep -- a card around the
-          request, a card around every message inside it, a card around every
-          attachment inside that -- and the outermost one was the only thing
-          giving the thread its shape. Hairlines and space do that job without
-          the pile. Only real controls keep an outline: the textarea, the
-          buttons, the attachment rows. */}
+      {/* No card around the thread. This is a conversation, and a conversation
+          does not arrive in a box: the page was three levels of nesting deep --
+          a card around the request, a card around every message inside it, a
+          card around every attachment inside that -- and the outermost one was
+          the only thing giving the thread its shape. The messages below are
+          tinted, not outlined, which is what a chat is made of; only real
+          controls keep an outline: the textarea, the buttons, the attachment
+          rows. */}
       <section className="mt-4">
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
@@ -217,13 +222,16 @@ export function PortalRequestDetailView({
               #{request.number ?? "—"}
             </span>
 
+            {/* No leading dot, same as the list badge: the label already says
+                the state, and a 6px dot inside a bordered pill reads as a
+                second, smaller pill. The border stays because this badge sits
+                on the page background rather than inside a card. */}
             <span
               className={cn(
-                "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold",
+                "whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold",
                 STATE_BADGE[request.state],
               )}
             >
-              <span aria-hidden className="size-1.5 rounded-full bg-current" />
               {PORTAL_STATE_LABEL[request.state]}
             </span>
           </div>
@@ -254,11 +262,12 @@ export function PortalRequestDetailView({
           </div>
         ) : null}
 
-        {/* divide-y, not a card per message: the rule between two replies is
-            the whole of the separation, and the tint that used to mark the
-            team apart is carried by the avatar and the "Support team" chip
-            now that the box is gone. */}
-        <div className="mt-6 flex flex-col divide-y divide-border">
+        {/* A conversation, laid out as one: the customer's own messages sit on
+            the right and the team's on the left, so a reply reads as an answer
+            rather than as another entry in a log. Space separates them, not a
+            rule -- a hairline between two bubbles draws a box around the pair
+            that the bubbles themselves already draw. */}
+        <div className="mt-6 flex flex-col">
           {request.messages.map((message) => (
             <Message key={message.id} message={message} />
           ))}
@@ -343,32 +352,67 @@ export function PortalRequestDetailView({
   );
 }
 
+/**
+ * p-6 / sm:p-8, not the p-5 the other portal cards use. The composer is the
+ * widest and emptiest surface on the page and the only one holding two
+ * controls at once, so it needs the extra room to not read as a form stuffed
+ * into a box the size of a card.
+ */
 const REPLY_CARD_CLASS =
-  "rounded-2xl border bg-card p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.05)] sm:p-6";
+  "rounded-2xl border bg-card p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.05)] sm:p-8";
 
+/**
+ * One entry in the thread. The customer reads their own messages on the right
+ * and the team's on the left, so a thread reads as a conversation without any
+ * labels: which side a message is on is the fact the eye needs first.
+ *
+ * Three details carry the layout, and all three are about one message never
+ * sitting on top of the next. min-w-0 on the header and the bubble lets both
+ * shrink inside the flex column, which is what stops a long unbroken word or
+ * a long filename pushing the bubble out of the page and over its neighbour --
+ * a flex item's default min-width:auto does not shrink, and that is the whole
+ * cause. max-w-* then caps the bubble short of the opposite side, so the two
+ * sides stay visibly two sides. And the vertical rhythm is padding on the
+ * article with no negative margin anywhere, so nothing can be pulled up over
+ * the message above it.
+ */
 function Message({ message }: { message: PortalMessage }) {
   const fromTeam = message.authorType !== "customer";
+  const fromCustomer = message.authorType === "customer";
 
   return (
-    // py-5 with the ends trimmed: the thread's divide-y supplies the rule
-    // between messages, and this keeps the padding off the outer edges so the
-    // first message sits as close to the subject as the last one does to the
-    // reply box.
-    <article className="py-5 first:pt-0 last:pb-0">
-      <div className="flex items-center gap-3">
+    <article
+      className={cn(
+        "flex min-w-0 flex-col gap-2 py-4 first:pt-0 last:pb-0",
+        fromCustomer ? "items-end" : "items-start",
+      )}
+    >
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-2.5",
+          fromCustomer && "flex-row-reverse",
+        )}
+      >
         <span
           aria-hidden
           className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+            "flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
             fromTeam
               ? "bg-brand-accent text-brand-accent-foreground"
-              : "bg-brand-accent/10 text-brand-accent",
+              : // Ringed because the customer's bubble below is the same tint:
+                // without an edge the two read as one soft block on the right.
+                "bg-brand-accent/10 text-brand-accent ring-1 ring-brand-accent/25 ring-inset",
           )}
         >
           {message.initials}
         </span>
 
-        <div className="min-w-0">
+        <div
+          className={cn(
+            "min-w-0",
+            fromCustomer && "flex flex-col items-end text-right",
+          )}
+        >
           <p className="flex flex-wrap items-center gap-x-2 text-sm font-semibold wrap-break-word text-foreground">
             {message.authorName}
             {fromTeam && message.authorType === "agent" ? (
@@ -383,9 +427,14 @@ function Message({ message }: { message: PortalMessage }) {
         </div>
       </div>
 
-      {/* Indented under the name on a wide screen, as in the design; full
-          width on a phone, where 48px of indent is a lot of a line. */}
-      <div className="mt-3 sm:pl-12">
+      <div
+        className={cn(
+          "min-w-0 max-w-[85%] rounded-2xl px-3.5 py-2.5 sm:max-w-[75%]",
+          fromCustomer
+            ? "rounded-tr-sm bg-brand-accent/10 text-foreground"
+            : "rounded-tl-sm bg-muted text-foreground",
+        )}
+      >
         {/* Plain text, split on blank lines. Agent replies are not trusted
             markup and must never be rendered as HTML. */}
         {message.body.split(/\n{2,}/).map((paragraph, index) => (

@@ -2,14 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import {
-  ChevronDown,
-  LifeBuoy,
-  LogIn,
-  LogOut,
-  Menu,
-  SquarePen,
-} from "lucide-react";
+import { ChevronDown, Menu } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -33,11 +26,9 @@ import { cn } from "@/lib/utils";
 
 export function PortalUserMenu({
   tenantSlug,
-  tenantName,
   customer,
 }: {
   tenantSlug: string;
-  tenantName: string;
   customer: PortalCustomer;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -94,7 +85,7 @@ export function PortalUserMenu({
 
         <DropdownMenuContent
           align="start"
-          sideOffset={8}
+          sideOffset={10}
           className="w-68 p-1.5"
         >
           <DropdownMenuLabel className="flex items-center gap-3 px-2.5 py-2.5">
@@ -140,9 +131,8 @@ export function PortalUserMenu({
             onSelect={onSignOut}
             disabled={isPending}
             variant="destructive"
-            className="gap-2.5 px-2.5 py-2"
+            className="h-9 px-3 text-sm font-medium cursor-pointer"
           >
-            <LogOut aria-hidden />
             <span>{isPending ? "Signing out…" : "Sign out"}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -152,7 +142,6 @@ export function PortalUserMenu({
         open={isProfileOpen}
         onOpenChange={setIsProfileOpen}
         tenantSlug={tenantSlug}
-        tenantName={tenantName}
         customer={customer}
       />
 
@@ -182,7 +171,6 @@ export function PortalGuestMenu({ tenantSlug }: { tenantSlug: string }) {
 
         <DropdownMenuItem asChild className={LINK_ITEM_CLASS}>
           <Link href={portalPath(tenantSlug, PORTAL_ROUTES.LOGIN)}>
-            <LogIn aria-hidden />
             <span>Sign in</span>
           </Link>
         </DropdownMenuItem>
@@ -216,14 +204,12 @@ function MobileNavItems({
     <>
       <DropdownMenuItem asChild className={itemClass}>
         <Link href={portalPath(tenantSlug, PORTAL_ROUTES.HELP)}>
-          <LifeBuoy aria-hidden />
           <span>Help centre</span>
         </Link>
       </DropdownMenuItem>
 
       <DropdownMenuItem asChild className={itemClass}>
         <Link href={portalPath(tenantSlug, PORTAL_ROUTES.NEW_REQUEST)}>
-          <SquarePen aria-hidden />
           <span>Submit a request</span>
         </Link>
       </DropdownMenuItem>

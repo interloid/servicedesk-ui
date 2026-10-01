@@ -39,11 +39,20 @@ const REQUIREMENTS = [
  * were dropped from one copy, the two ways of setting a password would start
  * disagreeing about what a valid password is. The rule is stated once, next to
  * the input that enforces it, and read by both.
+ *
+ * showRequirements is the difference between the two callers. The page is
+ * someone's first password and needs the checklist in front of them. The dialog
+ * is someone who already has one and came to change it: there the checklist was
+ * three lines of wall between the fields and the button, so they get a dotted
+ * placeholder instead and the rule lives only in the schema. The rule is still
+ * enforced either way, so a too-short password comes back the same on both.
  */
 export function PortalPasswordFields({
   control,
+  showRequirements = true,
 }: {
   control: Control<PortalSetPasswordValues>;
+  showRequirements?: boolean;
 }) {
   const [password = "", confirmPassword = ""] = useWatch({
     control,
@@ -69,7 +78,14 @@ export function PortalPasswordFields({
               <PasswordInput
                 {...field}
                 autoComplete="new-password"
-                aria-describedby="portal-password-rules"
+                aria-describedby={
+                  showRequirements ? "portal-password-rules" : undefined
+                }
+                placeholder={
+                  showRequirements
+                    ? "At least 10 characters, with a number"
+                    : "••••••••••"
+                }
                 className={FIELD_CLASS}
               />
             </FormControl>
@@ -79,49 +95,51 @@ export function PortalPasswordFields({
         )}
       />
 
-      <div
-        id="portal-password-rules"
-        className="rounded-xl border bg-muted/40 px-4 py-3.5"
-      >
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-          Password requirements
-          <Info aria-hidden className="size-3.5 text-muted-foreground" />
-        </p>
+      {showRequirements ? (
+        <div
+          id="portal-password-rules"
+          className="rounded-xl border bg-muted/40 px-4 py-3.5"
+        >
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            Password requirements
+            <Info aria-hidden className="size-3.5 text-muted-foreground" />
+          </p>
 
-        <ul className="mt-2.5 flex flex-col gap-2">
-          {REQUIREMENTS.map(({ label, test }) => {
-            const met = test(password);
+          <ul className="mt-2.5 flex flex-col gap-2">
+            {REQUIREMENTS.map(({ label, test }) => {
+              const met = test(password);
 
-            return (
-              <li
-                key={label}
-                className={cn(
-                  "flex items-center gap-2 text-xs transition-colors",
-                  met ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                <span
-                  aria-hidden
+              return (
+                <li
+                  key={label}
                   className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded-full transition-colors",
-                    met
-                      ? "bg-success text-white"
-                      : "border border-input bg-card",
+                    "flex items-center gap-2 text-xs transition-colors",
+                    met ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
-                  {met ? (
-                    <Check className="size-2.5" strokeWidth={3.5} />
-                  ) : null}
-                </span>
-                {label}
-                <span className="sr-only">
-                  {met ? "(met)" : "(not met yet)"}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "flex size-4 shrink-0 items-center justify-center rounded-full transition-colors",
+                      met
+                        ? "bg-success text-white"
+                        : "border border-input bg-card",
+                    )}
+                  >
+                    {met ? (
+                      <Check className="size-2.5" strokeWidth={3.5} />
+                    ) : null}
+                  </span>
+                  {label}
+                  <span className="sr-only">
+                    {met ? "(met)" : "(not met yet)"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
 
       <FormField
         control={control}
@@ -139,6 +157,9 @@ export function PortalPasswordFields({
                 <PasswordInput
                   {...field}
                   autoComplete="new-password"
+                  placeholder={
+                    showRequirements ? "Type it again" : "••••••••••"
+                  }
                   className={cn(FIELD_CLASS, matches && "pr-16")}
                 />
               </FormControl>

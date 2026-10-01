@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
 
 import { BrandTheme } from "@/components/shared/layout/brand-theme";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
@@ -44,7 +43,12 @@ export function PortalShell({
 
       <PortalHeader tenant={tenant} customer={customer} />
 
-      <main className="flex-1 px-4 py-8 sm:px-5 md:px-6 md:py-12">
+      {/* flex-col is what lets PortalCentered's flex-1 fill this element, so
+          the sign-in and confirmation cards can centre in the space between the
+          header and the footer. Every page renders a single child here, so
+          column flex is otherwise indistinguishable from block flow. Don't drop
+          it without checking those three screens still centre. */}
+      <main className="flex flex-1 flex-col px-4 py-8 sm:px-5 md:px-6 md:py-12">
         {children}
       </main>
 
@@ -67,7 +71,7 @@ function PortalHeader({
     <header className="sticky top-0 z-40 border-b border-current/15 bg-brand-accent text-brand-accent-foreground shadow-[0_1px_0_rgba(15,23,42,0.04),0_4px_16px_rgba(15,23,42,0.06)]">
       {/* Same max width as the footer, so the logo and the footer's name
           line up on a wide screen instead of sitting at opposite gutters. */}
-      <div className="mx-auto flex h-15 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:h-16 sm:gap-4 sm:px-5 md:px-6">
+      <div className="mx-auto flex h-15 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:h-16 sm:gap-4 sm:px-5 md:px-6">
         <Link
           href={portalPath(tenant.slug, PORTAL_ROUTES.REQUESTS)}
           // The colour is set here, not inherited from the header. globals.css
@@ -111,11 +115,7 @@ function PortalHeader({
           </Link>
 
           {customer ? (
-            <PortalUserMenu
-              tenantSlug={tenant.slug}
-              tenantName={tenant.name}
-              customer={customer}
-            />
+            <PortalUserMenu tenantSlug={tenant.slug} customer={customer} />
           ) : (
             <PortalGuestMenu tenantSlug={tenant.slug} />
           )}
@@ -126,13 +126,16 @@ function PortalHeader({
 }
 
 /**
- * A fixed dark band rather than the brand colour: the header already carries
- * the brand, and a second brand bar would fight whatever the tenant picked.
- * slate-400 on slate-900 is 6.9:1, so the small print stays readable.
+ * One line. The design called for a logo, a tagline, a Support column and a
+ * phone disclosure; of everything in those, the only two things not already
+ * reachable elsewhere were the tenant's name and its support hours -- the guest
+ * menu carries both footer links and the header carries Help centre from sm up.
+ * So the name and the hours are what stayed.
  *
- * Only links that go somewhere real. The design also shows Status page,
- * Privacy policy, Terms and social icons, but tenants have nowhere to set
- * those URLs yet -- add them here once branding carries them.
+ * The band is still the fixed dark one rather than the brand colour: the header
+ * already carries the brand, and a second brand bar would fight whatever the
+ * tenant picked. slate-400 on slate-900 is 6.9:1, so the small print stays
+ * readable.
  */
 function PortalFooter({
   tenant,
@@ -148,96 +151,35 @@ function PortalFooter({
       : null,
   ].filter((detail): detail is string => Boolean(detail));
 
-  const supportLinks = [
-    { href: portalPath(tenant.slug, PORTAL_ROUTES.HELP), label: "Help centre" },
-    {
-      href: portalPath(tenant.slug, PORTAL_ROUTES.NEW_REQUEST),
-      label: "Submit a request",
-    },
+  const items = [
+    <span key="name" className="font-semibold text-white">
+      {tenant.name} Support
+    </span>,
+    ...details.map((detail) => <span key={detail}>{detail}</span>),
   ];
 
   return (
     <footer className="bg-slate-900 text-slate-400">
-      <div className="mx-auto w-full max-w-6xl px-4 pt-8 pb-8 sm:px-5 md:px-6 md:pt-10 md:pb-10">
-        <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between md:gap-10">
-          <div className="flex min-w-0 items-start gap-3">
-            <TenantMark tenant={tenant} className="bg-white/10 text-white" />
-
-            <div className="min-w-0">
-              <p className="text-sm font-bold wrap-break-word text-white">
-                {tenant.name} Support
-              </p>
-              <p className="mt-0.5 text-xs text-slate-400">
-                We&apos;re here to help
-              </p>
-
-              {details.length > 0 ? (
-                // Stacked on a phone, one dotted line from sm up: letting the
-                // pair wrap left a stray "·" at the start of the second line.
-                <p className="mt-2 flex flex-col gap-0.5 text-xs leading-normal sm:flex-row sm:flex-wrap sm:gap-x-1.5">
-                  {details.map((detail, index) => (
-                    <span key={detail}>
-                      {index > 0 ? (
-                        <span aria-hidden className="mr-1.5 hidden sm:inline">
-                          ·
-                        </span>
-                      ) : null}
-                      {detail}
-                    </span>
-                  ))}
-                </p>
+      <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 md:px-6">
+        {/* flex-wrap rather than one forced line: at 320px the hours and the
+            urgent target do not both fit, and truncating them would drop the
+            only information the footer carries. Each item sits in its own
+            nowrap row together with the separator that follows it, so a wrap
+            can never orphan a "·" at the start of a line. */}
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          {items.map((item, index) => (
+            <span key={index} className="flex items-center gap-2">
+              {item}
+              {index < items.length - 1 ? (
+                <span aria-hidden className="text-slate-600">
+                  ·
+                </span>
               ) : null}
-            </div>
-          </div>
-
-          {/* Wide screens: a plain column. Phones: a disclosure, so the
-              footer stays short under a long form. No rules anywhere: the
-              band is dark on its own, and a hairline between two columns of a
-              six-word footer was carrying more weight than the words. The gap
-              does the separating now. */}
-          <nav aria-label="Support" className="hidden md:block">
-            <p className="text-xs font-semibold text-white">Support</p>
-            <ul className="mt-3 flex flex-col gap-2">
-              {supportLinks.map((link) => (
-                <li key={link.href}>
-                  <FooterLink href={link.href}>{link.label}</FooterLink>
-                </li>
-              ))}
-            </ul>
-          </nav>
-
-          <details className="group md:hidden">
-            <summary className="flex cursor-pointer list-none items-center justify-between py-3 text-sm font-semibold text-white [&::-webkit-details-marker]:hidden">
-              Support
-              <ChevronDown
-                aria-hidden
-                className="size-4 text-slate-400 transition-transform group-open:rotate-180"
-              />
-            </summary>
-            <ul className="flex flex-col gap-2.5 pb-4">
-              {supportLinks.map((link) => (
-                <li key={link.href}>
-                  <FooterLink href={link.href}>{link.label}</FooterLink>
-                </li>
-              ))}
-            </ul>
-          </details>
-        </div>
+            </span>
+          ))}
+        </p>
       </div>
     </footer>
-  );
-}
-
-function FooterLink({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    // Colours named on the anchor for the same reason as the header:
-    // globals.css paints every `a` in the brand colour.
-    <Link
-      href={href}
-      className="text-xs text-slate-400 transition-colors hover:text-white hover:underline"
-    >
-      {children}
-    </Link>
   );
 }
 
@@ -271,6 +213,41 @@ function TenantMark({
     >
       {tenant.initial}
     </span>
+  );
+}
+
+/**
+ * Centres one block in whatever space the page has left: horizontally, and
+ * vertically when there is room to spare.
+ *
+ * `flex-1` is what fills the space, and it only works because <main> is a
+ * column flex container. A percentage (min-h-full) would not: main is a flex-1
+ * item in the shell's min-h-dvh column, so it has a used height but no height
+ * property, and the percentage has nothing to resolve against. The flex
+ * algorithm measures against the used height instead, which is why the stage
+ * grows here where min-h-full quietly did nothing.
+ *
+ * The vertical centring is `my-auto` on the child rather than justify-center
+ * on this element. Auto margins collapse to zero once the block is taller than
+ * the space; justify-center keeps pushing, which puts the top of the card
+ * above the scroll origin -- the page cannot scroll back up to it, so on a
+ * short window the heading is simply unreachable.
+ *
+ * That centres the block between the header and the footer rather than in the
+ * raw viewport, which is a few px above true centre now that the footer is a
+ * one-line band.
+ */
+export function PortalCentered({
+  width,
+  children,
+}: {
+  width: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={cn("mx-auto flex w-full flex-1 flex-col", width)}>
+      <div className="my-auto w-full">{children}</div>
+    </div>
   );
 }
 

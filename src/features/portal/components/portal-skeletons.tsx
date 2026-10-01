@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { PortalCard } from "@/features/portal/components/portal-shell";
+import { PortalSplit } from "@/features/portal/components/portal-split";
 import { cn } from "@/lib/utils";
 
 /**
@@ -38,9 +40,27 @@ export function PortalBackLinkSkeleton() {
   );
 }
 
-/** The state pill. */
-export function PortalStateBadgeSkeleton() {
-  return <Skeleton className="h-6 w-18 rounded-full bg-slate-200/80" />;
+/**
+ * The state pill. `className` carries the position when the page pins the badge
+ * to a corner -- the requests list takes it out of the flow, and a skeleton left
+ * in the flow would sit 57px inside the edge and then jump on landing.
+ *
+ * h-6 is the unbordered pill, which is what the list draws: a 16px text-xs line
+ * in py-1. The request detail draws the same pill WITH a border, so it measures
+ * 26px and its callers pass h-[26px] -- two pixels, but on a 26px box next to a
+ * matching number chip it is the difference between the pair landing together
+ * and the pill sitting a notch low.
+ */
+export function PortalStateBadgeSkeleton({
+  className,
+}: {
+  className?: string;
+}) {
+  return (
+    <Skeleton
+      className={cn("h-6 w-18 rounded-full bg-slate-200/80", className)}
+    />
+  );
 }
 
 /** A page heading and the line or two of copy under it. */
@@ -95,6 +115,11 @@ export function PortalRoundIconSkeleton({
  * A labelled control. `control` is the real control's height class rather than
  * a number, so a caller cannot drift from the form it is standing in for: the
  * portal inputs are h-11 and the new-request description is a taller box.
+ *
+ * The label bar is h-5, not h-4, because every FormLabel in the portal is
+ * text-sm and a 20px line box. The cards that centre themselves (sign-in,
+ * check-email) move both edges when a shorter skeleton is swapped for the real
+ * form, so a 4px miss here is an 8px jump in the middle of the viewport.
  */
 export function PortalFieldSkeleton({
   labelWidth = "w-24",
@@ -108,7 +133,7 @@ export function PortalFieldSkeleton({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <Skeleton className={cn("h-4 bg-slate-200/80", labelWidth)} />
+      <Skeleton className={cn("h-5 bg-slate-200/80", labelWidth)} />
       {/* A real bordered input, not a grey bar: the field outline is what the
           eye lands on, and it should already be where it will be. */}
       <div
@@ -140,40 +165,82 @@ export function PortalButtonPairSkeleton({
 }
 
 /**
- * One message in the thread. Flat, because the thread is: the request detail
- * page stacks the messages with divide-y and gives each one padding and
- * nothing else, so a bubble-shaped skeleton would flash a card the real page
- * never draws. The avatar is the only tone difference left between the two
- * sides, matching the tinted/solid pair on the real messages.
+ * One message in the thread. A bubble, aligned to the side that wrote it, with
+ * the author row above it exactly as the real message has it. The avatar is the
+ * only tone difference between the two sides, matching the solid/tinted pair on
+ * the real messages.
+ *
+ * bubbleWidth is not decoration. The article is a column flex with items-start,
+ * so the bubble shrink-wraps: the real one gets its width from its text, and a
+ * skeleton has none. Left to size itself, the bubble collapsed to its own 28px
+ * of padding and the w-full bars inside it resolved against nothing and drew
+ * nothing at all -- the message body was invisible and only the avatar and the
+ * name bar showed. A definite width on the bubble is what gives those bars
+ * something to be a percentage of.
  */
 export function PortalMessageSkeleton({
   fromTeam = true,
   lineWidths = ["w-full", "w-11/12", "w-2/3"],
   authorWidth = "w-28",
+  bubbleWidth = "w-[64%]",
 }: {
   fromTeam?: boolean;
   lineWidths?: string[];
   authorWidth?: string;
+  bubbleWidth?: string;
 }) {
   return (
-    <article className="py-5 first:pt-0 last:pb-0">
-      <div className="flex items-center gap-3">
+    <article
+      className={cn(
+        "flex min-w-0 flex-col gap-2 py-4 first:pt-0 last:pb-0",
+        fromTeam ? "items-start" : "items-end",
+      )}
+    >
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-2.5",
+          !fromTeam && "flex-row-reverse",
+        )}
+      >
         <PortalRoundIconSkeleton
           className={cn(
-            "size-9",
+            "size-8",
             fromTeam ? "bg-slate-300/70" : "bg-slate-200/80",
           )}
         />
-        <div className="flex flex-col gap-1.5">
-          <Skeleton className={cn("h-4 bg-slate-300/70", authorWidth)} />
-          <Skeleton className="h-3 w-20 bg-slate-200/80" />
+        <div
+          className={cn(
+            "flex min-w-0 flex-col gap-0.5",
+            !fromTeam && "items-end",
+          )}
+        >
+          {/* h-5 and h-3.5 on a 2px gap, which is 36px: the real column is a
+              text-sm name (20) directly above a text-xs stamp (16) with no gap
+              of its own. The bars used to be 16 and 12 on a 6px gap, so the
+              header came out 2px short and every bubble below it sat 2px high. */}
+          <Skeleton className={cn("h-5 bg-slate-300/70", authorWidth)} />
+          <Skeleton className="h-3.5 w-20 bg-slate-200/80" />
         </div>
       </div>
 
-      <div className="mt-3 flex flex-col gap-2 sm:pl-12">
-        {lineWidths.map((width, index) => (
-          <Skeleton key={index} className={cn("h-4 bg-slate-200/80", width)} />
-        ))}
+      <div
+        className={cn(
+          "min-w-0 max-w-[85%] rounded-2xl bg-slate-200/80 px-3.5 py-2.5 sm:max-w-[75%]",
+          bubbleWidth,
+          fromTeam ? "rounded-tl-sm" : "rounded-tr-sm",
+        )}
+      >
+        {/* h-5.5 bars on a gap-2.5. The real bubble is text-sm leading-[1.6],
+            which is 14px * 1.6 = 22.4px a line, with mt-2.5 (10px) between
+            paragraphs. At h-4/gap-2 a two-paragraph message drew 62px where the
+            page draws 74, and a three-paragraph one 90 where the page draws
+            107 -- the thread came in a third shorter than the skeleton and
+            every message below it jumped. */}
+        <div className="flex flex-col gap-2.5">
+          {lineWidths.map((width, index) => (
+            <Skeleton key={index} className={cn("h-5.5", width)} />
+          ))}
+        </div>
       </div>
     </article>
   );
@@ -187,10 +254,10 @@ export function PortalContentSkeleton({
   width,
   children,
 }: {
-  width: "max-w-3xl" | "max-w-4xl" | "max-w-5xl" | "max-w-6xl";
+  width: "max-w-3xl" | "max-w-4xl" | "max-w-5xl" | "max-w-6xl" | "max-w-7xl";
   children: ReactNode;
 }) {
-  return <div className={cn("mx-auto w-full", width)}>{children}</div>;
+  return <div className={cn("mx-auto w-full md:px-6", width)}>{children}</div>;
 }
 
 /**
@@ -207,36 +274,24 @@ export function PortalCardSkeleton({
   className?: string;
   children: ReactNode;
 }) {
-  return (
-    <div
-      className={cn(
-        "mx-auto w-full rounded-2xl border bg-card p-5 sm:p-8",
-        PORTAL_CARD_SHADOW,
-        width,
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
+  // PortalCard itself, not a second copy of its markup. It takes the width
+  // through className and cn merges it over the default, so this stays a
+  // one-line delegation. Two hand-rolled twins of one wrapper is how the
+  // sign-in card came to sit 4px off its skeleton, and how the portal ended up
+  // with four near-identical versions of the same box.
+  return <PortalCard className={cn(width, className)}>{children}</PortalCard>;
 }
 
 /**
  * Mirrors PortalSplit: the single centred sign-in card.
  */
 export function PortalSplitSkeleton({ children }: { children: ReactNode }) {
-  return (
-    <div className="mx-auto w-full max-w-md">
-      <div
-        className={cn(
-          "w-full rounded-2xl border bg-card p-5 sm:p-8",
-          PORTAL_CARD_SHADOW,
-        )}
-      >
-        {children}
-      </div>
-    </div>
-  );
+  // The real component rather than a copy of its markup. A skeleton that
+  // centres itself by its own rule puts the card somewhere else when the data
+  // lands, which is the one thing a loading state must never do -- and these
+  // two were already a copy pair, which is how the request-list skeleton came
+  // to sit 4px off its card.
+  return <PortalSplit>{children}</PortalSplit>;
 }
 
 /**

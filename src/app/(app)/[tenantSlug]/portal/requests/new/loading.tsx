@@ -11,12 +11,14 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * This file is not optional. `requests/loading.tsx` is the Suspense boundary for
- * the whole `requests` segment, so without a loading file of its own, opening
- * "New request" would flash the *list* skeleton — four request rows, a search
- * box and a status filter — before swapping to a form.
+ * This file is not optional. Without it, "New request" has no fallback of its
+ * own and the nearest one up the tree is the list's — four request rows, a
+ * search box and a status filter — before swapping to a form. The list's
+ * fallback sits in `requests/(overview)/loading.tsx`, beside the list page
+ * rather than above it, so this page is no longer covered by it; moving
+ * loading.tsx out of that group puts the flash back.
  *
- * Mirrors PortalNewRequestForm: the max-w-3xl column, the heading, and the form
+ * Mirrors PortalNewRequestForm: the max-w-7xl column, the heading, and the form
  * card (subject, description with its hint and counter, the dashed dropzone,
  * the button row).
  *
@@ -28,7 +30,7 @@ import { cn } from "@/lib/utils";
 
 export default function Loading() {
   return (
-    <PortalContentSkeleton width="max-w-3xl">
+    <PortalContentSkeleton width="max-w-7xl">
       <PortalBackLinkSkeleton />
 
       <div className="mt-4 mb-6 sm:mb-8">
@@ -47,8 +49,13 @@ export default function Loading() {
         <div className="flex flex-col gap-5">
           <PortalFieldSkeleton labelWidth="w-16" description="w-48" />
 
+          {/* The two labels below are drawn by hand rather than through
+              PortalFieldSkeleton, because each wraps a block of its own. They
+              are still h-5 for PortalFieldSkeleton's reason: the real labels
+              are text-sm, a 20px line box, and an h-4 bar put the box under
+              them 4px high. */}
           <div className="flex flex-col gap-2">
-            <Skeleton className="h-4 w-24 bg-slate-200/80" />
+            <Skeleton className="h-5 w-24 bg-slate-200/80" />
             <div className="min-h-36 rounded-lg border bg-background/60" />
             <div className="flex items-start justify-between gap-4">
               <Skeleton className="h-3 w-72 max-w-full bg-slate-200/80" />
@@ -57,7 +64,7 @@ export default function Loading() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Skeleton className="h-4 w-24 bg-slate-200/80" />
+            <Skeleton className="h-5 w-24 bg-slate-200/80" />
             <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed bg-muted/20 px-4 py-7">
               <PortalRoundIconSkeleton />
               <Skeleton className="mt-1 h-4 w-60 max-w-full bg-slate-200/80" />

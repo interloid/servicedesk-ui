@@ -2,6 +2,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 /**
+ * The customer table skeleton, and it lives inside the (overview) route group
+ * on purpose.
+ *
+ * A loading.tsx is the Suspense fallback for its whole segment INCLUDING every
+ * child below it. At customers/loading.tsx -- one level up, which is where this
+ * file used to sit -- that made the table skeleton the registered fallback for
+ * customers/[customerId] too, so opening a customer could flash a heading, a
+ * search field and a whole bordered table of rows on the way to one customer.
+ * The group is what stops that: (overview) and [customerId] are siblings, so
+ * each one's loading.tsx wraps only its own page.
+ *
+ * Moving this file back up to customers/ puts the bug straight back, and the URL
+ * is unaffected either way -- route groups do not appear in the path, so the
+ * table is still at /customers.
+ *
  * Without this file Next.js has no fallback for the async page beside it, so a
  * click leaves the previous screen up until every query has finished — which
  * reads as a dead link and gets clicked again.
@@ -95,12 +110,16 @@ export default function Loading() {
             <Skeleton className="h-5 w-80 max-w-full" />
             <Skeleton className="h-3 w-44" />
           </div>
-        </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative w-full sm:max-w-md sm:flex-1">
-            <Skeleton className="absolute top-1/2 left-3 size-4 -translate-y-1/2 rounded bg-slate-200/80" />
-            <div className="h-10 w-full rounded-lg border bg-card" />
+          {/* The search field stands in the heading row on the real table, so
+              it stands there here too: a bar of its own would leave the table
+              64px lower than the page it replaces. Same width ramp as the real
+              field, so the right edge lands on the table's. */}
+          <div className="w-full sm:w-80 lg:w-96">
+            <div className="relative">
+              <Skeleton className="absolute top-1/2 left-3 size-4 -translate-y-1/2 rounded bg-slate-200/80" />
+              <div className="h-10 w-full rounded-lg border bg-card" />
+            </div>
           </div>
         </div>
 

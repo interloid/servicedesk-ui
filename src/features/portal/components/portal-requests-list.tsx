@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ChevronLeft,
   ChevronRight,
   Clock3,
   FileText,
@@ -22,6 +23,7 @@ import {
   PORTAL_REQUEST_SORTS,
   portalRequestPath,
   type PortalRequest,
+  type PortalRequestPage,
   type PortalRequestSort,
   type PortalRequestState,
   type PortalRequestSummary,
@@ -53,14 +55,14 @@ const STATE_BADGE: Record<PortalRequestState, string> = {
 export function PortalRequestsList({
   tenantSlug,
   tenantName,
-  requests,
+  result,
   search,
   state,
   sort,
 }: {
   tenantSlug: string;
   tenantName: string;
-  requests: PortalRequestSummary[];
+  result: PortalRequestPage;
   search: string;
   state: string;
   sort: PortalRequestSort;
@@ -72,6 +74,9 @@ export function PortalRequestsList({
 
   const [term, setTerm] = useState(search);
 
+  const { requests, total, page, perPage } = result;
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
   // Filtering happens on the server so the result survives a refresh and a
   // shared link. The input is debounced rather than submitted so it still feels
   // like typing into a filter.
@@ -82,6 +87,10 @@ export function PortalRequestsList({
 
     const timer = setTimeout(() => {
       const params = new URLSearchParams(searchParams.toString());
+
+      // Page dropped, as on every other filter change: a narrower result set is
+      // shorter, so page 3 of the old one is a page past the end of the new.
+      params.delete("page");
 
       if (term.trim()) {
         params.set("q", term.trim());
@@ -97,9 +106,15 @@ export function PortalRequestsList({
     return () => clearTimeout(timer);
   }, [term, search, pathname, router, searchParams]);
 
-  /** Sets one query param, dropping it when it is back at its default. */
+  /** Sets one filter or sort, dropping it when it is back at its default. */
   function setParam(key: string, value: string, fallback: string) {
     const params = new URLSearchParams(searchParams.toString());
+
+    // The page goes with the filter that shrank the list. Carrying it over is
+    // the standard pagination bug: the reader asks for "open" on page 4, gets
+    // an empty list and a pager reading "Page 4 of 1", and concludes the
+    // filter is broken rather than that they were past the end.
+    params.delete("page");
 
     if (value === fallback) {
       params.delete(key);
@@ -111,6 +126,55 @@ export function PortalRequestsList({
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     });
   }
+
+  /**
+   * Moves between pages of the same result set, so unlike setParam this keeps
+   * every filter and sort in the URL. `scroll: false` is deliberate: the effect
+   * below brings the reader to the top of the list, which is where they need to
+   * be, rather than to the top of the page -- the heading and the filters are
+   * above it and the reader has just seen them.
+   */
+  function goToPage(next: number) {
+    if (next === page || next < 1 || next > totalPages) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+
+    // Page 1 is the default, so it is left off the URL. A shared link then
+    // reads "?state=open" rather than "?state=open&page=1".
+    if (next === 1) {
+      params.delete("page");
+    } else {
+      params.set("page", String(next));
+    }
+
+    startTransition(() => {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+  }
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const shownPage = useRef(page);
+
+  useEffect(() => {
+    if (shownPage.current === page) {
+      return;
+    }
+
+    shownPage.current = page;
+    // scroll-mt-20 on the list covers the sticky portal header, so the first
+    // row lands below it instead of under it. The reduced-motion check is
+    // because scrollIntoView's `smooth` ignores the preference on its own.
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    listRef.current?.scrollIntoView({
+      behavior: reduced ? "auto" : "smooth",
+      block: "start",
+    });
+  }, [page]);
 
   function onStateChange(next: string) {
     setParam("state", next, "all");
@@ -136,10 +200,10 @@ export function PortalRequestsList({
 
   // Nothing raised yet: a search box and a status filter over an empty list
   // are controls with nothing to act on, so the empty state stands alone.
-  const showFilters = requests.length > 0 || isFiltered;
+  const showFilters = total > 0 || isFiltered;
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="mx-auto w-full max-w-7xl md:px-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-[1.75rem]">
@@ -185,7 +249,7 @@ export function PortalRequestsList({
           <Select value={state} onValueChange={onStateChange}>
             <SelectTrigger
               id="portal-state"
-              className="min-h-12 w-full rounded-xl bg-card px-4 text-sm shadow-xs focus:border-brand-accent focus:ring-2 focus:ring-(--brand-accent)/25 sm:w-52"
+              className="min-h-12 w-full rounded-xl bg-card px-4 text-sm shadow-xs focus:border-brand-accent focus:ring-2 focus:ring-brand-accent/25 sm:w-52"
             >
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
@@ -195,7 +259,7 @@ export function PortalRequestsList({
                 <SelectItem
                   key={option.value}
                   value={option.value}
-                  className="p-2"
+                  className="p-3"
                 >
                   {option.label}
                 </SelectItem>
@@ -205,15 +269,16 @@ export function PortalRequestsList({
         </div>
       ) : null}
 
-      {requests.length > 0 ? (
+      {total > 0 ? (
         <div className="mt-6 flex items-center justify-between gap-3">
           <p
             aria-live="polite"
             className="text-sm font-medium text-muted-foreground"
           >
-            {requests.length === 1
-              ? "1 request"
-              : `${requests.length} requests`}
+            {/* The total, not the length of the page: "87 requests" is what the
+                reader is choosing between, and it is the number that has to
+                change when a filter narrows the list. */}
+            {total === 1 ? "1 request" : `${total} requests`}
           </p>
 
           <Select value={sort} onValueChange={onSortChange}>
@@ -241,9 +306,12 @@ export function PortalRequestsList({
       ) : null}
 
       <div
+        ref={listRef}
+        // scroll-mt-20, because the portal header is sticky: without it the
+        // page-change scroll parks the first row underneath the header.
         className={cn(
-          "flex flex-col gap-3 transition-opacity",
-          requests.length > 0 ? "mt-3" : "mt-5",
+          "scroll-mt-20 flex flex-col gap-3 transition-opacity",
+          total > 0 ? "mt-3" : "mt-5",
           isPending && "opacity-60",
         )}
       >
@@ -263,7 +331,101 @@ export function PortalRequestsList({
           ))
         )}
       </div>
+
+      {totalPages > 1 ? (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          perPage={perPage}
+          onChange={goToPage}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * Previous / Next with the position spelled out, rather than a row of numbered
+ * buttons. Two reasons, and the first is the one that decides it: the count
+ * behind the list is whatever a customer has raised with one company, which can
+ * be a handful or a few hundred, and a fixed strip of numbers either needs
+ * ellipsis logic and a window that slides, or gets long enough to wrap on a
+ * phone. Prev/Next and "Page 3 of 12" work at every total, and the counter says
+ * where you are without you having to count the buttons.
+ *
+ * Rendered only when there is more than one page, so a list of five requests
+ * does not carry a pager that goes nowhere.
+ *
+ * perPage comes from the page the server read rather than from
+ * PORTAL_REQUESTS_PER_PAGE: totalPages above is already computed from it, and
+ * a hardcoded copy of the same number is a second place for the two to drift.
+ */
+function Pagination({
+  page,
+  totalPages,
+  total,
+  perPage,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  /** The size the server actually paged by, which is what this range is of. */
+  perPage: number;
+  onChange: (page: number) => void;
+}) {
+  return (
+    <nav
+      aria-label="Requests pages"
+      className="mt-6 flex flex-col items-center gap-3 border-t pt-6 sm:flex-row sm:justify-between"
+    >
+      <p className="text-xs text-muted-foreground">
+        Showing{" "}
+        <span className="font-semibold tabular-nums text-foreground">
+          {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
+        </span>{" "}
+        of{" "}
+        <span className="font-semibold tabular-nums text-foreground">
+          {total}
+        </span>
+      </p>
+
+      <div className="flex items-center gap-2.5">
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="h-11 px-4 font-semibold"
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+        >
+          <ChevronLeft aria-hidden className="size-4" />
+          Previous
+        </Button>
+
+        <p
+          // Announced, so a screen reader hears the new position when the page
+          // changes -- the buttons' labels alone ("Next") do not say it moved.
+          aria-live="polite"
+          className="min-w-24 text-center text-sm font-semibold tabular-nums text-foreground"
+        >
+          Page {page} of {totalPages}
+        </p>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="h-11 px-4 font-semibold"
+          disabled={page >= totalPages}
+          onClick={() => onChange(page + 1)}
+        >
+          Next
+          <ChevronRight aria-hidden className="size-4" />
+        </Button>
+      </div>
+    </nav>
   );
 }
 
@@ -280,7 +442,7 @@ function RequestRow({
     <Link
       href={portalRequestPath(tenantSlug, request.id)}
       className={cn(
-        "group flex items-start gap-4 rounded-2xl border bg-card p-4 text-foreground shadow-xs transition-all sm:p-5",
+        "group relative flex items-start gap-4 rounded-2xl border bg-card p-4 text-foreground shadow-xs transition-all sm:p-5",
         "hover:-translate-y-0.5 hover:border-brand-accent/40 hover:text-foreground hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]",
         "focus-visible:ring-2 focus-visible:ring-(--brand-accent)/30 focus-visible:outline-none",
       )}
@@ -293,27 +455,44 @@ function RequestRow({
       </span>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-muted-foreground">
-              #{request.number ?? "-"}
-            </p>
+        {/* The badge is taken out of the flow and pinned to the card's corner,
+            because in the flow it could never reach it: the chevron is the last
+            column of this flex row, so a badge in the flow is always its width
+            plus the row's gap plus the card's padding further in -- 57px at
+            p-5, which is not a corner. Absolute, it lands on the padding edge,
+            which is the corner. */}
+        <span
+          className={cn(
+            // right-5/top-5 at every width, not p-4 below sm: the card's padding
+            // is 16px on a phone and 20px above it, so a pill inset by the same
+            // rule sits 4px nearer the border on the screen where the card is
+            // smallest and the pill is widest. One inset for the pill, and it is
+            // the looser of the two.
+            // whitespace-nowrap because the pill is out of the flow: at a scaled
+            // up font size a wrapped second line would sit on top of the title
+            // instead of just making the card taller.
+            "absolute right-5 top-5 shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold",
+            STATE_BADGE[request.state],
+          )}
+        >
+          {PORTAL_STATE_LABEL[request.state]}
+        </span>
 
-            <h2 className="mt-0.5 truncate text-base font-bold text-foreground">
-              {request.subject}
-            </h2>
-          </div>
+        {/* h-6 so the number's line is as tall as the badge and the two share a
+            centre; pe-28 reserves the corner's width, so a long request number
+            truncates instead of running underneath the badge. 28 is the widest
+            badge ("Waiting on you") plus its margin.
+            block rather than flex: `truncate` needs the ellipsis, and text-overflow
+            is ignored on a flex container, so the old `flex items-center` clipped
+            the number hard against the badge instead of ellipsising it. The line
+            is the height of the bar either way, so nothing else moves. */}
+        <p className="block h-6 truncate pe-28 text-xs font-medium leading-6 text-muted-foreground">
+          #{request.number ?? "-"}
+        </p>
 
-          <span
-            className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
-              STATE_BADGE[request.state],
-            )}
-          >
-            <span aria-hidden className="size-1.5 rounded-full bg-current" />
-            {PORTAL_STATE_LABEL[request.state]}
-          </span>
-        </div>
+        <h2 className="mt-1 truncate text-base font-bold text-foreground">
+          {request.subject}
+        </h2>
 
         {request.preview ? (
           <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
@@ -332,11 +511,6 @@ function RequestRow({
           {timestamp}
         </p>
       </div>
-
-      <ChevronRight
-        aria-hidden
-        className="mt-9 hidden size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-brand-accent sm:block"
-      />
     </Link>
   );
 }

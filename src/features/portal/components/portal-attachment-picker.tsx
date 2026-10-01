@@ -197,16 +197,20 @@ export function PortalAttachmentPicker({
           )}
         </button>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* h-11 to match the Send and Reopen buttons it shares a row with.
+              At the sm size it sat a third of their height under the same
+              baseline, and a control you have to aim at should not be the
+              smallest thing in its own row. */}
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="font-bold"
+            size="lg"
+            className="h-11 px-5 font-semibold"
             disabled={locked}
             onClick={open}
           >
-            <Paperclip aria-hidden className="size-3.5" />
+            <Paperclip aria-hidden className="size-4" />
             Attach files
           </Button>
 

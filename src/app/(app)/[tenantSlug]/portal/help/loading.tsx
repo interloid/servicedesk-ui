@@ -9,9 +9,16 @@ import {
  * The page awaits the tenant (for "Using <tenant>"), and without a fallback the
  * Help centre link in the header looks dead until it resolves.
  *
- * Mirrors the help page: the centred heading and search bar, "Browse by
- * topic", the six topic cards in their 1 / 2 / 3-column grid, and the closing
- * line under them.
+ * Mirrors the help page at its resting state: the centred heading and copy, the
+ * max-w-2xl search bar, "Browse by topic", the six topic cards in their
+ * 1 / 2 / 3-column grid, and the closing line under them. Searching filters
+ * those same six cards, so nothing about the skeleton changes once the box has
+ * text in it -- and the "no topic matched" card cannot appear here, because
+ * that state needs a typed query.
+ *
+ * The search bar is inside its own max-w-2xl, not the page column's max-w-7xl:
+ * a skeleton that stretched it full width put a 200px-long bar where a 672px one
+ * lands.
  */
 
 const TOPICS = [
@@ -25,17 +32,21 @@ const TOPICS = [
 
 export default function Loading() {
   return (
-    <PortalContentSkeleton width="max-w-5xl">
+    <PortalContentSkeleton width="max-w-7xl">
       <div className="mx-auto max-w-2xl text-center">
+        {/* One line of copy at every width, so the second bar is the phone's
+            wrap of the same sentence and nothing sits a line lower on
+            arrival. */}
         <PortalHeadingSkeleton
           centred
           titleWidth="w-44"
           lines={["w-96", "w-56 sm:hidden"]}
         />
 
-        <div className="mt-6 flex items-center gap-2 rounded-xl border bg-card p-1.5 pl-3.5 shadow-xs">
+        <div className="mx-auto mt-6 flex max-w-2xl items-center gap-2 rounded-xl border bg-card p-1.5 pl-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.05)]">
           <Skeleton className="size-4.5 shrink-0 rounded-full bg-slate-200/80" />
           <Skeleton className="h-4 flex-1 bg-slate-200/80 sm:max-w-56" />
+          {/* The clear button only exists once there is something to clear. */}
           <Skeleton className="ml-auto h-10 w-20 rounded-lg bg-slate-300/70" />
         </div>
       </div>

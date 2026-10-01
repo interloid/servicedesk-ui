@@ -110,9 +110,9 @@ function DetailRow({
   );
 }
 
-function TicketTable() {
+function TicketTable({ className }: { className?: string }) {
   return (
-    <div className="@container border-t">
+    <div className={cn("@container", className)}>
       <Table className="table-fixed">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
@@ -169,7 +169,12 @@ export default function Loading() {
           <Skeleton className="h-5 w-24" />
 
           <div className="mt-4 flex min-w-0 items-center gap-3.5 sm:gap-5">
-            <Skeleton className="size-14 shrink-0 rounded-full sm:size-20" />
+            {/* Carries the same white edge and green hairline as the real
+                avatar, so the photo does not appear to grow a ring when it
+                lands. The ring is toned down here because the Skeleton's own
+                fill is already flat: a full-strength emerald ring on a grey
+                circle is darker than the ring on a photo it stands in for. */}
+            <Skeleton className="size-14 shrink-0 rounded-full border-2 border-white ring-1 ring-emerald-200/70 sm:size-20 dark:ring-emerald-800/70" />
             <div className="min-w-0 flex-1">
               {/* Name: text-xl, then text-3xl from sm. */}
               <Skeleton className="h-7 w-48 max-w-full sm:h-9 sm:w-64" />
@@ -196,7 +201,7 @@ export default function Loading() {
         </nav>
 
         {/* Open tickets, Total tickets, Company, CSAT. */}
-        <div className="grid grid-cols-2 gap-3 @2xl:gap-4 @5xl:grid-cols-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 @2xl:gap-4 @5xl:grid-cols-4">
           <StatCard value="w-8" />
           <StatCard value="w-8" />
           <StatCard value="w-24 max-w-full" />
@@ -218,7 +223,7 @@ export default function Loading() {
 
           <section className={cn(CARD, "min-w-0 overflow-hidden")}>
             <SectionHeading width="w-36" />
-            <TicketTable />
+            <TicketTable className="border-t" />
           </section>
         </div>
       </div>

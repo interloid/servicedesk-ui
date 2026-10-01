@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  FilterX,
   Search,
   UsersRound,
 } from "lucide-react";
@@ -85,7 +84,6 @@ function compare(a: CustomerListItem, b: CustomerListItem, sort: Sort): number {
 
 export default function CustomersTable({
   tenant,
-  tenantName,
   initialCustomers,
   now,
 }: {
@@ -165,14 +163,6 @@ export default function CustomersTable({
   }
 
   /*
-   * Clear search
-   */
-  function clearFilters() {
-    setQuery("");
-    setPage(1);
-  }
-
-  /*
    * Avatar
    */
   function avatar(customer: CustomerListItem) {
@@ -205,16 +195,22 @@ export default function CustomersTable({
             <p className="text-sm text-muted-foreground">
               Companies and the people who raise tickets from them.
             </p>
-
-            <p className="text-xs text-muted-foreground">
-              {tenantName ?? tenant} · {count}{" "}
-              {count === 1 ? "customer" : "customers"}
-            </p>
           </div>
-        </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative w-full sm:max-w-md sm:flex-1">
+          {/*
+           * The search sits in the heading row rather than in one of its own.
+           * A full-width row above the table was a line of nothing between the
+           * heading and the data -- 64px of it -- and a flex-1 field stretching
+           * the page's width read as a toolbar above the table rather than as a
+           * control for it. Top-aligned with the title, in the right corner,
+           * and widening with the page instead of the other way round: the
+           * field never takes a bite out of the columns underneath it.
+           */}
+          {/* Only the field now. The Clear filters button is gone: the search
+              box is type="search", so the browser draws its own cross inside
+              the field, and a second control that clears the same thing sat
+              next to it saying the same thing in more words. */}
+          <div className="relative w-full sm:w-80 lg:w-96">
             <Search
               aria-hidden
               className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -232,18 +228,6 @@ export default function CustomersTable({
               className="h-10 bg-card pl-9 text-sm"
             />
           </div>
-
-          {hasActiveFilters && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={clearFilters}
-              className="h-10 bg-card"
-            >
-              <FilterX className="size-4" />
-              Clear filters
-            </Button>
-          )}
         </div>
 
         <div className="overflow-hidden rounded-lg border bg-card">
@@ -264,7 +248,7 @@ export default function CustomersTable({
 
                   <TableHeader>
                     <TableRow className="bg-muted/40 hover:bg-muted/40">
-                      <TableHead className="h-10 px-4 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                      <TableHead className="h-10 px-4 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                         <button
                           type="button"
                           onClick={() => toggleSort("fullName")}
@@ -280,7 +264,7 @@ export default function CustomersTable({
                         </button>
                       </TableHead>
 
-                      <TableHead className="h-10 px-4 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                      <TableHead className="h-10 px-4 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                         <button
                           type="button"
                           onClick={() => toggleSort("company")}
@@ -296,7 +280,7 @@ export default function CustomersTable({
                         </button>
                       </TableHead>
 
-                      <TableHead className="h-10 px-5 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                      <TableHead className="h-10 px-5 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                         <button
                           type="button"
                           onClick={() => toggleSort("ticketCount")}
@@ -312,7 +296,7 @@ export default function CustomersTable({
                         </button>
                       </TableHead>
 
-                      <TableHead className="h-10 px-5 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                      <TableHead className="h-10 px-5 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                         <button
                           type="button"
                           onClick={() => toggleSort("lastActivityAt")}
@@ -328,7 +312,7 @@ export default function CustomersTable({
                         </button>
                       </TableHead>
 
-                      <TableHead className="h-10 px-4 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                      <TableHead className="h-10 px-4 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                         <button
                           type="button"
                           onClick={() => toggleSort("createdAt")}
@@ -344,7 +328,7 @@ export default function CustomersTable({
                         </button>
                       </TableHead>
 
-                      <TableHead className="h-10 px-4 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                      <TableHead className="h-10 px-4 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                         <button
                           type="button"
                           onClick={() => toggleSort("csatScore")}

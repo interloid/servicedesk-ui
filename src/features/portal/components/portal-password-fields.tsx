@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CheckCircle2, Info } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { useWatch, type Control } from "react-hook-form";
 
 import {
@@ -17,17 +17,14 @@ import { cn } from "@/lib/utils";
 const FIELD_CLASS = "h-11 rounded-lg bg-background/60 text-sm";
 
 /**
- * Mirrors portalSetPasswordSchema. The schema is still the rule -- this list
- * only shows progress against it as the customer types, so keep the two in
- * step if the rule ever changes.
+ * Mirrors portalSetPasswordSchema. The schema is the rule; this is only what the
+ * confirm tick waits for, so a password that cannot be submitted yet does not
+ * show as matching. Keep the two in step if the rule ever changes.
  */
-const REQUIREMENTS = [
-  {
-    label: "At least 10 characters",
-    test: (value: string) => value.length >= 10,
-  },
-  { label: "At least one number", test: (value: string) => /\d/.test(value) },
-];
+const MEETS_RULES = (value: string) => value.length >= 8 && /\d/.test(value);
+
+/** Shown in both fields: what a password looks like before there is one. */
+const DOTS = "••••••••••";
 
 /**
  * The two password inputs, shared by the standalone /portal/password page and by
@@ -35,33 +32,32 @@ const REQUIREMENTS = [
  *
  * Extracted rather than written twice because these two fields are the whole
  * point of the screen and drift is expensive here: if the confirm field were
- * given a different autoComplete, or the "10 characters and a number" rule
- * were dropped from one copy, the two ways of setting a password would start
- * disagreeing about what a valid password is. The rule is stated once, next to
- * the input that enforces it, and read by both.
+ * given a different autoComplete, or the "8 characters and a number" rule were
+ * dropped from one copy, the two ways of setting a password would start
+ * disagreeing about what a valid password is.
  *
- * showRequirements is the difference between the two callers. The page is
- * someone's first password and needs the checklist in front of them. The dialog
- * is someone who already has one and came to change it: there the checklist was
- * three lines of wall between the fields and the button, so they get a dotted
- * placeholder instead and the rule lives only in the schema. The rule is still
- * enforced either way, so a too-short password comes back the same on both.
+ * There is no requirements checklist. Both callers used to have a choice about
+ * one, and the page took it: three lines of wall between the two fields and the
+ * button, on a form whose remaining content is two inputs and a note. The rule
+ * lives in portalSetPasswordSchema and comes back as the field's own error
+ * message when it is not met, which says the same thing without standing in the
+ * way of a customer who already knows how to type a password. So both fields
+ * carry dots as their placeholder and neither spends a line stating the rule.
  */
 export function PortalPasswordFields({
   control,
-  showRequirements = true,
 }: {
   control: Control<PortalSetPasswordValues>;
-  showRequirements?: boolean;
 }) {
   const [password = "", confirmPassword = ""] = useWatch({
     control,
     name: ["password", "confirmPassword"],
   });
 
-  const meetsRules = REQUIREMENTS.every(({ test }) => test(password));
   const matches =
-    meetsRules && confirmPassword.length > 0 && confirmPassword === password;
+    MEETS_RULES(password) &&
+    confirmPassword.length > 0 &&
+    confirmPassword === password;
 
   return (
     <>
@@ -78,14 +74,7 @@ export function PortalPasswordFields({
               <PasswordInput
                 {...field}
                 autoComplete="new-password"
-                aria-describedby={
-                  showRequirements ? "portal-password-rules" : undefined
-                }
-                placeholder={
-                  showRequirements
-                    ? "At least 10 characters, with a number"
-                    : "••••••••••"
-                }
+                placeholder={DOTS}
                 className={FIELD_CLASS}
               />
             </FormControl>
@@ -94,52 +83,6 @@ export function PortalPasswordFields({
           </FormItem>
         )}
       />
-
-      {showRequirements ? (
-        <div
-          id="portal-password-rules"
-          className="rounded-xl border bg-muted/40 px-4 py-3.5"
-        >
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            Password requirements
-            <Info aria-hidden className="size-3.5 text-muted-foreground" />
-          </p>
-
-          <ul className="mt-2.5 flex flex-col gap-2">
-            {REQUIREMENTS.map(({ label, test }) => {
-              const met = test(password);
-
-              return (
-                <li
-                  key={label}
-                  className={cn(
-                    "flex items-center gap-2 text-xs transition-colors",
-                    met ? "text-foreground" : "text-muted-foreground",
-                  )}
-                >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "flex size-4 shrink-0 items-center justify-center rounded-full transition-colors",
-                      met
-                        ? "bg-success text-white"
-                        : "border border-input bg-card",
-                    )}
-                  >
-                    {met ? (
-                      <Check className="size-2.5" strokeWidth={3.5} />
-                    ) : null}
-                  </span>
-                  {label}
-                  <span className="sr-only">
-                    {met ? "(met)" : "(not met yet)"}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ) : null}
 
       <FormField
         control={control}
@@ -157,9 +100,7 @@ export function PortalPasswordFields({
                 <PasswordInput
                   {...field}
                   autoComplete="new-password"
-                  placeholder={
-                    showRequirements ? "Type it again" : "••••••••••"
-                  }
+                  placeholder={DOTS}
                   className={cn(FIELD_CLASS, matches && "pr-16")}
                 />
               </FormControl>

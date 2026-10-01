@@ -134,12 +134,7 @@ function PasswordForm({
           onSubmit={form.handleSubmit(onSubmit)}
           className="flex flex-col gap-4"
         >
-          {/* No checklist: see PortalPasswordFields on why the dialog is
-              quieter than the first-password page. */}
-          <PortalPasswordFields
-            control={form.control}
-            showRequirements={false}
-          />
+          <PortalPasswordFields control={form.control} />
 
           <div className="mt-1 grid grid-cols-2 gap-2.5 border-t pt-5 sm:flex sm:justify-end sm:gap-3">
             <Button

@@ -18,6 +18,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { completeOnboardingAction } from "@/features/portal/actions/portal.actions";
 import { WelcomeIllustration } from "@/features/portal/components/portal-illustrations";
+import { PortalCentered } from "@/features/portal/components/portal-shell";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
 import { portalToastResult } from "@/features/portal/portal-toast";
 import { cn } from "@/lib/utils";
@@ -67,143 +68,152 @@ export function PortalWelcomeWizard({
     portalToastResult(result);
   }
 
+  // PortalCentered, like the other three screens on the way in: this card was
+  // the only one not sitting in the middle of the space between the header and
+  // the footer. It brings its own max-w-180 box rather than PortalCard because
+  // the wizard is wider than the sign-in card and centres its own text, but the
+  // centring is the same wrapper everywhere. my-auto collapses to zero once the
+  // wizard is taller than the space, so a short window still scrolls from the
+  // top rather than hiding the heading above the scroll origin.
   return (
-    <div className="mx-auto w-full max-w-180 rounded-2xl border bg-card p-5 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.06)] sm:p-8 md:p-10">
-      {step === 1 ? <WelcomeIllustration className="mx-auto mb-2" /> : null}
+    <PortalCentered width="max-w-180">
+      <div className="w-full rounded-2xl border bg-card p-5 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.06)] sm:p-8 md:p-10">
+        {step === 1 ? <WelcomeIllustration className="mx-auto mb-2" /> : null}
 
-      <StepIndicator step={step} />
+        <StepIndicator step={step} />
 
-      {error ? (
-        <Alert
-          variant="destructive"
-          className="mt-4 rounded-[10px] px-3.5 py-3 text-left"
-        >
-          <CircleAlert className="size-4.5" aria-hidden />
-          <AlertDescription className="text-sm leading-[1.55]">
-            {error}
-          </AlertDescription>
-        </Alert>
-      ) : null}
+        {error ? (
+          <Alert
+            variant="destructive"
+            className="mt-4 rounded-[10px] px-3.5 py-3 text-left"
+          >
+            <CircleAlert className="size-4.5" aria-hidden />
+            <AlertDescription className="text-sm leading-[1.55]">
+              {error}
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
-      {step === 1 ? (
-        <>
-          <h1 className="mt-3 text-2xl font-bold tracking-tight text-balance text-foreground sm:text-[1.75rem]">
-            Welcome, {firstName}
-          </h1>
+        {step === 1 ? (
+          <>
+            <h1 className="mt-3 text-2xl font-bold tracking-tight text-balance text-foreground sm:text-[1.75rem]">
+              Welcome, {firstName}
+            </h1>
 
-          <p className="mx-auto mt-2 max-w-md text-sm leading-[1.6] text-muted-foreground">
-            {company
-              ? `Your support account is ready and linked to ${company}, so you'll see every request your team raises with us.`
-              : "Your support account is ready. Here's what you can do:"}
-          </p>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-[1.6] text-muted-foreground">
+              {company
+                ? `Your support account is ready and linked to ${company}, so you'll see every request your team raises with us.`
+                : "Your support account is ready. Here's what you can do:"}
+            </p>
 
-          <div className="mt-7 grid gap-3 sm:grid-cols-3 sm:gap-4">
-            <FeatureCard
-              icon={<Plus className="size-5" aria-hidden />}
-              title="Submit a request"
-              body="Describe your issue. We'll route it to the right team."
-            />
-            <FeatureCard
-              icon={<MessagesSquare className="size-5" aria-hidden />}
-              title="Follow your requests"
-              body="Get notified about replies and track progress."
-            />
-            <FeatureCard
-              icon={<BookOpen className="size-5" aria-hidden />}
-              title="Browse help centre"
-              body="Find guides, setup help and answers to common questions."
-            />
-          </div>
+            <div className="mt-7 grid gap-3 sm:grid-cols-3 sm:gap-4">
+              <FeatureCard
+                icon={<Plus className="size-5" aria-hidden />}
+                title="Submit a request"
+                body="Describe your issue. We'll route it to the right team."
+              />
+              <FeatureCard
+                icon={<MessagesSquare className="size-5" aria-hidden />}
+                title="Follow your requests"
+                body="Get notified about replies and track progress."
+              />
+              <FeatureCard
+                icon={<BookOpen className="size-5" aria-hidden />}
+                title="Browse help centre"
+                body="Find guides, setup help and answers to common questions."
+              />
+            </div>
 
-          <Footer>
-            <Button
-              type="button"
-              size="lg"
-              variant="outline"
-              className="h-11 px-5 font-semibold"
-              onClick={() => void finish()}
-              disabled={isFinishing}
-            >
-              Skip for now
-            </Button>
+            <Footer>
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                className="h-11 px-5 font-semibold"
+                onClick={() => void finish()}
+                disabled={isFinishing}
+              >
+                Skip for now
+              </Button>
 
-            <Button
-              type="button"
-              size="lg"
-              className="h-11 px-6 font-semibold"
-              onClick={() => setStep(2)}
-              disabled={isFinishing}
-            >
-              Next
-              <ArrowRight aria-hidden className="size-4" />
-            </Button>
-          </Footer>
-        </>
-      ) : (
-        <>
-          <h1 className="mt-3 text-2xl font-bold tracking-tight text-balance text-foreground sm:text-[1.75rem]">
-            Where do you want to start?
-          </h1>
+              <Button
+                type="button"
+                size="lg"
+                className="h-11 px-6 font-semibold"
+                onClick={() => setStep(2)}
+                disabled={isFinishing}
+              >
+                Next
+                <ArrowRight aria-hidden className="size-4" />
+              </Button>
+            </Footer>
+          </>
+        ) : (
+          <>
+            <h1 className="mt-3 text-2xl font-bold tracking-tight text-balance text-foreground sm:text-[1.75rem]">
+              Where do you want to start?
+            </h1>
 
-          <p className="mx-auto mt-2 max-w-md text-sm leading-[1.6] text-muted-foreground">
-            Most answers are already written up. If yours isn&apos;t, raise it
-            and we&apos;ll pick it up against your SLA.
-          </p>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-[1.6] text-muted-foreground">
+              Most answers are already written up. If yours isn&apos;t, raise it
+              and we&apos;ll pick it up against your SLA.
+            </p>
 
-          <div className="mt-7 grid gap-3 text-left sm:grid-cols-2 sm:gap-4">
-            <ChoiceCard
-              onSelect={() =>
-                void finish(portalPath(tenantSlug, PORTAL_ROUTES.NEW_REQUEST))
-              }
-              disabled={isFinishing}
-              icon={<SquarePen className="size-5" aria-hidden />}
-              title="Submit a request"
-              body={`Describe the problem. First reply within ${firstResponseTarget} on your plan.`}
-            />
-            <ChoiceCard
-              onSelect={() =>
-                void finish(portalPath(tenantSlug, PORTAL_ROUTES.HELP))
-              }
-              disabled={isFinishing}
-              icon={<BookOpen className="size-5" aria-hidden />}
-              title="Browse the help centre"
-              body="Setup guides, SSO troubleshooting, and billing answers."
-            />
-          </div>
+            <div className="mt-7 grid gap-3 text-left sm:grid-cols-2 sm:gap-4">
+              <ChoiceCard
+                onSelect={() =>
+                  void finish(portalPath(tenantSlug, PORTAL_ROUTES.NEW_REQUEST))
+                }
+                disabled={isFinishing}
+                icon={<SquarePen className="size-5" aria-hidden />}
+                title="Submit a request"
+                body={`Describe the problem. First reply within ${firstResponseTarget} on your plan.`}
+              />
+              <ChoiceCard
+                onSelect={() =>
+                  void finish(portalPath(tenantSlug, PORTAL_ROUTES.HELP))
+                }
+                disabled={isFinishing}
+                icon={<BookOpen className="size-5" aria-hidden />}
+                title="Browse the help centre"
+                body="Setup guides, SSO troubleshooting, and billing answers."
+              />
+            </div>
 
-          <Footer>
-            <Button
-              type="button"
-              size="lg"
-              variant="outline"
-              className="h-11 px-5 font-semibold"
-              onClick={() => setStep(1)}
-              disabled={isFinishing}
-            >
-              <ArrowLeft aria-hidden className="size-4" />
-              Back
-            </Button>
+            <Footer>
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                className="h-11 px-5 font-semibold"
+                onClick={() => setStep(1)}
+                disabled={isFinishing}
+              >
+                <ArrowLeft aria-hidden className="size-4" />
+                Back
+              </Button>
 
-            <Button
-              type="button"
-              size="lg"
-              className="h-11 px-6 font-semibold"
-              onClick={() => void finish()}
-              disabled={isFinishing}
-            >
-              {isFinishing ? (
-                <>
-                  <Loader2 aria-hidden className="size-4 animate-spin" />
-                  Just a moment…
-                </>
-              ) : (
-                "Go to my requests"
-              )}
-            </Button>
-          </Footer>
-        </>
-      )}
-    </div>
+              <Button
+                type="button"
+                size="lg"
+                className="h-11 px-6 font-semibold"
+                onClick={() => void finish()}
+                disabled={isFinishing}
+              >
+                {isFinishing ? (
+                  <>
+                    <Loader2 aria-hidden className="size-4 animate-spin" />
+                    Just a moment…
+                  </>
+                ) : (
+                  "Go to my requests"
+                )}
+              </Button>
+            </Footer>
+          </>
+        )}
+      </div>
+    </PortalCentered>
   );
 }
 

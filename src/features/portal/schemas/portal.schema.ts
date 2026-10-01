@@ -18,8 +18,9 @@ export type PortalPasswordLoginValues = z.infer<
 >;
 
 /**
- * "At least 10 characters, one number" is the rule the Set a password screen
- * prints under the field. Keep the copy and this schema in step.
+ * "At least 8 characters, with a number" is the rule. Neither password screen
+ * prints it -- both placeholders are dots -- so this schema is the only place it
+ * is stated, and it comes back as the field's own error. Keep the copy in step.
  */
 export const portalSetPasswordSchema = z
   .object({

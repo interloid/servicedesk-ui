@@ -41,6 +41,8 @@ export type PortalSignInPayload = {
   redirectTo: string;
   /** For the subject line and heading -- the email wears the workspace's name. */
   tenantName: string;
+  /** Sent by a Tenant Admin's "Invite customer": worded as an invitation. */
+  invited?: boolean;
 };
 
 type EmailJobPayloads = {

@@ -5,6 +5,7 @@ import { cache } from "react";
 import { trustedCustomerAvatarUrl } from "@/features/portal/avatar-url";
 import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import type {
+  CustomerPortalStatus,
   CustomerContact,
   CustomerDetail,
   CustomerListItem,
@@ -14,10 +15,12 @@ import type {
   TicketStatus,
 } from "@/features/customers/types/customers";
 import {
+  CUSTOMER_PORTAL_STATUS_FROM_DB,
   CUSTOMER_LIST_PAGE_SIZE,
   CUSTOMER_TICKET_PAGE_SIZE,
 } from "@/features/customers/types/customers";
 import { ilikeOrValue } from "@/lib/postgrest";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /** Statuses that still need something from the team. */
@@ -79,6 +82,91 @@ async function loadAvatars(
   }
 
   return avatars;
+}
+
+/**
+ * Portal status per customer, keyed by lower-cased email.
+ *
+ * From the customer's `memberships` row in this workspace. A customer who has
+ * signed in is reached through `portal_user_id`; one who was invited and has
+ * not signed in yet has no link on the customer row, so their account is found
+ * by email. Admin client, scoped to the tenant: an invited person's profile is
+ * not always visible to the agent's RLS, and the answer must not depend on it.
+ * No membership at all reads as "Not invited".
+ */
+async function loadPortalStatuses(
+  tenantId: string,
+  rows: { email: string; portal_user_id: string | null }[],
+): Promise<Map<string, CustomerPortalStatus>> {
+  const statuses = new Map<string, CustomerPortalStatus>();
+
+  if (rows.length === 0) {
+    return statuses;
+  }
+
+  const admin = createSupabaseAdminClient();
+  const userByEmail = new Map<string, string>();
+  const unlinked: string[] = [];
+
+  for (const row of rows) {
+    const email = row.email.toLowerCase();
+
+    if (row.portal_user_id) {
+      userByEmail.set(email, row.portal_user_id);
+    } else {
+      unlinked.push(email);
+    }
+  }
+
+  if (unlinked.length > 0) {
+    const { data, error } = await admin
+      .from("users")
+      .select("id, email")
+      .in("email", unlinked);
+
+    if (error) {
+      console.error("[customers] portal accounts failed:", error.message);
+    }
+
+    for (const user of data ?? []) {
+      userByEmail.set(user.email.toLowerCase(), user.id);
+    }
+  }
+
+  const userIds = Array.from(new Set(userByEmail.values()));
+
+  if (userIds.length === 0) {
+    return statuses;
+  }
+
+  const { data: memberships, error } = await admin
+    .from("memberships")
+    .select("user_id, status")
+    .eq("tenant_id", tenantId)
+    .eq("role", "customer")
+    .in("user_id", userIds);
+
+  if (error) {
+    // Decoration next to the customer's name: logged, and shown as unknown
+    // ("Not invited") rather than failing the page.
+    console.error("[customers] portal statuses failed:", error.message);
+    return statuses;
+  }
+
+  const statusByUser = new Map(
+    (memberships ?? []).map((row) => [row.user_id, row.status]),
+  );
+
+  for (const [email, userId] of userByEmail) {
+    const status =
+      CUSTOMER_PORTAL_STATUS_FROM_DB[statusByUser.get(userId) ?? ""];
+
+    if (status) {
+      statuses.set(email, status);
+    }
+  }
+
+  return statuses;
 }
 
 /** API's per-response row cap (`max_rows` in supabase/config.toml). */
@@ -314,7 +402,21 @@ export async function fetchTenantCustomers(
     ),
     csatScore: csat?.score ?? null,
     csatCount: csat?.count ?? 0,
+    // Filled in for the page's rows once the page is known.
+    portalStatus: "Not invited",
   });
+
+  const withPortalStatus = async (
+    items: CustomerListItem[],
+    rows: CustomerListRow[],
+  ): Promise<CustomerListItem[]> => {
+    const statuses = await loadPortalStatuses(tenantId, rows);
+
+    return items.map((item) => ({
+      ...item,
+      portalStatus: statuses.get(item.email.toLowerCase()) ?? "Not invited",
+    }));
+  };
 
   // With a search, the tenant's own total is a second count: it decides
   // between "no customers yet" and "nothing matches", which read differently.
@@ -368,7 +470,12 @@ export async function fetchTenantCustomers(
       toItem(row, csatScores.get(row.id), avatars),
     );
 
-    return finish(pageItems, total, page, tenantCount);
+    return finish(
+      await withPortalStatus(pageItems, pageRows),
+      total,
+      page,
+      tenantCount,
+    );
   }
 
   const [all, csatScores, tenantCount] = await Promise.all([
@@ -433,7 +540,15 @@ export async function fetchTenantCustomers(
     };
   });
 
-  return finish(pageItems, total, page, tenantCount);
+  return finish(
+    await withPortalStatus(
+      pageItems,
+      all.filter((row) => slice.some((item) => item.id === row.id)),
+    ),
+    total,
+    page,
+    tenantCount,
+  );
 
   function finish(
     customers: CustomerListItem[],
@@ -503,6 +618,13 @@ export const fetchCustomerById = cache(async function fetchCustomerById(
     loadCsatScores(supabase, tenantId, [customerId]),
   ]);
 
+  const portalStatus =
+    (
+      await loadPortalStatuses(tenantId, [
+        { email: customer.email, portal_user_id: customer.portal_user_id },
+      ])
+    ).get(customer.email.toLowerCase()) ?? "Not invited";
+
   const csatScore = csat.get(customerId)?.score ?? null;
   const csatCount = csat.get(customerId)?.count ?? 0;
 
@@ -537,6 +659,7 @@ export const fetchCustomerById = cache(async function fetchCustomerById(
     csatScore,
     csatCount,
     contacts,
+    portalStatus,
   };
 });
 

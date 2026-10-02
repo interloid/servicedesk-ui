@@ -3,11 +3,15 @@ import { redirect } from "next/navigation";
 
 import { PortalSignInForm } from "@/features/portal/components/portal-sign-in-form";
 import {
+  PORTAL_ACCESS_DISABLED_MESSAGE,
   portalLoginError,
   PORTAL_ROUTES,
   portalPath,
 } from "@/features/portal/portal";
-import { getPortalIdentity } from "@/features/portal/services/portal.service";
+import {
+  getPortalIdentity,
+  isPortalAccessDisabled,
+} from "@/features/portal/services/portal.service";
 
 export const metadata: Metadata = {
   title: "Track your requests",
@@ -29,7 +33,10 @@ export default async function PortalLoginPage({
   const [{ tenantSlug }, query] = await Promise.all([params, searchParams]);
 
   // Already signed in: the login screen has nothing to offer them.
-  const identity = await getPortalIdentity(tenantSlug);
+  const [identity, accessDisabled] = await Promise.all([
+    getPortalIdentity(tenantSlug),
+    isPortalAccessDisabled(tenantSlug),
+  ]);
 
   if (identity) {
     redirect(
@@ -48,7 +55,13 @@ export default async function PortalLoginPage({
     <PortalSignInForm
       tenantSlug={tenantSlug}
       initialMode={first(query.mode) === "password" ? "password" : "link"}
-      initialError={portalLoginError(first(query.error))}
+      // A disabled customer who is still signed in lands here from every
+      // portal page; say why instead of showing an empty form.
+      initialError={
+        accessDisabled
+          ? PORTAL_ACCESS_DISABLED_MESSAGE
+          : portalLoginError(first(query.error))
+      }
     />
   );
 }

@@ -9,6 +9,9 @@ import {
   parseCustomerSort,
   parsePageParam,
 } from "@/features/customers/types/customers";
+import { requestOrigin } from "@/features/auth/services/auth.service";
+import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
+import { getCallerRole } from "@/features/team/services/team.service";
 
 export const metadata: Metadata = {
   title: "Customers",
@@ -33,14 +36,23 @@ export default async function CustomersPage({
   const sort = parseCustomerSort(first(query.sort), first(query.dir));
 
   // Independent reads, so they go out together rather than one after another.
-  const [result, now] = await Promise.all([
+  const [result, now, callerRole, origin] = await Promise.all([
     fetchTenantCustomers(tenantSlug, {
       search,
       page: parsePageParam(first(query.page)),
       sort,
     }),
     serverNow(),
+    getCallerRole(),
+    requestOrigin(),
   ]);
+
+  // requestOrigin, not NEXT_PUBLIC_SITE_URL: on a tenant subdomain the site URL
+  // is the bare apex, which would share the sign-in page, not this portal.
+  const portalUrl = new URL(
+    portalPath(tenantSlug, PORTAL_ROUTES.ROOT),
+    origin,
+  ).toString();
 
   return (
     <CustomersTable
@@ -49,6 +61,8 @@ export default async function CustomersPage({
       search={search}
       sort={sort}
       now={now}
+      canInvite={callerRole === "Tenant Admin"}
+      portalUrl={portalUrl}
     />
   );
 }

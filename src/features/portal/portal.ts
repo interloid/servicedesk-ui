@@ -425,6 +425,7 @@ export const PORTAL_FAILURE_CODES = [
   "tenant_not_found",
   "not_signed_in",
   "no_portal_access",
+  "access_disabled",
   "not_found",
   "unknown",
 ] as const;
@@ -441,12 +442,17 @@ export type PortalFailureCode = (typeof PORTAL_FAILURE_CODES)[number];
  * `?error=Your account is locked, call 555-...` would show inside the form's own
  * alert, wearing the portal's branding.
  */
+/** Shown wherever a customer whose portal access was disabled tries to get in. */
+export const PORTAL_ACCESS_DISABLED_MESSAGE =
+  "Your access to this support portal has been disabled. Contact the support team if you think this is a mistake.";
+
 export const PORTAL_LOGIN_ERRORS: Record<string, string> = {
   expired_link: "That sign-in link is no longer valid. Request a new one.",
   incomplete: "That sign-in link is incomplete. Start again.",
   tenant_not_found: "That support portal doesn't exist.",
   not_signed_in: "That sign-in link is no longer valid. Request a new one.",
   no_portal_access: "This account can't use the support portal.",
+  access_disabled: PORTAL_ACCESS_DISABLED_MESSAGE,
   not_found: "We couldn't match that link to an account. Start again.",
   validation: "That sign-in link is incomplete. Start again.",
   // The callback forwards any PortalError code, so every code it can produce

@@ -14,6 +14,7 @@ import {
   initialsFrom,
   MAX_ATTACHMENTS_PER_MESSAGE,
   PORTAL_REQUESTS_PER_PAGE,
+  PORTAL_ACCESS_DISABLED_MESSAGE,
   PORTAL_ROUTES,
   portalPath,
   toPortalState,
@@ -322,6 +323,56 @@ function toPortalCustomer(
  * Cached per request for the same reason as getPortalTenant — the layout needs
  * it for the header, the page needs it for its guard.
  */
+/**
+ * This person's live membership status in the workspace ("active", "invited",
+ * "disabled"), or null with none. Admin client: a disabled member's own token
+ * no longer reaches the row, and "hidden" must never read as "allowed".
+ */
+async function portalMembershipStatus(
+  tenantId: string,
+  userId: string,
+): Promise<string | null> {
+  const { data, error } = await createSupabaseAdminClient()
+    .from("memberships")
+    .select("status")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[portal] membership status failed:", error.message);
+    return null;
+  }
+
+  return data?.status ?? null;
+}
+
+/**
+ * True when the signed-in browser belongs to a customer whose access to this
+ * portal a Tenant Admin disabled. The login page uses it to say so, rather
+ * than showing a blank sign-in form to someone who is in fact signed in.
+ */
+export const isPortalAccessDisabled = cache(
+  async function isPortalAccessDisabled(slug: string): Promise<boolean> {
+    const tenant = await getPortalTenant(slug);
+
+    if (!tenant) {
+      return false;
+    }
+
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return false;
+    }
+
+    return (await portalMembershipStatus(tenant.id, user.id)) === "disabled";
+  },
+);
+
 export const getPortalIdentity = cache(async function getPortalIdentity(
   slug: string,
 ): Promise<PortalIdentity | null> {
@@ -360,6 +411,12 @@ export const getPortalIdentity = cache(async function getPortalIdentity(
   // Also catches team members linked as customers before sign-in checked
   // this: they are simply not signed in as far as the portal is concerned.
   if (await hasTeamMembership(user.id)) {
+    return null;
+  }
+
+  // Checked live on every request: a customer disabled by a Tenant Admin is
+  // out on their next page, not when their token happens to expire.
+  if ((await portalMembershipStatus(tenant.id, user.id)) === "disabled") {
     return null;
   }
 
@@ -419,6 +476,21 @@ export async function sendPortalSignInLink(
   // addresses are staff somewhere on the platform.
   if (await isTeamEmail(email)) {
     return;
+  }
+
+  // A disabled customer is told so, rather than sent a link that would only
+  // fail at the callback.
+  const { data: account } = await createSupabaseAdminClient()
+    .from("users")
+    .select("id")
+    .eq("email", email.trim().toLowerCase())
+    .maybeSingle();
+
+  if (
+    account &&
+    (await portalMembershipStatus(tenant.id, account.id)) === "disabled"
+  ) {
+    throw new PortalError(PORTAL_ACCESS_DISABLED_MESSAGE, "access_disabled");
   }
 
   const origin = await requestOrigin();
@@ -484,7 +556,8 @@ export async function portalPasswordSignIn(
     // not use the portal it must not be left standing.
     if (
       linkError instanceof PortalError &&
-      linkError.code === "no_portal_access"
+      (linkError.code === "no_portal_access" ||
+        linkError.code === "access_disabled")
     ) {
       await portalSignOut("local");
     }
@@ -720,6 +793,15 @@ export async function linkPortalSession(
 
     if (!link) {
       console.error("[portal] link failed:", error.message);
+
+      // portal_link_user raises 42501 for a disabled membership too; that
+      // one gets its own, plainer message.
+      if (error.code === "42501" && error.message.includes("disabled")) {
+        throw new PortalError(
+          PORTAL_ACCESS_DISABLED_MESSAGE,
+          "access_disabled",
+        );
+      }
 
       if (error.code === "42501") {
         throw new PortalError(

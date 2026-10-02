@@ -10,6 +10,34 @@ import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 
 export type TicketStatus = Database["public"]["Enums"]["ticket_status"];
 
+/**
+ * Where a customer stands with the support portal, from their `memberships`
+ * row: invited and not signed in yet, signed in, or switched off by a Tenant
+ * Admin. "Not invited" is a customer with no membership at all -- typically
+ * someone who raised a ticket as a guest and never signed in.
+ */
+export type CustomerPortalStatus =
+  "Active" | "Invited" | "Disabled" | "Not invited";
+
+export const CUSTOMER_PORTAL_STATUS_FROM_DB: Record<
+  string,
+  CustomerPortalStatus
+> = {
+  active: "Active",
+  invited: "Invited",
+  disabled: "Disabled",
+};
+
+/** Same colours as the team table's status badges. */
+export const CUSTOMER_STATUS_BADGE: Record<CustomerPortalStatus, string> = {
+  Active:
+    "border-none bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
+  Invited:
+    "border-none bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
+  Disabled: "border-none bg-muted text-muted-foreground",
+  "Not invited": "border border-border bg-transparent text-muted-foreground",
+};
+
 export type CustomerListItem = {
   id: string;
   fullName: string;
@@ -27,6 +55,7 @@ export type CustomerListItem = {
   csatScore: number | null;
   /** Ratings behind that mean, so one 5 never reads like fifty. */
   csatCount: number;
+  portalStatus: CustomerPortalStatus;
 };
 
 export type CustomerContact = {
@@ -99,6 +128,7 @@ export type CustomerDetail = {
   csatCount: number;
   /** Other customers recorded against the same company. */
   contacts: CustomerContact[];
+  portalStatus: CustomerPortalStatus;
 };
 
 export const CUSTOMER_TABS = ["overview", "tickets"] as const;

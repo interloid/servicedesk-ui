@@ -7,9 +7,12 @@ import { escapeHtml } from "./invitation-template.ts";
 export function portalSignInEmailHtml({
   workspace,
   link,
+  invited = false,
 }: {
   workspace: string;
   link: string;
+  /** Sent by a Tenant Admin's "Invite customer" rather than asked for. */
+  invited?: boolean;
 }): string {
   const safeWorkspace = escapeHtml(workspace);
   const safeInitial = escapeHtml(
@@ -23,7 +26,7 @@ export function portalSignInEmailHtml({
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sign in to ${safeWorkspace} Support</title>
+  <title>${invited ? "You're invited to" : "Sign in to"} ${safeWorkspace} Support</title>
 </head>
 
 <body
@@ -124,7 +127,7 @@ export function portalSignInEmailHtml({
                   color: #0f172a;
                 "
               >
-                Your sign-in link
+                ${invited ? "You're invited" : "Your sign-in link"}
               </h1>
 
               <!-- Description -->
@@ -136,9 +139,11 @@ export function portalSignInEmailHtml({
                   color: #475569;
                 "
               >
-                Use the button below to sign in to
-                <strong>${safeWorkspace} Support</strong>
-                and see your requests. No password needed.
+                ${
+                  invited
+                    ? `You've been invited to <strong>${safeWorkspace} Support</strong>, where you can raise tickets and follow their progress. Use the button below to sign in. No password needed.`
+                    : `Use the button below to sign in to <strong>${safeWorkspace} Support</strong> and see your requests. No password needed.`
+                }
               </p>
 
               <!-- Sign In Button -->
@@ -166,7 +171,7 @@ export function portalSignInEmailHtml({
                         border: 1px solid #0f766e;
                       "
                     >
-                      Sign in
+                      ${invited ? "Accept invitation" : "Sign in"}
                     </a>
                   </td>
                 </tr>
@@ -193,8 +198,11 @@ export function portalSignInEmailHtml({
                     color: #475569;
                   "
                 >
-                  This link works once and expires in 1 hour. If you didn't
-                  ask to sign in, you can safely ignore this email.
+                  ${
+                    invited
+                      ? "This link works once and expires in 1 hour. After that, sign in from the portal with this email address to get a new one."
+                      : "This link works once and expires in 1 hour. If you didn't ask to sign in, you can safely ignore this email."
+                  }
                 </p>
               </div>
 

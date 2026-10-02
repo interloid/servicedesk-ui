@@ -34,6 +34,11 @@ import {
 
 import { formatRelativeTime, getInitials } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  CustomerAccessMenu,
+  CustomerStatusBadge,
+} from "@/features/customers/components/customer-access";
+import { InviteCustomerModal } from "@/features/customers/components/invite-customer-modal";
 
 const HEAD =
   "h-10 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground";
@@ -51,6 +56,8 @@ export default function CustomersTable({
   search,
   sort,
   now,
+  canInvite = false,
+  portalUrl,
 }: {
   tenant: string;
   result: CustomerListPage;
@@ -58,6 +65,10 @@ export default function CustomersTable({
   search: string;
   sort: CustomerSort;
   now: number;
+  /** Tenant Admins get the Invite customer button and each row's access menu. */
+  canInvite?: boolean;
+  /** The workspace's portal address, for the Share customer portal popup. */
+  portalUrl: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -212,21 +223,25 @@ export default function CustomersTable({
 
           {/* In the heading row, top-aligned with the title. type="search",
               so the browser draws its own clear button inside the field. */}
-          <div className="relative w-full sm:w-80 lg:w-96">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            />
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+            <div className="relative w-full sm:w-80 lg:w-96">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              />
 
-            <Input
-              type="search"
-              value={term}
-              onChange={(event) => setTerm(event.target.value)}
-              placeholder="Search customers or company..."
-              aria-label="Search customers"
-              maxLength={200}
-              className="h-10 bg-card pl-9 text-sm"
-            />
+              <Input
+                type="search"
+                value={term}
+                onChange={(event) => setTerm(event.target.value)}
+                placeholder="Search customers or company..."
+                aria-label="Search customers"
+                maxLength={200}
+                className="h-10 bg-card pl-9 text-sm"
+              />
+            </div>
+
+            {canInvite && <InviteCustomerModal portalUrl={portalUrl} />}
           </div>
         </div>
 
@@ -242,24 +257,32 @@ export default function CustomersTable({
           ) : (
             <>
               <div className="w-full overflow-x-auto">
-                <Table className="w-full min-w-250 table-fixed">
+                <Table className="w-full min-w-275 table-fixed">
                   <colgroup>
-                    <col className="w-[26%]" />
+                    <col className="w-[24%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[9%]" />
                     <col className="w-[14%]" />
-                    <col className="w-[15%]" />
-                    <col className="w-[20%]" />
-                    <col className="w-[15%]" />
-                    <col className="w-[10%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[9%]" />
+                    {canInvite && <col className="w-[9%]" />}
                   </colgroup>
 
                   <TableHeader>
                     <TableRow className="bg-muted/40 hover:bg-muted/40">
                       {sortHeader("fullName", "Customer", "px-4")}
                       {sortHeader("company", "Company", "px-4")}
+                      <TableHead className={cn(HEAD, "px-4")}>Status</TableHead>
                       {sortHeader("ticketCount", "Tickets", "px-5")}
                       {sortHeader("lastActivityAt", "Last activity", "px-5")}
                       {sortHeader("createdAt", "Added", "px-4")}
                       {sortHeader("csatScore", "CSAT", "px-4")}
+                      {canInvite && (
+                        <TableHead className={cn(HEAD, "px-4 text-right")}>
+                          Actions
+                        </TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
 
@@ -267,7 +290,7 @@ export default function CustomersTable({
                     {customers.length === 0 ? (
                       <TableRow className="hover:bg-transparent">
                         <TableCell
-                          colSpan={6}
+                          colSpan={canInvite ? 8 : 7}
                           className="h-24 text-center text-sm text-muted-foreground"
                         >
                           No customers match your search.
@@ -313,6 +336,12 @@ export default function CustomersTable({
                                 <span className="text-muted-foreground">—</span>
                               )}
                             </span>
+                          </TableCell>
+
+                          <TableCell className="px-4 py-3">
+                            <CustomerStatusBadge
+                              status={customer.portalStatus}
+                            />
                           </TableCell>
 
                           <TableCell className="px-5 py-3 text-sm font-medium tabular-nums">
@@ -361,6 +390,12 @@ export default function CustomersTable({
                               </span>
                             )}
                           </TableCell>
+
+                          {canInvite && (
+                            <TableCell className="px-4 py-3 text-right">
+                              <CustomerAccessMenu customer={customer} />
+                            </TableCell>
+                          )}
                         </TableRow>
                       ))
                     )}

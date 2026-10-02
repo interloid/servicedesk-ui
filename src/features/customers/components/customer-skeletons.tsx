@@ -44,20 +44,19 @@ function SectionHeading({ width }: { width: string }) {
 function StatCard({ value }: { value: string }) {
   return (
     <div className={cn(CARD, "@container min-w-0 p-3.5 @2xl:p-5")}>
-      <div className="flex flex-col gap-3 @[15rem]:flex-row @[15rem]:items-start @[15rem]:gap-4">
+      <div className="flex flex-col gap-3 @[15rem]:flex-row @[15rem]:items-center @[15rem]:gap-4">
         <Skeleton className="size-10 shrink-0 rounded-xl @[15rem]:size-12" />
         <div className="min-w-0 flex-1">
-          {/* label, value, hint */}
-          <Skeleton className="h-5 w-24 max-w-full" />
-          <Skeleton className={cn("mt-1 h-6 @[15rem]:h-7.5", value)} />
-          <Skeleton className="mt-1 h-5 w-16" />
+          {/* label, value */}
+          <Skeleton className="h-6 w-24 max-w-full" />
+          <Skeleton className={cn("mt-1 h-7.5 @[15rem]:h-9", value)} />
         </div>
       </div>
     </div>
   );
 }
 
-/** The primary contact: avatar, name, email, "Primary contact". */
+/** The primary contact: avatar, name, email, "Primary contact", status. */
 function ContactRow() {
   return (
     <div className="flex items-start gap-3 rounded-xl border p-3.5">
@@ -68,6 +67,8 @@ function ContactRow() {
           <Skeleton className="mt-0.5 h-5 w-48 max-w-full" />
           <Skeleton className="mt-1 h-5 w-28" />
         </div>
+        {/* The portal status badge: under the details, then at the right. */}
+        <Skeleton className="h-6 w-16 shrink-0 rounded-full" />
       </div>
     </div>
   );

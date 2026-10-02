@@ -37,12 +37,14 @@ import {
   TICKET_STATUS_BADGE,
   TICKET_STATUS_LABEL,
   type CustomerDetail,
+  type CustomerPortalStatus,
   type CustomerTicket,
   type CustomerTicketPage,
 } from "@/features/customers/types/customers";
 import { formatRelativeTime, getInitials } from "@/lib/format";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
+import { CustomerStatusBadge } from "@/features/customers/components/customer-access";
 
 const CARD = "rounded-2xl border bg-card shadow-xs";
 
@@ -205,9 +207,6 @@ export function CustomerOverview({
   const ticketsHref = `${customerPath(tenant, customer.id)}?tab=tickets`;
   const ticketsRouteHref = tenantPath(tenant, TENANT_ROUTES.TICKETS);
 
-  // This customer plus everyone else recorded against the same company.
-  const companyContacts = customer.contacts.length + 1;
-
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 @2xl:gap-4 @5xl:grid-cols-4">
@@ -216,14 +215,12 @@ export function CustomerOverview({
           tone="bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300"
           label="Open tickets"
           value={customer.openTicketsCount}
-          hint={`${customer.openTicketsCount} active`}
         />
         <StatCard
           icon={Ticket}
           tone="bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"
           label="Total tickets"
           value={ticketPage.total}
-          hint="All time"
         />
         <StatCard
           icon={Building2}
@@ -241,11 +238,6 @@ export function CustomerOverview({
               <span className="text-muted-foreground">-</span>
             )
           }
-          hint={
-            customer.company
-              ? `${companyContacts} ${companyContacts === 1 ? "contact" : "contacts"}`
-              : "No company added yet"
-          }
         />
         <StatCard
           icon={Star}
@@ -253,7 +245,7 @@ export function CustomerOverview({
           label="CSAT"
           value={
             customer.csatScore === null ? (
-              <span className="text-muted-foreground">—</span>
+              <span>0</span>
             ) : (
               <span className="flex items-baseline gap-1">
                 {formatCsatScore(customer.csatScore)}
@@ -262,11 +254,6 @@ export function CustomerOverview({
                 </span>
               </span>
             )
-          }
-          hint={
-            customer.csatCount === 0
-              ? "No ratings yet"
-              : `${customer.csatCount} ${customer.csatCount === 1 ? "rating" : "ratings"}`
           }
         />
       </div>
@@ -280,6 +267,7 @@ export function CustomerOverview({
                 name={customer.fullName}
                 email={customer.email}
                 avatarUrl={customer.avatarUrl}
+                status={customer.portalStatus}
                 primary
               />
 
@@ -369,19 +357,17 @@ function StatCard({
   tone,
   label,
   value,
-  hint,
 }: {
   icon: LucideIcon;
   tone: string;
   label: string;
   value: ReactNode;
-  hint: string;
 }) {
   return (
     // Its own container: a narrow card (two up on a phone) stacks the icon
     // over the text so the label and value keep the width.
     <div className={cn(CARD, "@container min-w-0 p-3.5 @2xl:p-5")}>
-      <div className="flex flex-col gap-3 @[15rem]:flex-row @[15rem]:items-start @[15rem]:gap-4">
+      <div className="flex flex-col gap-3 @[15rem]:flex-row @[15rem]:items-center @[15rem]:gap-4">
         <span
           aria-hidden
           className={cn(
@@ -392,13 +378,12 @@ function StatCard({
           <Icon className="size-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-muted-foreground">
+          <p className="truncate text-base font-medium text-muted-foreground">
             {label}
           </p>
-          <div className="mt-1 min-w-0 text-xl leading-tight font-bold text-foreground tabular-nums @[15rem]:text-2xl">
+          <div className="mt-1 min-w-0 text-2xl leading-tight font-bold text-foreground tabular-nums @[15rem]:text-3xl">
             {value}
           </div>
-          <p className="mt-1 truncate text-sm text-muted-foreground">{hint}</p>
         </div>
       </div>
     </div>
@@ -477,11 +462,14 @@ function ContactRow({
   name,
   email,
   avatarUrl,
+  status,
   primary = false,
 }: {
   name: string;
   email: string;
   avatarUrl: string | null;
+  /** Portal status badge: under the details on a narrow card, at the right from @md. */
+  status?: CustomerPortalStatus;
   primary?: boolean;
 }) {
   return (
@@ -523,6 +511,9 @@ function ContactRow({
             </p>
           ) : null}
         </div>
+        {status ? (
+          <CustomerStatusBadge status={status} className="shrink-0" />
+        ) : null}
       </div>
     </div>
   );

@@ -65,6 +65,8 @@ type PortalSignInPayload = {
   email: string;
   redirectTo: string;
   tenantName: string;
+  /** A Tenant Admin's "Invite customer": same link, worded as an invitation. */
+  invited?: boolean;
 };
 
 /** Retrying won't fix it (mail not configured, unknown kind): fail at once. */
@@ -239,6 +241,7 @@ async function sendPortalSignIn({
   email,
   redirectTo,
   tenantName,
+  invited = false,
 }: PortalSignInPayload): Promise<void> {
   const { error: createError } = await admin.auth.admin.createUser({
     email,
@@ -271,9 +274,17 @@ async function sendPortalSignIn({
 
   await sendResend({
     to: email,
-    subject: `Your sign-in link for ${tenantName} Support`,
-    html: portalSignInEmailHtml({ workspace: tenantName, link: signInLink }),
-    text: `Sign in to ${tenantName} Support: ${signInLink}\n\nThis link works once and expires in 1 hour. If you didn't ask to sign in, you can ignore this email.`,
+    subject: invited
+      ? `You're invited to ${tenantName} Support`
+      : `Your sign-in link for ${tenantName} Support`,
+    html: portalSignInEmailHtml({
+      workspace: tenantName,
+      link: signInLink,
+      invited,
+    }),
+    text: invited
+      ? `You've been invited to ${tenantName} Support, where you can raise tickets and follow their progress: ${signInLink}\n\nThis link works once and expires in 1 hour. After that, sign in from the portal with this email address to get a new one.`
+      : `Sign in to ${tenantName} Support: ${signInLink}\n\nThis link works once and expires in 1 hour. If you didn't ask to sign in, you can ignore this email.`,
   });
 }
 

@@ -293,22 +293,3 @@ export function PortalSplitSkeleton({ children }: { children: ReactNode }) {
   // to sit 4px off its card.
   return <PortalSplit>{children}</PortalSplit>;
 }
-
-/**
- * Stands in for the inline SVG illustrations (w-44 sm:w-52 at 220×160): a soft
- * rounded block of the same box, so the heading below does not move.
- */
-export function PortalIllustrationSkeleton({
-  className,
-}: {
-  className?: string;
-}) {
-  return (
-    <Skeleton
-      className={cn(
-        "aspect-11/8 w-44 rounded-3xl bg-slate-200/80 sm:w-52",
-        className,
-      )}
-    />
-  );
-}

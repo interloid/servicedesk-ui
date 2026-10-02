@@ -38,3 +38,22 @@ export function trustedCustomerAvatarUrl(
 
   return avatarUrl.startsWith(allowed) ? avatarUrl : null;
 }
+
+/**
+ * The tenant's logo, trusted the same way as a customer's photo.
+ *
+ * `tenants.logo_url` is written by whoever configures branding, so it is not
+ * ours to assume. The portal draws it with `next/image`, whose host allow-list
+ * (next.config.ts) covers our public storage and nothing else -- an unchecked
+ * value would either be blocked and broken, or force that list open to every
+ * host. Anything outside the bucket prefix falls back to the tenant's initial.
+ */
+export function trustedTenantLogoUrl(logoUrl: string | null): string | null {
+  if (!logoUrl) {
+    return null;
+  }
+
+  const allowed = `${env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/, "")}/storage/v1/object/public/`;
+
+  return logoUrl.startsWith(allowed) ? logoUrl : null;
+}

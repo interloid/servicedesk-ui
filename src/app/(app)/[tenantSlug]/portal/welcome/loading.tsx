@@ -3,20 +3,19 @@ import { PortalCentered } from "@/features/portal/components/portal-shell";
 import {
   PortalButtonPairSkeleton,
   PortalCardSkeleton,
-  PortalIllustrationSkeleton,
   PortalRoundIconSkeleton,
 } from "@/features/portal/components/portal-skeletons";
 
 /**
  * Without this file Next.js has no fallback for the async page beside it, and
- * this one is worth having: the page awaits getPortalIdentity,
- * getFirstResponseTarget and markPortalWelcomeShown, and it stamps the wizard
- * as shown on arrival. A blank frame during that is a reload-shaped dead end on
- * the very first screen a new customer sees.
+ * this one is worth having: the page awaits getPortalIdentity and
+ * getFirstResponseTarget. A blank frame during that is a reload-shaped dead end
+ * on the very first screen a new customer sees. The wizard stamps itself as
+ * shown from the browser once it mounts, so nothing here writes.
  *
- * Mirrors step 1 of PortalWelcomeWizard: the illustration, the step dots, the
+ * Mirrors step 1 of PortalWelcomeWizard: the step dots, the
  * centred greeting, the three feature cards -- rows on a phone, centred tiles
- * from sm up -- and the centred button pair.
+ * from sm up -- and the button pair: stacked on a phone, right-aligned from sm.
  */
 
 /** Same count as TOTAL_STEPS in the wizard. */
@@ -31,8 +30,6 @@ export default function Loading() {
   return (
     <PortalCentered width="max-w-180">
       <PortalCardSkeleton width="max-w-180" className="text-center md:p-10">
-        <PortalIllustrationSkeleton className="mx-auto mb-2" />
-
         <div className="flex items-center justify-center gap-2.5">
           <div className="flex items-center gap-1.5" aria-hidden>
             <Skeleton className="h-1.5 w-6 rounded-full bg-slate-300/70" />
@@ -67,7 +64,7 @@ export default function Loading() {
 
         <PortalButtonPairSkeleton
           widths={["sm:w-32", "sm:w-28"]}
-          className="mt-8 sm:justify-center sm:gap-3"
+          className="mt-8 grid-cols-1 sm:justify-end sm:gap-3"
         />
       </PortalCardSkeleton>
     </PortalCentered>

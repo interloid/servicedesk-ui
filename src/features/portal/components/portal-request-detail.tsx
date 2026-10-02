@@ -1,10 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   CircleAlert,
   Download,
   Loader2,
@@ -14,21 +12,19 @@ import {
   SendHorizontal,
 } from "lucide-react";
 
+import { BackLink } from "@/components/shared/back-link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  discardUploadsAction,
   postReplyAction,
   prepareReplyUploadsAction,
   reopenRequestAction,
 } from "@/features/portal/actions/portal.actions";
 import { PortalAttachmentPicker } from "@/features/portal/components/portal-attachment-picker";
 import { PortalCsatCard } from "@/features/portal/components/portal-csat-card";
-import {
-  portalToastError,
-  portalToastResult,
-  portalToastSuccess,
-} from "@/features/portal/portal-toast";
+import { portalToastSuccess } from "@/features/portal/portal-toast";
 import {
   canReopen,
   formatBytes,
@@ -41,7 +37,7 @@ import {
   type PortalRequestState,
   type PortalUploadedFile,
 } from "@/features/portal/portal";
-import { uploadToTargets } from "@/features/portal/upload";
+import { prepareAndUpload } from "@/features/portal/upload";
 import { cn } from "@/lib/utils";
 
 /**
@@ -76,31 +72,38 @@ export function PortalRequestDetailView({
 
   const busy = isSending || isReopening;
 
+  const threadRef = useRef<HTMLDivElement>(null);
+  const lastMessageId = request.messages.at(-1)?.id;
+
+  // Opens on the newest message and follows the thread when a reply lands, as
+  // a chat does. Keyed on the last message rather than on every render, so a
+  // customer scrolled up to reread something is not yanked back down while
+  // typing. Layout effect, so the first paint is already at the bottom rather
+  // than flashing the top of the thread first.
+  useLayoutEffect(() => {
+    const thread = threadRef.current;
+
+    if (thread) {
+      thread.scrollTop = thread.scrollHeight;
+    }
+  }, [lastMessageId, request.csat.resolvedAt]);
+
   /**
    * The reply's files go straight to Storage first; the reply then names the
    * paths that landed. They cannot travel with the action itself -- a Server
    * Action body is capped well below any useful attachment size.
    */
-  async function uploadFiles(): Promise<PortalUploadedFile[]> {
-    if (files.length === 0) {
-      return [];
-    }
+  function discard(paths: string[]): Promise<void> {
+    return discardUploadsAction(tenantSlug, paths, request.id);
+  }
 
-    const prepared = await prepareReplyUploadsAction(
-      tenantSlug,
-      request.id,
-      files.map((file) => ({
-        name: file.name,
-        size: file.size,
-        type: file.type,
-      })),
+  function uploadFiles(): Promise<PortalUploadedFile[]> {
+    return prepareAndUpload(
+      files,
+      (descriptors) =>
+        prepareReplyUploadsAction(tenantSlug, request.id, descriptors),
+      discard,
     );
-
-    if (!prepared.success) {
-      throw new Error(prepared.message);
-    }
-
-    return uploadToTargets(prepared.data.targets, files);
   }
 
   async function sendReply() {
@@ -124,8 +127,10 @@ export function PortalRequestDetailView({
       );
 
       if (!result.success) {
+        // The files landed but the reply was refused, so nothing will ever
+        // reference them. Paths already filed are skipped server-side.
+        void discard(uploads.map((upload) => upload.path));
         setError(result.message);
-        portalToastResult(result);
         return;
       }
 
@@ -147,8 +152,8 @@ export function PortalRequestDetailView({
           ? uploadFailure.message
           : "We couldn't send that reply. Try again.";
 
+      // The Alert above the composer says it; no toast on top (RISK-047).
       setError(message);
-      portalToastError(message);
     } finally {
       setIsSending(false);
     }
@@ -176,190 +181,211 @@ export function PortalRequestDetailView({
     }
 
     setError(result.message);
-    portalToastResult(result);
   }
 
   const { created, updated } = describeHeader(request);
 
   return (
-    // max-w-5xl, matching the request list and the help centre. This page was
-    // the one portal column narrower than its siblings, and the thread is the
-    // widest thing in the portal -- a 1024px column gives the bubbles room to
-    // keep their max-w-* and still read as a conversation.
-    <div className="mx-auto w-full max-w-7xl md:px-6">
-      <Link
-        href={portalPath(tenantSlug, PORTAL_ROUTES.REQUESTS)}
-        className="inline-flex items-center gap-1.5 rounded-md text-sm font-semibold text-brand-ink underline-offset-4 hover:text-brand-ink hover:underline"
-      >
-        <ArrowLeft className="size-4" aria-hidden />
+    // Laid out like a chat window: one card the height of the screen, with the
+    // request's header pinned at the top, the composer pinned at the bottom,
+    // and only the thread between them scrolling. The height is the viewport
+    // less the portal header (h-15 / sm:h-16 plus its border) and <main>'s
+    // vertical padding (py-8 / md:py-12), so the card ends where the screen
+    // does, less the back link's 2.25rem (a 20px line and mt-4 under it).
+    // min-h keeps a short landscape phone from squeezing the thread to
+    // nothing -- there the page scrolls instead.
+    <div className="mx-auto flex h-[calc(100dvh-10.125rem)] min-h-120 w-full max-w-7xl flex-col sm:h-[calc(100dvh-10.3125rem)] md:h-[calc(100dvh-12.3125rem)] md:px-6">
+      <BackLink href={portalPath(tenantSlug, PORTAL_ROUTES.REQUESTS)}>
         Your requests
-      </Link>
+      </BackLink>
 
-      {error ? (
-        <Alert
-          variant="destructive"
-          className="mt-5 rounded-[10px] px-3.5 py-3"
-        >
-          <CircleAlert className="size-4.5" aria-hidden />
-          <AlertDescription className="text-sm leading-[1.55]">
-            {error}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {/* No card around the thread. This is a conversation, and a conversation
-          does not arrive in a box: the page was three levels of nesting deep --
-          a card around the request, a card around every message inside it, a
-          card around every attachment inside that -- and the outermost one was
-          the only thing giving the thread its shape. The messages below are
-          tinted, not outlined, which is what a chat is made of; only real
-          controls keep an outline: the textarea, the buttons, the attachment
-          rows. */}
-      <section className="mt-4">
-        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-md border border-border bg-muted px-2 py-1 text-xs font-semibold text-foreground tabular-nums">
-              #{request.number ?? "—"}
-            </span>
-
-            {/* No leading dot, same as the list badge: the label already says
-                the state, and a 6px dot inside a bordered pill reads as a
-                second, smaller pill. The border stays because this badge sits
-                on the page background rather than inside a card. */}
-            <span
-              className={cn(
-                "whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold",
-                STATE_BADGE[request.state],
-              )}
+      <section
+        className={cn(CHAT_CARD_CLASS, "mt-4 flex min-h-0 flex-1 flex-col")}
+      >
+        <header className="flex shrink-0 items-start gap-3 border-b px-4 py-3.5 sm:gap-4 sm:px-6 sm:py-4">
+          <div className="min-w-0 flex-1">
+            {/* One line, ellipsised, as a chat title is: the header has to stay
+                one fixed height for the thread under it to keep its room, and
+                the full subject is a hover away. */}
+            <h1
+              title={request.subject}
+              className="truncate text-base font-bold tracking-tight text-foreground sm:text-lg"
             >
-              {PORTAL_STATE_LABEL[request.state]}
-            </span>
+              {request.subject}
+            </h1>
+
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-foreground tabular-nums">
+                #{request.number ?? "-"}
+              </span>
+
+              {/* No leading dot, same as the list badge: the label already
+                  says the state, and a 6px dot inside a bordered pill reads as
+                  a second, smaller pill. */}
+              <span
+                className={cn(
+                  "whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                  STATE_BADGE[request.state],
+                )}
+              >
+                {PORTAL_STATE_LABEL[request.state]}
+              </span>
+
+              <span
+                suppressHydrationWarning
+                className="text-xs text-muted-foreground md:hidden"
+              >
+                {updated}
+              </span>
+            </div>
           </div>
 
           <div
             suppressHydrationWarning
-            className="flex flex-wrap gap-x-3 text-xs text-muted-foreground sm:flex-col sm:items-end sm:gap-0.5"
+            className="hidden shrink-0 flex-col items-end gap-0.5 pt-0.5 text-xs text-muted-foreground md:flex"
           >
             <span suppressHydrationWarning>{created}</span>
             <span suppressHydrationWarning>{updated}</span>
           </div>
-        </div>
+        </header>
 
-        <h1 className="mt-3 text-2xl font-bold tracking-tight text-balance wrap-break-word text-foreground sm:text-[1.75rem]">
-          {request.subject}
-        </h1>
-
-        {/* Above the thread, as in the design: a resolved request is a moment
-            to ask, and burying it under the conversation loses most
-            responses. */}
-        {request.csat.resolvedAt ? (
-          <div className="mt-6 border-t pt-6">
-            <PortalCsatCard
-              tenantSlug={tenantSlug}
-              requestId={request.id}
-              csat={request.csat}
-            />
+        {/* The only part that scrolls. A conversation, laid out as one: the
+            customer's own messages sit on the right and the team's on the
+            left, so a reply reads as an answer rather than as another entry in
+            a log. */}
+        <div
+          ref={threadRef}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6"
+        >
+          <div className="flex flex-col">
+            {request.messages.map((message) => (
+              <Message key={message.id} message={message} />
+            ))}
           </div>
-        ) : null}
 
-        {/* A conversation, laid out as one: the customer's own messages sit on
-            the right and the team's on the left, so a reply reads as an answer
-            rather than as another entry in a log. Space separates them, not a
-            rule -- a hairline between two bubbles draws a box around the pair
-            that the bubbles themselves already draw. */}
-        <div className="mt-6 flex flex-col">
-          {request.messages.map((message) => (
-            <Message key={message.id} message={message} />
-          ))}
+          {/* At the end of the thread, as the latest thing that happened to
+              the request. The thread opens scrolled to the bottom, so this is
+              what a customer lands on once the request is resolved. */}
+          {request.csat.resolvedAt ? (
+            <div className="mx-auto mt-8 w-full max-w-xl">
+              <PortalCsatCard
+                tenantSlug={tenantSlug}
+                requestId={request.id}
+                csat={request.csat}
+              />
+            </div>
+          ) : null}
         </div>
-      </section>
 
-      {/* The one card on the page. The thread above is flat because a
-          conversation does not arrive in a box, but the composer is the only
-          thing here anybody acts on, and boxing it says that without a heading
-          having to shout it. */}
-      <section className={cn(REPLY_CARD_CLASS, "mt-8")}>
-        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-          <label
-            htmlFor="portal-reply"
-            className="text-base font-bold text-foreground"
-          >
+        {/* Pinned under the thread, as a chat composer is: the customer can
+            answer whatever they just read without scrolling for the box. */}
+        <footer className="shrink-0 border-t bg-muted/30 px-3 py-3 sm:px-6 sm:py-4">
+          {error ? (
+            <Alert
+              variant="destructive"
+              className="mb-3 rounded-[10px] px-3.5 py-3"
+            >
+              <CircleAlert className="size-4.5" aria-hidden />
+              <AlertDescription className="text-sm leading-[1.55]">
+                {error}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          <label htmlFor="portal-reply" className="sr-only">
             Reply to this request
           </label>
 
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Textarea
+            id="portal-reply"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            disabled={busy}
+            rows={2}
+            placeholder="Write your reply…"
+            className="min-h-11 max-h-32 resize-none overflow-y-auto rounded-xl bg-background text-sm leading-6 sm:min-h-14 sm:max-h-40"
+          />
+
+          {/* One row of controls under the box, as a chat composer has: on a
+              phone, stacking Attach, the limits, Reopen and Send one per row
+              took a third of the screen from the thread. The picker's own
+              wrapper is `contents`, so its trigger sits in this row and its
+              file list drops onto a full-width line beneath it. */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5 sm:mt-3 sm:gap-2.5">
+            <PortalAttachmentPicker
+              files={files}
+              onChange={setFiles}
+              onError={setError}
+              disabled={busy}
+              compact
+              className="contents"
+              listClassName="order-last basis-full"
+            />
+
+            <div className="ml-auto flex shrink-0 gap-1.5 sm:gap-2.5">
+              {canReopen(request.state) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="h-11 px-3 font-semibold sm:px-5"
+                  onClick={() => void reopen()}
+                  disabled={busy}
+                >
+                  {isReopening ? (
+                    <Loader2 aria-hidden className="size-4 animate-spin" />
+                  ) : (
+                    <RotateCcw aria-hidden className="size-4" />
+                  )}
+                  {isReopening ? "Reopening…" : "Reopen"}
+                  {isReopening ? null : (
+                    <span className="max-sm:hidden"> request</span>
+                  )}
+                </Button>
+              ) : null}
+
+              <Button
+                type="button"
+                size="lg"
+                className="h-11 px-4 font-semibold sm:px-5"
+                onClick={() => void sendReply()}
+                disabled={busy || !body.trim()}
+              >
+                {isSending ? (
+                  "Sending…"
+                ) : (
+                  <span>
+                    Send<span className="max-sm:hidden"> reply</span>
+                  </span>
+                )}
+                {isSending ? (
+                  <Loader2 aria-hidden className="size-4 animate-spin" />
+                ) : (
+                  <SendHorizontal aria-hidden className="size-4" />
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* Hidden on a phone, where every line here is a line taken from
+              the thread; the request is just as private without the note. */}
+          <p className="mt-2.5 hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
             <Lock aria-hidden className="size-3.5 shrink-0" />
             Only you and the {tenantName} team can see this
           </p>
-        </div>
-
-        <Textarea
-          id="portal-reply"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          disabled={busy}
-          rows={4}
-          placeholder="Write your reply…"
-          className="mt-3 min-h-28 resize-y rounded-xl bg-background/60 text-sm leading-6"
-        />
-
-        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <PortalAttachmentPicker
-            files={files}
-            onChange={setFiles}
-            onError={setError}
-            disabled={busy}
-            className="min-w-0 flex-1"
-          />
-
-          <div className="grid shrink-0 auto-cols-fr grid-flow-col gap-2.5 sm:flex">
-            {canReopen(request.state) ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                className="h-11 px-5 font-semibold"
-                onClick={() => void reopen()}
-                disabled={busy}
-              >
-                {isReopening ? (
-                  <Loader2 aria-hidden className="size-4 animate-spin" />
-                ) : (
-                  <RotateCcw aria-hidden className="size-4" />
-                )}
-                {isReopening ? "Reopening…" : "Reopen request"}
-              </Button>
-            ) : null}
-
-            <Button
-              type="button"
-              size="lg"
-              className="h-11 px-5 font-semibold"
-              onClick={() => void sendReply()}
-              disabled={busy || !body.trim()}
-            >
-              {isSending ? "Sending…" : "Send reply"}
-              {isSending ? (
-                <Loader2 aria-hidden className="size-4 animate-spin" />
-              ) : (
-                <SendHorizontal aria-hidden className="size-4" />
-              )}
-            </Button>
-          </div>
-        </div>
+        </footer>
       </section>
     </div>
   );
 }
 
 /**
- * p-6 / sm:p-8, not the p-5 the other portal cards use. The composer is the
- * widest and emptiest surface on the page and the only one holding two
- * controls at once, so it needs the extra room to not read as a form stuffed
- * into a box the size of a card.
+ * The one card on the page, holding header, thread and composer together as a
+ * single chat window. overflow-hidden so the rounded corners clip the pinned
+ * header and composer backgrounds.
  */
-const REPLY_CARD_CLASS =
-  "rounded-2xl border bg-card p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.05)] sm:p-8";
+const CHAT_CARD_CLASS =
+  "overflow-hidden rounded-2xl border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.05)]";
 
 /**
  * One entry in the thread. The customer reads their own messages on the right
@@ -464,7 +490,7 @@ function AttachmentList({ attachments }: { attachments: PortalAttachment[] }) {
         const label = `${attachment.name} (${formatBytes(attachment.size)})`;
 
         return (
-          <li key={attachment.id}>
+          <li key={attachment.id} className="min-w-0">
             {attachment.url ? (
               <a
                 href={attachment.url}
@@ -477,7 +503,10 @@ function AttachmentList({ attachments }: { attachments: PortalAttachment[] }) {
                   className="size-3.5 shrink-0 text-muted-foreground"
                 />
 
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                <span
+                  title={attachment.name}
+                  className="min-w-0 flex-1 truncate text-sm font-medium text-foreground"
+                >
                   {attachment.name}
                 </span>
 
@@ -498,7 +527,10 @@ function AttachmentList({ attachments }: { attachments: PortalAttachment[] }) {
               // what they sent, and "try again" is honest about the cause.
               <span className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
                 <Paperclip aria-hidden className="size-3.5 shrink-0" />
-                <span className="min-w-0 flex-1 truncate">
+                <span
+                  title={attachment.name}
+                  className="min-w-0 flex-1 truncate"
+                >
                   {attachment.name}
                 </span>
                 <span className="shrink-0 text-xs">unavailable</span>

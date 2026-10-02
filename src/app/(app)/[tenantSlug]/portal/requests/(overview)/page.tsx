@@ -79,14 +79,14 @@ export default async function PortalRequestsPage({
   // bar agrees with them. Without this the pager would render "Page 1 of 3" on
   // a URL that says page 9, which reads as a broken page rather than a fix.
   if (result.page !== page) {
-    const params = new URLSearchParams();
+    const nextParams = new URLSearchParams();
 
-    if (search) params.set("q", search);
-    if (state !== "all") params.set("state", state);
-    if (sort !== "updated") params.set("sort", sort);
-    if (result.page > 1) params.set("page", String(result.page));
+    if (search) nextParams.set("q", search);
+    if (state !== "all") nextParams.set("state", state);
+    if (sort !== "updated") nextParams.set("sort", sort);
+    if (result.page > 1) nextParams.set("page", String(result.page));
 
-    const qs = params.toString();
+    const qs = nextParams.toString();
     redirect(
       `${portalPath(tenantSlug, PORTAL_ROUTES.REQUESTS)}${qs ? `?${qs}` : ""}`,
     );

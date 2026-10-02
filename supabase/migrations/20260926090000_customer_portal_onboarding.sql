@@ -1,5 +1,5 @@
 -- ==========================================================
--- File: 20260908093000_customer_portal_onboarding.sql
+-- File: 20260926090000_customer_portal_onboarding.sql
 -- Description: Customer portal sign-in + onboarding
 -- ==========================================================
 --
@@ -19,7 +19,7 @@
 -- Purely additive: ADD COLUMN IF NOT EXISTS, CREATE INDEX IF NOT EXISTS, and
 -- three CREATE OR REPLACE FUNCTIONs under names nothing else uses. It drops
 -- nothing. The RLS hardening the portal also requires is split into
--- 20260908093100 because that one REPLACES existing policies.
+-- 20260926090500 because that one REPLACES existing policies.
 --
 -- Both functions are SECURITY DEFINER and granted to `service_role` ONLY. They
 -- are called from server actions through the admin client, never from the

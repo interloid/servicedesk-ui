@@ -1,10 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
-  ArrowLeft,
   Building2,
-  ChevronLeft,
-  ChevronRight,
   Inbox,
   Link2,
   Mail,
@@ -15,8 +12,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { BackLink } from "@/components/shared/back-link";
+import { Pagination } from "@/components/shared/pagination";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -26,26 +24,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { CopyButton } from "@/features/customers/components/copy-button";
+import {
+  CopyButton,
+  CopyText,
+} from "@/features/customers/components/copy-button";
+import { CustomerTabs } from "@/features/customers/components/customer-tabs";
 import {
   CUSTOMER_TICKET_PAGE_SIZE,
-  customerInitials,
+  customerPath,
   formatCsatScore,
   formatCustomerDate,
-  formatCustomerRelative,
-  PORTAL_STATUS_BADGE,
-  PORTAL_STATUS_LABEL,
   TICKET_STATUS_BADGE,
   TICKET_STATUS_LABEL,
   type CustomerDetail,
-  type CustomerTab,
   type CustomerTicket,
   type CustomerTicketPage,
-  type PortalInvite,
-  type PortalInviteStatus,
 } from "@/features/customers/types/customers";
-import { pageWindow } from "@/lib/pagination";
-import { TENANT_ROUTES } from "@/lib/tenancy";
+import { formatRelativeTime, getInitials } from "@/lib/format";
+import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
 
 const CARD = "rounded-2xl border bg-card shadow-xs";
@@ -57,220 +53,164 @@ const PORTAL_DESCRIPTION =
   "Share this link with customers so they can create their own account and access support.";
 
 /**
- * A server component: the tabs are links (`?tab=`), so the page renders with
- * no client state, a tab can be shared or bookmarked, and the back button
- * steps between tabs. Only the copy buttons are client code.
+ * The profile's header and tab strip. Rendered by the route's layout, which is
+ * not re-rendered when only `?tab=` or `&page=` changes, so these stay on
+ * screen while the tab body below them loads.
  *
- * The pager follows the same rule rather than reaching for `useState`. A page
- * of a customer's tickets is somewhere an agent may well want to be able to
- * come back to, hand to a colleague, or step back out of -- which client state
- * cannot offer, and which a reload would throw away.
+ * Server components throughout: the tabs and the pager are links, so a tab or
+ * a page of tickets can be shared, bookmarked and stepped back out of. Only the
+ * tab strip (which reads the URL) and the copy buttons are client code.
  */
-export default function CustomerDetailPage({
+export function CustomerHeader({
   customer,
-  tickets,
   tenant,
-  tab,
-  now,
-  portalUrl,
+  ticketTotal,
 }: {
   customer: CustomerDetail;
-  /** The page of tickets to draw, and the totals the pager reads. */
+  tenant: string;
+  ticketTotal: number;
+}) {
+  return (
+    <>
+      <div>
+        <BackLink href={tenantPath(tenant, TENANT_ROUTES.CUSTOMERS)}>
+          Customers
+        </BackLink>
+
+        <div className="mt-4 flex min-w-0 items-center gap-4 sm:gap-6">
+          <div className="relative shrink-0">
+            {/* A gap of page colour, then a soft ring in the workspace's
+                accent: a bare circular photo has no defined edge and reads as
+                a hole. Tinted from brand-accent so it follows branding. */}
+            <Avatar className="size-14 overflow-hidden shadow-md ring-[3px] ring-brand-accent/35 ring-offset-[3px] ring-offset-background sm:size-20 sm:ring-4 sm:ring-offset-4">
+              {customer.avatarUrl ? (
+                <AvatarImage
+                  src={customer.avatarUrl}
+                  alt=""
+                  className="object-cover"
+                />
+              ) : null}
+              {/* AvatarImage only renders once the load succeeds, so the
+                  fallback covers no photo and a broken URL alike. */}
+              <AvatarFallback className="bg-brand-accent/10 text-xl font-bold text-brand-accent">
+                {getInitials(customer.fullName, customer.email)}
+              </AvatarFallback>
+            </Avatar>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <h1 className="line-clamp-2 text-xl font-bold wrap-break-word tracking-tight text-foreground sm:text-3xl">
+              {customer.fullName}
+            </h1>
+            <p className="mt-1 flex flex-col gap-y-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:text-base">
+              <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+                <Mail aria-hidden className="size-4 shrink-0" />
+                <span className="truncate">{customer.email}</span>
+              </span>
+              {customer.company ? (
+                <>
+                  <span aria-hidden className="hidden sm:inline">
+                    ·
+                  </span>
+                  <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+                    <Building2 aria-hidden className="size-4 shrink-0" />
+                    <span className="truncate uppercase">
+                      {customer.company}
+                    </span>
+                  </span>
+                </>
+              ) : null}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Customer since {formatCustomerDate(customer.createdAt)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <CustomerTabs
+        baseHref={customerPath(tenant, customer.id)}
+        ticketTotal={ticketTotal}
+      />
+    </>
+  );
+}
+
+/**
+ * The Tickets tab. No section heading: the tab strip already says "Tickets"
+ * and how many, so the card is the table, with the pager under it when there
+ * is more than one page.
+ */
+export function CustomerTicketsTab({
+  customerId,
+  tickets,
+  tenant,
+  now,
+}: {
+  customerId: string;
   tickets: CustomerTicketPage;
   tenant: string;
-  tab: CustomerTab;
-  /** Server clock, for relative times that render the same on both sides. */
   now: number;
-  /** Absolute URL of this workspace's portal, for pasting into an email. */
-  portalUrl: string;
 }) {
-  const base = `/${tenant}/customers/${customer.id}`;
-  const tabHref = (value: CustomerTab) =>
-    value === "overview" ? base : `${base}?tab=${value}`;
-  const ticketsRouteHref = `/${tenant}${TENANT_ROUTES.TICKETS}`;
+  const base = customerPath(tenant, customerId);
 
   // Page 1 is left as the bare `?tab=tickets`, so a pager link back to the
   // start lands on the same address the tab itself does.
   const ticketPageHref = (value: number) =>
-    value === 1 ? tabHref("tickets") : `${base}?tab=tickets&page=${value}`;
+    value === 1 ? `${base}?tab=tickets` : `${base}?tab=tickets&page=${value}`;
 
   return (
-    <div className="h-full overflow-y-auto p-4 font-sans sm:p-6 lg:p-8">
-      <div className="@container mx-auto flex w-full flex-col gap-6">
-        <div>
-          <Link
-            href={`/${tenant}/customers`}
-            className="inline-flex items-center gap-1.5 rounded-md text-sm font-semibold text-brand-ink hover:text-brand-ink hover:underline"
-          >
-            <ArrowLeft aria-hidden className="size-4" />
-            Customers
-          </Link>
+    <section className={cn(CARD, "overflow-hidden")}>
+      <TicketTable
+        tickets={tickets.tickets}
+        now={now}
+        href={tenantPath(tenant, TENANT_ROUTES.TICKETS)}
+      />
+      {tickets.pageCount > 1 ? (
+        <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:px-6">
+          <span>
+            Showing {(tickets.page - 1) * CUSTOMER_TICKET_PAGE_SIZE + 1}–
+            {Math.min(tickets.page * CUSTOMER_TICKET_PAGE_SIZE, tickets.total)}{" "}
+            of {tickets.total} tickets
+          </span>
 
-          <div className="mt-4 flex min-w-0 items-center gap-3.5 sm:gap-5">
-            <div className="relative shrink-0">
-              {/* White edge plus a hairline green ring: on the page's white
-                  card a bare circular photo has no defined edge and reads as a
-                  hole, and at 56px on a phone the 2px border is most of what
-                  tells you where the photo ends. */}
-              <Avatar className="size-14 overflow-hidden border-2 border-white shadow-sm ring-1 ring-gray-400 sm:size-20 dark:ring-emerald-800">
-                {customer.avatarUrl ? (
-                  <AvatarImage
-                    src={customer.avatarUrl}
-                    alt=""
-                    className="object-cover"
-                  />
-                ) : null}
-                {/* Still here because AvatarImage only renders once the load
-                    succeeds: without a fallback a customer with no photo, or
-                    with a broken URL, shows an empty circle. */}
-                <AvatarFallback className="bg-brand-accent/10 text-xl font-bold text-brand-accent">
-                  {customerInitials(customer.fullName, customer.email)}
-                </AvatarFallback>
-              </Avatar>
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <h1 className="line-clamp-2 text-xl font-bold wrap-break-word tracking-tight text-foreground sm:text-3xl">
-                {customer.fullName}
-              </h1>
-              <p className="mt-1 flex flex-col gap-y-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2.5 sm:text-base">
-                <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
-                  <Mail aria-hidden className="size-4 shrink-0" />
-                  <span className="truncate">{customer.email}</span>
-                </span>
-                {customer.company ? (
-                  <>
-                    <span aria-hidden className="hidden sm:inline">
-                      ·
-                    </span>
-                    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
-                      <Building2 aria-hidden className="size-4 shrink-0" />
-                      <span className="truncate uppercase">
-                        {customer.company}
-                      </span>
-                    </span>
-                  </>
-                ) : null}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Customer since {formatCustomerDate(customer.createdAt)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <nav aria-label="Customer sections" className="-mb-2 border-b">
-          <ul className="-mb-px flex gap-6">
-            {(
-              [
-                ["overview", "Overview"],
-                ["tickets", `Tickets`],
-              ] as const
-            ).map(([value, label]) => {
-              const active = value === tab;
-
-              return (
-                <li key={value}>
-                  <Link
-                    href={tabHref(value)}
-                    aria-current={active ? "page" : undefined}
-                    scroll={false}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 border-b-2 pb-3 text-sm font-semibold transition-colors",
-                      // The underline and the label are the same token, so
-                      // the active state reads as one colour rather than a
-                      // teal label sitting over a green rule.
-                      active
-                        ? "border-brand-strong! text-brand-strong hover:text-brand-strong"
-                        : "border-transparent! text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {label}
-                    {value === "tickets" && tickets.total > 0 ? (
-                      <span className="rounded-md bg-muted px-1.5 text-xs text-muted-foreground tabular-nums">
-                        {tickets.total}
-                      </span>
-                    ) : null}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-
-        {tab === "overview" ? (
-          <Overview
-            customer={customer}
-            ticketPage={tickets}
-            now={now}
-            ticketsHref={tabHref("tickets")}
-            ticketsRouteHref={ticketsRouteHref}
-            portalUrl={portalUrl}
+          <Pagination
+            label="Ticket pages"
+            page={tickets.page}
+            pageCount={tickets.pageCount}
+            hrefFor={ticketPageHref}
           />
-        ) : null}
-
-        {tab === "tickets" ? (
-          /*
-           * No section heading here. The tab strip already says "Tickets" and
-           * says how many, and a heading repeating both above the table only
-           * pushed the first row down by 68px -- so the card is the table, with
-           * the pager under it when there is more than one page.
-           */
-          <section className={cn(CARD, "overflow-hidden")}>
-            <TicketTable
-              tickets={tickets.tickets}
-              now={now}
-              href={ticketsRouteHref}
-            />
-            {tickets.pageCount > 1 ? (
-              <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:px-6">
-                <span>
-                  Showing {(tickets.page - 1) * CUSTOMER_TICKET_PAGE_SIZE + 1}–
-                  {Math.min(
-                    tickets.page * CUSTOMER_TICKET_PAGE_SIZE,
-                    tickets.total,
-                  )}{" "}
-                  of {tickets.total} tickets
-                </span>
-
-                <Pagination
-                  page={tickets.page}
-                  pageCount={tickets.pageCount}
-                  hrefFor={ticketPageHref}
-                />
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-      </div>
-    </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
-function Overview({
+export function CustomerOverview({
   customer,
   ticketPage,
+  tenant,
   now,
-  ticketsHref,
-  ticketsRouteHref,
   portalUrl,
 }: {
   customer: CustomerDetail;
-  /** The page of tickets this request read, and the totals behind the cards. */
+  /** The first page of tickets, and the totals behind the cards. */
   ticketPage: CustomerTicketPage;
+  tenant: string;
+  /** Server clock, for relative times that render the same on both sides. */
   now: number;
-  ticketsHref: string;
-  /** Where a ticket row goes; the agent app's ticket list. */
-  ticketsRouteHref: string;
   /** Absolute URL of this workspace's portal. */
   portalUrl: string;
 }) {
+  const ticketsHref = `${customerPath(tenant, customer.id)}?tab=tickets`;
+  const ticketsRouteHref = tenantPath(tenant, TENANT_ROUTES.TICKETS);
+
   // This customer plus everyone else recorded against the same company.
   const companyContacts = customer.contacts.length + 1;
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 @2xl:gap-4 @5xl:grid-cols-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 @2xl:gap-4 @5xl:grid-cols-4">
         <StatCard
           icon={Inbox}
           tone="bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300"
@@ -298,7 +238,7 @@ function Overview({
                 {customer.company}
               </span>
             ) : (
-              <span className="text-muted-foreground">—</span>
+              <span className="text-muted-foreground">-</span>
             )
           }
           hint={
@@ -339,10 +279,7 @@ function Overview({
               <ContactRow
                 name={customer.fullName}
                 email={customer.email}
-                portalActive={customer.portalActive}
-                invite={customer.invite}
                 avatarUrl={customer.avatarUrl}
-                now={now}
                 primary
               />
 
@@ -351,10 +288,7 @@ function Overview({
                   key={contact.id}
                   name={contact.name}
                   email={contact.email}
-                  portalActive={contact.portalActive}
-                  invite={contact.invite}
                   avatarUrl={contact.avatarUrl}
-                  now={now}
                 />
               ))}
             </div>
@@ -396,10 +330,14 @@ function Overview({
                 copy={{ value: portalUrl, label: "Portal link" }}
               >
                 {/* break-all rather than truncate: there is nothing to infer
-                    from a cut-off host. */}
-                <span className="block font-semibold break-all text-brand-ink">
-                  {portalUrl}
-                </span>
+                    from a cut-off host. Clicking the link copies it, the same
+                    as the button beside it: the agent is here to hand the
+                    address on, not to visit it. */}
+                <CopyText
+                  value={portalUrl}
+                  label="Portal link"
+                  className="font-semibold text-brand-ink"
+                />
                 <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground">
                   {PORTAL_DESCRIPTION}
                 </span>
@@ -531,33 +469,21 @@ function DetailRow({
 }
 
 /**
- * One person at the company and where they stand with the portal. The
- * customer this page is about comes first, larger, as the primary contact;
- * anyone else recorded against the same company follows in a compact row.
+ * One person at the company. The customer this page is about comes first,
+ * larger, as the primary contact; anyone else recorded against the same
+ * company follows in a compact row.
  */
 function ContactRow({
   name,
   email,
-  portalActive,
-  invite,
   avatarUrl,
-  now,
   primary = false,
 }: {
   name: string;
   email: string;
-  portalActive: boolean;
-  invite: PortalInvite;
   avatarUrl: string | null;
-  /** Server clock, so "invited 2 days ago" reads the same on both sides. */
-  now: number;
   primary?: boolean;
 }) {
-  // A signed-in customer is "Portal active" whatever their membership says:
-  // portal_user_id is stamped by the sign-in itself, and a customer who
-  // onboarded before invites existed has an active row too.
-  const status: PortalInviteStatus = portalActive ? "active" : invite.status;
-
   return (
     <div
       className={cn(
@@ -577,7 +503,7 @@ function ContactRow({
             primary ? "text-base" : "text-[11px]",
           )}
         >
-          {customerInitials(name, email)}
+          {getInitials(name, email)}
         </AvatarFallback>
       </Avatar>
       <div className="flex min-w-0 flex-1 flex-col items-start gap-2 self-center @md:flex-row @md:justify-between">
@@ -597,132 +523,8 @@ function ContactRow({
             </p>
           ) : null}
         </div>
-        <span
-          className={cn(
-            "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
-            PORTAL_STATUS_BADGE[status],
-          )}
-          title={
-            status === "invited" && invite.invitedAt
-              ? `Invited ${formatCustomerRelative(invite.invitedAt, now)} — they haven't signed in yet.`
-              : undefined
-          }
-        >
-          {PORTAL_STATUS_LABEL[status]}
-        </span>
       </div>
     </div>
-  );
-}
-
-/**
- * Numbered pages as links, with arrows either side.
- *
- * Not buttons: the page is a server component whose tabs are already links,
- * and a page of results is a place worth being able to return to, hand to a
- * colleague, or step back out of with the browser's back button. Client state
- * would give all three of those away, and would have to re-fetch on reload to
- * be worth anything.
- *
- * The window itself is shared with the billing history and the customers list
- * -- first page, last page, the current one with a neighbour either side, and
- * an ellipsis for each gap -- so the control is the same width and the same
- * rhythm wherever in the app an agent meets it.
- */
-function Pagination({
-  page,
-  pageCount,
-  hrefFor,
-}: {
-  page: number;
-  pageCount: number;
-  hrefFor: (page: number) => string;
-}) {
-  return (
-    <nav
-      aria-label="Ticket pages"
-      className="flex flex-wrap items-center justify-center gap-1.5"
-    >
-      <PageLink
-        href={hrefFor(page - 1)}
-        label="Previous page"
-        disabled={page <= 1}
-      >
-        <ChevronLeft />
-      </PageLink>
-
-      {pageWindow(page, pageCount).map((value, index) =>
-        value === "gap" ? (
-          <span
-            key={`gap-${index}`}
-            aria-hidden
-            className="px-1 text-muted-foreground"
-          >
-            …
-          </span>
-        ) : (
-          <PageLink key={value} href={hrefFor(value)} current={value === page}>
-            {value}
-          </PageLink>
-        ),
-      )}
-
-      <PageLink
-        href={hrefFor(page + 1)}
-        label="Next page"
-        disabled={page >= pageCount}
-      >
-        <ChevronRight />
-      </PageLink>
-    </nav>
-  );
-}
-
-/**
- * One page number or arrow. A link styled as the button beside it, so the
- * control reads as one row rather than as links pretending to be something
- * else.
- *
- * The ends of the range are drawn as disabled rather than omitted: a pager
- * that loses its arrows at the first and last page changes width as you move
- * through it, and the eye has to find them again every time.
- */
-function PageLink({
-  href,
-  label,
-  children,
-  current = false,
-  disabled = false,
-}: {
-  href: string;
-  /** For the arrows; a numbered page is named by its own number. */
-  label?: string;
-  children: ReactNode;
-  current?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <Button
-      asChild
-      variant={current ? "default" : "outline"}
-      size="icon"
-      className={cn(
-        "size-9 tabular-nums",
-        // A link cannot be :disabled, so the button's own disabled styling --
-        // which is variant-scoped to the attribute -- never fires here.
-        disabled && "pointer-events-none opacity-50",
-      )}
-    >
-      <Link
-        href={href}
-        aria-label={label}
-        aria-current={current ? "page" : undefined}
-        aria-disabled={disabled || undefined}
-        tabIndex={disabled ? -1 : undefined}
-      >
-        {children}
-      </Link>
-    </Button>
   );
 }
 
@@ -755,8 +557,19 @@ function TicketTable({
       // no heading, and a message 8px under the card's top edge reads as a
       // mistake.
       <div className="flex flex-col items-center px-5 pt-6 pb-10 text-center">
-        <p className="text-sm text-muted-foreground">
-          No tickets raised by this customer yet.
+        <span
+          aria-hidden
+          className="flex size-11 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800/60 dark:text-slate-300"
+        >
+          <Ticket className="size-5" />
+        </span>
+        <p className="mt-4 text-sm font-semibold text-foreground">
+          No tickets raised yet
+        </p>
+        <p className="mt-1.5 max-w-sm text-xs leading-5 text-muted-foreground">
+          This customer hasn&rsquo;t raised any support requests yet. Tickets
+          will appear here when the customer submits a request through the
+          portal.
         </p>
       </div>
     );
@@ -765,29 +578,29 @@ function TicketTable({
   // The same look as Billing history: a tinted uppercase header, no column
   // rules, a mono ID and pill badges.
   //
-  // Columns go before the table scrolls: sized against its own card, Updated
-  // appears from @lg and Created from @2xl. Below @lg the update time rides
-  // under the subject instead, so a phone still sees it.
+  // Every column is always drawn and the table scrolls sideways when the card
+  // is narrower than the columns need -- the same trade as the customers list
+  // and the billing history. Dropping a column and moving its value under the
+  // subject was what this used to do below @lg/@2xl: the subject column is
+  // table-fixed, so on a phone it was squeezed to the width of a badge and the
+  // title -- the thing being scanned for -- became three words and an
+  // ellipsis. min-w-190 is the point where ID, Subject, Status, Created and
+  // Updated all still fit; narrower than that and the reader scrolls rather
+  // than loses data.
   const head =
     "h-10 px-4 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-6 dark:text-muted-foreground";
   const cell = "px-4 py-3.5 sm:px-6 sm:py-4";
 
   return (
-    <div className={cn("@container", className)}>
-      <Table className="table-fixed text-sm">
+    <div className={className}>
+      <Table className="min-w-190 table-fixed text-sm">
         <TableHeader>
           <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50 dark:border-border dark:bg-muted/40 dark:hover:bg-muted/40">
-            <TableHead className={cn(head, "w-24 @lg:w-28")}>
-              Ticket ID
-            </TableHead>
+            <TableHead className={cn(head, "w-24")}>Ticket ID</TableHead>
             <TableHead className={head}>Subject</TableHead>
-            <TableHead className={cn(head, "w-28 @lg:w-32")}>Status</TableHead>
-            <TableHead className={cn(head, "hidden w-36 @2xl:table-cell")}>
-              Created
-            </TableHead>
-            <TableHead className={cn(head, "hidden w-36 @lg:table-cell")}>
-              Updated
-            </TableHead>
+            <TableHead className={cn(head, "w-28")}>Status</TableHead>
+            <TableHead className={cn(head, "w-36")}>Created</TableHead>
+            <TableHead className={cn(head, "w-36")}>Updated</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -802,7 +615,7 @@ function TicketTable({
                   "whitespace-nowrap font-mono text-xs font-semibold tracking-tight text-slate-900 dark:text-foreground",
                 )}
               >
-                #{ticket.number ?? "—"}
+                #{ticket.number ?? "-"}
               </TableCell>
               <TableCell className={cell}>
                 {/* One line, ellipsised: the subject only has to be
@@ -816,9 +629,6 @@ function TicketTable({
                 >
                   {ticket.subject}
                 </Link>
-                <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-muted-foreground @lg:hidden">
-                  Updated {formatCustomerRelative(ticket.updatedAt, now)}
-                </p>
               </TableCell>
               <TableCell className={cn(cell, "whitespace-nowrap")}>
                 <span
@@ -833,7 +643,7 @@ function TicketTable({
               <TableCell
                 className={cn(
                   cell,
-                  "hidden whitespace-nowrap text-slate-600 dark:text-muted-foreground @2xl:table-cell",
+                  "whitespace-nowrap text-slate-600 dark:text-muted-foreground",
                 )}
               >
                 {formatCustomerDate(ticket.createdAt)}
@@ -841,10 +651,10 @@ function TicketTable({
               <TableCell
                 className={cn(
                   cell,
-                  "hidden whitespace-nowrap text-slate-600 dark:text-muted-foreground @lg:table-cell",
+                  "whitespace-nowrap text-slate-600 dark:text-muted-foreground",
                 )}
               >
-                {formatCustomerRelative(ticket.updatedAt, now)}
+                {formatRelativeTime(ticket.updatedAt, now) ?? "—"}
               </TableCell>
             </TableRow>
           ))}

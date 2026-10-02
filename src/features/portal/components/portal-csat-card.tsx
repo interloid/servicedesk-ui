@@ -2,20 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, Star } from "lucide-react";
+import { CircleAlert, Loader2, Star } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  addCsatCommentAction,
-  submitCsatAction,
-} from "@/features/portal/actions/portal.actions";
+import { submitCsatAction } from "@/features/portal/actions/portal.actions";
 import { CSAT_SCORES, type PortalCsat } from "@/features/portal/portal";
-import {
-  portalToastResult,
-  portalToastSuccess,
-} from "@/features/portal/portal-toast";
+import { portalToastSuccess } from "@/features/portal/portal-toast";
 import { cn } from "@/lib/utils";
 
 const SCORE_LABEL: Record<number, string> = {
@@ -53,6 +47,11 @@ function ratingAcknowledgement(score: number): string {
  * a thank-you once given. A reopened request that is resolved again gets a new
  * resolved_at, so the prompt returns on its own — there is no "dismissed" state
  * to track.
+ *
+ * Picking a star only selects it. Nothing is sent until Submit, so a customer
+ * who taps three and then thinks better of it can move to five: a rating that
+ * landed on the first tap could not be taken back, and a mis-tap on a phone
+ * became the team's score.
  */
 export function PortalCsatCard({
   tenantSlug,
@@ -66,87 +65,61 @@ export function PortalCsatCard({
   const router = useRouter();
 
   const [hovered, setHovered] = useState<number | null>(null);
-  const [pending, setPending] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const [error, setError] = useState<string | undefined>();
-  const [isSavingComment, setIsSavingComment] = useState(false);
-  const [commentSaved, setCommentSaved] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const score = csat.score ?? pending;
+  const rated = csat.score !== null;
+  const score = csat.score ?? selected;
 
-  async function rate(value: number) {
-    if (pending !== null || csat.score !== null) {
+  async function submit() {
+    if (selected === null || rated || isSubmitting) {
       return;
     }
 
     setError(undefined);
-    // Optimistic: the copy promises "one tap", so the stars must fill at once
-    // rather than after a round trip.
-    setPending(value);
+    setIsSubmitting(true);
 
     const result = await submitCsatAction(tenantSlug, requestId, {
-      score: value,
-      comment: "",
+      score: selected,
+      comment,
     });
 
-    if (result.success) {
-      // The heading turns to a thank-you with the refresh, but the stars
-      // emptying on a failure is silent -- so both directions are toasted.
-      portalToastSuccess(ratingAcknowledgement(value));
-      router.refresh();
-      return;
-    }
-
-    setPending(null);
-    setError(result.message);
-    portalToastResult(result);
-  }
-
-  async function saveComment() {
-    if (!comment.trim() || isSavingComment) {
-      return;
-    }
-
-    setError(undefined);
-    setIsSavingComment(true);
-
-    const result = await addCsatCommentAction(tenantSlug, requestId, comment);
-
-    setIsSavingComment(false);
+    setIsSubmitting(false);
 
     if (result.success) {
-      setCommentSaved(true);
-      // Says what the words are for, which is the only reason to write them.
-      portalToastSuccess("Comment added — the team reads it with your rating.");
+      // The card turns to a thank-you with the refresh; the toast says what
+      // the score means to us, by band.
+      portalToastSuccess(ratingAcknowledgement(selected));
       router.refresh();
       return;
     }
 
     setError(result.message);
-    portalToastResult(result);
   }
-
-  const rated = score !== null;
 
   return (
-    // No box: on a flat request page this sits under a rule like everything
-    // else, and a 2px brand border here was the only thing on the screen
-    // shouting. The stars are controls and keep their own outlines.
-    <section>
+    // Its own card, set into the thread: it sits among the message bubbles at
+    // the end of the conversation, and without an edge it read as one more
+    // message rather than as the one thing on the page asking for an answer.
+    // A hairline and a faint brand wash rather than a 2px brand border, which
+    // was the only thing on the screen shouting.
+    <section className="rounded-2xl border bg-linear-to-b from-brand-accent/5 to-card p-4 text-center shadow-xs sm:p-6">
       <h2 className="text-base font-bold text-foreground">
-        {rated ? "Thanks — that's logged" : "How did we do?"}
+        {rated ? "Thanks - that's logged" : "How did we do?"}
       </h2>
 
       <p className="mt-1 text-sm leading-[1.55] text-muted-foreground">
         {rated
           ? "The engineer who handled this will see it."
-          : "One tap. It goes straight to the engineer who handled this."}
+          : "Pick a rating, then submit. It goes straight to the engineer who handled this."}
       </p>
 
       {error ? (
         <Alert
           variant="destructive"
-          className="mt-3.5 rounded-[10px] px-3.5 py-3"
+          className="mt-3.5 rounded-[10px] px-3.5 py-3 text-left"
         >
           <CircleAlert className="size-4.5" aria-hidden />
           <AlertDescription className="text-sm leading-[1.55]">
@@ -155,14 +128,22 @@ export function PortalCsatCard({
         </Alert>
       ) : null}
 
+      {/* Five equal columns that share the width, so the row never wraps a
+          star onto a line of its own on a phone and never spreads past a
+          comfortable reach on a desktop. Each star carries its own label, so
+          the scale reads before anything is tapped. */}
       <div
-        className="mt-4 flex flex-wrap items-center gap-1.5 sm:gap-2.5"
+        className="mx-auto mt-4 grid w-full max-w-md grid-cols-5 gap-1 sm:gap-2.5"
         role="radiogroup"
         aria-label="Rate the support you received"
         onMouseLeave={() => setHovered(null)}
       >
         {CSAT_SCORES.map((value) => {
-          const filled = (hovered ?? score ?? 0) >= value;
+          const shown = hovered ?? score ?? 0;
+          const filled = shown >= value;
+          // The one tile the stars currently stop at: its label is the answer.
+          const current = shown === value;
+          const locked = rated || isSubmitting;
 
           return (
             <button
@@ -170,16 +151,21 @@ export function PortalCsatCard({
               type="button"
               role="radio"
               aria-checked={score === value}
-              aria-label={`${value} out of 5 — ${SCORE_LABEL[value]}`}
-              title={SCORE_LABEL[value]}
-              disabled={rated}
-              onMouseEnter={() => !rated && setHovered(value)}
-              onFocus={() => !rated && setHovered(value)}
-              onClick={() => void rate(value)}
+              aria-label={`${value} out of 5 - ${SCORE_LABEL[value]}`}
+              disabled={locked}
+              onMouseEnter={() => !locked && setHovered(value)}
+              onFocus={() => !locked && setHovered(value)}
+              onBlur={() => setHovered(null)}
+              onClick={() => {
+                setError(undefined);
+                setSelected(value);
+              }}
               className={cn(
-                "flex size-10 items-center justify-center rounded-lg border transition-colors sm:size-11",
+                "flex aspect-square min-w-0 flex-col items-center justify-center gap-2 rounded-xl border px-1 transition-[colors,transform] sm:aspect-auto sm:py-3",
                 "focus-visible:ring-2 focus-visible:ring-(--brand-accent)/30 focus-visible:outline-none",
-                rated ? "cursor-default" : "hover:border-(--brand-accent)/50",
+                locked
+                  ? "cursor-default"
+                  : "hover:border-(--brand-accent)/50 active:scale-95",
                 filled
                   ? "border-(--brand-accent)/40 bg-brand-badge"
                   : "bg-background",
@@ -188,54 +174,91 @@ export function PortalCsatCard({
               <Star
                 aria-hidden
                 className={cn(
-                  "size-5",
+                  "size-6 transition-transform",
                   filled
                     ? "fill-brand-accent text-brand-accent"
                     : "text-muted-foreground",
+                  current && "scale-110",
                 )}
               />
+              <span
+                aria-hidden
+                className={cn(
+                  // Below sm five labels do not fit under five stars ("Not
+                  // great" and "Excellent" were cut to "Not …" and "Exce…"),
+                  // so a phone gets the one line under the row instead.
+                  "w-full truncate text-center text-xs leading-tight font-semibold max-sm:hidden",
+                  current
+                    ? "text-brand-ink"
+                    : filled
+                      ? "text-foreground/70"
+                      : "text-muted-foreground",
+                )}
+              >
+                {SCORE_LABEL[value]}
+              </span>
             </button>
           );
         })}
-
-        {rated ? (
-          <span className="ml-1 text-sm font-bold text-brand-ink">
-            {SCORE_LABEL[score]}
-          </span>
-        ) : null}
       </div>
 
-      {/* The comment is a second, optional step. Asking for it up front would
-          make a one-tap rating feel like a form and cost most of the responses. */}
-      {rated && !csat.comment && !commentSaved ? (
-        <div className="mt-4 flex flex-col gap-2.5">
+      {/* Phone only: the label for whatever the stars show, hover and focus
+          included. A fixed-height line, so it filling in does not nudge the
+          card. */}
+      <p
+        aria-hidden
+        className={cn(
+          "mt-2 h-5 text-sm sm:hidden",
+          (hovered ?? score)
+            ? "font-bold text-brand-ink"
+            : "text-muted-foreground",
+        )}
+      >
+        {(hovered ?? score)
+          ? SCORE_LABEL[(hovered ?? score) as number]
+          : "Tap a star"}
+      </p>
+
+      {/* The comment and Submit arrive with the first star: before that there
+          is nothing to submit, and an empty form under the stars made a
+          one-tap question look like paperwork. */}
+      {!rated && selected !== null ? (
+        <div className="mt-4 flex flex-col items-center gap-3 text-left animate-in fade-in slide-in-from-top-1 duration-200">
           <Textarea
             value={comment}
             onChange={(event) => setComment(event.target.value)}
-            disabled={isSavingComment}
+            disabled={isSubmitting}
             rows={3}
+            maxLength={2000}
             placeholder="Anything you'd like to add? (optional)"
-            className="resize-y rounded-lg text-sm"
+            className="min-h-20 max-h-48 resize-none overflow-y-auto rounded-lg bg-background text-sm"
           />
 
           <Button
             type="button"
-            variant="outline"
-            className="w-fit font-bold"
-            onClick={() => void saveComment()}
-            disabled={isSavingComment || !comment.trim()}
+            size="lg"
+            className="h-11 w-full px-6 font-semibold sm:w-auto"
+            onClick={() => void submit()}
+            disabled={isSubmitting}
           >
-            {isSavingComment ? "Sending…" : "Send comment"}
+            {isSubmitting ? (
+              <>
+                <Loader2 aria-hidden className="size-4 animate-spin" />
+                Submitting…
+              </>
+            ) : (
+              "Submit rating"
+            )}
           </Button>
         </div>
       ) : null}
 
-      {csat.comment || commentSaved ? (
+      {rated && csat.comment ? (
         // A left rule, not a box: it marks the customer's own words as
-        // something they wrote after rating, without wrapping them in
+        // something they wrote with the rating, without wrapping them in
         // chrome the thread no longer uses.
-        <p className="mt-3.5 border-l-2 border-border pl-3 text-sm leading-[1.55] text-muted-foreground">
-          {csat.comment || comment}
+        <p className="mt-3.5 border-l-2 border-border pl-3 text-left text-sm leading-[1.55] text-muted-foreground">
+          {csat.comment}
         </p>
       ) : null}
     </section>

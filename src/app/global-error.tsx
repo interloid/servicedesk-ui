@@ -6,10 +6,10 @@ import "./globals.css";
 
 export default function GlobalError({
   error,
-  unstable_retry,
+  retry,
 }: {
   error: Error & { digest?: string };
-  unstable_retry: () => void;
+  retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -27,7 +27,7 @@ export default function GlobalError({
           <p className="text-xs text-foreground/40">Error ID: {error.digest}</p>
         )}
         <button
-          onClick={() => unstable_retry()}
+          onClick={() => retry()}
           className="mt-2 rounded-md border border-foreground/20 px-4 py-2 text-sm font-medium transition-colors hover:bg-foreground/10"
         >
           Try again

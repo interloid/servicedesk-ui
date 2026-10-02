@@ -1435,6 +1435,7 @@ export type Database = {
           email: string;
           full_name: string;
           id: string;
+          preferred_tenant_id: string | null;
           updated_at: string;
         };
         Insert: {
@@ -1443,6 +1444,7 @@ export type Database = {
           email: string;
           full_name: string;
           id: string;
+          preferred_tenant_id?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -1451,9 +1453,18 @@ export type Database = {
           email?: string;
           full_name?: string;
           id?: string;
+          preferred_tenant_id?: string | null;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "users_preferred_tenant_id_fkey";
+            columns: ["preferred_tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: {
@@ -1540,6 +1551,14 @@ export type Database = {
         Args: { p_tenant_slug: string; p_user_id: string };
         Returns: Json;
       };
+      portal_reopen_ticket: {
+        Args: { p_ticket: string; p_user_id: string };
+        Returns: number;
+      };
+      portal_reply_bumps_status: {
+        Args: { p_ticket: string; p_user_id: string };
+        Returns: number;
+      };
       process_sla_breaches: { Args: never; Returns: number };
       provision_tenant: {
         Args: {
@@ -1573,6 +1592,7 @@ export type Database = {
         Args: { p_new_owner_membership_id: string };
         Returns: undefined;
       };
+      uuid_or_null: { Args: { p_text: string }; Returns: string };
     };
     Enums: {
       audit_action:

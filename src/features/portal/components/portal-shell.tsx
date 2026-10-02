@@ -155,7 +155,9 @@ function PortalFooter({
     <span key="name" className="font-semibold text-white">
       {tenant.name} Support
     </span>,
-    ...details.map((detail) => <span key={detail}>{detail}</span>),
+    ...details.map((detail, index) => (
+      <span key={`detail-${index}`}>{detail}</span>
+    )),
   ];
 
   return (

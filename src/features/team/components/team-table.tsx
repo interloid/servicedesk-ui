@@ -57,7 +57,6 @@ import {
   canEditMemberWithRole,
   canPerformTeamAction,
   formatAbsoluteDate,
-  formatRelativeTime,
   hasSeatLeft,
   roleWithArticle,
   type TeamMember,
@@ -65,6 +64,7 @@ import {
   type TeamSeats,
   type TeamStatus,
 } from "@/features/team/types/team";
+import { formatRelativeTime, getInitials } from "@/lib/format";
 import {
   changeMemberRoleAction,
   changeMemberStatusAction,
@@ -87,24 +87,6 @@ const TEAM_STATUS_BADGE: Record<TeamStatus, string> = {
     "border-none bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
   Disabled: "border-none bg-muted text-muted-foreground",
 };
-
-function getInitials(name: string, email: string): string {
-  if (name && name.trim()) {
-    return name
-      .trim()
-      .split(/\s+/)
-      .map((part) => part.charAt(0))
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-  }
-
-  if (email) {
-    return email.charAt(0).toUpperCase();
-  }
-
-  return "?";
-}
 
 /** The timestamp line under a status badge, or null when there is nothing to say. */
 function statusDetail(member: TeamMember, now: number): string | null {
@@ -756,7 +738,7 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
       <div className="overflow-hidden rounded-[14px] border border-border bg-card">
         <Table className="min-w-262 table-fixed">
           <TableHeader>
-            <TableRow className="h-14 border-border bg-card hover:bg-card">
+            <TableRow className="h-14 border-border bg-muted/40 hover:bg-muted/40">
               <TableHead className={TH}>Member</TableHead>
 
               <TableHead className={`${TH} w-62`}>Status</TableHead>

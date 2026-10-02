@@ -256,47 +256,6 @@ export function formatAbsoluteDate(iso: string | null): string | null {
   }).format(parsed);
 }
 
-const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ["year", 365 * 24 * 60 * 60 * 1000],
-  ["month", 30 * 24 * 60 * 60 * 1000],
-  ["day", 24 * 60 * 60 * 1000],
-  ["hour", 60 * 60 * 1000],
-  ["minute", 60 * 1000],
-];
-
-/**
- * "2 days ago" for the timestamps under a status badge.
- *
- * Rounds to whole units and stops at minutes, so the server render and the
- * client hydration agree: anything finer would tick over between the two and
- * React would report a text mismatch on a screen nobody was interacting with.
- */
-export function formatRelativeTime(
-  iso: string | null,
-  now: number = Date.now(),
-): string | null {
-  if (!iso) {
-    return null;
-  }
-
-  const then = Date.parse(iso);
-
-  if (Number.isNaN(then)) {
-    return null;
-  }
-
-  const elapsed = now - then;
-  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-
-  for (const [unit, size] of RELATIVE_UNITS) {
-    if (Math.abs(elapsed) >= size) {
-      return formatter.format(-Math.round(elapsed / size), unit);
-    }
-  }
-
-  return "just now";
-}
-
 export type TenantPlanRow = {
   name?: string | null;
   seat_limit?: number | null;

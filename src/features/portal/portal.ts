@@ -48,12 +48,26 @@ export const AVATAR_MIME_TYPES = [
   "image/webp",
 ] as const;
 
+export type AvatarMimeType = (typeof AVATAR_MIME_TYPES)[number];
+
+/**
+ * Narrows a browser-reported Content-Type to one we accept.
+ *
+ * `File.type` is a string, and an empty one for a file the browser could not
+ * identify, so it has to be checked rather than asserted -- the upload action's
+ * parameter is the four-value union, which is only sound because this is what
+ * produced it.
+ */
+export function isAvatarMimeType(value: string): value is AvatarMimeType {
+  return (AVATAR_MIME_TYPES as readonly string[]).includes(value);
+}
+
 /** Why a picked profile photo can't be used, or null when it can. */
 export function avatarError(file: {
   size: number;
   type: string;
 }): string | null {
-  if (!(AVATAR_MIME_TYPES as readonly string[]).includes(file.type)) {
+  if (!isAvatarMimeType(file.type)) {
     return "Choose a JPG, PNG, GIF or WebP image.";
   }
 
@@ -136,7 +150,7 @@ export function attachmentError(file: {
   }
 
   if (file.size > MAX_ATTACHMENT_BYTES) {
-    return `${file.name} is ${formatBytes(file.size)} — the limit is ${formatBytes(
+    return `${file.name} is ${formatBytes(file.size)} - the limit is ${formatBytes(
       MAX_ATTACHMENT_BYTES,
     )}.`;
   }
@@ -416,6 +430,41 @@ export const PORTAL_FAILURE_CODES = [
 ] as const;
 
 export type PortalFailureCode = (typeof PORTAL_FAILURE_CODES)[number];
+
+/**
+ * What a refused sign-in tells the customer, keyed by an opaque code the
+ * callback puts in the URL.
+ *
+ * The login URL is public and its query string is entirely attacker-controlled,
+ * so the page never renders `?error=` as text: it looks the value up here and
+ * drops anything it does not recognise. Without that, a link ending
+ * `?error=Your account is locked, call 555-...` would show inside the form's own
+ * alert, wearing the portal's branding.
+ */
+export const PORTAL_LOGIN_ERRORS: Record<string, string> = {
+  expired_link: "That sign-in link is no longer valid. Request a new one.",
+  incomplete: "That sign-in link is incomplete. Start again.",
+  tenant_not_found: "That support portal doesn't exist.",
+  not_signed_in: "That sign-in link is no longer valid. Request a new one.",
+  no_portal_access: "This account can't use the support portal.",
+  not_found: "We couldn't match that link to an account. Start again.",
+  validation: "That sign-in link is incomplete. Start again.",
+  // The callback forwards any PortalError code, so every code it can produce
+  // has copy here -- an unmapped one would leave the customer on the sign-in
+  // card with no explanation at all.
+  invalid_credentials: "We couldn't complete that sign-in. Try again.",
+  rate_limited: "Too many attempts. Wait a minute, then request a new link.",
+  unknown: "We couldn't complete that sign-in. Try again.",
+};
+
+export function portalLoginError(code: string | undefined): string | undefined {
+  // Own keys only. A plain object also answers for inherited names, so
+  // `?error=constructor` returned the Object function, and handing a function
+  // to the sign-in form (a Client Component) crashed the page.
+  return code && Object.hasOwn(PORTAL_LOGIN_ERRORS, code)
+    ? PORTAL_LOGIN_ERRORS[code]
+    : undefined;
+}
 
 /**
  * Broken out from PortalResult so the shared guard/validation helpers can be

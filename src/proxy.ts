@@ -115,6 +115,29 @@ function rememberTenant(response: NextResponse, slug: string): NextResponse {
   return response;
 }
 
+/**
+ * Send a staff session to the landing page of the workspace its token names.
+ *
+ * One rule, one place: it is reached from both the path-prefix and the
+ * subdomain routing modes, where the only thing that differed was which tenant
+ * value was in hand -- and isStaffSession has already narrowed that.
+ */
+function redirectStaffHome(
+  sessionTenant: SessionTenant & { slug: string },
+  request: NextRequest,
+  response: NextResponse,
+): NextResponse {
+  return withSessionCookies(
+    NextResponse.redirect(
+      new URL(
+        sessionTenantDestination(sessionTenant.slug, "/", sessionTenant.role),
+        request.url,
+      ),
+    ),
+    response,
+  );
+}
+
 export async function proxy(request: NextRequest) {
   return routeRequest(request);
 }
@@ -183,12 +206,25 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
       const sessionTenant = await resolveSessionTenant(supabase);
 
       if (isValidTenantSlug(sessionTenant?.slug)) {
-        // A customer is sent here *because* they have no agent dashboard, so
-        // they must be allowed to render it. Bouncing them would resolve
-        // defaultTenantLanding("customer") to /tickets -- the very route that
-        // turned them away -- and ping-pong between the two forever. Only staff
-        // have a landing page worth sending them to.
-        if (!isCustomerSession(sessionTenant)) {
+        // A customer is sent to /unauthorized *because* they have no agent
+        // dashboard, so they must be allowed to render it. Bouncing them would
+        // resolve defaultTenantLanding("customer") to /tickets -- the very
+        // route that turned them away -- and ping-pong between the two forever.
+        // /setup is the one central page a customer session may not use: it
+        // could start a workspace with a customer token. /login stays open --
+        // signing in there replaces the customer session, and /unauthorized
+        // has no sign-out, so blocking it would strand someone who also has a
+        // team account.
+        if (isCustomerSession(sessionTenant)) {
+          if (pathname === APP_ROUTES.SETUP) {
+            return withSessionCookies(
+              NextResponse.redirect(
+                new URL(APP_ROUTES.UNAUTHORIZED, request.url),
+              ),
+              response,
+            );
+          }
+        } else {
           return withSessionCookies(
             NextResponse.redirect(
               new URL(
@@ -230,19 +266,7 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
           // nonsense for an agent who mistyped a URL. Bouncing to the landing
           // page is also what every other staff guard in this file does, and it
           // cannot ping-pong, since the dashboard is a route they are allowed.
-          return withSessionCookies(
-            NextResponse.redirect(
-              new URL(
-                sessionTenantDestination(
-                  sessionTenant.slug,
-                  "/",
-                  sessionTenant.role,
-                ),
-                request.url,
-              ),
-            ),
-            response,
-          );
+          return redirectStaffHome(sessionTenant, request, response);
         }
       }
 
@@ -380,28 +404,14 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
         );
       }
       if (isPortalPath(pathname)) {
-        // Same staff check as the path-prefix branch above, and for the same
-        // reason: without it this rewrite hands a staff session the customer
-        // magic-link screen. Kept in step with that branch deliberately -- two
-        // copies of one rule is the cost of the file's two routing modes.
+        // The same staff check as the path-prefix branch above, and now the
+        // same helper: without it this rewrite hands a staff session the
+        // customer magic-link screen.
         if (user) {
           const sessionTenant = await resolveSessionTenant(supabase);
 
           if (isStaffSession(sessionTenant)) {
-            // Same destination as the path-prefix branch: their own dashboard.
-            return withSessionCookies(
-              NextResponse.redirect(
-                new URL(
-                  sessionTenantDestination(
-                    sessionTenant.slug,
-                    "/",
-                    sessionTenant.role,
-                  ),
-                  request.url,
-                ),
-              ),
-              response,
-            );
+            return redirectStaffHome(sessionTenant, request, response);
           }
         }
 

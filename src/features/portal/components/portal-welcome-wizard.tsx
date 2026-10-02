@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -16,11 +16,12 @@ import {
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { completeOnboardingAction } from "@/features/portal/actions/portal.actions";
-import { WelcomeIllustration } from "@/features/portal/components/portal-illustrations";
+import {
+  completeOnboardingAction,
+  markWelcomeShownAction,
+} from "@/features/portal/actions/portal.actions";
 import { PortalCentered } from "@/features/portal/components/portal-shell";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
-import { portalToastResult } from "@/features/portal/portal-toast";
 import { cn } from "@/lib/utils";
 
 const TOTAL_STEPS = 2;
@@ -42,6 +43,13 @@ export function PortalWelcomeWizard({
   const [step, setStep] = useState(1);
   const [error, setError] = useState<string | undefined>();
   const [isFinishing, setIsFinishing] = useState(false);
+
+  // The wizard is shown once per customer. Stamped from here, once it is on
+  // screen, rather than by the page's render: a prefetch renders the page too,
+  // and would otherwise spend the wizard before anyone saw it.
+  useEffect(() => {
+    void markWelcomeShownAction(tenantSlug);
+  }, [tenantSlug]);
 
   /**
    * Every way out of the wizard runs through here, including Skip and the two
@@ -65,7 +73,6 @@ export function PortalWelcomeWizard({
 
     setIsFinishing(false);
     setError(result.message);
-    portalToastResult(result);
   }
 
   // PortalCentered, like the other three screens on the way in: this card was
@@ -78,8 +85,6 @@ export function PortalWelcomeWizard({
   return (
     <PortalCentered width="max-w-180">
       <div className="w-full rounded-2xl border bg-card p-5 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.06)] sm:p-8 md:p-10">
-        {step === 1 ? <WelcomeIllustration className="mx-auto mb-2" /> : null}
-
         <StepIndicator step={step} />
 
         {error ? (
@@ -94,8 +99,14 @@ export function PortalWelcomeWizard({
           </Alert>
         ) : null}
 
-        {step === 1 ? (
-          <>
+        {/* Both steps are always laid out, stacked in the same grid cell, and
+            the one not showing is hidden and inert. The cell takes the taller
+            step's height, so the card is the same size on step 1 and step 2:
+            Next and Back no longer resize it and jump the buttons under the
+            pointer. Each step's footer is pushed to the bottom, so the
+            buttons sit in the same place on both. */}
+        <div className="grid">
+          <StepPanel active={step === 1}>
             <h1 className="mt-3 text-2xl font-bold tracking-tight text-balance text-foreground sm:text-[1.75rem]">
               Welcome, {firstName}
             </h1>
@@ -109,7 +120,7 @@ export function PortalWelcomeWizard({
             <div className="mt-7 grid gap-3 sm:grid-cols-3 sm:gap-4">
               <FeatureCard
                 icon={<Plus className="size-5" aria-hidden />}
-                title="Submit a request"
+                title="Create a ticket"
                 body="Describe your issue. We'll route it to the right team."
               />
               <FeatureCard
@@ -147,9 +158,9 @@ export function PortalWelcomeWizard({
                 <ArrowRight aria-hidden className="size-4" />
               </Button>
             </Footer>
-          </>
-        ) : (
-          <>
+          </StepPanel>
+
+          <StepPanel active={step === 2}>
             <h1 className="mt-3 text-2xl font-bold tracking-tight text-balance text-foreground sm:text-[1.75rem]">
               Where do you want to start?
             </h1>
@@ -166,7 +177,7 @@ export function PortalWelcomeWizard({
                 }
                 disabled={isFinishing}
                 icon={<SquarePen className="size-5" aria-hidden />}
-                title="Submit a request"
+                title="Create a ticket"
                 body={`Describe the problem. First reply within ${firstResponseTarget} on your plan.`}
               />
               <ChoiceCard
@@ -210,10 +221,35 @@ export function PortalWelcomeWizard({
                 )}
               </Button>
             </Footer>
-          </>
-        )}
+          </StepPanel>
+        </div>
       </div>
     </PortalCentered>
+  );
+}
+
+/**
+ * One step, placed in the shared grid cell. The inactive one keeps its space
+ * but is invisible and inert -- out of the tab order and the accessibility
+ * tree -- so only the active step can be read or clicked.
+ */
+function StepPanel({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      inert={!active}
+      className={cn(
+        "col-start-1 row-start-1 flex flex-col",
+        active ? "animate-in fade-in duration-200" : "invisible",
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -235,17 +271,13 @@ function StepIndicator({ step }: { step: number }) {
           ),
         )}
       </div>
-
-      <span className="text-xs font-semibold text-muted-foreground">
-        Step {step} of {TOTAL_STEPS}
-      </span>
     </div>
   );
 }
 
 function Footer({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-8 grid grid-cols-2 gap-2.5 sm:flex sm:justify-center sm:gap-3">
+    <div className="mt-auto grid grid-cols-1 gap-2.5 pt-8 sm:flex sm:justify-end sm:gap-3">
       {children}
     </div>
   );

@@ -12,12 +12,17 @@
 -- `portal_onboarded_at` exactly -- same table, same nullable-timestamp shape,
 -- same idempotent stamping function.
 --
--- On the drift held in supabase/migrations-pending-review/README.md: this
--- REPLACES portal_link_user, which that README warns about. It is safe here
--- because the function was first created by 20260908093000, later than every
--- unknown remote migration (20260904..20260907), so none of them can have
--- touched it. The replacement below is the 20260908093000 body plus one
--- returned key.
+-- No backfill, deliberately. A column that starts null means "the offer is
+-- still owed", which is the correct value for every row that exists today: the
+-- portal has not shipped, so nobody has been offered anything. An earlier draft
+-- backfilled it from `portal_last_login_at` and needed a second migration to
+-- undo that; neither belongs in the history of a database that has never run
+-- it.
+--
+-- REPLACES portal_link_user. That is safe because the function was first
+-- created by 20260926090000, earlier in this same run of migrations and in
+-- this repository, and it is called from exactly one place in the application.
+-- The replacement below is the 20260926090000 body plus one returned key.
 
 ------------------------------------------------------------
 -- Column
@@ -28,15 +33,6 @@ alter table public.customers
 
 comment on column public.customers.portal_password_prompted_at is
 'When the customer was last offered the optional "Set a password?" screen. Non-null means they answered it once -- by saving a password or by skipping -- so sign-in stops routing them there. Null means the offer is still owed.';
-
--- Anyone who already reached the portal has seen the screen at least once
--- under the old routing; leaving them null would show it to them one more
--- time. Customers who never signed in keep a null and get the offer on their
--- first sign-in, which is the point.
-
-update public.customers
-set portal_password_prompted_at = coalesce(portal_password_prompted_at, portal_last_login_at)
-where portal_last_login_at is not null;
 
 ------------------------------------------------------------
 -- portal_link_user -- now reports whether the offer is spent

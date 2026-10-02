@@ -4,7 +4,6 @@ import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
 import {
   completePortalEmailSignIn,
   PortalError,
-  portalSignOut,
   stepPath,
 } from "@/features/portal/services/portal.service";
 
@@ -25,8 +24,10 @@ export async function GET(
 
   const loginUrl = new URL(portalPath(tenantSlug, PORTAL_ROUTES.LOGIN), origin);
 
-  function failure(message: string) {
-    loginUrl.searchParams.set("error", message);
+  // The code, never the message: the login page maps it back to safe copy, so a
+  // crafted link cannot put arbitrary text in the sign-in card's alert.
+  function failure(code: string) {
+    loginUrl.searchParams.set("error", code);
 
     return NextResponse.redirect(loginUrl);
   }
@@ -37,7 +38,7 @@ export async function GET(
   if (providerError) {
     console.error("[portal] callback returned an error:", providerError);
 
-    return failure("That sign-in link is no longer valid. Request a new one.");
+    return failure("expired_link");
   }
 
   // Two shapes reach here. `token_hash` when the email links straight at us
@@ -50,21 +51,8 @@ export async function GET(
   const type = searchParams.get("type");
 
   if (!tokenHash && !code) {
-    return failure("That sign-in link is incomplete. Start again.");
+    return failure("incomplete");
   }
-
-  console.info(
-    `[portal] callback HIT for "${tenantSlug}"\n` +
-      `  token_hash: ${tokenHash ? "present" : "absent"}\n` +
-      `  code: ${code ? "present" : "absent"}\n` +
-      `  verifier cookies in jar: ${
-        request.cookies
-          .getAll()
-          .filter((cookie) => cookie.name.includes("code-verifier"))
-          .map((cookie) => cookie.name)
-          .join(", ") || "NONE"
-      }`,
-  );
 
   try {
     const step = await completePortalEmailSignIn(tenantSlug, {
@@ -75,20 +63,11 @@ export async function GET(
 
     return NextResponse.redirect(new URL(stepPath(tenantSlug, step), origin));
   } catch (error) {
-    if (error instanceof PortalError && error.code === "no_portal_access") {
-      // The session is real but must not be left standing: it belongs to
-      // somebody who cannot use this portal.
-      await portalSignOut("local");
-
-      return failure(error.message);
-    }
-
+    // completePortalEmailSignIn takes its own session down when the link is
+    // refused, so there is nothing to sign out here -- this only chooses what
+    // the customer is told and where they land.
     console.error("[portal] callback failed:", error);
 
-    return failure(
-      error instanceof PortalError
-        ? error.message
-        : "We couldn't complete that sign-in. Try again.",
-    );
+    return failure(error instanceof PortalError ? error.code : "unknown");
   }
 }

@@ -4,16 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  CheckCircle2,
-  ChevronLeft,
-  CircleAlert,
-  Clock3,
-  Loader2,
-} from "lucide-react";
-import { useForm, type Resolver } from "react-hook-form";
+import { CheckCircle2, CircleAlert, Clock3, Loader2 } from "lucide-react";
+import { useForm } from "react-hook-form";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { BackLink } from "@/components/shared/back-link";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -27,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  discardUploadsAction,
   prepareRequestUploadsAction,
   submitGuestRequestAction,
   submitRequestAction,
@@ -34,21 +30,13 @@ import {
 import { PortalAttachmentPicker } from "@/features/portal/components/portal-attachment-picker";
 import { PortalCentered } from "@/features/portal/components/portal-shell";
 import { applyFieldErrors } from "@/features/portal/form-errors";
-import {
-  portalToastError,
-  portalToastResult,
-  portalToastSuccess,
-} from "@/features/portal/portal-toast";
-import {
-  PORTAL_ROUTES,
-  portalPath,
-  type PortalUploadedFile,
-} from "@/features/portal/portal";
-import { uploadToTargets } from "@/features/portal/upload";
+import { portalToastSuccess } from "@/features/portal/portal-toast";
+import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
+import { prepareAndUpload } from "@/features/portal/upload";
 import { cn } from "@/lib/utils";
 import {
   portalGuestRequestSchema,
-  portalRequestSchema,
+  portalSignedInRequestFormSchema,
   type PortalGuestRequestValues,
 } from "@/features/portal/schemas/portal.schema";
 
@@ -90,17 +78,13 @@ export function PortalNewRequestForm({
       email: "",
       fullName: "",
     },
-    // A signed-in customer never types an email, so validate against the
-    // schema that has no email field at all.
-    //
-    // NOT `.partial({ email: true })`: that permits `undefined`, while
-    // defaultValues sends `""`. An empty string is not undefined, so the email
-    // rules still ran and failed -- invisibly, because the field is not
-    // rendered when signed in. The form simply did nothing on submit.
-    // portalRequestSchema drops the key instead, and zod strips the extras.
-    resolver: zodResolver(
-      isSignedIn ? portalRequestSchema : portalGuestRequestSchema,
-    ) as unknown as Resolver<PortalGuestRequestValues>,
+    // A signed-in customer never types an email, so the email rule is not run
+    // for them: the field is not rendered, and a rule failing on a hidden
+    // input made the form silently do nothing on submit. Both schemas have the
+    // same shape, so this needs no cast. See portalSignedInRequestFormSchema.
+    resolver: isSignedIn
+      ? zodResolver(portalSignedInRequestFormSchema)
+      : zodResolver(portalGuestRequestSchema),
   });
 
   async function onSubmit(values: PortalGuestRequestValues) {
@@ -111,26 +95,14 @@ export function PortalNewRequestForm({
       // is built from the ticket id, so these land on a staging path that the
       // server moves across once the ticket exists -- and a request is never
       // filed without the evidence it refers to.
-      let uploads: PortalUploadedFile[] = [];
+      const discard = (paths: string[]) =>
+        discardUploadsAction(tenantSlug, paths);
 
-      if (files.length > 0) {
-        const prepared = await prepareRequestUploadsAction(
-          tenantSlug,
-          files.map((file) => ({
-            name: file.name,
-            size: file.size,
-            type: file.type,
-          })),
-        );
-
-        if (!prepared.success) {
-          setBanner(prepared.message);
-          portalToastError(prepared.message);
-          return;
-        }
-
-        uploads = await uploadToTargets(prepared.data.targets, files);
-      }
+      const uploads = await prepareAndUpload(
+        files,
+        (descriptors) => prepareRequestUploadsAction(tenantSlug, descriptors),
+        discard,
+      );
 
       const result = isSignedIn
         ? await submitRequestAction(
@@ -152,7 +124,7 @@ export function PortalNewRequestForm({
           // Carries the plan's response promise rather than "request submitted",
           // because that is the thing they cannot see once they leave the form.
           portalToastSuccess(
-            `Request sent. Expect a reply within ${firstResponseTarget}.`,
+            `Ticket created. Expect a reply within ${firstResponseTarget}.`,
           );
           router.replace(result.data.redirectTo);
           return;
@@ -165,17 +137,20 @@ export function PortalNewRequestForm({
         return;
       }
 
+      // Refused after the files landed: nothing will ever move them out of
+      // staging, so hand them back now rather than leave them to the sweep.
+      void discard(uploads.map((upload) => upload.path));
+
       applyFieldErrors(form, result.fieldErrors);
       setBanner(result.message);
-      portalToastResult(result);
     } catch (uploadFailure) {
       const message =
         uploadFailure instanceof Error
           ? uploadFailure.message
-          : "We couldn't submit your request. Try again.";
+          : "We couldn't create your ticket. Try again.";
 
+      // The banner says it; no toast on top (RISK-047).
       setBanner(message);
-      portalToastError(message);
     }
   }
 
@@ -191,17 +166,13 @@ export function PortalNewRequestForm({
 
   return (
     <div className="mx-auto w-full max-w-7xl md:px-6">
-      <Link
-        href={backHref}
-        className="inline-flex items-center gap-1 rounded-md text-sm font-semibold text-brand-ink underline-offset-4 transition-colors hover:text-brand-ink hover:underline"
-      >
-        <ChevronLeft className="size-4" aria-hidden />
+      <BackLink href={backHref}>
         {isSignedIn ? "Your requests" : "Back to sign in"}
-      </Link>
+      </BackLink>
 
       <div className="mt-4 mb-6 sm:mb-8">
         <h1 className="text-2xl font-bold tracking-tight text-balance text-foreground sm:text-[1.75rem]">
-          Submit a request
+          Create a ticket
         </h1>
 
         <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">
@@ -334,7 +305,7 @@ export function PortalNewRequestForm({
                         rows={6}
                         placeholder="Describe what happened, when the issue started, and any steps you've already tried."
                         maxLength={DESCRIPTION_MAX}
-                        className="min-h-36 resize-y rounded-lg bg-background/60 text-sm leading-6"
+                        className="min-h-36 max-h-80 resize-none overflow-y-auto rounded-lg bg-background/60 text-sm leading-6"
                       />
                     </FormControl>
 
@@ -388,12 +359,16 @@ export function PortalNewRequestForm({
                   </span>
                 </p>
 
-                <div className="grid grid-cols-2 gap-2.5 sm:flex sm:w-auto">
+                {/* Stacked full width on a phone, one button per row, with
+                    Submit on top where the thumb lands first: two half-width
+                    buttons cramped both labels. From sm up there is room for
+                    both side by side, Cancel first. */}
+                <div className="flex w-full flex-col-reverse gap-2.5 sm:w-auto sm:flex-row">
                   <Button
                     type="button"
                     variant="outline"
                     size="lg"
-                    className="h-11 px-5 font-semibold"
+                    className="h-11 w-full px-5 font-semibold sm:w-auto"
                     disabled={isSubmitting}
                     onClick={() => router.push(backHref)}
                   >
@@ -403,16 +378,16 @@ export function PortalNewRequestForm({
                   <Button
                     type="submit"
                     size="lg"
-                    className="h-11 px-5 font-semibold"
+                    className="h-11 w-full px-5 font-semibold sm:w-auto"
                     disabled={isSubmitting}
                   >
                     {isSubmitting ? (
                       <>
                         <Loader2 aria-hidden className="size-4 animate-spin" />
-                        Submitting…
+                        Creating…
                       </>
                     ) : (
-                      "Submit request"
+                      "Create ticket"
                     )}
                   </Button>
                 </div>
@@ -455,7 +430,7 @@ function GuestConfirmation({
         </h1>
 
         <p className="mt-2 text-sm leading-[1.6] text-muted-foreground">
-          Your request is with our team. We&apos;ll reply to{" "}
+          Your ticket is with our team. We&apos;ll reply to{" "}
           <strong className="font-bold text-foreground">{email}</strong>. Sign
           in with that address any time to follow it here.
         </p>

@@ -12,10 +12,7 @@ import { Form } from "@/components/ui/form";
 import { setPasswordAction } from "@/features/portal/actions/portal.actions";
 import { PortalPasswordFields } from "@/features/portal/components/portal-password-fields";
 import { applyFieldErrors } from "@/features/portal/form-errors";
-import {
-  portalToastResult,
-  portalToastSuccess,
-} from "@/features/portal/portal-toast";
+import { portalToastSuccess } from "@/features/portal/portal-toast";
 import {
   portalSetPasswordSchema,
   type PortalSetPasswordValues,
@@ -25,6 +22,7 @@ export function PortalSetPasswordForm({
   tenantSlug,
   skipTo,
   skipLabel = "Skip for now",
+  signedInWith = "link",
 }: {
   tenantSlug: string;
   /** Where "Skip" lands — the welcome wizard, or the queue if it is done. */
@@ -34,6 +32,8 @@ export function PortalSetPasswordForm({
    * customer who came back here from the account menu is leaving, not skipping.
    */
   skipLabel?: string;
+  /** How they just signed in, so the banner names the right thing. */
+  signedInWith?: "link" | "password";
 }) {
   const router = useRouter();
   const [banner, setBanner] = useState<string | undefined>();
@@ -64,7 +64,6 @@ export function PortalSetPasswordForm({
 
     applyFieldErrors(form, result.fieldErrors);
     setBanner(result.message);
-    portalToastResult(result);
   }
 
   const isSubmitting = form.formState.isSubmitting;
@@ -82,7 +81,9 @@ export function PortalSetPasswordForm({
         <div className="min-w-0">
           <p className="text-sm font-semibold text-success-strong">Signed in</p>
           <p className="mt-0.5 text-xs text-success-strong/80">
-            You&apos;re now signed in with your email link.
+            {signedInWith === "password"
+              ? "You're now signed in with your password."
+              : "You're now signed in with your email link."}
           </p>
         </div>
       </div>

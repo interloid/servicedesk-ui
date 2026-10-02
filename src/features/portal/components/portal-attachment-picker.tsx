@@ -40,7 +40,9 @@ export function PortalAttachmentPicker({
   onError,
   disabled,
   variant = "button",
+  compact,
   className,
+  listClassName,
 }: {
   files: File[];
   onChange: (files: File[]) => void;
@@ -48,7 +50,14 @@ export function PortalAttachmentPicker({
   onError: (message?: string) => void;
   disabled?: boolean;
   variant?: Variant;
+  /**
+   * `button` only: below sm the trigger is a square paperclip and the limits
+   * line is dropped, for a composer that has one row to share with Send.
+   */
+  compact?: boolean;
   className?: string;
+  /** Lets a parent place the list -- e.g. on its own row under the trigger. */
+  listClassName?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -178,7 +187,7 @@ export function PortalAttachmentPicker({
                 That&apos;s the limit
               </span>
               <span className="mt-1 block text-xs text-muted-foreground">
-                Remove one to attach something else —{" "}
+                Remove one to attach something else -{" "}
                 {MAX_ATTACHMENTS_PER_MESSAGE} files maximum
               </span>
             </>
@@ -197,7 +206,7 @@ export function PortalAttachmentPicker({
           )}
         </button>
       ) : (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           {/* h-11 to match the Send and Reopen buttons it shares a row with.
               At the sm size it sat a third of their height under the same
               baseline, and a control you have to aim at should not be the
@@ -206,15 +215,26 @@ export function PortalAttachmentPicker({
             type="button"
             variant="outline"
             size="lg"
-            className="h-11 px-5 font-semibold"
+            className={cn(
+              "h-11 px-5 font-semibold",
+              compact && "max-sm:w-11 max-sm:px-0",
+            )}
             disabled={locked}
             onClick={open}
+            title={compact ? "Attach files" : undefined}
           >
             <Paperclip aria-hidden className="size-4" />
-            Attach files
+            <span className={cn(compact && "max-sm:sr-only")}>
+              Attach files
+            </span>
           </Button>
 
-          <span className="text-xs text-muted-foreground">
+          <span
+            className={cn(
+              "text-xs text-muted-foreground",
+              compact && "max-sm:hidden",
+            )}
+          >
             {full
               ? `${MAX_ATTACHMENTS_PER_MESSAGE} files is the limit`
               : limits}
@@ -223,10 +243,14 @@ export function PortalAttachmentPicker({
       )}
 
       {files.length > 0 ? (
+        // grid-cols-1 rather than the implicit column: an implicit track is
+        // sized to its content, so one long file name widened the whole list
+        // past the card and the name's truncate never got a width to cut at.
         <ul
           className={cn(
-            "grid gap-2.5",
+            "grid grid-cols-1 gap-2.5",
             variant === "dropzone" && "sm:grid-cols-2",
+            listClassName,
           )}
         >
           {files.map((file, index) => {
@@ -236,7 +260,7 @@ export function PortalAttachmentPicker({
             return (
               <li
                 key={`${file.name}-${file.size}-${file.lastModified}`}
-                className="flex items-center gap-3 rounded-xl border bg-card p-3 shadow-xs"
+                className="flex min-w-0 items-center gap-3 rounded-xl border bg-card p-3 shadow-xs"
               >
                 <span
                   aria-hidden
@@ -251,7 +275,10 @@ export function PortalAttachmentPicker({
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-foreground">
+                  <span
+                    title={file.name}
+                    className="block truncate text-sm font-medium text-foreground"
+                  >
                     {file.name}
                   </span>
                   <span className="block text-xs tabular-nums text-muted-foreground">

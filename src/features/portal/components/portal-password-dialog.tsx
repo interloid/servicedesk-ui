@@ -18,10 +18,7 @@ import { Form } from "@/components/ui/form";
 import { setPasswordAction } from "@/features/portal/actions/portal.actions";
 import { PortalPasswordFields } from "@/features/portal/components/portal-password-fields";
 import { applyFieldErrors } from "@/features/portal/form-errors";
-import {
-  portalToastResult,
-  portalToastSuccess,
-} from "@/features/portal/portal-toast";
+import { portalToastSuccess } from "@/features/portal/portal-toast";
 import {
   portalSetPasswordSchema,
   type PortalSetPasswordValues,
@@ -114,7 +111,6 @@ function PasswordForm({
 
     applyFieldErrors(form, result.fieldErrors);
     setError(result.message);
-    portalToastResult(result);
   }
 
   return (

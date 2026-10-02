@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { PortalSignInForm } from "@/features/portal/components/portal-sign-in-form";
-import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
+import {
+  portalLoginError,
+  PORTAL_ROUTES,
+  portalPath,
+} from "@/features/portal/portal";
 import { getPortalIdentity } from "@/features/portal/services/portal.service";
 
 export const metadata: Metadata = {
@@ -44,7 +48,7 @@ export default async function PortalLoginPage({
     <PortalSignInForm
       tenantSlug={tenantSlug}
       initialMode={first(query.mode) === "password" ? "password" : "link"}
-      initialError={first(query.error)}
+      initialError={portalLoginError(first(query.error))}
     />
   );
 }

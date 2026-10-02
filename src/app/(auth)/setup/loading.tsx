@@ -47,8 +47,10 @@ export default function Loading() {
               { label: "w-20" },
               { label: "w-12", description: "w-52" },
               { label: "w-20" },
-            ].map((field) => (
-              <div key={field.label} className="flex flex-col gap-1.5">
+              // A fixed list that never reorders, and two entries share a
+              // width, so the index is the only stable unique key.
+            ].map((field, index) => (
+              <div key={index} className="flex flex-col gap-1.5">
                 <Skeleton className={`h-5 ${field.label}`} />
                 <div className="h-11 w-full rounded-lg border bg-background" />
                 {field.description ? (

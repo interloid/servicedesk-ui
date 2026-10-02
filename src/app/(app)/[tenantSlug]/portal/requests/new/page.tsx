@@ -8,7 +8,7 @@ import {
 } from "@/features/portal/services/portal.service";
 
 export const metadata: Metadata = {
-  title: "Submit a request",
+  title: "Create a ticket",
 };
 
 export default async function PortalNewRequestPage({

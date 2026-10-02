@@ -10,7 +10,6 @@ import {
 import {
   getFirstResponseTarget,
   getPortalIdentity,
-  markPortalWelcomeShown,
 } from "@/features/portal/services/portal.service";
 
 export const metadata: Metadata = {
@@ -36,14 +35,12 @@ export default async function PortalWelcomePage({
     redirect(portalPath(tenantSlug, PORTAL_ROUTES.REQUESTS));
   }
 
-  // Stamped before the wizard renders, so this is the only time it shows:
-  // a refresh, a second sign-in link, or the back button all land on the
-  // requests from here on. Skip / Next / Go still call the same action, which
-  // is harmless the second time.
-  const [firstResponseTarget] = await Promise.all([
-    getFirstResponseTarget(identity.tenant.id),
-    markPortalWelcomeShown(tenantSlug, identity.userId),
-  ]);
+  // Nothing is written here. The "shown once" stamp is a server action the
+  // wizard calls once it has mounted in the browser, so a prefetch or a
+  // replayed render of this page cannot spend the wizard before the customer
+  // has seen it. See markWelcomeShownAction.
+
+  const firstResponseTarget = await getFirstResponseTarget(identity.tenant.id);
 
   return (
     <PortalWelcomeWizard

@@ -80,6 +80,14 @@ const RESERVED_LABELS = new Set([
   "kb",
   "macros",
   "unauthorized",
+  // The customer portal lives at /{slug}/portal, so stripTenantPrefix reads the
+  // first segment as the tenant and `portal` as its route. A workspace with this
+  // slug takes /portal/requests for its own ticket queue, and its actual portal
+  // is only reachable at /portal/portal/requests -- and for a customer session
+  // that first reading sends the proxy down the staff branch and bounces them.
+  // Mirrored in the database by provision_tenant's reserved check, because that
+  // function is what actually creates the slug.
+  "portal",
 ]);
 
 export const IS_LOCAL_HOST = PORTAL_BASE_HOSTNAME === "localhost";

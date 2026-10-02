@@ -39,6 +39,7 @@ import {
 import {
   customerAvatarFolder,
   trustedCustomerAvatarUrl,
+  trustedTenantLogoUrl,
 } from "@/features/portal/avatar-url";
 import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -137,6 +138,25 @@ function isRateLimit(error: {
   );
 }
 
+/**
+ * Supabase refuses a password change on a session that is not recent when
+ * `secure_password_change` is on. The GoTrue code has moved around between
+ * versions, so the message is the reliable half; both are tested.
+ */
+function needsReauthentication(error: {
+  code?: string;
+  message?: string;
+}): boolean {
+  if (
+    error.code === "reauth_needed" ||
+    error.code === "reauthentication_needed"
+  ) {
+    return true;
+  }
+
+  return Boolean(error.message?.toLowerCase().includes("recent login"));
+}
+
 // ---------------------------------------------------------------------------
 // Tenant
 // ---------------------------------------------------------------------------
@@ -189,7 +209,7 @@ export const getPortalTenant = cache(async function getPortalTenant(
     secondaryColor: row.secondary_color?.trim() || null,
     textColor: row.text_color?.trim() || null,
     backgroundColor: row.background_color?.trim() || null,
-    logoUrl: row.logo_url?.trim() || null,
+    logoUrl: trustedTenantLogoUrl(row.logo_url?.trim() || null),
   };
 });
 
@@ -235,13 +255,14 @@ async function hasTeamMembership(userId: string): Promise<boolean> {
 
 /**
  * The same rule keyed on an email, for the steps that run BEFORE anyone is
- * authenticated: requesting a link, a password attempt, a guest request. A
- * team email is turned away up front, so no link is ever sent to it and no
- * customer record is ever created for it -- only new or customer-only emails
+ * authenticated: requesting a link and a guest request. A team email never gets
+ * a link and never gets a customer record -- only new or customer-only emails
  * get as far as onboarding.
  *
- * This does say out loud that an address is on a team here. That is the
- * trade asked for: a clear "use the help desk" beats a link that fails later.
+ * The sign-in link path answers a team address exactly as it answers any other
+ * (and sends nothing), so the form cannot be used to test which addresses are
+ * staff. The password path does not call this at all: it checks the password
+ * first, and linkPortalSession turns the team account away after that.
  */
 export async function isTeamEmail(email: string): Promise<boolean> {
   const admin = createSupabaseAdminClient();
@@ -393,8 +414,11 @@ export async function sendPortalSignInLink(
     );
   }
 
+  // A team address gets the same "check your inbox" as anyone else, and simply
+  // no email. Refusing it out loud told anyone with the portal URL which
+  // addresses are staff somewhere on the platform.
   if (await isTeamEmail(email)) {
-    throw new PortalError(TEAM_ACCOUNT_MESSAGE, "no_portal_access");
+    return;
   }
 
   const origin = await requestOrigin();
@@ -428,12 +452,12 @@ export async function portalPasswordSignIn(
   email: string,
   password: string,
 ): Promise<PortalNextStep> {
-  if (await isTeamEmail(email)) {
-    throw new PortalError(TEAM_ACCOUNT_MESSAGE, "no_portal_access");
-  }
-
   const supabase = await createSupabaseServerClient();
 
+  // Credentials first, team check second: checking the address before the
+  // password let anyone learn whether an email is staff without knowing its
+  // password. Only someone who has just proved the password hears that it is a
+  // team account.
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -512,7 +536,7 @@ export async function completePortalEmailSignIn(
       );
     }
 
-    return linkPortalSession(slug, data.user.id);
+    return completeLink(slug, data.user.id);
   }
 
   if (!link.code) {
@@ -534,7 +558,30 @@ export async function completePortalEmailSignIn(
     );
   }
 
-  return linkPortalSession(slug, data.user.id);
+  return completeLink(slug, data.user.id);
+}
+
+/**
+ * Link the session and, if the link is refused, take the session back down.
+ *
+ * verifyOtp and exchangeCodeForSession both leave a real session in the browser
+ * before linkPortalSession runs. If the link then fails -- no portal access, a
+ * failed refresh, anything -- that session must not be left standing, or the
+ * customer walks around the portal with an identity that was never accepted.
+ * Local scope only: global would sign the same person out of the help desk on
+ * every device.
+ */
+async function completeLink(
+  slug: string,
+  userId: string,
+): Promise<PortalNextStep> {
+  try {
+    return await linkPortalSession(slug, userId);
+  } catch (error) {
+    await portalSignOut("local");
+
+    throw error;
+  }
 }
 
 /**
@@ -568,14 +615,33 @@ async function claimInvitedCustomer(
   }
 
   // `.is("portal_user_id", null)` so a record already claimed by someone else
-  // is never taken over, and ilike because `customers.email` is citext but
-  // auth hands the address back in whatever case it was typed.
+  // is never taken over. `eq`, not `ilike`: `customers.email` is citext, so
+  // equality is already case-insensitive, while ilike would treat `_` and `%`
+  // -- both legal in an address -- as wildcards and let j_hn@ claim john@.
+  const { data: candidate, error: findError } = await admin
+    .from("customers")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .is("portal_user_id", null)
+    .eq("email", user.email)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (findError || !candidate) {
+    console.error(
+      "[portal] invited-customer claim failed:",
+      findError ? dbError(findError) : "no unclaimed customer for this email",
+    );
+    return null;
+  }
+
+  // One row, by id: an exact email match can still name more than one record.
   const { error } = await admin
     .from("customers")
     .update({ portal_user_id: userId, updated_at: new Date().toISOString() })
-    .eq("tenant_id", tenantId)
-    .is("portal_user_id", null)
-    .ilike("email", user.email);
+    .eq("id", candidate.id)
+    .is("portal_user_id", null);
 
   if (error) {
     console.error("[portal] invited-customer claim failed:", dbError(error));
@@ -690,6 +756,25 @@ export async function linkPortalSession(
     console.error("[portal] last-login stamp failed:", loginStampError.message);
   }
 
+  // The access token names one tenant, and the hook picks it from the user's
+  // memberships. Someone who is a customer of more than one workspace has to
+  // land in the one whose portal they just signed in to, or every RLS read
+  // below runs against the other tenant and comes back empty. The trigger on
+  // users mirrors this into app_metadata, which is what the hook reads; it is
+  // advisory, so the hook still only picks among real memberships. Best effort:
+  // a single-workspace customer lands correctly without it.
+  const { error: preferError } = await admin
+    .from("users")
+    .update({ preferred_tenant_id: link.tenant_id })
+    .eq("id", userId);
+
+  if (preferError) {
+    console.error(
+      "[portal] preferred tenant write failed:",
+      preferError.message,
+    );
+  }
+
   const supabase = await createSupabaseServerClient();
   const { error: refreshError } = await supabase.auth.refreshSession();
 
@@ -735,6 +820,15 @@ export async function setPortalPassword(password: string): Promise<void> {
       );
     }
 
+    // secure_password_change is on, so a stale session is sent back through
+    // sign-in rather than silently rejected with GoTrue's own wording.
+    if (needsReauthentication(error)) {
+      throw new PortalError(
+        "For your security, sign in again before changing your password.",
+        "not_signed_in",
+      );
+    }
+
     throw new PortalError(
       error.message || "We couldn't save that password.",
       "validation",
@@ -768,9 +862,9 @@ export async function completePortalOnboarding(
  *
  * Without this, a customer who closes the tab mid-wizard -- or simply signs in
  * with a second link -- is shown it again, and the wizard is meant to appear
- * once per customer, ever. Stamping on render means the next visit through any
- * route (magic link, password, /portal, a bookmark to /welcome) finds
- * `onboarded` set and goes straight to the requests.
+ * once per customer, ever. Stamping when the wizard mounts (markWelcomeShownAction)
+ * means the next visit through any route (magic link, password, /portal, a
+ * bookmark to /welcome) finds `onboarded` set and goes straight to the requests.
  *
  * Does not throw: failing to remember costs the customer one more viewing,
  * which is better than failing the page they came for.
@@ -880,11 +974,23 @@ export async function updatePortalProfile(
   }: { fullName: string; company: string; avatarPath?: string | null },
 ): Promise<void> {
   const admin = createSupabaseAdminClient();
+  const folder = customerAvatarFolder(identity.tenant.id, identity.userId);
+
+  // The path came back from the browser: only accept one in this customer's
+  // own folder, which is the only kind preparePortalAvatarUpload hands out.
+  // Checked before anything is written, so a bad path cannot leave the name
+  // saved and the request reported as failed.
+  if (
+    avatarPath &&
+    (!avatarPath.startsWith(`${folder}/`) || avatarPath.includes(".."))
+  ) {
+    throw new PortalError("That photo upload wasn't valid.", "validation");
+  }
 
   // Company is free text on the customer row. Only the requester filter
   // decides what a customer can see, so changing it exposes nothing; it is
   // what the team's customer page groups colleagues by.
-  const { error: nameError } = await admin
+  const { data: renamed, error: nameError } = await admin
     .from("customers")
     .update({
       full_name: fullName,
@@ -892,10 +998,14 @@ export async function updatePortalProfile(
       updated_at: new Date().toISOString(),
     })
     .eq("id", identity.customer.id)
-    .eq("tenant_id", identity.tenant.id);
+    .eq("tenant_id", identity.tenant.id)
+    .select("id");
 
-  if (nameError) {
-    console.error("[portal] profile name update failed:", nameError.message);
+  if (nameError || !renamed?.length) {
+    console.error(
+      "[portal] profile name update failed:",
+      nameError?.message ?? "no customer row updated",
+    );
 
     throw new PortalError(
       "We couldn't save your profile. Try again in a moment.",
@@ -905,14 +1015,6 @@ export async function updatePortalProfile(
 
   if (!avatarPath) {
     return;
-  }
-
-  const folder = customerAvatarFolder(identity.tenant.id, identity.userId);
-
-  // The path came back from the browser: only accept one in this customer's
-  // own folder, which is the only kind preparePortalAvatarUpload hands out.
-  if (!avatarPath.startsWith(`${folder}/`) || avatarPath.includes("..")) {
-    throw new PortalError("That photo upload wasn't valid.", "validation");
   }
 
   const {
@@ -1041,10 +1143,9 @@ export async function listPortalRequests(
     const term = filters.search?.trim();
 
     if (term) {
-      // Escaped so a comma or parenthesis in the search box cannot break out
-      // of the PostgREST or() grammar into another filter.
-      const safe = term.replace(/[,()\\]/g, "\\$&");
-      query = query.or(`subject.ilike.%${safe}%,description.ilike.%${safe}%`);
+      const pattern = likePatternValue(term);
+
+      query = query.or(`subject.ilike.${pattern},description.ilike.${pattern}`);
     }
 
     return query;
@@ -1087,13 +1188,23 @@ export async function listPortalRequests(
 
   const from = (page - 1) * PORTAL_REQUESTS_PER_PAGE;
 
+  // `id` breaks ties: rows that share a timestamp (a bulk update, a backfill)
+  // otherwise come back in any order, and a row can land on two pages or none.
   const { data, error } = await filtered(false)
     .order(order.column, { ascending: order.ascending })
+    .order("id", { ascending: order.ascending })
     .range(from, from + PORTAL_REQUESTS_PER_PAGE - 1);
 
   if (error) {
     console.error("[portal] request page failed:", error.message);
-    return { requests: [], total, page, perPage: PORTAL_REQUESTS_PER_PAGE };
+    // total 0, not the real count: a pager reading "1-5 of 12" over an empty
+    // list contradicts itself. Same shape as the count failure above.
+    return {
+      requests: [],
+      total: 0,
+      page: 1,
+      perPage: PORTAL_REQUESTS_PER_PAGE,
+    };
   }
 
   return {
@@ -1193,23 +1304,11 @@ export async function createPortalRequest({
 
   const ticket = data as { ticket_id: string; number: number | null };
 
-  // A portal request always enters the queue as `new`, whatever
-  // portal_create_request defaults to. Conditional, so when the function
-  // already writes `new` this touches nothing (and fires no status triggers).
-  const { error: statusError } = await admin
-    .from("tickets")
-    .update({ status: "new" })
-    .eq("id", ticket.ticket_id)
-    .neq("status", "new");
-
-  if (statusError) {
-    // The request exists and the customer has it; a wrong initial status is
-    // for the team to see, not a reason to report failure.
-    console.error(
-      "[portal] could not set the new request's status:",
-      statusError.message,
-    );
-  }
+  // No status write here. portal_create_request inserts 'new' itself, so the
+  // update this used to issue (`.neq("status", "new")`, to leave an already-new
+  // ticket alone) matched no rows on every call -- a write with no effect that
+  // still fired triggers and cost a round trip. The function owns the initial
+  // status, and a portal request has no other way to enter the queue.
 
   if (uploads.length > 0) {
     const tenant = await getPortalTenant(slug);
@@ -1390,8 +1489,24 @@ export const getPortalSupportHours = cache(async function getPortalSupportHours(
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Statuses that mean the team is waiting on the customer. */
-const AWAITING_CUSTOMER: PortalTicketStatus[] = ["pending", "on_hold"];
+/**
+ * A typed search term as a quoted `ilike` value for PostgREST's `or()`.
+ *
+ * Two grammars, escaped in order:
+ *
+ *   1. LIKE: `%` and `_` are wildcards, `\` is the escape, and PostgREST also
+ *      reads `*` as `%`. Each is backslash-escaped so "50%" or "a_b" match
+ *      literally instead of matching everything.
+ *   2. PostgREST: `,` `(` `)` end or nest a filter, and backslash escapes are
+ *      honoured only inside double quotes -- outside them "login, again" splits
+ *      the filter in two. So the whole value, wildcards included, is wrapped in
+ *      quotes, and the `"` and `\` inside it are escaped for that quoting.
+ */
+function likePatternValue(term: string): string {
+  const literal = term.replace(/[\\%_*]/g, "\\$&");
+
+  return `"%${literal.replace(/["\\]/g, "\\$&")}%"`;
+}
 
 type MessageRow = {
   id: string;
@@ -1434,8 +1549,10 @@ async function resolveAuthors(
   const admin = createSupabaseAdminClient();
 
   const [agents, customers] = await Promise.all([
+    // No email for agents: an agent with a blank name would otherwise have
+    // their address shown to the customer. They are "Support" instead.
     agentIds.length
-      ? admin.from("users").select("id, full_name, email").in("id", agentIds)
+      ? admin.from("users").select("id, full_name").in("id", agentIds)
       : Promise.resolve({ data: [] }),
     customerIds.length
       ? admin
@@ -1446,7 +1563,11 @@ async function resolveAuthors(
       : Promise.resolve({ data: [] }),
   ]);
 
-  for (const row of [...(agents.data ?? []), ...(customers.data ?? [])]) {
+  for (const row of agents.data ?? []) {
+    names.set(row.id, row.full_name || "Support");
+  }
+
+  for (const row of customers.data ?? []) {
     names.set(row.id, row.full_name || row.email || "Support");
   }
 
@@ -1589,34 +1710,23 @@ async function assertOwnsRequest(
 }
 
 /**
- * Authorise a set of files and hand back one single-use upload URL each.
+ * Mint one signed upload URL per file, under paths the caller decides.
  *
- * The signed URL is minted with the admin client, so this function IS the
- * access check -- `assertOwnsRequest` above runs first and is the only thing
- * standing between a customer and a path in another company's folder. Do not
- * call it without a ticket id that came from an ownership-checked query.
- *
- * Nothing is recorded here. An abandoned draft leaves an unused token and no
- * row; a token that is used but never reported leaves an object the thread
- * never references, which is what the storage lifecycle rules are for.
+ * Shared by the reply flow (paths under the ticket) and the new-request flow
+ * (paths under a staging batch): the two differ only in how a path is built, so
+ * the error handling and the response shape live here once. Targets come back
+ * in the same order as the files, which is what lets the browser pair a token
+ * with the bytes it holds.
  */
-export async function createPortalUploadTargets(
-  identity: PortalIdentity,
-  requestId: string,
+async function mintUploadTargets(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
   files: { name: string; size: number; type?: string }[],
+  pathFor: (file: { name: string; size: number; type?: string }) => string,
 ): Promise<PortalUploadTarget[]> {
-  if (files.length === 0) {
-    return [];
-  }
-
-  assertPortalAttachments(files);
-  await assertOwnsRequest(identity, requestId);
-
-  const admin = createSupabaseAdminClient();
   const targets: PortalUploadTarget[] = [];
 
   for (const file of files) {
-    const path = `${identity.tenant.id}/${requestId}/${storedNameFor(file.name)}`;
+    const path = pathFor(file);
 
     const { data, error } = await admin.storage
       .from(ATTACHMENT_BUCKET)
@@ -1644,6 +1754,25 @@ export async function createPortalUploadTargets(
   }
 
   return targets;
+}
+
+export async function createPortalUploadTargets(
+  identity: PortalIdentity,
+  requestId: string,
+  files: { name: string; size: number; type?: string }[],
+): Promise<PortalUploadTarget[]> {
+  if (files.length === 0) {
+    return [];
+  }
+
+  assertPortalAttachments(files);
+  await assertOwnsRequest(identity, requestId);
+
+  return mintUploadTargets(
+    createSupabaseAdminClient(),
+    files,
+    (file) => `${identity.tenant.id}/${requestId}/${storedNameFor(file.name)}`,
+  );
 }
 
 /**
@@ -1675,6 +1804,40 @@ export async function recordPortalAttachments(params: {
 
   const directory = `${identity.tenant.id}/${ticketId}`;
   const admin = createSupabaseAdminClient();
+
+  // Both failure paths below delete what the client named, with the admin
+  // client. So before anything else, every path must be one nobody has filed
+  // yet: a path already on an attachments row is somebody's real file (an
+  // agent's, say), and naming it here used to collide on uq_storage_path and
+  // then delete the original in the cleanup. The same path twice in one call
+  // does the same to itself.
+  const paths = uploads.map((upload) => upload.path);
+
+  if (new Set(paths).size !== paths.length) {
+    throw new PortalError("That file could not be attached.", "validation");
+  }
+
+  const { data: taken, error: takenError } = await admin
+    .from("attachments")
+    .select("storage_path")
+    .in("storage_path", paths)
+    .limit(1);
+
+  if (takenError) {
+    console.error(
+      "[portal] attachment path check failed:",
+      dbError(takenError),
+    );
+
+    throw new PortalError(
+      "We couldn't attach those files. Try again in a moment.",
+      "unknown",
+    );
+  }
+
+  if (taken && taken.length > 0) {
+    throw new PortalError("That file could not be attached.", "validation");
+  }
 
   const rows = [];
 
@@ -1716,10 +1879,14 @@ export async function recordPortalAttachments(params: {
   if (error) {
     console.error("[portal] attachment rows insert failed:", dbError(error));
 
-    // The objects are in the bucket and nothing will reference them.
-    const { error: cleanupError } = await admin.storage
-      .from(ATTACHMENT_BUCKET)
-      .remove(uploads.map((upload) => upload.path));
+    // The objects are in the bucket and nothing will reference them. Only
+    // unclaimed paths reach here (checked above), so this removes the caller's
+    // own fresh uploads and nothing that belongs to a filed attachment -- unless
+    // the insert lost a race for the same path, which is why 23505 is excluded.
+    const { error: cleanupError } =
+      error.code === "23505"
+        ? { error: null }
+        : await admin.storage.from(ATTACHMENT_BUCKET).remove(paths);
 
     if (cleanupError) {
       console.error(
@@ -1765,39 +1932,104 @@ export async function createPortalStagingTargets(
 
   const admin = createSupabaseAdminClient();
   const batch = crypto.randomUUID();
-  const targets: PortalUploadTarget[] = [];
 
-  for (const file of files) {
-    const path = `${tenant.id}/${STAGING_SEGMENT}/${batch}/${storedNameFor(
-      file.name,
-    )}`;
+  return mintUploadTargets(
+    admin,
+    files,
+    (file) =>
+      `${tenant.id}/${STAGING_SEGMENT}/${batch}/${storedNameFor(file.name)}`,
+  );
+}
 
-    const { data, error } = await admin.storage
-      .from(ATTACHMENT_BUCKET)
-      .createSignedUploadUrl(path);
+/**
+ * Delete uploads the browser put in the bucket but never got to file.
+ *
+ * The browser uploads first and files second, so a failure in between -- one
+ * of several uploads failing, or the request or reply then being refused --
+ * leaves objects nothing references. The browser cannot delete them itself
+ * (guests have no session, and the storage policies keep delete to staff), so
+ * it reports the paths here.
+ *
+ * Only paths that could be the caller's own fresh uploads are touched: under
+ * this tenant's staging prefix (random batch ids, so only whoever was handed
+ * one can name it), or directly under a ticket the signed-in customer owns.
+ * Anything already on an attachments row is a filed file and is skipped, so
+ * this can never remove something that is in a thread. Best effort, and
+ * silent: the daily sweep is the backstop for staging.
+ */
+export async function discardPortalUploads(params: {
+  slug: string;
+  paths: string[];
+  identity: PortalIdentity | null;
+  requestId?: string;
+}): Promise<void> {
+  const { slug, paths, identity, requestId } = params;
 
-    if (error || !data) {
-      console.error(
-        "[portal] could not authorise an upload:",
-        error?.message ?? "no token returned",
-      );
-
-      throw new PortalError(
-        "We couldn't start that upload. Try again in a moment.",
-        "unknown",
-      );
-    }
-
-    targets.push({
-      path,
-      token: data.token,
-      name: file.name,
-      size: file.size,
-      mime: file.type || "application/octet-stream",
-    });
+  if (paths.length === 0) {
+    return;
   }
 
-  return targets;
+  const tenant = await getPortalTenant(slug);
+
+  if (!tenant) {
+    return;
+  }
+
+  const stagingPrefix = `${tenant.id}/${STAGING_SEGMENT}/`;
+  let ticketPrefix: string | null = null;
+
+  if (requestId && identity && identity.tenant.id === tenant.id) {
+    try {
+      await assertOwnsRequest(identity, requestId);
+      ticketPrefix = `${tenant.id}/${requestId}/`;
+    } catch {
+      ticketPrefix = null;
+    }
+  }
+
+  const candidates = paths.filter((path) => {
+    if (path.includes("..")) return false;
+
+    if (path.startsWith(stagingPrefix)) {
+      return path.slice(stagingPrefix.length).split("/").length === 2;
+    }
+
+    if (ticketPrefix && path.startsWith(ticketPrefix)) {
+      const rest = path.slice(ticketPrefix.length);
+      return rest.length > 0 && !rest.includes("/");
+    }
+
+    return false;
+  });
+
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const admin = createSupabaseAdminClient();
+
+  const { data: filed, error: filedError } = await admin
+    .from("attachments")
+    .select("storage_path")
+    .in("storage_path", candidates);
+
+  if (filedError) {
+    console.error("[portal] discard check failed:", dbError(filedError));
+    return;
+  }
+
+  const keep = new Set((filed ?? []).map((row) => row.storage_path as string));
+  const orphans = candidates.filter((path) => !keep.has(path));
+
+  if (orphans.length === 0) {
+    return;
+  }
+
+  const { error } = await admin.storage.from(ATTACHMENT_BUCKET).remove(orphans);
+
+  if (error) {
+    console.error("[portal] could not discard unfiled uploads:", error.message);
+  }
 }
 
 /**
@@ -1944,13 +2176,16 @@ async function attachStagedUploads(params: {
  */
 async function readPortalAttachments(
   ticketId: string,
+  visible: { publicMessageIds: Set<string>; userId: string },
 ): Promise<Map<string, PortalAttachment[]>> {
   const grouped = new Map<string, PortalAttachment[]>();
   const admin = createSupabaseAdminClient();
 
   const { data, error } = await admin
     .from("attachments")
-    .select("id, message_id, storage_path, original_filename, mime, size")
+    .select(
+      "id, message_id, storage_path, original_filename, mime, size, uploaded_by",
+    )
     .eq("ticket_id", ticketId)
     .order("created_at", { ascending: true });
 
@@ -1959,31 +2194,53 @@ async function readPortalAttachments(
     return grouped;
   }
 
-  const rows = (data ?? []) as AttachmentRow[];
+  // The admin client sees every file on the ticket, internal notes included,
+  // and anything that reaches the signing step below becomes a working link. So
+  // only two kinds get that far: files on a public message the customer can
+  // already read, and the opening post's files (no message) that this customer
+  // uploaded -- or a guest did, before the account existed (uploaded_by null).
+  // A file a team member hangs off the ticket itself is not the customer's.
+  const rows = (
+    (data ?? []) as (AttachmentRow & {
+      uploaded_by: string | null;
+    })[]
+  ).filter((row) =>
+    row.message_id
+      ? visible.publicMessageIds.has(row.message_id)
+      : row.uploaded_by === null || row.uploaded_by === visible.userId,
+  );
 
   if (rows.length === 0) {
     return grouped;
   }
 
-  // One round trip for the whole thread rather than one per file.
-  const { data: signed, error: signError } = await admin.storage
-    .from(ATTACHMENT_BUCKET)
-    .createSignedUrls(
-      rows.map((row) => row.storage_path),
-      SIGNED_URL_TTL_SECONDS,
-    );
-
-  if (signError) {
-    console.error("[portal] could not sign attachments:", signError.message);
-  }
-
+  // Signed one at a time, not as a batch, so each link can carry its own
+  // `download` name: a batch takes a single download option and would rename
+  // every file in the thread to the same thing (or to the random storage
+  // basename). `download` is what sets Content-Disposition: attachment, so the
+  // browser saves an uploaded .html or .svg instead of rendering it -- the click
+  // is a download button, and it should behave like one on every file type.
   const urls = new Map<string, string>();
 
-  for (const entry of signed ?? []) {
-    if (entry.path && entry.signedUrl) {
-      urls.set(entry.path, entry.signedUrl);
-    }
-  }
+  await Promise.all(
+    rows.map(async (row) => {
+      const { data: signed, error: signError } = await admin.storage
+        .from(ATTACHMENT_BUCKET)
+        .createSignedUrl(row.storage_path, SIGNED_URL_TTL_SECONDS, {
+          download: row.original_filename,
+        });
+
+      if (signError || !signed?.signedUrl) {
+        console.error(
+          "[portal] could not sign attachment:",
+          signError?.message,
+        );
+        return;
+      }
+
+      urls.set(row.storage_path, signed.signedUrl);
+    }),
+  );
 
   for (const row of rows) {
     const key = row.message_id ?? "";
@@ -2003,7 +2260,13 @@ async function readPortalAttachments(
   return grouped;
 }
 
-export async function getPortalRequest(
+/**
+ * Cached per request: the detail page's generateMetadata and the page itself
+ * both need it, and each load is several round trips plus a signed URL per
+ * attachment. Keyed on the identity object, which getPortalIdentity's own
+ * cache() hands back unchanged within the request.
+ */
+export const getPortalRequest = cache(async function getPortalRequest(
   identity: PortalIdentity,
   requestId: string,
 ): Promise<PortalRequestDetail | null> {
@@ -2049,7 +2312,10 @@ export async function getPortalRequest(
 
   const [names, attachments] = await Promise.all([
     resolveAuthors(identity.tenant.id, messageRows),
-    readPortalAttachments(ticket.id),
+    readPortalAttachments(ticket.id, {
+      publicMessageIds: new Set(messageRows.map((row) => row.id)),
+      userId: identity.userId,
+    }),
   ]);
 
   // The rating is looked up for THIS resolution, not for the ticket. A request
@@ -2118,7 +2384,7 @@ export async function getPortalRequest(
     messages,
     csat,
   };
-}
+});
 
 type RlsClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
@@ -2181,7 +2447,7 @@ export async function submitPortalCsat(
 
   const { data: ticket } = await supabase
     .from("tickets")
-    .select("id, status, resolved_at, assignee_user_id")
+    .select("id, status, resolved_at")
     .eq("id", requestId)
     .eq("tenant_id", identity.tenant.id)
     .eq("requester_customer_id", identity.customer.id)
@@ -2198,7 +2464,10 @@ export async function submitPortalCsat(
     tenant_id: identity.tenant.id,
     ticket_id: requestId,
     customer_id: identity.customer.id,
-    agent_user_id: ticket.assignee_user_id,
+    // agent_user_id deliberately absent: csat_ratings_guard snapshots it from the
+    // ticket in the database. Sending the assignee from here made it a claim
+    // rather than a snapshot -- a customer could have named any engineer -- and
+    // it would have been overwritten anyway.
     score,
     comment: comment?.trim() || null,
     resolved_at: ticket.resolved_at,
@@ -2220,37 +2489,13 @@ export async function submitPortalCsat(
     // row. Neither improves by waiting, so do not tell the customer to retry.
     if (error.code === "PGRST205" || error.code === "42501") {
       throw new PortalError(
-        "Ratings aren't available on this workspace yet. Nothing you did — the team has been notified.",
+        "Ratings aren't available on this workspace yet. Nothing you did - the team has been notified.",
         "unknown",
       );
     }
 
     throw new PortalError(
       "We couldn't save that rating. Try again in a moment.",
-      "unknown",
-    );
-  }
-}
-
-/** Attach a comment to a rating the customer has already given. */
-export async function addPortalCsatComment(
-  identity: PortalIdentity,
-  requestId: string,
-  comment: string,
-): Promise<void> {
-  const supabase = await createSupabaseServerClient();
-
-  const { error } = await supabase
-    .from("csat_ratings")
-    .update({ comment: comment.trim() || null })
-    .eq("ticket_id", requestId)
-    .eq("customer_id", identity.customer.id);
-
-  if (error) {
-    console.error("[portal] csat comment failed:", error.message);
-
-    throw new PortalError(
-      "We saved your rating but not the comment. Try again.",
       "unknown",
     );
   }
@@ -2275,9 +2520,12 @@ export async function postPortalReply(
 
   const supabase = await createSupabaseServerClient();
 
+  // Existence only: the message insert below is what RLS actually authorises,
+  // and a customer cannot see a ticket that is not theirs, so this cannot be
+  // bypassed by asking for somebody else's id.
   const { data: ticket } = await supabase
     .from("tickets")
-    .select("id, status")
+    .select("id")
     .eq("id", requestId)
     .eq("tenant_id", identity.tenant.id)
     .eq("requester_customer_id", identity.customer.id)
@@ -2341,21 +2589,26 @@ export async function postPortalReply(
     }
   }
 
-  // A reply from the requester puts the ball back in the team's court. Only
-  // written when it actually changes: touch_ticket_from_message already bumps
-  // tickets.updated_at on every message, so there is nothing to gain from
-  // re-writing the same status.
-  const status = ticket.status as PortalTicketStatus;
+  // A reply from the requester puts the ball back in the team's court, but only
+  // from the statuses that mean the team was waiting on them. Which those are is
+  // the function's decision, not this file's: a resolved request stays resolved
+  // when it is replied to, because reopening one is a separate, explicit action.
+  //
+  // Through the RPC rather than an update on `tickets` because the customer
+  // cannot write that table: tickets_update is staff-only, and it has to be --
+  // the policy could scope the rows a customer reached but not the columns, so
+  // the alternative was a customer setting their own priority and assignee. This
+  // is the write that branch used to stand in for.
+  const { error: statusError } = await createSupabaseAdminClient().rpc(
+    "portal_reply_bumps_status",
+    { p_ticket: requestId, p_user_id: identity.userId },
+  );
 
-  if (AWAITING_CUSTOMER.includes(status)) {
-    const { error: statusError } = await supabase
-      .from("tickets")
-      .update({ status: "open" })
-      .eq("id", requestId);
-
-    if (statusError) {
-      console.error("[portal] status bump failed:", statusError.message);
-    }
+  if (statusError) {
+    // The reply is posted and visible to both sides; only the queue placement is
+    // stale. Failing the whole action here would show the customer an error for
+    // something that did happen.
+    console.error("[portal] status bump failed:", statusError.message);
   }
 }
 
@@ -2367,15 +2620,16 @@ export async function reopenPortalRequest(
     throw new PortalError("We couldn't find that request.", "not_found");
   }
 
-  const supabase = await createSupabaseServerClient();
-
-  const { error } = await supabase
-    .from("tickets")
-    .update({ status: "open", resolved_at: null, closed_at: null })
-    .eq("id", requestId)
-    .eq("tenant_id", identity.tenant.id)
-    .eq("requester_customer_id", identity.customer.id)
-    .in("status", ["resolved", "closed"]);
+  // SECURITY DEFINER for the same reason as the reply bump: the customer cannot
+  // write tickets.resolved_at or closed_at through RLS, and no policy could let
+  // them without also letting them set status and priority.
+  const { data: reopened, error } = await createSupabaseAdminClient().rpc(
+    "portal_reopen_ticket",
+    {
+      p_ticket: requestId,
+      p_user_id: identity.userId,
+    },
+  );
 
   if (error) {
     console.error("[portal] reopen failed:", error.message);
@@ -2383,6 +2637,16 @@ export async function reopenPortalRequest(
     throw new PortalError(
       "We couldn't reopen that request. Try again in a moment.",
       "unknown",
+    );
+  }
+
+  // The function returns how many tickets it reopened. Zero means the request is
+  // not this customer's, or is no longer resolved/closed (a stale page, or the
+  // team already reopened it) -- not a success to report.
+  if (Number(reopened ?? 0) === 0) {
+    throw new PortalError(
+      "That request isn't resolved any more, so there's nothing to reopen. Refresh to see where it stands.",
+      "not_found",
     );
   }
 }

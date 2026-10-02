@@ -14,11 +14,13 @@
 -- public.users mirror, no membership, so `custom_access_token_hook` writes no
 -- tenant_id / tenant_role claim and every RLS policy above denies them.
 --
--- All three are SECURITY DEFINER and granted to `service_role` ONLY. They are
--- called from server actions through the admin client, never from the browser:
--- they take the acting user id as an argument rather than reading auth.uid(),
--- so exposing them to `authenticated` would let any signed-in user name any
--- other user. The revokes below are load-bearing, not decoration.
+-- Sections 1 to 5 are SECURITY DEFINER and granted to `service_role` ONLY.
+-- They are called from server actions through the admin client, never from the
+-- browser: they take the acting user id as an argument rather than reading
+-- auth.uid(), so exposing them to `authenticated` would let any signed-in user
+-- name any other user. (The admin client runs as service_role, so there is no
+-- auth.uid() for them to read.) The revokes below are load-bearing, not
+-- decoration.
 
 ------------------------------------------------------------
 -- 1. Link a verified auth user to a tenant's customer record
@@ -67,6 +69,19 @@ begin
     -- The display name falls back to the email local part title-cased
     -- ("marcus.feld" -> "Marcus Feld") because public.users.full_name is NOT
     -- NULL and a portal visitor never types a name before their first ticket.
+    --
+    -- email_confirmed_at is not null is the load bearing condition. Everything
+    -- below this read is keyed on the address: it claims the customers row with
+    -- that email, which carries the ticket history agents raised against it by
+    -- hand. So an identity that has merely asserted an address -- a sign-up on a
+    -- project with confirmations off, say -- must not be allowed to walk away
+    -- with it. Both portal sign-in paths (OTP and Google) are verified by the
+    -- time this runs, so requiring it costs the real flow nothing.
+    --
+    -- The two failure modes are deliberately indistinguishable from here: a
+    -- user id that does not exist and an address that is not confirmed both
+    -- leave `not found`, and both are answered with the same 42501. Otherwise the
+    -- error would tell a prober which user ids in a workspace are real.
     --------------------------------------------------------
 
     select
@@ -79,11 +94,12 @@ begin
         u.encrypted_password is not null and u.encrypted_password <> ''
     into v_email, v_full_name, v_has_password
     from auth.users u
-    where u.id = p_user_id;
+    where u.id = p_user_id
+      and u.email_confirmed_at is not null;
 
     if not found then
-        raise exception 'portal_link_user: auth user % does not exist', p_user_id
-            using errcode = 'P0002';
+        raise exception 'portal_link_user: no confirmed sign-in for that user'
+            using errcode = '42501';
     end if;
 
     --------------------------------------------------------
@@ -378,6 +394,15 @@ begin
         values (v_tenant.id, v_email, v_full_name, p_user_id)
         returning * into v_customer;
 
+    elsif p_user_id is null and v_customer.portal_user_id is not null then
+        -- A guest filing against an address that already has a portal sign-in.
+        -- Refused, because otherwise an address alone is enough to post tickets
+        -- into somebody else's portal: agents then reply into it, and the
+        -- customer sees requests they never raised. The customer signs in and
+        -- raises it themselves, which takes the branch below a moment later.
+        raise exception 'portal_create_request: sign in to raise a request for %', v_email
+            using errcode = '42501';
+
     elsif p_user_id is not null and v_customer.portal_user_id is distinct from p_user_id then
         -- A signed-in caller may only file against their own record. An
         -- unclaimed row (portal_user_id null) is claimed here; one already
@@ -442,10 +467,115 @@ end;
 $$;
 
 comment on function public.portal_create_request(text, text, text, text, text, uuid, public.ticket_priority) is
-'Create a ticket from the customer portal, creating the customer row when the email is new. service_role only -- the calling server action rate-limits by IP.';
+'Create a ticket from the customer portal, creating the customer row when the email is new. A guest may not file against an address that already has a portal sign-in. service_role only -- the calling server action rate-limits by IP.';
 
 revoke execute on function public.portal_create_request(text, text, text, text, text, uuid, public.ticket_priority)
     from public, anon, authenticated;
 
 grant execute on function public.portal_create_request(text, text, text, text, text, uuid, public.ticket_priority)
+    to service_role;
+
+------------------------------------------------------------
+-- 5. The two status transitions a customer may cause
+------------------------------------------------------------
+--
+-- Section 1 explains why the customer branch of the tickets_update policy is
+-- gone. These are the writes that branch was standing in for, and both are
+-- narrower than the policy they replace: a policy can restrict which ROWS a
+-- caller reaches but not which COLUMNS it reaches inside them, whereas these
+-- write exactly the columns the transition needs and re-derive everything else
+-- about the row from the ticket and the customer record.
+--
+-- Like sections 1 to 4 these are service_role only, and for the same reason: the
+-- portal calls them from server actions through the admin client, which runs as
+-- service_role and therefore has no auth.uid() to read. Reading auth.uid() here
+-- would have matched no rows and looked like a permissions bug rather than a
+-- null one. The acting user arrives as p_user_id, resolved from the session by
+-- the caller, and is checked against the customer row below.
+
+create or replace function public.portal_reply_bumps_status(
+    p_ticket   uuid,
+    p_user_id  uuid
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_count integer;
+begin
+    update public.tickets t
+    set status = 'open'
+    where t.id = p_ticket
+      -- The two statuses that mean the team was waiting on them. Not
+      -- resolved/closed: reopening a resolved request is a separate, explicit
+      -- action (portal_reopen_ticket), and a customer who replies on a resolved
+      -- request without asking for it reopened should not silently undo the
+      -- team's closure -- or lose the CSAT prompt it just earned them.
+      and t.status in ('pending', 'on_hold')
+      and exists (
+          select 1
+          from public.customers c
+          where c.id = t.requester_customer_id
+            and c.portal_user_id = p_user_id
+            and c.tenant_id = t.tenant_id
+      );
+
+    -- plpgsql rather than sql: a sql function's result is its last statement,
+    -- and a bare UPDATE returns no rows, so `returns integer` failed to create
+    -- and took this whole migration down with it.
+    get diagnostics v_count = row_count;
+    return v_count;
+end;
+$$;
+
+comment on function public.portal_reply_bumps_status(uuid, uuid) is
+'Put a customer''s own ticket back to open after they reply. Writes status and nothing else. service_role only -- p_user_id is the acting user, resolved from the session by the calling server action.';
+
+revoke execute on function public.portal_reply_bumps_status(uuid, uuid)
+    from public, anon, authenticated;
+
+grant execute on function public.portal_reply_bumps_status(uuid, uuid)
+    to service_role;
+
+create or replace function public.portal_reopen_ticket(
+    p_ticket   uuid,
+    p_user_id  uuid
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_rows integer;
+begin
+    update public.tickets t
+    set status      = 'open',
+        resolved_at = null,
+        closed_at   = null
+    where t.id = p_ticket
+      and t.status in ('resolved', 'closed')
+      and exists (
+          select 1
+          from public.customers c
+          where c.id = t.requester_customer_id
+            and c.portal_user_id = p_user_id
+            and c.tenant_id = t.tenant_id
+      );
+
+    get diagnostics v_rows = row_count;
+
+    return v_rows;
+end;
+$$;
+
+comment on function public.portal_reopen_ticket(uuid, uuid) is
+'Reopen a customer''s own resolved or closed request. Writes status, resolved_at and closed_at and nothing else. service_role only -- p_user_id is the acting user, resolved from the session by the calling server action.';
+
+revoke execute on function public.portal_reopen_ticket(uuid, uuid)
+    from public, anon, authenticated;
+
+grant execute on function public.portal_reopen_ticket(uuid, uuid)
     to service_role;

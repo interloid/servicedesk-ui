@@ -1,5 +1,5 @@
 -- ==========================================================
--- File: 20260908161500_portal_request_priority.sql
+-- File: 20260926091500_portal_request_priority.sql
 -- Description: Let the customer choose a priority when raising a request
 -- ==========================================================
 --
@@ -8,9 +8,9 @@
 -- `public.ticket_priority`, so Postgres rejects anything outside the enum
 -- before the row is written -- the server action never has to sanitise it.
 --
--- REPLACES an existing object, unlike 20260908093000. That is safe here in a
+-- REPLACES an existing object, unlike 20260926090000. That is safe here in a
 -- way it is not for the attachments policies: portal_create_request was added
--- in 20260908093000 earlier today, its definition is in this repo, and it is
+-- in 20260926090000 earlier today, its definition is in this repo, and it is
 -- called from exactly one place (createPortalRequest in the portal service),
 -- never from SQL.
 --

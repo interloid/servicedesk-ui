@@ -81,7 +81,10 @@ export function PortalRequestsList({
   // shared link. The input is debounced rather than submitted so it still feels
   // like typing into a filter.
   useEffect(() => {
-    if (term === search) {
+    // Trimmed, because the server's `search` is: comparing the raw input made a
+    // trailing space look like a change, so it replaced the URL, dropped the
+    // page and refetched -- and never settled.
+    if (term.trim() === search) {
       return;
     }
 

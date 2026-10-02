@@ -7,7 +7,7 @@ interface ComingSoonProps {
 }
 
 const DEFAULT_DESCRIPTION =
-  "This workspace is still under construction. We're hard at work bringing this feature to life — check back soon.";
+  "This workspace is still under construction. We're hard at work bringing this feature to life - check back soon.";
 
 export function ComingSoon({ title, description }: ComingSoonProps) {
   return (

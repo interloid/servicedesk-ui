@@ -33,6 +33,7 @@ import {
 import {
   AVATAR_MIME_TYPES,
   avatarError,
+  isAvatarMimeType,
   type PortalCustomer,
 } from "@/features/portal/portal";
 import {
@@ -43,7 +44,6 @@ import { uploadAvatar } from "@/features/portal/avatar-upload";
 import { applyFieldErrors } from "@/features/portal/form-errors";
 import {
   portalToastError,
-  portalToastResult,
   portalToastSuccess,
 } from "@/features/portal/portal-toast";
 
@@ -170,6 +170,14 @@ function ProfileForm({
       let avatarPath: string | null = null;
 
       if (selectedFile) {
+        // Re-checked, not re-trusted: onFileChange ran avatarError, but this
+        // narrowing is also what proves the Content-Type is one of the four the
+        // action accepts.
+        if (!isAvatarMimeType(selectedFile.type)) {
+          setError("Choose a JPG, PNG, GIF or WebP image.");
+          return;
+        }
+
         const target = await prepareAvatarUploadAction(tenantSlug, {
           size: selectedFile.size,
           type: selectedFile.type,
@@ -193,7 +201,6 @@ function ProfileForm({
         } else {
           setError(result.message);
         }
-        portalToastResult(result);
         return;
       }
 

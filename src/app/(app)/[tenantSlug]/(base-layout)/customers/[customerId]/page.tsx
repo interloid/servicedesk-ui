@@ -1,15 +1,24 @@
-import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
-import CustomerDetailPage from "@/features/customers/components/customer-details";
+import {
+  CustomerOverview,
+  CustomerTicketsTab,
+} from "@/features/customers/components/customer-details";
+import {
+  CustomerOverviewSkeleton,
+  CustomerTicketsSkeleton,
+} from "@/features/customers/components/customer-skeletons";
 import {
   fetchCustomerById,
   fetchCustomerTickets,
   serverNow,
 } from "@/features/customers/services/customers.service";
 import {
+  isCustomerId,
   isCustomerTab,
-  parseCustomerTicketPage,
+  parsePageParam,
+  type CustomerTab,
 } from "@/features/customers/types/customers";
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
@@ -19,15 +28,16 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { tenantSlug, customerId } = await params;
-  // fetchCustomerById is cached per request, so this and the page share one
-  // set of queries.
-  const customer = await fetchCustomerById(tenantSlug, customerId);
+const first = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? value[0] : value;
 
-  return { title: customer ? customer.fullName : "Customer" };
-}
-
+/**
+ * The tab body only; the header and tabs are in the layout.
+ *
+ * The Suspense key changes with the tab and the page, so each switch shows the
+ * skeleton for the tab being opened -- a ticket table for Tickets, the cards
+ * for Overview -- under a header that never moves.
+ */
 export default async function CustomerDetailRoute({
   params,
   searchParams,
@@ -37,22 +47,52 @@ export default async function CustomerDetailRoute({
     searchParams,
   ]);
 
-  const rawTab = Array.isArray(query.tab) ? query.tab[0] : query.tab;
-  const tab = isCustomerTab(rawTab) ? rawTab : "overview";
-  const rawPage = Array.isArray(query.page) ? query.page[0] : query.page;
+  if (!isCustomerId(customerId)) {
+    notFound();
+  }
 
-  // Which page of tickets to read depends on the tab, so it is decided before
-  // the fetch rather than after: the Overview only ever shows the newest few,
-  // and asking for page 7 of those would be a query thrown away.
+  const rawTab = first(query.tab);
+  const tab: CustomerTab = isCustomerTab(rawTab) ? rawTab : "overview";
+  // The Overview only ever shows the newest few tickets, so a `page` there is
+  // ignored rather than read and thrown away.
+  const page = tab === "tickets" ? parsePageParam(first(query.page)) : 1;
+
+  return (
+    <Suspense
+      key={`${tab}-${page}`}
+      fallback={
+        tab === "tickets" ? (
+          <CustomerTicketsSkeleton />
+        ) : (
+          <CustomerOverviewSkeleton />
+        )
+      }
+    >
+      {tab === "tickets" ? (
+        <TicketsBody
+          tenantSlug={tenantSlug}
+          customerId={customerId}
+          page={page}
+        />
+      ) : (
+        <OverviewBody tenantSlug={tenantSlug} customerId={customerId} />
+      )}
+    </Suspense>
+  );
+}
+
+async function OverviewBody({
+  tenantSlug,
+  customerId,
+}: {
+  tenantSlug: string;
+  customerId: string;
+}) {
   const [customer, now, origin, tickets] = await Promise.all([
     fetchCustomerById(tenantSlug, customerId),
     serverNow(),
     requestOrigin(),
-    fetchCustomerTickets(
-      tenantSlug,
-      customerId,
-      tab === "tickets" ? parseCustomerTicketPage(rawPage) : 1,
-    ),
+    fetchCustomerTickets(tenantSlug, customerId, 1),
   ]);
 
   if (!customer) {
@@ -69,13 +109,36 @@ export default async function CustomerDetailRoute({
   ).toString();
 
   return (
-    <CustomerDetailPage
+    <CustomerOverview
       customer={customer}
-      tickets={tickets}
+      ticketPage={tickets}
       tenant={tenantSlug}
-      tab={tab}
       now={now}
       portalUrl={portalUrl}
+    />
+  );
+}
+
+async function TicketsBody({
+  tenantSlug,
+  customerId,
+  page,
+}: {
+  tenantSlug: string;
+  customerId: string;
+  page: number;
+}) {
+  const [tickets, now] = await Promise.all([
+    fetchCustomerTickets(tenantSlug, customerId, page),
+    serverNow(),
+  ]);
+
+  return (
+    <CustomerTicketsTab
+      customerId={customerId}
+      tickets={tickets}
+      tenant={tenantSlug}
+      now={now}
     />
   );
 }

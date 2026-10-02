@@ -15,10 +15,12 @@ export const metadata: Metadata = {
 
 export default async function PortalPasswordPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ tenantSlug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { tenantSlug } = await params;
+  const [{ tenantSlug }, query] = await Promise.all([params, searchParams]);
 
   const identity = await getPortalIdentity(tenantSlug);
 
@@ -45,6 +47,9 @@ export default async function PortalPasswordPage({
           // First sign-in: this is an offer, and declining it moves on to the
           // welcome wizard. From the account menu afterwards it is a cancel.
           skipLabel={identity.customer.onboarded ? "Cancel" : "Skip for now"}
+          // Set by passwordSignInAction. Anything else -- the email link, the
+          // account menu -- keeps the default copy.
+          signedInWith={query.via === "password" ? "password" : "link"}
         />
       </PortalCard>
     </PortalCentered>

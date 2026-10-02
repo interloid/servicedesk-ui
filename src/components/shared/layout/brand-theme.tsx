@@ -60,42 +60,73 @@ export function BrandTheme({
   const foreground = safeHex(text);
   const page = safeHex(background);
 
-  const declarations: string[] = [];
+  // Three blocks, because a brand colour does not mean the same thing in both
+  // themes:
+  // - shared: the brand itself, which is the brand whatever the theme;
+  // - light only: page text and background, and hover/pressed/badge shades
+  //   mixed toward black and white for a light page;
+  // - dark only: hover lightened rather than darkened, so the brand mark keeps
+  //   its contrast against a dark page.
+  // A tenant's text and background colours are chosen for a light page. Written
+  // into dark mode too, a dark text colour would land on a dark background.
+  const shared: string[] = [];
+  const light: string[] = [];
+  const dark: string[] = [];
 
   if (brand) {
-    declarations.push(
+    shared.push(
       `--brand-base: ${brand}`,
-      `--brand-hover: color-mix(in srgb, ${brand} 85%, black)`,
-      `--brand-pressed: color-mix(in srgb, ${brand} 70%, black)`,
-      `--brand-badge: color-mix(in srgb, ${brand} 14%, white)`,
-      `--brand-badge-foreground: color-mix(in srgb, ${brand} 80%, black)`,
       `--primary: ${brand}`,
       `--primary-foreground: ${readableOn(brand)}`,
       `--ring: ${brand}`,
     );
+    light.push(
+      `--brand-hover: color-mix(in srgb, ${brand} 85%, black)`,
+      `--brand-pressed: color-mix(in srgb, ${brand} 70%, black)`,
+      `--brand-badge: color-mix(in srgb, ${brand} 14%, white)`,
+      `--brand-badge-foreground: color-mix(in srgb, ${brand} 80%, black)`,
+    );
+    // The dark theme's own badge tokens already sit on --accent, which reads on
+    // a dark page; only the interaction shades need the brand.
+    dark.push(
+      `--brand-hover: color-mix(in srgb, ${brand} 85%, white)`,
+      `--brand-pressed: ${brand}`,
+    );
   }
 
   if (accent) {
-    declarations.push(
+    shared.push(
       `--brand-accent: ${accent}`,
       `--brand-accent-foreground: ${readableOn(accent)}`,
     );
   }
 
   if (foreground) {
-    declarations.push(`--foreground: ${foreground}`);
+    light.push(`--foreground: ${foreground}`);
   }
 
   if (page) {
-    declarations.push(`--background: ${page}`);
+    light.push(`--background: ${page}`);
   }
 
-  if (declarations.length === 0) {
+  const rule = (selector: string, declarations: string[]) =>
+    declarations.length > 0
+      ? `${selector} { ${declarations.join("; ")}; }`
+      : "";
+
+  const css = [
+    // Both theme selectors, so the brand survives the dark theme's own
+    // overrides in globals.css.
+    rule(`:root, .dark, [data-theme="dark"]`, shared),
+    rule(`:root:not(.dark):not([data-theme="dark"])`, light),
+    rule(`.dark, [data-theme="dark"]`, dark),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (!css) {
     return null;
   }
-
-  // Both selectors, so a brand survives the dark theme's own overrides.
-  const css = `:root, .dark, [data-theme="dark"] { ${declarations.join("; ")}; }`;
 
   return <style dangerouslySetInnerHTML={{ __html: css }} />;
 }

@@ -2,8 +2,6 @@
 
 import { toast } from "sonner";
 
-import type { PortalFailure } from "@/features/portal/portal";
-
 /**
  * Toasts for the portal's actions.
  *
@@ -19,10 +17,9 @@ import type { PortalFailure } from "@/features/portal/portal";
  *
  * So the split is by *what the toast replaces*, not by severity:
  *
- *   - a failure that is only about fields is NOT toasted. The message belongs on
- *     the input (applyFieldErrors) and in the form's Alert, and a toast cannot
- *     say which input to look at. This is the rule forgot-password-form.tsx
- *     already applies by hand.
+ *   - a failure shown in a form's own Alert is NOT toasted, field-only or not.
+ *     Every portal form renders its action failures inline, so a toast on top
+ *     said the same thing twice. Toasts are for failures with no form.
  *   - success is toasted only when the customer is navigated away from the thing
  *     that did it, or when the surface holding it closes -- a dialog closing, a
  *     redirect. Where the result stays on screen and is visible (the guest
@@ -41,22 +38,4 @@ export function portalToastSuccess(message: string): void {
 /** A failure with no form to attach it to. */
 export function portalToastError(message: string): void {
   toast.error(message);
-}
-
-/**
- * The error channel for an action result, for a form that is also marking up its
- * own fields. Call it after applyFieldErrors; it stays quiet for a field-only
- * failure so the same words are not read twice.
- */
-export function portalToastResult(result: PortalFailure): void {
-  if (isFieldOnlyFailure(result)) {
-    return;
-  }
-
-  toast.error(result.message);
-}
-
-/** True when every word of the failure has somewhere better to go. */
-export function isFieldOnlyFailure(result: PortalFailure): boolean {
-  return Object.keys(result.fieldErrors ?? {}).length > 0;
 }

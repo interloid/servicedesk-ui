@@ -32,7 +32,6 @@ import {
 import { PortalSplit } from "@/features/portal/components/portal-split";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
 import { applyFieldErrors } from "@/features/portal/form-errors";
-import { portalToastResult } from "@/features/portal/portal-toast";
 import {
   portalEmailSchema,
   portalPasswordLoginSchema,
@@ -157,7 +156,6 @@ function MagicLinkForm({
 
     applyFieldErrors(form, result.fieldErrors);
     onError(result.message);
-    portalToastResult(result);
   }
 
   return (
@@ -246,7 +244,6 @@ function PasswordForm({
 
     applyFieldErrors(form, result.fieldErrors);
     onError(result.message);
-    portalToastResult(result);
   }
 
   return (

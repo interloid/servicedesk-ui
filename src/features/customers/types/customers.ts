@@ -1,5 +1,7 @@
+import { z } from "zod";
+
 import type { Database } from "@/lib/supabase/database.types";
-import type { TeamRole } from "@/features/team/types/team";
+import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 
 /**
  * Client-safe types and helpers for the Customers pages. The service imports
@@ -7,69 +9,6 @@ import type { TeamRole } from "@/features/team/types/team";
  */
 
 export type TicketStatus = Database["public"]["Enums"]["ticket_status"];
-
-/**
- * Where a customer stands with the portal.
- *
- * "none" is the honest default: no membership row, or one that has been
- * switched off. A customer who signed in without ever being invited reads
- * "none" too until `customers.portal_user_id` says otherwise, which is why
- * PortalInviteStatus alone must never stand in for `portalActive`.
- */
-export type PortalInviteStatus = "none" | "invited" | "active";
-
-export type PortalInvite = {
-  status: PortalInviteStatus;
-  /** When the last invite went out; null when none is outstanding. */
-  invitedAt: string | null;
-  /** Who sent it, when that user still has a name on file. */
-  invitedBy: string | null;
-};
-
-/**
- * The invite is a `memberships` row with role = 'customer' and status =
- * 'invited' -- the same columns a team invite uses, so "invited" needs no
- * column of its own. custom_access_token_hook flips the row to 'active' and
- * stamps joined_at on the customer's first sign-in, which is what makes the
- * first click the acceptance.
- */
-export const PORTAL_INVITE_ROLES: readonly TeamRole[] = ["Tenant Admin"];
-
-/**
- * Only a Tenant Admin may hand a customer a portal invite. Not a Manager:
- * a portal account is an outside identity in the workspace, so unlike a team
- * seat it is not something a day-to-day supervisor hands out. The service
- * re-checks the same rule, because this only decides what the page offers.
- */
-export function canInviteToPortal(role: TeamRole | null): boolean {
-  return role !== null && PORTAL_INVITE_ROLES.includes(role);
-}
-
-export const PORTAL_STATUS_LABEL: Record<PortalInviteStatus, string> = {
-  none: "Not signed in yet",
-  invited: "Invited",
-  active: "Portal active",
-};
-
-export const PORTAL_STATUS_BADGE: Record<PortalInviteStatus, string> = {
-  active:
-    "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
-  invited: "bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300",
-  none: "bg-muted text-muted-foreground",
-};
-
-export type CustomerInviteFailureCode =
-  | "customer-not-found"
-  | "action-not-allowed"
-  | "already-active"
-  | "validation"
-  | "unknown";
-
-export type CustomerInviteResult = {
-  ok: boolean;
-  failureCode?: CustomerInviteFailureCode;
-  message?: string;
-};
 
 export type CustomerListItem = {
   id: string;
@@ -95,8 +34,6 @@ export type CustomerContact = {
   name: string;
   email: string;
   portalActive: boolean;
-  /** Pending or accepted portal invitation, if there is one. */
-  invite: PortalInvite;
   avatarUrl: string | null;
 };
 
@@ -133,14 +70,14 @@ export type CustomerTicketPage = {
 };
 
 /**
- * The `?page=` value, or 1.
+ * A `?page=` value, or 1.
  *
  * Anything that is not a whole number at or above one -- a hand-edited URL, a
  * stale bookmark, `?page=-4` -- falls back to the first page. Validating here
  * rather than at the query keeps a junk address from becoming a negative range
  * offset.
  */
-export function parseCustomerTicketPage(value: string | undefined): number {
+export function parsePageParam(value: string | undefined): number {
   const parsed = Number(value);
 
   return Number.isInteger(parsed) && parsed >= 1 ? parsed : 1;
@@ -154,8 +91,6 @@ export type CustomerDetail = {
   phone: string | null;
   createdAt: string;
   portalActive: boolean;
-  /** Pending or accepted portal invitation, if there is one. */
-  invite: PortalInvite;
   avatarUrl: string | null;
   openTicketsCount: number;
   /** Mean CSAT, or null when nobody has rated this customer. */
@@ -200,7 +135,7 @@ export const TICKET_STATUS_BADGE: Record<TicketStatus, string> = {
  * Unrated customers are "—", not 0.0: nobody gave them a bad score.
  */
 export function formatCsatScore(score: number | null): string {
-  return score === null ? "—" : score.toFixed(1);
+  return score === null ? "-" : score.toFixed(1);
 }
 
 /** "4.5 out of 5, from 12 ratings" -- the number and what it averages over. */
@@ -237,19 +172,6 @@ export function csatTone(score: number | null): string {
   return CSAT_TEXT.poor;
 }
 
-export function customerInitials(name: string, email: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-
-  if (parts.length > 0) {
-    return parts
-      .slice(0, 2)
-      .map((part) => part.charAt(0).toUpperCase())
-      .join("");
-  }
-
-  return email.charAt(0).toUpperCase() || "?";
-}
-
 /**
  * "Sep 28, 2026". Formatted in UTC, like the team table, so the server render
  * and the browser agree on the day whatever timezone either is in.
@@ -271,36 +193,82 @@ export function formatCustomerDate(iso: string | null): string {
   return Number.isNaN(parsed) ? "—" : DATE_FORMAT.format(parsed);
 }
 
-const RELATIVE = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+export function customerPath(tenantSlug: string, customerId: string): string {
+  return tenantPath(
+    tenantSlug,
+    `${TENANT_ROUTES.CUSTOMERS}/${encodeURIComponent(customerId)}`,
+  );
+}
 
-const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ["year", 365 * 24 * 60 * 60 * 1000],
-  ["month", 30 * 24 * 60 * 60 * 1000],
-  ["day", 24 * 60 * 60 * 1000],
-  ["hour", 60 * 60 * 1000],
-  ["minute", 60 * 1000],
-];
+/** Customers per page on the Customers list. */
+export const CUSTOMER_LIST_PAGE_SIZE = 10;
 
-/** "52 minutes ago", against the server's `now` so both renders agree. */
-export function formatCustomerRelative(
-  iso: string | null,
-  now: number,
-): string {
-  if (!iso) {
-    return "—";
+/**
+ * The columns the list can sort by. Name, company and date added sort in SQL;
+ * ticket count, last activity and CSAT are computed per customer, so the
+ * service sorts those after reading every matching customer.
+ */
+export const CUSTOMER_SORT_KEYS = [
+  "fullName",
+  "company",
+  "ticketCount",
+  "lastActivityAt",
+  "createdAt",
+  "csatScore",
+] as const;
+
+export type CustomerSortKey = (typeof CUSTOMER_SORT_KEYS)[number];
+
+export type CustomerSort = {
+  key: CustomerSortKey;
+  direction: "asc" | "desc";
+};
+
+export const DEFAULT_CUSTOMER_SORT: CustomerSort = {
+  key: "fullName",
+  direction: "asc",
+};
+
+/** Which way a column sorts the first time it is clicked. */
+export function defaultSortDirection(key: CustomerSortKey): "asc" | "desc" {
+  // Numbers and dates start with the largest or newest first.
+  return key === "fullName" || key === "company" ? "asc" : "desc";
+}
+
+/** `?sort=&dir=` from the URL, falling back to name A-Z for anything else. */
+export function parseCustomerSort(
+  sort: string | undefined,
+  dir: string | undefined,
+): CustomerSort {
+  if (!(CUSTOMER_SORT_KEYS as readonly string[]).includes(sort ?? "")) {
+    return DEFAULT_CUSTOMER_SORT;
   }
 
-  const elapsed = now - Date.parse(iso);
+  const key = sort as CustomerSortKey;
+  const direction =
+    dir === "asc" || dir === "desc" ? dir : defaultSortDirection(key);
 
-  if (Number.isNaN(elapsed)) {
-    return "—";
-  }
+  return { key, direction };
+}
 
-  for (const [unit, size] of UNITS) {
-    if (Math.abs(elapsed) >= size) {
-      return RELATIVE.format(-Math.round(elapsed / size), unit);
-    }
-  }
+/** One page of the Customers list, with what the pager needs. */
+export type CustomerListPage = {
+  customers: CustomerListItem[];
+  /** Customers matching the search, across all pages. */
+  total: number;
+  /** Customers in the tenant, whatever the search; drives the empty state. */
+  tenantTotal: number;
+  /** 1-based, and never past `pageCount`. */
+  page: number;
+  pageCount: number;
+};
 
-  return "just now";
+/**
+ * A well-formed customer id. Postgres rejects anything else with 22P02, so a
+ * malformed URL is answered with a 404 before it reaches the database.
+ * `z.guid()` rather than `z.uuid()`: Postgres accepts any 8-4-4-4-12 hex id,
+ * whatever its version bits, and so must this.
+ */
+export function isCustomerId(value: string): boolean {
+  return z.guid().safeParse(value).success;
 }

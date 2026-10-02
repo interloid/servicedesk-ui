@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import { requestSignInLinkAction } from "@/features/portal/actions/portal.actions";
 import { PortalSplit } from "@/features/portal/components/portal-split";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
-import { portalToastResult } from "@/features/portal/portal-toast";
 
 /**
  * Terminal screen for the magic-link flow. There is nothing to type here — the
@@ -62,7 +61,6 @@ export function PortalCheckEmail({
     }
 
     setError(result.message);
-    portalToastResult(result);
   }
 
   return (
@@ -94,10 +92,10 @@ export function PortalCheckEmail({
         />
         <span>
           <span className="font-semibold text-foreground">
-            Open it on this device.
+            Open it on any device.
           </span>{" "}
-          The link signs you in on the browser that asked for it. If you open it
-          somewhere else, come back here and send a new one.
+          The link signs you in wherever you open it, and works once. If it has
+          expired, come back here and send a new one.
         </span>
       </p>
 

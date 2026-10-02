@@ -6,8 +6,8 @@ import type { TeamRole } from "@/features/team/types/team";
 
 /**
  * The mail the app sends, queued in public.email_jobs -- the mail Supabase
- * sends for us (invite, password reset) and our own invitation email through
- * Resend.
+ * sends for us (invite, password reset) and our own emails through Resend
+ * (team invitation, portal sign-in link).
  *
  * The app only writes the job. The sending lives in the `email-jobs` Edge
  * Function (supabase/functions/email-jobs), which pg_cron calls every minute
@@ -34,9 +34,21 @@ export type PasswordResetPayload = {
   redirectTo: string;
 };
 
+/** A customer's sign-in link for a workspace's support portal. */
+export type PortalSignInPayload = {
+  email: string;
+  /** The portal callback; the function appends `token_hash` and `type`. */
+  redirectTo: string;
+  /** For the subject line and heading -- the email wears the workspace's name. */
+  tenantName: string;
+  /** Sent by a Tenant Admin's "Invite customer": worded as an invitation. */
+  invited?: boolean;
+};
+
 type EmailJobPayloads = {
   team_invitation: TeamInvitationPayload;
   password_reset: PasswordResetPayload;
+  portal_sign_in: PortalSignInPayload;
 };
 
 export type EmailJobKind = keyof EmailJobPayloads;

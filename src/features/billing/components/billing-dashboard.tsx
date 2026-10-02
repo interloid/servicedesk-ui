@@ -39,6 +39,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { pageWindow } from "@/lib/pagination";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import InvoiceModal from "./invoice-model";
 import { UpdatePaymentModal } from "./payment-method";
@@ -81,31 +82,6 @@ const PRIMARY_BUTTON = `h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-
 const OUTLINE_BUTTON = `h-10 gap-2 rounded-lg border-slate-200 px-4 text-sm font-medium ${BUTTON_MICRO}`;
 const SECONDARY_BUTTON = `h-10 gap-2 rounded-lg px-4 text-sm font-semibold ${BUTTON_MICRO}`;
 const PAGINATION_BUTTON = `size-10 shrink-0 rounded-lg border-slate-200 p-0 sm:size-9 ${BUTTON_MICRO}`;
-
-/**
- * Page buttons for the billing history: first and last always, the current page
- * with one neighbour either side, and an ellipsis standing in for each gap. The
- * control keeps the same width whether there are three pages or three hundred.
- */
-function pageWindow(current: number, total: number): Array<number | "gap"> {
-  if (total <= 7) {
-    return Array.from({ length: total }, (_, index) => index + 1);
-  }
-
-  const wanted = [1, total, current, current - 1, current + 1];
-  const pages = [...new Set(wanted)]
-    .filter((page) => page >= 1 && page <= total)
-    .sort((a, b) => a - b);
-
-  const out: Array<number | "gap"> = [];
-
-  pages.forEach((page, index) => {
-    if (index > 0 && page - pages[index - 1] > 1) out.push("gap");
-    out.push(page);
-  });
-
-  return out;
-}
 
 interface BillingDashboardProps {
   params: Promise<{ tenantSlug: string }>;

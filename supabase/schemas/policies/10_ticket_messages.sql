@@ -149,7 +149,10 @@ WITH CHECK (
 --   Can update their own messages.
 --
 -- Customer:
---   Can update their own public messages.
+--   No access. The portal never edits a message after it is posted, and the
+--   customer branch that used to be here did not tie ticket_id to a ticket the
+--   customer owns in WITH CHECK, so a customer could move their own public
+--   message onto another customer's ticket in the same tenant.
 --
 -- Platform Admin / Billing Admin:
 --   No access.
@@ -181,25 +184,6 @@ USING (
             AND author_type = 'agent'
             AND author_id = auth.uid()
         )
-
-        OR
-
-        -- ---------------------------------------------
-        -- Customer can update own public message
-        -- ---------------------------------------------
-        (
-            public.current_tenant_role() = 'customer'
-            AND author_type = 'customer'
-            AND visibility = 'public'
-
-            AND EXISTS (
-                SELECT 1
-                FROM public.customers AS c
-                WHERE c.id = ticket_messages.author_id
-                  AND c.portal_user_id = auth.uid()
-                  AND c.tenant_id = public.current_tenant_id()
-            )
-        )
     )
 )
 WITH CHECK (
@@ -223,25 +207,6 @@ WITH CHECK (
             public.current_tenant_role() = 'agent'
             AND author_type = 'agent'
             AND author_id = auth.uid()
-        )
-
-        OR
-
-        -- ---------------------------------------------
-        -- Customer
-        -- ---------------------------------------------
-        (
-            public.current_tenant_role() = 'customer'
-            AND author_type = 'customer'
-            AND visibility = 'public'
-
-            AND EXISTS (
-                SELECT 1
-                FROM public.customers AS c
-                WHERE c.id = ticket_messages.author_id
-                  AND c.portal_user_id = auth.uid()
-                  AND c.tenant_id = public.current_tenant_id()
-            )
         )
     )
 );

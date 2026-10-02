@@ -32,6 +32,12 @@ create table if not exists public.customers
 
     phone text,
 
+    portal_onboarded_at timestamptz,
+
+    portal_password_prompted_at timestamptz,
+
+    portal_last_login_at timestamptz,
+
     created_at timestamptz
         not null
         default now(),
@@ -59,3 +65,10 @@ on public.customers(email);
 
 create index if not exists idx_customer_portal
 on public.customers(portal_user_id);
+
+-- portal_link_user and the portal identity lookup both hit (tenant_id,
+-- portal_user_id) on every authenticated portal request. idx_customer_portal
+-- covers portal_user_id alone; this makes the tenant-scoped lookup an
+-- index-only match.
+create index if not exists idx_customer_tenant_portal
+on public.customers(tenant_id, portal_user_id);

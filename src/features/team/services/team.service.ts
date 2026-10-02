@@ -159,7 +159,7 @@ const STATUS_FROM_DB: Record<string, TeamStatus> = {
   disabled: "Disabled",
 };
 
-type TeamActor = {
+export type TeamActor = {
   userId: string;
   tenantId: string;
   /** From the `tenant_slug` claim. Needed to build tenant-scoped email links. */
@@ -177,7 +177,7 @@ type TeamActor = {
  * lives until the token refreshes (up to an hour), so a removed, disabled or
  * demoted member kept their old powers here for that long.
  */
-const getActorOrNull = cache(
+export const getActorOrNull = cache(
   async function getActorOrNull(): Promise<TeamActor | null> {
     const supabase = await createSupabaseServerClient();
 
@@ -1015,7 +1015,7 @@ export async function transferOwnership(
   }
 
   console.error(
-    `[team] ownership transfer in ${actor.tenantId} failed — ${error.code ?? "?"} ${error.message}`,
+    `[team] ownership transfer in ${actor.tenantId} failed - ${error.code ?? "?"} ${error.message}`,
   );
 
   switch (error.code) {

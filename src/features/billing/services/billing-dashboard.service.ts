@@ -6,6 +6,7 @@ import {
   getTenantIdBySlug,
 } from "@/features/tenancy/services/tenant-resolver";
 import { describePlan } from "./billing.service";
+import { STAFF_ROLES } from "@/features/team/types/team";
 
 export interface BillingDashboardData {
   accountName: string;
@@ -263,6 +264,8 @@ export async function fetchTenantBillingData(
     .from("memberships")
     .select("role")
     .eq("tenant_id", tenant.id)
+    // Staff only: portal customers have memberships but don't use seats.
+    .in("role", [...STAFF_ROLES])
     .eq("status", "active");
 
   const members = activeMembers || [];

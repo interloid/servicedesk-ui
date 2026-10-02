@@ -35,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { rememberThreadHint } from "@/features/portal/thread-hint";
 import { cn } from "@/lib/utils";
 
 const STATE_FILTERS: Array<{ value: string; label: string }> = [
@@ -257,12 +258,17 @@ export function PortalRequestsList({
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
 
-            <SelectContent side="bottom" align="end" position="popper">
+            <SelectContent
+              side="bottom"
+              align="end"
+              position="popper"
+              className="p-1"
+            >
               {STATE_FILTERS.map((option) => (
                 <SelectItem
                   key={option.value}
                   value={option.value}
-                  className="p-3"
+                  className="p-2 cursor-pointer"
                 >
                   {option.label}
                 </SelectItem>
@@ -297,9 +303,18 @@ export function PortalRequestsList({
               </span>
             </SelectTrigger>
 
-            <SelectContent side="bottom" align="end" position="popper">
+            <SelectContent
+              side="bottom"
+              align="end"
+              position="popper"
+              className="p-1"
+            >
               {Object.entries(PORTAL_REQUEST_SORTS).map(([value, label]) => (
-                <SelectItem key={value} value={value} className="p-2">
+                <SelectItem
+                  key={value}
+                  value={value}
+                  className="p-2 cursor-pointer"
+                >
                   {label}
                 </SelectItem>
               ))}
@@ -444,6 +459,9 @@ function RequestRow({
   return (
     <Link
       href={portalRequestPath(tenantSlug, request.id)}
+      // For the request page's loading skeleton: it draws a team message only
+      // when this row knows there is one.
+      onClick={() => rememberThreadHint(request.id, request.hasTeamReply)}
       className={cn(
         "group relative flex items-start gap-4 rounded-2xl border bg-card p-4 text-foreground shadow-xs transition-all sm:p-5",
         "hover:-translate-y-0.5 hover:border-brand-accent/40 hover:text-foreground hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]",

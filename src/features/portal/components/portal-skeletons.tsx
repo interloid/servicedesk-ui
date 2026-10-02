@@ -202,10 +202,14 @@ export function PortalMessageSkeleton({
           !fromTeam && "flex-row-reverse",
         )}
       >
+        {/* The page's avatars: solid brand for the team, a ringed tint
+            for the customer. */}
         <PortalRoundIconSkeleton
           className={cn(
             "size-8",
-            fromTeam ? "bg-slate-300/70" : "bg-slate-200/80",
+            fromTeam
+              ? "bg-brand-accent/25"
+              : "bg-brand-accent/10 ring-1 ring-brand-accent/25 ring-inset",
           )}
         />
         <div
@@ -218,16 +222,31 @@ export function PortalMessageSkeleton({
               text-sm name (20) directly above a text-xs stamp (16) with no gap
               of its own. The bars used to be 16 and 12 on a 6px gap, so the
               header came out 2px short and every bubble below it sat 2px high. */}
-          <Skeleton className={cn("h-5 bg-slate-300/70", authorWidth)} />
+          <div
+            className={cn(
+              "flex items-center gap-2",
+              !fromTeam && "flex-row-reverse",
+            )}
+          >
+            <Skeleton className={cn("h-5 bg-slate-300/70", authorWidth)} />
+            {/* The "Support team" pill beside an agent's name. */}
+            {fromTeam ? (
+              <Skeleton className="h-5 w-20 rounded-full bg-brand-accent/10" />
+            ) : null}
+          </div>
           <Skeleton className="h-3.5 w-20 bg-slate-200/80" />
         </div>
       </div>
 
       <div
         className={cn(
-          "min-w-0 max-w-[85%] rounded-2xl bg-slate-200/80 px-3.5 py-2.5 sm:max-w-[75%]",
+          "min-w-0 max-w-[85%] rounded-2xl px-3.5 py-2.5 sm:max-w-[75%]",
           bubbleWidth,
-          fromTeam ? "rounded-tl-sm" : "rounded-tr-sm",
+          // The page's bubble colours, so the bars read as text inside a
+          // message rather than grey on grey.
+          fromTeam
+            ? "rounded-tl-sm bg-muted"
+            : "rounded-tr-sm bg-brand-accent/10",
         )}
       >
         {/* h-5.5 bars on a gap-2.5. The real bubble is text-sm leading-[1.6],
@@ -238,7 +257,10 @@ export function PortalMessageSkeleton({
             every message below it jumped. */}
         <div className="flex flex-col gap-2.5">
           {lineWidths.map((width, index) => (
-            <Skeleton key={index} className={cn("h-5.5", width)} />
+            <Skeleton
+              key={index}
+              className={cn("h-5.5 bg-slate-300/60", width)}
+            />
           ))}
         </div>
       </div>

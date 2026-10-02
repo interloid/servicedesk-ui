@@ -45,13 +45,16 @@ export type PortalSetPasswordValues = z.infer<typeof portalSetPasswordSchema>;
 const subjectField = z
   .string()
   .trim()
-  .min(1, "Give your request a subject")
+  .min(1, "Please enter a short, clear subject for your issue")
   .max(200, "Keep the subject under 200 characters");
 
 const descriptionField = z
   .string()
   .trim()
-  .min(1, "Describe what happened")
+  .min(
+    1,
+    "Please describe the issue, including any error messages, relevant details, or steps to reproduce it",
+  )
   .max(10_000, "That description is too long to submit");
 
 /** A signed-in customer's email comes from their session, never the form. */

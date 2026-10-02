@@ -306,12 +306,12 @@ export function PortalRequestDetailView({
             className="min-h-11 max-h-32 resize-none overflow-y-auto rounded-xl bg-background text-sm leading-6 sm:min-h-14 sm:max-h-40"
           />
 
-          {/* One row of controls under the box, as a chat composer has: on a
-              phone, stacking Attach, the limits, Reopen and Send one per row
-              took a third of the screen from the thread. The picker's own
-              wrapper is `contents`, so its trigger sits in this row and its
-              file list drops onto a full-width line beneath it. */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5 sm:mt-3 sm:gap-2.5">
+          {/* On a phone, one column: Send (and Reopen) full width first,
+              where the thumb lands, then Attach files with its limits, then
+              the attached files. From sm up, one row as a chat composer has.
+              The picker's own wrapper is `contents`, so its trigger and file
+              list are items of this container directly. */}
+          <div className="mt-2.5 grid grid-cols-1 gap-2 sm:mt-3 sm:flex sm:flex-wrap sm:items-center sm:gap-2.5">
             <PortalAttachmentPicker
               files={files}
               onChange={setFiles}
@@ -322,13 +322,13 @@ export function PortalRequestDetailView({
               listClassName="order-last basis-full"
             />
 
-            <div className="ml-auto flex shrink-0 gap-1.5 sm:gap-2.5">
+            <div className="order-first grid grid-cols-1 gap-2 sm:order-none sm:ml-auto sm:flex sm:shrink-0 sm:gap-2.5">
               {canReopen(request.state) ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="lg"
-                  className="h-11 px-3 font-semibold sm:px-5"
+                  className="h-11 w-full px-5 font-semibold sm:w-auto"
                   onClick={() => void reopen()}
                   disabled={busy}
                 >
@@ -338,26 +338,18 @@ export function PortalRequestDetailView({
                     <RotateCcw aria-hidden className="size-4" />
                   )}
                   {isReopening ? "Reopening…" : "Reopen"}
-                  {isReopening ? null : (
-                    <span className="max-sm:hidden"> request</span>
-                  )}
+                  {isReopening ? null : <span> request</span>}
                 </Button>
               ) : null}
 
               <Button
                 type="button"
                 size="lg"
-                className="h-11 px-4 font-semibold sm:px-5"
+                className="h-11 w-full px-5 font-semibold sm:w-auto"
                 onClick={() => void sendReply()}
                 disabled={busy || !body.trim()}
               >
-                {isSending ? (
-                  "Sending…"
-                ) : (
-                  <span>
-                    Send<span className="max-sm:hidden"> reply</span>
-                  </span>
-                )}
+                {isSending ? "Sending…" : <span>Send reply</span>}
                 {isSending ? (
                   <Loader2 aria-hidden className="size-4 animate-spin" />
                 ) : (

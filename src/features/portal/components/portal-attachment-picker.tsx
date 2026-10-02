@@ -51,8 +51,8 @@ export function PortalAttachmentPicker({
   disabled?: boolean;
   variant?: Variant;
   /**
-   * `button` only: below sm the trigger is a square paperclip and the limits
-   * line is dropped, for a composer that has one row to share with Send.
+   * `button` only: below sm the trigger fills the width with the limits line
+   * under it, for a composer that stacks its controls one per row there.
    */
   compact?: boolean;
   className?: string;
@@ -206,7 +206,12 @@ export function PortalAttachmentPicker({
           )}
         </button>
       ) : (
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <div
+          className={cn(
+            "flex min-w-0 flex-wrap items-center gap-3",
+            compact && "max-sm:grid max-sm:grid-cols-1 max-sm:gap-1.5",
+          )}
+        >
           {/* h-11 to match the Send and Reopen buttons it shares a row with.
               At the sm size it sat a third of their height under the same
               baseline, and a control you have to aim at should not be the
@@ -217,22 +222,19 @@ export function PortalAttachmentPicker({
             size="lg"
             className={cn(
               "h-11 px-5 font-semibold",
-              compact && "max-sm:w-11 max-sm:px-0",
+              compact && "max-sm:w-full",
             )}
             disabled={locked}
             onClick={open}
-            title={compact ? "Attach files" : undefined}
           >
             <Paperclip aria-hidden className="size-4" />
-            <span className={cn(compact && "max-sm:sr-only")}>
-              Attach files
-            </span>
+            <span>Attach files</span>
           </Button>
 
           <span
             className={cn(
               "text-xs text-muted-foreground",
-              compact && "max-sm:hidden",
+              compact && "max-sm:text-center",
             )}
           >
             {full

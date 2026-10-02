@@ -1,7 +1,14 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -43,9 +50,67 @@ function useCopy(value: string, label: string) {
   return { copied, used, copy, action };
 }
 
+type CopyState = ReturnType<typeof useCopy>;
+
+const CopyContext = createContext<CopyState | null>(null);
+
+/**
+ * One copy state for a whole row, so the value's text and the button beside
+ * it copy the same thing and the tick shows on the button whichever was
+ * clicked.
+ */
+export function CopyScope({
+  value,
+  label,
+  children,
+}: {
+  value: string;
+  label: string;
+  children: ReactNode;
+}) {
+  const state = useCopy(value, label);
+
+  return <CopyContext.Provider value={state}>{children}</CopyContext.Provider>;
+}
+
+/**
+ * The value's text as a second way to copy it, inside a CopyScope. Outside
+ * one it is plain text.
+ */
+export function CopyTrigger({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  const scope = useContext(CopyContext);
+
+  if (!scope) {
+    return <span className={className}>{children}</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      title={scope.action}
+      onClick={scope.copy}
+      className={cn(
+        "block cursor-pointer text-left break-all underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:underline focus-visible:outline-none active:opacity-70",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 /** A square copy control for one value on the customer page. */
 export function CopyButton({ value, label }: { value: string; label: string }) {
-  const { copied, used, copy, action } = useCopy(value, label);
+  const scope = useContext(CopyContext);
+  const own = useCopy(value, label);
+  // Inside a CopyScope the row's shared state drives the tick.
+  const { copied, used, copy, action } = scope ?? own;
 
   return (
     <Button
@@ -80,57 +145,5 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
         />
       )}
     </Button>
-  );
-}
-
-/**
- * The value itself as the copy target, for one worth copying straight from
- * the text (the portal link). A copy icon shows on hover and turns into a
- * tick with "Copied" once it lands.
- */
-export function CopyText({
-  value,
-  label,
-  className,
-}: {
-  value: string;
-  label: string;
-  className?: string;
-}) {
-  const { copied, used, copy, action } = useCopy(value, label);
-
-  return (
-    <button
-      type="button"
-      title={action}
-      onClick={copy}
-      className={cn(
-        "group/copy cursor-pointer text-left break-all underline-offset-4 transition-opacity hover:underline focus-visible:rounded-sm focus-visible:underline focus-visible:outline-none active:opacity-70",
-        className,
-      )}
-    >
-      {value}
-      {/* aria-live so the confirmation is read out as well as seen. */}
-      <span aria-live="polite" className="ml-1.5 inline-flex align-middle">
-        {copied ? (
-          <span
-            key="check"
-            className="inline-flex -translate-y-px items-center gap-1 text-xs font-semibold text-emerald-600 animate-in zoom-in-75 fade-in duration-200 dark:text-emerald-300"
-          >
-            <Check aria-hidden strokeWidth={2.5} className="size-3.5" />
-            Copied
-          </span>
-        ) : (
-          <Copy
-            key="copy"
-            aria-hidden
-            className={cn(
-              "size-3.5 -translate-y-px opacity-0 transition-opacity duration-200 group-hover/copy:opacity-70 group-focus-visible/copy:opacity-70 motion-reduce:transition-none",
-              used && "animate-in fade-in",
-            )}
-          />
-        )}
-      </span>
-    </button>
   );
 }

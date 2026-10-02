@@ -26,7 +26,8 @@ import {
 
 import {
   CopyButton,
-  CopyText,
+  CopyScope,
+  CopyTrigger,
 } from "@/features/customers/components/copy-button";
 import { CustomerTabs } from "@/features/customers/components/customer-tabs";
 import {
@@ -209,7 +210,7 @@ export function CustomerOverview({
 
   return (
     <>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 @2xl:gap-4 @5xl:grid-cols-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 @2xl:gap-4 @5xl:grid-cols-4">
         <StatCard
           icon={Inbox}
           tone="bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300"
@@ -298,7 +299,6 @@ export function CustomerOverview({
                   icon={Building2}
                   tone="text-teal-600 dark:text-teal-300"
                   label="Company"
-                  copy={{ value: customer.company, label: "Company" }}
                 >
                   <span className="block truncate font-semibold text-foreground">
                     {customer.company}
@@ -318,14 +318,12 @@ export function CustomerOverview({
                 copy={{ value: portalUrl, label: "Portal link" }}
               >
                 {/* break-all rather than truncate: there is nothing to infer
-                    from a cut-off host. Clicking the link copies it, the same
-                    as the button beside it: the agent is here to hand the
-                    address on, not to visit it. */}
-                <CopyText
-                  value={portalUrl}
-                  label="Portal link"
-                  className="font-semibold text-brand-ink"
-                />
+                    from a cut-off host. Clicking the link copies it, like the
+                    button beside it, and the tick shows on the button either
+                    way: the agent is here to hand the address on. */}
+                <CopyTrigger className="font-semibold text-brand-ink">
+                  {portalUrl}
+                </CopyTrigger>
                 <span className="mt-1.5 block text-xs leading-relaxed text-muted-foreground">
                   {PORTAL_DESCRIPTION}
                 </span>
@@ -438,18 +436,28 @@ function DetailRow({
   icon: LucideIcon;
   tone: string;
   label: string;
-  copy: { value: string; label: string };
+  /** Omit for a value nobody needs to paste anywhere. */
+  copy?: { value: string; label: string };
   children: ReactNode;
 }) {
-  return (
+  const row = (
     <div className="flex items-start gap-3.5 py-3.5">
       <Icon aria-hidden className={cn("mt-0.5 size-5 shrink-0", tone)} />
       <div className="min-w-0 flex-1">
         <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
         <dd className="mt-0.5 text-sm">{children}</dd>
       </div>
-      <CopyButton value={copy.value} label={copy.label} />
+      {copy ? <CopyButton value={copy.value} label={copy.label} /> : null}
     </div>
+  );
+
+  // One copy state per row: a CopyTrigger in the value and the button share it.
+  return copy ? (
+    <CopyScope value={copy.value} label={copy.label}>
+      {row}
+    </CopyScope>
+  ) : (
+    row
   );
 }
 

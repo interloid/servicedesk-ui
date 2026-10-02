@@ -1289,6 +1289,29 @@ export async function listPortalRequests(
     };
   }
 
+  // Which of this page's requests the team has answered in public. One small
+  // query for the page (five rows at most), read for the request page's
+  // loading skeleton; a failure only costs that hint.
+  const pageIds = (data ?? []).map((row) => row.id);
+  const replied = new Set<string>();
+
+  if (pageIds.length > 0) {
+    const { data: replies, error: repliesError } = await supabase
+      .from("ticket_messages")
+      .select("ticket_id")
+      .in("ticket_id", pageIds)
+      .eq("author_type", "agent")
+      .eq("visibility", "public");
+
+    if (repliesError) {
+      console.error("[portal] team replies failed:", repliesError.message);
+    }
+
+    for (const reply of replies ?? []) {
+      replied.add(reply.ticket_id);
+    }
+  }
+
   return {
     requests: (data ?? []).map((row) => {
       const status = row.status as PortalTicketStatus;
@@ -1309,6 +1332,7 @@ export async function listPortalRequests(
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, PREVIEW_LENGTH),
+        hasTeamReply: replied.has(row.id),
       };
     }),
     total,

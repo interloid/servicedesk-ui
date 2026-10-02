@@ -2,9 +2,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   PORTAL_CARD_SHADOW,
   PortalBackLinkSkeleton,
-  PortalMessageSkeleton,
   PortalStateBadgeSkeleton,
 } from "@/features/portal/components/portal-skeletons";
+import { PortalThreadSkeleton } from "@/features/portal/components/portal-thread-skeleton";
 import { cn } from "@/lib/utils";
 
 /**
@@ -13,11 +13,10 @@ import { cn } from "@/lib/utils";
  * reads as a dead link and gets clicked again.
  *
  * Mirrors PortalRequestDetailView: one chat window with the header pinned on
- * top, the composer pinned below and the thread between. The thread is a
- * conversation -- the customer's messages on the right, the team's on the
- * left -- so the skeleton draws a bubble on each side, sat at the bottom where
- * the real thread opens scrolled to. The textarea is a real control, so it
- * keeps its outline.
+ * top, the composer pinned below and the thread between. The thread
+ * (PortalThreadSkeleton) is the customer's opening message at the top, plus a
+ * team reply only when the requests list said there is one. The textarea is a
+ * real control, so it keeps its outline.
  *
  * The CSAT prompt is deliberately absent: the real page only shows it once
  * request.csat.resolvedAt is set, and a skeleton cannot know that. Drawing one
@@ -29,28 +28,6 @@ const CARD = cn(
   "overflow-hidden rounded-2xl border bg-card",
   PORTAL_CARD_SHADOW,
 );
-
-/**
- * Two messages, one from each side, so the thread arrives already reading as a
- * conversation. The bubble widths are the real ones' range -- a customer's note
- * tends to run longer than the reply -- and they are what give the bars inside
- * each bubble something to be a percentage of. Without one the bubble collapses
- * to its padding and the message body draws nothing.
- */
-const MESSAGES = [
-  {
-    fromTeam: false,
-    lines: ["w-full", "w-3/4"],
-    author: "w-32",
-    bubble: "w-[72%]",
-  },
-  {
-    fromTeam: true,
-    lines: ["w-full", "w-11/12", "w-2/3"],
-    author: "w-28",
-    bubble: "w-[58%]",
-  },
-];
 
 export default function Loading() {
   return (
@@ -67,6 +44,8 @@ export default function Loading() {
             <div className="mt-1 flex items-center gap-2">
               <Skeleton className="h-5 w-10 rounded-md bg-slate-200/80" />
               <PortalStateBadgeSkeleton className="h-5 w-14" />
+              {/* The "updated" stamp the page shows here below md. */}
+              <Skeleton className="h-4 w-24 bg-slate-200/80 md:hidden" />
             </div>
           </div>
 
@@ -76,32 +55,28 @@ export default function Loading() {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col justify-end overflow-hidden px-4 py-5 sm:px-6 sm:py-6">
-          {MESSAGES.map((message, index) => (
-            <PortalMessageSkeleton
-              key={index}
-              fromTeam={message.fromTeam}
-              lineWidths={message.lines}
-              authorWidth={message.author}
-              bubbleWidth={message.bubble}
-            />
-          ))}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-5 sm:px-6 sm:py-6">
+          <PortalThreadSkeleton />
         </div>
 
-        <div className="shrink-0 border-t bg-muted/30 px-4 py-3.5 sm:px-6 sm:py-4">
-          {/* A real outlined textarea, not a grey bar: it is a control. */}
-          <div className="min-h-14 rounded-xl border bg-background" />
+        <div className="shrink-0 border-t bg-muted/30 px-3 py-3 sm:px-6 sm:py-4">
+          {/* A real outlined textarea, not a grey bar: it is a control. Same
+              min heights as the page's: shorter on a phone. */}
+          <div className="min-h-11 rounded-xl border bg-background sm:min-h-14" />
 
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-11 w-32 rounded-lg border bg-card" />
+          {/* Same order as the composer: on a phone Send first, then Attach
+              with its limits under it, all full width; one row from sm. */}
+          <div className="mt-2.5 grid grid-cols-1 gap-2 sm:mt-3 sm:flex sm:items-center sm:justify-between">
+            <div className="grid grid-cols-1 justify-items-center gap-1.5 sm:flex sm:items-center sm:gap-3">
+              <div className="h-11 w-full rounded-lg border bg-card sm:w-32" />
               <Skeleton className="h-3 w-32 bg-slate-200/80" />
             </div>
 
-            <Skeleton className="h-11 w-full rounded-lg bg-slate-300/70 sm:w-36" />
+            <Skeleton className="order-first h-11 w-full rounded-lg bg-slate-300/70 sm:order-none sm:w-36" />
           </div>
 
-          <div className="mt-2.5 flex items-center gap-1.5">
+          {/* The privacy note, hidden on a phone as on the page. */}
+          <div className="mt-2.5 hidden items-center gap-1.5 sm:flex">
             <Skeleton className="size-3.5 shrink-0 rounded-full bg-slate-200/80" />
             <Skeleton className="h-3 w-60 max-w-full bg-slate-200/80" />
           </div>

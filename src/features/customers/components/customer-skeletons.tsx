@@ -74,12 +74,14 @@ function ContactRow() {
   );
 }
 
-/** A copyable detail row: icon, label, value, and the square copy button. */
+/** A detail row: icon, label, value, and the square copy button when it has one. */
 function DetailRow({
   value,
   description = false,
+  copy = true,
 }: {
   value: string;
+  copy?: boolean;
   /** The portal row carries a line of explanation under the URL. */
   description?: boolean;
 }) {
@@ -96,7 +98,7 @@ function DetailRow({
           </>
         ) : null}
       </div>
-      <Skeleton className="size-9 shrink-0 rounded-md" />
+      {copy ? <Skeleton className="size-9 shrink-0 rounded-md" /> : null}
     </div>
   );
 }
@@ -209,7 +211,7 @@ export function CustomerOverviewSkeleton() {
             <ContactRow />
             <div className="mt-2 divide-y">
               <DetailRow value="w-52" />
-              <DetailRow value="w-16" />
+              <DetailRow value="w-16" copy={false} />
               <DetailRow value="w-64" description />
             </div>
           </div>

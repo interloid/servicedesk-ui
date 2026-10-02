@@ -328,6 +328,11 @@ export type PortalRequest = {
 export type PortalRequestSummary = PortalRequest & {
   /** The start of the description, whitespace collapsed; "" when empty. */
   preview: string;
+  /**
+   * Whether the support team has replied in public. Lets the request page's
+   * loading skeleton draw a team message only when there is one to replace.
+   */
+  hasTeamReply: boolean;
 };
 
 /** How the requests list can be ordered, as carried in `?sort=`. */

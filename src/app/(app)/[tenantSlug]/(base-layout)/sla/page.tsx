@@ -1,16 +1,30 @@
-import type { Metadata } from "next";
-import { ComingSoon } from "@/components/shared/coming-soon";
+import SlaPoliciesPage from "@/features/sla-policies/components/sla-policies-page";
+import {
+  fetchTenantSlaPolicies,
+  getSlaPolicyQuota,
+} from "@/features/sla-policies/service/sla.service";
 
-export const metadata: Metadata = {
-  title: "SLA Policies",
-  description: "Configure service-level agreements",
+export const metadata = {
+  title: "SLA policies",
+  description: "Manage SLA policies and ticket target escalations",
 };
 
-export default function SlaPage() {
+interface SlaPageProps {
+  params: Promise<{ tenantSlug: string }>;
+}
+
+export default async function SlaPage({ params }: SlaPageProps) {
+  const { tenantSlug } = await params;
+  const [initialPolicies, policyQuota] = await Promise.all([
+    fetchTenantSlaPolicies(tenantSlug),
+    getSlaPolicyQuota(tenantSlug),
+  ]);
+
   return (
-    <ComingSoon
-      title="SLA policies"
-      description="Set first-response and resolution targets so your team always meets service expectations. Coming soon."
+    <SlaPoliciesPage
+      tenant={tenantSlug}
+      initialPolicies={initialPolicies}
+      policyQuota={policyQuota}
     />
   );
 }

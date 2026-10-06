@@ -868,8 +868,9 @@ export type Database = {
           applies_to: string;
           business_hours_id: string | null;
           created_at: string;
+          description: string;
           escalate_on_breach: boolean;
-          escalate_to_role: Database["public"]["Enums"]["membership_role"];
+          escalate_to_role: string;
           id: string;
           is_default: boolean;
           name: string;
@@ -878,13 +879,15 @@ export type Database = {
           status: Database["public"]["Enums"]["sla_policy_status"];
           tenant_id: string;
           updated_at: string;
+          updated_by: string | null;
         };
         Insert: {
           applies_to?: string;
           business_hours_id?: string | null;
           created_at?: string;
+          description?: string;
           escalate_on_breach?: boolean;
-          escalate_to_role?: Database["public"]["Enums"]["membership_role"];
+          escalate_to_role?: string;
           id?: string;
           is_default?: boolean;
           name: string;
@@ -893,13 +896,15 @@ export type Database = {
           status?: Database["public"]["Enums"]["sla_policy_status"];
           tenant_id: string;
           updated_at?: string;
+          updated_by?: string | null;
         };
         Update: {
           applies_to?: string;
           business_hours_id?: string | null;
           created_at?: string;
+          description?: string;
           escalate_on_breach?: boolean;
-          escalate_to_role?: Database["public"]["Enums"]["membership_role"];
+          escalate_to_role?: string;
           id?: string;
           is_default?: boolean;
           name?: string;
@@ -908,6 +913,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["sla_policy_status"];
           tenant_id?: string;
           updated_at?: string;
+          updated_by?: string | null;
         };
         Relationships: [
           {
@@ -919,6 +925,56 @@ export type Database = {
           },
           {
             foreignKeyName: "sla_policies_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sla_policies_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      sla_policy_customers: {
+        Row: {
+          created_at: string;
+          customer_id: string;
+          policy_id: string;
+          tenant_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          customer_id: string;
+          policy_id: string;
+          tenant_id: string;
+        };
+        Update: {
+          created_at?: string;
+          customer_id?: string;
+          policy_id?: string;
+          tenant_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sla_policy_customers_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sla_policy_customers_policy_id_fkey";
+            columns: ["policy_id"];
+            isOneToOne: false;
+            referencedRelation: "sla_policies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sla_policy_customers_tenant_id_fkey";
             columns: ["tenant_id"];
             isOneToOne: false;
             referencedRelation: "tenants";

@@ -35,6 +35,7 @@ const MINUTES = Array.from({ length: 60 }, (_, i) =>
 const PERIODS = ["AM", "PM"];
 
 export function TimePickerPopover({
+  id,
   value = "09:00",
   onChange,
   className,
@@ -92,6 +93,8 @@ export function TimePickerPopover({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          id={id}
+          type="button"
           variant="outline"
           role="combobox"
           aria-expanded={open}

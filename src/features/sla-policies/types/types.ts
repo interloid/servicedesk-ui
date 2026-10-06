@@ -9,6 +9,13 @@ export const POLICY_STATUS_LABELS: Record<PolicyStatus, string> = {
 
 export type PriorityScope = "urgent" | "high" | "normal" | "low";
 
+export const PRIORITY_SCOPES: PriorityScope[] = [
+  "urgent",
+  "high",
+  "normal",
+  "low",
+];
+
 export interface SlaPolicyTarget {
   id: string;
   policy_id: string;
@@ -99,6 +106,19 @@ export interface SlaPolicyEditorTarget {
   firstResponseBusiness: boolean;
   resolutionMins: number;
   resolutionBusiness: boolean;
+}
+
+/** The target a new policy starts with for `priority`. */
+export function emptyEditorTarget(
+  priority: PriorityScope = "normal",
+): SlaPolicyEditorTarget {
+  return {
+    priority,
+    firstResponseMins: 60,
+    firstResponseBusiness: false,
+    resolutionMins: 480,
+    resolutionBusiness: false,
+  };
 }
 
 export interface SlaPolicyEditorValue {
@@ -207,19 +227,23 @@ export function readPolicyLimit(
   return raw < 0 ? null : raw;
 }
 
+/** "Your Free plan includes 1 SLA policy." Empty for unlimited plans. */
+export function describePolicyLimit(quota: SlaPolicyQuota): string {
+  if (quota.limit === null) return "";
+  return `Your ${quota.planName} plan includes ${quota.limit} SLA ${
+    quota.limit === 1 ? "policy" : "policies"
+  }.`;
+}
+
 export function hasPolicyRoom(quota: SlaPolicyQuota, used: number): boolean {
   return quota.limit === null || used < quota.limit;
 }
+
+/** What the editor's name field allows. */
+export const SLA_NAME_MAX = 120;
 
 /** Matches chk_sla_description_length. */
 export const SLA_DESCRIPTION_MAX = 500;
 
 /** What the Add holiday dialog allows for its description. */
 export const HOLIDAY_DESCRIPTION_MAX = 200;
-
-export const formatMinutes = (mins: number): string => {
-  if (!Number.isFinite(mins)) return "—";
-  if (mins < 60) return `${Math.round(mins)} min`;
-  const h = mins / 60;
-  return Number.isInteger(h) ? `${h} hr` : `${h.toFixed(1)} hr`;
-};

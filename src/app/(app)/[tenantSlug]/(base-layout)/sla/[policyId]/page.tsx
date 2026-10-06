@@ -14,10 +14,10 @@ export default async function EditSlaPolicyPage({
   params,
 }: EditSlaPolicyPageProps) {
   const { tenantSlug, policyId } = await params;
-  const { value, businessHours, customers, otherPolicies } =
+  const { value, businessHours, customers, otherPolicies, canManage } =
     await getSlaEditorData(tenantSlug, policyId);
 
-  if (value.name === "") {
+  if (!value) {
     notFound();
   }
 
@@ -31,11 +31,11 @@ export default async function EditSlaPolicyPage({
         <SlaEditor
           tenant={tenantSlug}
           mode="edit"
-          initial={{ ...value, id: policyId }}
+          initial={value}
           businessHours={businessHours}
           customers={customers}
           otherPolicies={otherPolicies}
-          isDefault={value.isDefault}
+          readOnly={!canManage}
         />
       </div>
     </div>

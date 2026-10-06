@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState, useTransition } from "react";
+import React, { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Bell,
   CalendarDays,
+  CircleIcon,
   Clock,
   Lock,
   Pencil,
@@ -17,7 +18,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox as CheckboxPrimitive } from "radix-ui";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -63,15 +64,20 @@ import {
   TimeCalculation,
   type EscalationRole,
 } from "../types/types";
-import { MAX_DURATION_MINS } from "../duration";
+import {
+  DurationInput,
+  DurationUnit as Unit,
+  UNIT_MINS,
+  toDurationInput,
+  toMinutes,
+} from "../duration";
 import {
   createSlaPolicyAction,
-  deleteSlaPolicyAction,
   removeHolidayAction,
   updateSlaPolicyAction,
 } from "../action/sla.actions";
 import { BADGE, BADGE_TONES, StatusBadge } from "./status-badge";
-import { DeletePolicyDialog } from "./delete-policy-dialog";
+
 import { CustomerPicker } from "./customer-picker";
 import {
   PolicyScope,
@@ -82,10 +88,12 @@ import {
 import {
   EditBusinessHoursDialog,
   HolidayDialog,
+} from "./business-hours-dialogs";
+import {
   formatHolidayDate,
   formatWorkingDays,
   formatWorkingHours,
-} from "./business-hours-dialogs";
+} from "../format";
 
 interface SlaEditorProps {
   tenant: string;
@@ -96,13 +104,14 @@ interface SlaEditorProps {
   customers: SlaCustomerOption[];
   /** Every other policy, for the one-active-policy rules. */
   otherPolicies: PolicyScope[];
-  /** The default policy can't be deleted; the button is hidden for it. */
-  isDefault?: boolean;
+  /**
+   * For roles that may only look (agents): every control is disabled and
+   * there is no Save. The server refuses their writes either way.
+   */
+  readOnly: boolean;
 }
 
 const CONTROL = "h-10 border-gray-200 text-sm";
-const PRIMARY_BUTTON =
-  "h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90";
 /** shadcn Card at the page's 20px padding, with a border instead of its ring. */
 const CARD =
   "gap-4 border border-gray-200/80 bg-white shadow-xs ring-0 [--card-spacing:--spacing(5)]";
@@ -118,40 +127,15 @@ const HOLIDAY_TABLE_SCROLL =
   "[&_[data-slot=table-container]]:h-[199px] [&_[data-slot=table-container]]:overflow-y-auto";
 const TABLE_HEAD_ROW = "border-gray-200 bg-gray-50/70 hover:bg-gray-50/70";
 const TH = "px-3 text-xs font-semibold text-gray-600";
-const ACCENT_OUTLINE_BUTTON =
-  "h-9 gap-1.5 rounded-lg border-brand-accent/40 bg-white px-3 text-sm font-semibold text-brand-accent shadow-none hover:bg-brand-accent/5 hover:text-brand-accent disabled:border-gray-200 disabled:text-gray-400";
-const OUTLINE_BUTTON =
-  "h-10 gap-2 rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 shadow-none hover:bg-gray-50";
+/** Same as the billing page's in-card buttons (e.g. "Refresh"). */
+const CARD_BUTTON =
+  "h-10 gap-2 rounded-lg px-4 text-sm font-semibold duration-200 ease-out motion-safe:active:scale-[0.98]";
 
 /* ── Number + unit durations ─────────────────────────────────────────── */
-
-type Unit = "minutes" | "hours" | "days";
-
-const UNIT_MINS: Record<Unit, number> = { minutes: 1, hours: 60, days: 1440 };
-
-type DurationInput = { amount: string; unit: Unit };
-
-/** The largest unit that represents `mins` exactly: 240 → 4 hours. */
-function toDurationInput(mins: number): DurationInput {
-  if (mins > 0 && mins % UNIT_MINS.days === 0) {
-    return { amount: String(mins / UNIT_MINS.days), unit: "days" };
-  }
-  if (mins > 0 && mins % UNIT_MINS.hours === 0) {
-    return { amount: String(mins / UNIT_MINS.hours), unit: "hours" };
-  }
-  return { amount: String(mins), unit: "minutes" };
-}
 
 /** Amounts are whole counts, so anything typed or pasted that isn't a digit is dropped. */
 function toDigits(raw: string): string {
   return raw.replace(/\D/g, "");
-}
-
-/** Null for anything that isn't a positive whole number within a year. */
-function toMinutes({ amount, unit }: DurationInput): number | null {
-  if (!/^\d+$/.test(amount.trim())) return null;
-  const mins = Number(amount) * UNIT_MINS[unit];
-  return mins > 0 && mins <= MAX_DURATION_MINS ? mins : null;
 }
 
 function unitLabel(unit: Unit, amount: string): string {
@@ -187,18 +171,16 @@ export default function SlaEditor({
   mode,
   initial,
   businessHours: initialBusinessHours,
-  isDefault = false,
   customers,
   otherPolicies,
+  readOnly,
 }: SlaEditorProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [deleting, startDelete] = useTransition();
   const [draft, setDraft] = useState<SlaPolicyEditorValue>(initial);
   const [calendars, setCalendars] = useState(initialBusinessHours);
   const [errors, setErrors] = useState<Errors>({ targets: {} });
   const [formError, setFormError] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [hoursOpen, setHoursOpen] = useState(false);
   // null = closed; `holiday: null` = adding a new one.
   const [holidayDialog, setHolidayDialog] = useState<{
@@ -208,7 +190,6 @@ export default function SlaEditor({
     null,
   );
   const [, startHolidayRemoval] = useTransition();
-  const holidaysRef = useRef<HTMLDivElement>(null);
 
   const [targetInputs, setTargetInputs] = useState<TargetInputs>(
     () =>
@@ -424,21 +405,6 @@ export default function SlaEditor({
     });
   };
 
-  const remove = () => {
-    if (!initial.id) return;
-    startDelete(async () => {
-      const result = await deleteSlaPolicyAction(tenant, initial.id!);
-      if (!result.success) {
-        toast.error(result.error ?? "Couldn't delete the policy.");
-        return;
-      }
-      setConfirmDelete(false);
-      toast.success("Policy deleted.");
-      router.push(`/${tenant}/sla`);
-      router.refresh();
-    });
-  };
-
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -464,28 +430,19 @@ export default function SlaEditor({
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">
-          {mode === "new" ? (
-            <Link
-              href={`/${tenant}/sla`}
-              className={cn(OUTLINE_BUTTON, "inline-flex items-center")}
-            >
-              Cancel
-            </Link>
-          ) : (
-            !isDefault && (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setConfirmDelete(true)}
-                className="h-10 gap-2 rounded-lg border border-red-200 bg-white px-4 text-sm font-semibold text-red-600 shadow-none hover:bg-red-50 hover:text-red-700"
-              >
-                <Trash2 className="size-4" aria-hidden />
-                Delete
-              </Button>
-            )
+        {/* Same buttons and order as the Team & roles page header
+            (Invite member, then View permissions). */}
+        <div
+          className={cn(
+            "flex w-full flex-wrap items-center gap-3 *:flex-1 sm:w-auto sm:*:flex-none",
+            readOnly && "hidden",
           )}
-          <Button onClick={save} disabled={pending} className={PRIMARY_BUTTON}>
+        >
+          <Button
+            onClick={save}
+            disabled={pending}
+            className="h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90"
+          >
             {mode === "edit" && <Plus className="size-4" aria-hidden />}
             {pending
               ? mode === "new"
@@ -495,8 +452,26 @@ export default function SlaEditor({
                 ? "Create policy"
                 : "Save changes"}
           </Button>
+          {mode === "new" && (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-10 gap-2 rounded-lg bg-white px-4 text-sm font-semibold shadow-none"
+            >
+              <Link href={`/${tenant}/sla`}>Cancel</Link>
+            </Button>
+          )}
         </div>
       </div>
+
+      {readOnly && (
+        <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700">
+          <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
+          You can view this policy. Only tenant admins and managers can change
+          it.
+        </p>
+      )}
 
       {formError && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
@@ -504,478 +479,491 @@ export default function SlaEditor({
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <div className="flex flex-col gap-5">
-          <Section step={1} title="Basic Information">
-            <div className="flex flex-col gap-3">
-              <Field label="Policy name" required error={errors.name}>
-                <Input
-                  className={CONTROL}
-                  value={draft.name}
-                  maxLength={120}
-                  aria-invalid={Boolean(errors.name) || undefined}
-                  onChange={(e) =>
-                    setDraft((p) => ({ ...p, name: e.target.value }))
-                  }
-                  placeholder="e.g. Priority support"
-                />
-              </Field>
+      {/* A disabled fieldset disables every input and button inside it. */}
+      <fieldset disabled={readOnly} className="min-w-0">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <div className="flex flex-col gap-5">
+            <Section step={1} title="Basic Information">
+              <div className="flex flex-col gap-3">
+                <Field label="Policy name" required error={errors.name}>
+                  <Input
+                    className={CONTROL}
+                    value={draft.name}
+                    maxLength={120}
+                    aria-invalid={Boolean(errors.name) || undefined}
+                    onChange={(e) =>
+                      setDraft((p) => ({ ...p, name: e.target.value }))
+                    }
+                    placeholder="e.g. Priority support"
+                  />
+                </Field>
 
-              <Field
-                label="Status"
-                hint={
-                  draft.isDefault
-                    ? "The default SLA is always active."
-                    : undefined
-                }
-              >
-                <Select
-                  value={draft.status}
-                  disabled={draft.isDefault}
-                  onValueChange={(v) =>
-                    setDraft((p) => ({ ...p, status: v as PolicyStatus }))
+                <Field
+                  label="Status"
+                  hint={
+                    draft.isDefault
+                      ? "The default SLA is always active."
+                      : undefined
                   }
                 >
-                  <SelectTrigger className={cn(CONTROL, "w-full min-h-11")}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent
-                    side="bottom"
-                    align="start"
-                    position="popper"
-                    className="p-1"
+                  <Select
+                    value={draft.status}
+                    disabled={draft.isDefault}
+                    onValueChange={(v) =>
+                      setDraft((p) => ({ ...p, status: v as PolicyStatus }))
+                    }
                   >
-                    {(Object.keys(POLICY_STATUS_LABELS) as PolicyStatus[]).map(
-                      (s) => (
+                    <SelectTrigger className={cn(CONTROL, "w-full min-h-11")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent
+                      side="bottom"
+                      align="start"
+                      position="popper"
+                      className="p-1"
+                    >
+                      {(
+                        Object.keys(POLICY_STATUS_LABELS) as PolicyStatus[]
+                      ).map((s) => (
                         <SelectItem key={s} value={s} className="min-h-11">
                           {POLICY_STATUS_LABELS[s]}
                         </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
-              </Field>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
 
-              <Field label="Description" error={errors.description}>
-                <Textarea
-                  maxLength={SLA_DESCRIPTION_MAX}
-                  // Full height from the start instead of growing with the text.
-                  className="field-sizing-fixed h-21 resize-none overflow-y-auto border-gray-200 text-sm"
-                  value={draft.description}
-                  onChange={(e) =>
-                    setDraft((p) => ({ ...p, description: e.target.value }))
-                  }
-                  placeholder="Describe when this policy should be used…"
-                />
-              </Field>
+                <Field label="Description" error={errors.description}>
+                  <Textarea
+                    maxLength={SLA_DESCRIPTION_MAX}
+                    // Full height from the start instead of growing with the text.
+                    className="field-sizing-fixed h-21 resize-none overflow-y-auto border-gray-200 text-sm"
+                    value={draft.description}
+                    onChange={(e) =>
+                      setDraft((p) => ({ ...p, description: e.target.value }))
+                    }
+                    placeholder="Describe when this policy should be used…"
+                  />
+                </Field>
 
-              <Field
-                label="Applies to"
-                hint="Choose which customers' tickets this policy covers."
-                error={errors.appliesTo}
-              >
-                <RadioGroup
-                  value={draft.appliesTo}
-                  onValueChange={(v) =>
-                    setDraft((p) => ({ ...p, appliesTo: v as SlaAppliesTo }))
-                  }
-                  aria-label="Applies to"
-                  className="grid-cols-1 gap-3 sm:grid-cols-2"
+                <Field
+                  label="Applies to"
+                  hint="Choose which customers' tickets this policy covers."
+                  error={errors.appliesTo}
                 >
-                  <AppliesToOption
-                    value="All customers"
-                    selected={draft.appliesTo === "All customers"}
-                    title="All tickets"
-                    body="Every customer's tickets use this policy."
-                  />
-                  <AppliesToOption
-                    value="Selected customers"
-                    selected={draft.appliesTo === "Selected customers"}
-                    disabled={draft.isDefault}
-                    title="Selected customers"
-                    body={
-                      draft.isDefault
-                        ? "Not for the default SLA — it covers everyone."
-                        : "Only tickets from the customers you pick."
+                  <RadioGroup
+                    value={draft.appliesTo}
+                    onValueChange={(v) =>
+                      setDraft((p) => ({ ...p, appliesTo: v as SlaAppliesTo }))
                     }
-                  />
-                </RadioGroup>
-                {draft.appliesTo === "Selected customers" && (
-                  <CustomerPicker
-                    customers={customers}
-                    value={draft.customerIds}
-                    invalid={Boolean(errors.appliesTo)}
-                    taken={takenCustomers}
-                    lockTaken={draft.status === "active"}
-                    onChange={(customerIds) =>
-                      setDraft((p) => ({ ...p, customerIds }))
-                    }
-                  />
-                )}
-                {scopeConflictMessage && (
-                  <p
-                    role="status"
-                    className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    aria-label="Applies to"
+                    className="grid-cols-1 gap-3 sm:grid-cols-2"
                   >
-                    <TriangleAlert
-                      className="mt-px size-3.5 shrink-0"
-                      aria-hidden
+                    <AppliesToOption
+                      value="All customers"
+                      selected={draft.appliesTo === "All customers"}
+                      title="All tickets"
+                      body="Every customer's tickets use this policy."
                     />
-                    {scopeConflictMessage}
-                  </p>
-                )}
-              </Field>
+                    <AppliesToOption
+                      value="Selected customers"
+                      selected={draft.appliesTo === "Selected customers"}
+                      disabled={draft.isDefault}
+                      title="Selected customers"
+                      body={
+                        draft.isDefault
+                          ? "Not for the default SLA — it covers everyone."
+                          : "Only tickets from the customers you pick."
+                      }
+                    />
+                  </RadioGroup>
+                  {draft.appliesTo === "Selected customers" && (
+                    <CustomerPicker
+                      customers={customers}
+                      value={draft.customerIds}
+                      invalid={Boolean(errors.appliesTo)}
+                      taken={takenCustomers}
+                      lockTaken={draft.status === "active"}
+                      onChange={(customerIds) =>
+                        setDraft((p) => ({ ...p, customerIds }))
+                      }
+                    />
+                  )}
+                  {scopeConflictMessage && (
+                    <p
+                      role="status"
+                      className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    >
+                      <TriangleAlert
+                        className="mt-px size-3.5 shrink-0"
+                        aria-hidden
+                      />
+                      {scopeConflictMessage}
+                    </p>
+                  )}
+                </Field>
 
-              <DefaultSlaCheckbox
-                checked={draft.isDefault}
-                isCurrentDefault={initial.isDefault}
-                currentDefaultName={currentDefault?.name ?? null}
-                onCheckedChange={setIsDefault}
-              />
-            </div>
-          </Section>
+                <DefaultSlaCheckbox
+                  checked={draft.isDefault}
+                  isCurrentDefault={initial.isDefault}
+                  currentDefaultName={currentDefault?.name ?? null}
+                  onCheckedChange={setIsDefault}
+                />
+              </div>
+            </Section>
 
-          <Section
-            step={2}
-            title="SLA Targets by Priority"
-            hint="Set the first response and resolution time for each ticket priority."
-          >
-            <div className={INSET_TABLE}>
-              <Table className="min-w-160 md:min-w-0">
-                <TableHeader>
-                  <TableRow className={TABLE_HEAD_ROW}>
-                    <TableHead className={TH}>Priority</TableHead>
-                    <TableHead className={TH}>First Response Time</TableHead>
-                    <TableHead className={TH}>Resolution Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {draft.targets.map((target) => {
-                    const input = targetInputs[target.priority];
-                    const style = PRIORITY_STYLES[target.priority];
-                    const error = errors.targets[target.priority];
+            <Section
+              step={2}
+              title="SLA Targets by Priority"
+              hint="Set the first response and resolution time for each ticket priority."
+            >
+              <div className={INSET_TABLE}>
+                <Table className="min-w-160 md:min-w-0">
+                  <TableHeader>
+                    <TableRow className={TABLE_HEAD_ROW}>
+                      <TableHead className={TH}>Priority</TableHead>
+                      <TableHead className={TH}>First Response Time</TableHead>
+                      <TableHead className={TH}>Resolution Time</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {draft.targets.map((target) => {
+                      const input = targetInputs[target.priority];
+                      const style = PRIORITY_STYLES[target.priority];
+                      const error = errors.targets[target.priority];
 
-                    return (
-                      <React.Fragment key={target.priority}>
-                        <TableRow
-                          className={cn(
-                            "border-gray-100 hover:bg-transparent",
-                            error && "border-b-0",
-                          )}
-                        >
-                          <TableCell className="px-3 py-1.5 font-medium text-gray-900">
-                            <span className="inline-flex items-center gap-2">
-                              <span
-                                className={cn("size-2 rounded-full", style.dot)}
+                      return (
+                        <React.Fragment key={target.priority}>
+                          <TableRow
+                            className={cn(
+                              "border-gray-100 hover:bg-transparent",
+                              error && "border-b-0",
+                            )}
+                          >
+                            <TableCell className="px-3 py-1.5 font-medium text-gray-900">
+                              <span className="inline-flex items-center gap-2">
+                                <span
+                                  className={cn(
+                                    "size-2 rounded-full",
+                                    style.dot,
+                                  )}
+                                />
+                                {style.label}
+                              </span>
+                            </TableCell>
+                            <TableCell className="px-3 py-1.5">
+                              <DurationInputs
+                                label={`${style.label} first response`}
+                                value={input.firstResponse}
+                                invalid={Boolean(error)}
+                                onChange={(patch) =>
+                                  setTargetInput(
+                                    target.priority,
+                                    "firstResponse",
+                                    patch,
+                                  )
+                                }
                               />
-                              {style.label}
-                            </span>
-                          </TableCell>
-                          <TableCell className="px-3 py-1.5">
-                            <DurationInputs
-                              label={`${style.label} first response`}
-                              value={input.firstResponse}
-                              invalid={Boolean(error)}
-                              onChange={(patch) =>
-                                setTargetInput(
-                                  target.priority,
-                                  "firstResponse",
-                                  patch,
-                                )
-                              }
-                            />
-                          </TableCell>
-                          <TableCell className="px-3 py-1.5">
-                            <DurationInputs
-                              label={`${style.label} resolution`}
-                              value={input.resolution}
-                              invalid={Boolean(error)}
-                              onChange={(patch) =>
-                                setTargetInput(
-                                  target.priority,
-                                  "resolution",
-                                  patch,
-                                )
-                              }
-                            />
-                          </TableCell>
-                        </TableRow>
-                        {error && (
-                          <TableRow className="border-gray-100 hover:bg-transparent">
-                            <TableCell
-                              colSpan={3}
-                              className="px-3 pt-0 pb-1.5 text-xs whitespace-normal text-red-600"
-                            >
-                              {error}
+                            </TableCell>
+                            <TableCell className="px-3 py-1.5">
+                              <DurationInputs
+                                label={`${style.label} resolution`}
+                                value={input.resolution}
+                                invalid={Boolean(error)}
+                                onChange={(patch) =>
+                                  setTargetInput(
+                                    target.priority,
+                                    "resolution",
+                                    patch,
+                                  )
+                                }
+                              />
                             </TableCell>
                           </TableRow>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          </Section>
-        </div>
+                          {error && (
+                            <TableRow className="border-gray-100 hover:bg-transparent">
+                              <TableCell
+                                colSpan={3}
+                                className="px-3 pt-0 pb-1.5 text-xs whitespace-normal text-red-600"
+                              >
+                                {error}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </Section>
+          </div>
 
-        <div className="flex flex-col gap-5">
-          <Section
-            step={3}
-            title="Time Calculation"
-            hint="Choose how SLA time should be calculated."
-          >
-            <div
-              role="radiogroup"
-              aria-label="Time calculation"
-              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+          <div className="flex flex-col gap-5">
+            <Section
+              step={3}
+              title="Time Calculation"
+              hint="Choose how SLA time should be calculated."
             >
-              <ChoiceCard
-                selected={draft.timeCalculation === "24/7"}
-                onSelect={() => setTimeCalculation("24/7")}
-                icon={Clock}
-                title="24/7"
-                body="SLA is calculated 24/7."
-              />
-              <ChoiceCard
-                selected={draft.timeCalculation === "business"}
-                onSelect={() => setTimeCalculation("business")}
-                disabled={calendars.length === 0}
-                icon={CalendarDays}
-                title="Business Hours"
-                body={
-                  calendars.length === 0
-                    ? "No calendar exists."
-                    : "SLA is calculated only during working days/hours."
-                }
-              />
-            </div>
-
-            {errors.businessHours && (
-              <p className="mt-2 text-xs text-red-600">
-                {errors.businessHours}
-              </p>
-            )}
-          </Section>
-
-          <IconCard
-            icon={CalendarDays}
-            title="Business Hours"
-            hint="Define your team's working hours for SLA calculation."
-            locked={!activeCalendar}
-            action={
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!activeCalendar}
-                onClick={() => setHoursOpen(true)}
-                className={ACCENT_OUTLINE_BUTTON}
+              <div
+                role="radiogroup"
+                aria-label="Time calculation"
+                className="grid grid-cols-1 gap-3 md:grid-cols-2"
               >
-                Edit Business Hours
-              </Button>
-            }
-          >
-            {activeCalendar ? (
-              <>
-                {calendars.length > 1 && (
-                  <Select
-                    value={activeCalendar.id}
-                    onValueChange={(v) =>
-                      setDraft((p) => ({ ...p, businessHoursId: v }))
-                    }
-                  >
-                    <SelectTrigger
-                      className="mb-3 h-9 w-full border-gray-200 text-sm sm:w-64"
-                      aria-label="Business hours calendar"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {calendars.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <BusinessHoursSummary
-                  workingDays={formatWorkingDays(activeCalendar.workingDays)}
-                  workingHours={formatWorkingHours(activeCalendar)}
-                  holidayCount={activeCalendar.holidays.length}
-                  onManageHolidays={() =>
-                    holidaysRef.current?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "center",
-                    })
+                <ChoiceCard
+                  selected={draft.timeCalculation === "24/7"}
+                  onSelect={() => setTimeCalculation("24/7")}
+                  icon={Clock}
+                  title="24/7"
+                  body="SLA is calculated 24/7."
+                />
+                <ChoiceCard
+                  selected={draft.timeCalculation === "business"}
+                  onSelect={() => setTimeCalculation("business")}
+                  disabled={calendars.length === 0}
+                  icon={CalendarDays}
+                  title="Business Hours"
+                  body={
+                    calendars.length === 0
+                      ? "No calendar exists."
+                      : "SLA is calculated only during working days/hours."
                   }
                 />
-              </>
-            ) : (
-              <LockedPreview
-                title="Business hours are disabled"
-                body="Business hours are not used when 24/7 calculation is selected."
-              >
-                <BusinessHoursSkeleton />
-              </LockedPreview>
-            )}
-          </IconCard>
-
-          <IconCard
-            ref={holidaysRef}
-            icon={CalendarDays}
-            title="Holidays"
-            hint="Days excluded from SLA time calculation."
-            locked={!activeCalendar}
-            action={
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!activeCalendar}
-                onClick={() => setHolidayDialog({ holiday: null })}
-                className={ACCENT_OUTLINE_BUTTON}
-              >
-                <Plus className="size-4" aria-hidden />
-                Add holiday
-              </Button>
-            }
-          >
-            {activeCalendar ? (
-              <HolidaysTable
-                holidays={activeCalendar.holidays}
-                removingId={removingHolidayId}
-                onEdit={(holiday) => setHolidayDialog({ holiday })}
-                onRemove={removeHoliday}
-              />
-            ) : (
-              <LockedPreview
-                title="Holidays are disabled"
-                body="Holidays are not used when 24/7 calculation is selected."
-              >
-                <HolidaysSkeleton />
-              </LockedPreview>
-            )}
-          </IconCard>
-
-          <IconCard icon={Bell} title="Notifications" optional solid>
-            <div className="grid grid-cols-1 items-center gap-x-6 gap-y-3 sm:grid-cols-[auto_1fr]">
-              <div className="flex items-center gap-3">
-                <Switch
-                  id="notify-breach"
-                  checked={draft.notifyBeforeBreach}
-                  onCheckedChange={(v) =>
-                    setDraft((p) => ({ ...p, notifyBeforeBreach: v }))
-                  }
-                  className="data-[state=checked]:bg-brand-accent"
-                />
-                <Label
-                  htmlFor="notify-breach"
-                  className="cursor-pointer text-sm font-semibold text-gray-800"
-                >
-                  Notify assignee before breach
-                </Label>
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Input
-                    inputMode="numeric"
-                    className="h-9 w-16 border-gray-200 text-sm"
-                    value={notifyLead.amount}
-                    disabled={!draft.notifyBeforeBreach}
-                    aria-label="How long before the target to warn the assignee"
-                    aria-invalid={Boolean(errors.notifyBefore) || undefined}
-                    onChange={(e) =>
-                      setNotifyLead((n) => ({
-                        ...n,
-                        amount: toDigits(e.target.value),
-                      }))
-                    }
-                  />
-                  <Select
-                    value={notifyLead.unit}
-                    disabled={!draft.notifyBeforeBreach}
-                    onValueChange={(v) =>
-                      setNotifyLead((n) => ({ ...n, unit: v as Unit }))
-                    }
-                  >
-                    <SelectTrigger
-                      className="h-9 w-28 border-gray-200 text-sm"
-                      aria-label="Lead time unit"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(["minutes", "hours"] as Unit[]).map((u) => (
-                        <SelectItem key={u} value={u}>
-                          {unitLabel(u, notifyLead.amount)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  before target
-                </div>
-                {errors.notifyBefore && (
-                  <p className="text-xs text-red-600">{errors.notifyBefore}</p>
-                )}
               </div>
 
-              <div className="flex items-center gap-3">
-                <Switch
-                  id="escalate-breach"
-                  checked={draft.escalateOnBreach}
-                  onCheckedChange={(v) =>
-                    setDraft((p) => ({ ...p, escalateOnBreach: v }))
-                  }
-                  className="data-[state=checked]:bg-brand-accent"
-                />
-                <Label
-                  htmlFor="escalate-breach"
-                  className="cursor-pointer text-sm font-semibold text-gray-800"
-                >
-                  Escalate on breach
-                </Label>
-              </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                {draft.escalateOnBreach && (
-                  <Select
-                    value={draft.escalateToRole}
-                    onValueChange={(v) =>
-                      setDraft((p) => ({
-                        ...p,
-                        escalateToRole: v as EscalationRole,
-                      }))
-                    }
-                  >
-                    <SelectTrigger
-                      className="h-9 w-44 border-gray-200 text-sm"
-                      aria-label="Escalate to"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ESCALATION_ROLES.map((role) => (
-                        <SelectItem key={role.value} value={role.value}>
-                          {role.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <p className="text-xs text-gray-500">
-                  Automatically escalate the ticket if SLA is breached.
+              {errors.businessHours && (
+                <p className="mt-2 text-xs text-red-600">
+                  {errors.businessHours}
                 </p>
-              </div>
-            </div>
-          </IconCard>
-        </div>
-      </div>
+              )}
+            </Section>
 
-      {activeCalendar && (
+            <IconCard
+              icon={CalendarDays}
+              title="Business Hours"
+              hint="Define your team's working hours for SLA calculation."
+              locked={!activeCalendar}
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!activeCalendar}
+                  onClick={() => setHoursOpen(true)}
+                  className={CARD_BUTTON}
+                >
+                  Edit business hours
+                </Button>
+              }
+            >
+              {activeCalendar ? (
+                <>
+                  {calendars.length > 1 && (
+                    <Select
+                      value={activeCalendar.id}
+                      onValueChange={(v) =>
+                        setDraft((p) => ({ ...p, businessHoursId: v }))
+                      }
+                    >
+                      <SelectTrigger
+                        className="mb-3 h-9 w-full border-gray-200 text-sm sm:w-64"
+                        aria-label="Business hours calendar"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {calendars.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <BusinessHoursSummary
+                    workingDays={formatWorkingDays(activeCalendar.workingDays)}
+                    workingHours={formatWorkingHours(activeCalendar)}
+                    holidayCount={activeCalendar.holidays.length}
+                    onManageHolidays={() => setHolidayDialog({ holiday: null })}
+                  />
+                </>
+              ) : (
+                <LockedPreview
+                  title="Business hours are disabled"
+                  body="Business hours are not used when 24/7 calculation is selected."
+                >
+                  <BusinessHoursSkeleton />
+                </LockedPreview>
+              )}
+            </IconCard>
+
+            <IconCard
+              icon={CalendarDays}
+              title="Holidays"
+              hint="Days excluded from SLA time calculation."
+              locked={!activeCalendar}
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!activeCalendar}
+                  onClick={() => setHolidayDialog({ holiday: null })}
+                  className={CARD_BUTTON}
+                >
+                  <Plus className="size-4" aria-hidden />
+                  Add holiday
+                </Button>
+              }
+            >
+              {activeCalendar ? (
+                <HolidaysTable
+                  holidays={activeCalendar.holidays}
+                  removingId={removingHolidayId}
+                  onEdit={(holiday) => setHolidayDialog({ holiday })}
+                  onRemove={removeHoliday}
+                />
+              ) : (
+                <LockedPreview
+                  title="Holidays are disabled"
+                  body="Holidays are not used when 24/7 calculation is selected."
+                >
+                  <HolidaysSkeleton />
+                </LockedPreview>
+              )}
+            </IconCard>
+
+            <IconCard icon={Bell} title="Notifications" optional solid>
+              <div className="grid grid-cols-1 items-center gap-x-6 gap-y-3 sm:grid-cols-[auto_1fr]">
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="notify-breach"
+                    checked={draft.notifyBeforeBreach}
+                    onCheckedChange={(v) =>
+                      setDraft((p) => ({ ...p, notifyBeforeBreach: v }))
+                    }
+                    className="data-[state=checked]:bg-brand-accent"
+                  />
+                  <Label
+                    htmlFor="notify-breach"
+                    className="cursor-pointer text-sm font-semibold text-gray-800"
+                  >
+                    Notify assignee before breach
+                  </Label>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Input
+                      inputMode="numeric"
+                      className="h-9 w-16 border-gray-200 text-sm"
+                      value={notifyLead.amount}
+                      disabled={!draft.notifyBeforeBreach}
+                      aria-label="How long before the target to warn the assignee"
+                      aria-invalid={Boolean(errors.notifyBefore) || undefined}
+                      onChange={(e) =>
+                        setNotifyLead((n) => ({
+                          ...n,
+                          amount: toDigits(e.target.value),
+                        }))
+                      }
+                    />
+                    <Select
+                      value={notifyLead.unit}
+                      disabled={!draft.notifyBeforeBreach}
+                      onValueChange={(v) =>
+                        setNotifyLead((n) => ({ ...n, unit: v as Unit }))
+                      }
+                    >
+                      <SelectTrigger
+                        className="h-9 w-28 border-gray-200 text-sm"
+                        aria-label="Lead time unit"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent
+                        side="bottom"
+                        align="start"
+                        position="popper"
+                        className="p-1"
+                      >
+                        {(["minutes", "hours"] as Unit[]).map((u) => (
+                          <SelectItem key={u} value={u}>
+                            {unitLabel(u, notifyLead.amount)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    before target
+                  </div>
+                  {errors.notifyBefore && (
+                    <p className="text-xs text-red-600">
+                      {errors.notifyBefore}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="escalate-breach"
+                    checked={draft.escalateOnBreach}
+                    onCheckedChange={(v) =>
+                      setDraft((p) => ({ ...p, escalateOnBreach: v }))
+                    }
+                    className="data-[state=checked]:bg-brand-accent"
+                  />
+                  <Label
+                    htmlFor="escalate-breach"
+                    className="cursor-pointer text-sm font-semibold text-gray-800"
+                  >
+                    Escalate on breach
+                  </Label>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  {draft.escalateOnBreach && (
+                    <Select
+                      value={draft.escalateToRole}
+                      onValueChange={(v) =>
+                        setDraft((p) => ({
+                          ...p,
+                          escalateToRole: v as EscalationRole,
+                        }))
+                      }
+                    >
+                      <SelectTrigger
+                        className="h-9 w-44 border-gray-200 text-sm"
+                        aria-label="Escalate to"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent
+                        side="bottom"
+                        align="start"
+                        position="popper"
+                        className="p-1"
+                      >
+                        {ESCALATION_ROLES.map((role) => (
+                          <SelectItem key={role.value} value={role.value}>
+                            {role.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className="text-xs text-gray-500">
+                    Automatically escalate the ticket if SLA is breached.
+                  </p>
+                </div>
+              </div>
+            </IconCard>
+          </div>
+        </div>
+      </fieldset>
+
+      {activeCalendar && !readOnly && (
         <>
           <HolidayDialog
             tenant={tenant}
             businessHoursId={activeCalendar.id}
             holiday={holidayDialog?.holiday ?? null}
+            holidays={activeCalendar.holidays}
             open={holidayDialog !== null}
             onOpenChange={(open) => {
               if (!open) setHolidayDialog(null);
@@ -990,15 +978,6 @@ export default function SlaEditor({
             onSaved={replaceCalendar}
           />
         </>
-      )}
-      {mode === "edit" && (
-        <DeletePolicyDialog
-          policyName={confirmDelete ? initial.name : null}
-          open={confirmDelete}
-          pending={deleting}
-          onOpenChange={setConfirmDelete}
-          onConfirm={remove}
-        />
       )}
     </div>
   );
@@ -1121,12 +1100,17 @@ function DefaultSlaCheckbox({
           isCurrentDefault ? "cursor-not-allowed" : "cursor-pointer",
         )}
       >
-        <Checkbox
+        {/* Drawn like the "Applies to" radio so the two cards match. */}
+        <CheckboxPrimitive.Root
           checked={checked}
           disabled={isCurrentDefault}
           onCheckedChange={(v) => onCheckedChange(v === true)}
-          className="mt-0.5 data-checked:border-brand-accent data-checked:bg-brand-accent"
-        />
+          className="mt-0.5 aspect-square size-4 shrink-0 rounded-full border border-input text-white transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed data-[state=checked]:border-brand-accent data-[state=checked]:bg-brand-accent"
+        >
+          <CheckboxPrimitive.Indicator className="grid place-content-center [&>svg]:size-2">
+            <CircleIcon className="fill-current" />
+          </CheckboxPrimitive.Indicator>
+        </CheckboxPrimitive.Root>
         <span className="space-y-0.5">
           <span className="block text-sm font-semibold text-gray-900">
             Default SLA

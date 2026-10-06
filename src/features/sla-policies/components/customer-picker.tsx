@@ -156,7 +156,7 @@ export function CustomerPicker({
                       checked={checked}
                       disabled={locked}
                       onCheckedChange={() => toggle(c.id)}
-                      className="data-checked:border-brand-accent data-checked:bg-brand-accent"
+                      className="rounded-[4px] border-gray-300 data-checked:border-brand-accent data-checked:bg-brand-accent [&_svg]:size-3"
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-gray-900">

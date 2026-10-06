@@ -99,7 +99,7 @@ export function describeScopeConflict(
     const name = conflict.policy.name;
     // The default can't be switched off, only replaced.
     return conflict.policy.isDefault
-      ? `“${name}” is already the default SLA for all customers. Tick Default SLA to replace it, make this one Inactive, or limit it to selected customers.`
+      ? `“${name}” is currently the default SLA for all customers. Enable “Default SLA” to replace it, or assign this SLA to selected customers instead.`
       : `“${name}” is already the active policy for all customers. Make this one Inactive, or deactivate “${name}” first.`;
   }
 

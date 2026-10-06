@@ -45,52 +45,41 @@ import {
   SlaHoliday,
   WEEK_DAYS,
 } from "../types/types";
-
-/** "Mon – Fri" for a contiguous run, otherwise "Mon, Wed, Fri". */
-export function formatWorkingDays(days: string[]): string {
-  const sorted = WEEK_DAYS.filter((d) => days.includes(d));
-  if (sorted.length === 0) return "No working days";
-  if (sorted.length === 7) return "Every day";
-
-  const first = WEEK_DAYS.indexOf(sorted[0]);
-  const contiguous = sorted.every((d, i) => WEEK_DAYS.indexOf(d) === first + i);
-
-  return contiguous && sorted.length > 2
-    ? `${sorted[0]} – ${sorted[sorted.length - 1]}`
-    : sorted.join(", ");
-}
-
-/** "09:00 – 18:00". */
-export function formatWorkingHours(hours: BusinessHoursOption): string {
-  if (!hours.dayStart || !hours.dayEnd) return "Not set";
-  return `${hours.dayStart} – ${hours.dayEnd}`;
-}
-
-/** "Jan 1, 2027". */
-export function formatHolidayDate(h: SlaHoliday): string {
-  const [y, m, d] = h.date.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
+import { DUPLICATE_HOLIDAY_MESSAGE, findHolidayOnDate } from "../holiday-rules";
 
 /** "YYYY-MM-DD" ↔ a local Date, so the picked day never shifts with the timezone. */
 const ISO_DAY = "yyyy-MM-dd";
 
+/**
+ * Picks a day from January of `fromYear` to December of `toYear`, so next
+ * year's one-off holidays (Easter, Diwali) can be added ahead of time. A
+ * holiday that recurs on a fixed date uses "Repeat every year" instead.
+ */
 function DatePicker({
   id,
   value,
+  fromYear,
+  toYear,
+  invalid,
   onChange,
 }: {
   id?: string;
   value: string;
+  fromYear: number;
+  toYear: number;
+  invalid?: boolean;
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const parsed = value ? parse(value, ISO_DAY, new Date()) : undefined;
   const selected = parsed && isValid(parsed) ? parsed : undefined;
+  const firstMonth = new Date(fromYear, 0, 1);
+  const lastMonth = new Date(toYear, 11, 1);
+  // Today's month when it is in range, otherwise the first month.
+  const today = new Date();
+  const openMonth =
+    selected ??
+    (today >= firstMonth && today <= lastMonth ? today : firstMonth);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -100,9 +89,11 @@ function DatePicker({
           type="button"
           variant="outline"
           aria-expanded={open}
+          aria-invalid={invalid || undefined}
           className={cn(
             TEAM_MODAL_CONTROL,
             "w-full justify-between px-3 text-left font-normal shadow-sm",
+            invalid && "border-destructive",
           )}
         >
           {selected ? (
@@ -119,7 +110,9 @@ function DatePicker({
         <Calendar
           mode="single"
           selected={selected}
-          defaultMonth={selected}
+          defaultMonth={openMonth}
+          startMonth={firstMonth}
+          endMonth={lastMonth}
           captionLayout="dropdown"
           // Same accent as TimePickerPopover's selected cell.
           className="[&_[data-selected-single=true]]:bg-brand-accent [&_[data-selected-single=true]]:text-brand-accent-foreground"
@@ -159,6 +152,7 @@ export function HolidayDialog({
   tenant,
   businessHoursId,
   holiday = null,
+  holidays,
   open,
   onOpenChange,
   onSaved,
@@ -166,6 +160,8 @@ export function HolidayDialog({
   tenant: string;
   businessHoursId: string;
   holiday?: SlaHoliday | null;
+  /** The calendar's holidays, to stop two on the same date. */
+  holidays: SlaHoliday[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (next: BusinessHoursOption) => void;
@@ -187,10 +183,20 @@ export function HolidayDialog({
 
   const change = (next: boolean) => onOpenChange(next);
 
+  // This year and next; an edited holiday from an earlier year keeps it.
+  const thisYear = new Date().getFullYear();
+  const fromYear = holiday
+    ? Math.min(Number(holiday.date.slice(0, 4)), thisYear)
+    : thisYear;
+  const toYear = thisYear + 1;
+  const duplicate = Boolean(findHolidayOnDate(holidays, form, holiday?.id));
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) return setError("Give the holiday a name.");
     if (!form.date) return setError("Pick a date.");
+    // The message is already shown under the date.
+    if (duplicate) return;
 
     setError(null);
     // Saving an old part-day holiday turns it into a whole day.
@@ -199,17 +205,8 @@ export function HolidayDialog({
       const result = editing
         ? await updateHolidayAction(tenant, businessHoursId, holiday.id, input)
         : await addHolidayAction(tenant, businessHoursId, input);
-      if (
-        !result.success ||
-        !("businessHours" in result) ||
-        !result.businessHours
-      ) {
-        setError(
-          result.error ??
-            (editing
-              ? "Couldn't save the holiday."
-              : "Couldn't add the holiday."),
-        );
+      if (!result.success) {
+        setError(result.error);
         return;
       }
       toast.success(editing ? "Holiday saved." : "Holiday added.");
@@ -256,10 +253,19 @@ export function HolidayDialog({
               <DatePicker
                 id="holiday-date"
                 value={form.date}
+                fromYear={fromYear}
+                toYear={toYear}
+                invalid={duplicate}
                 onChange={(date) => setForm((f) => ({ ...f, date }))}
               />
             </div>
           </div>
+
+          {duplicate && (
+            <p role="alert" className="-mt-2 text-xs text-destructive">
+              {DUPLICATE_HOLIDAY_MESSAGE}
+            </p>
+          )}
 
           <label className="flex w-fit cursor-pointer items-center gap-2.5 text-sm">
             <Checkbox
@@ -319,7 +325,7 @@ export function HolidayDialog({
           <Button
             type="submit"
             form="add-holiday-form"
-            disabled={pending}
+            disabled={pending || duplicate}
             className={cn(TEAM_MODAL_BUTTON, TEAM_MODAL_BUTTON_PRIMARY)}
           >
             {pending
@@ -403,12 +409,8 @@ export function EditBusinessHoursDialog({
           breakEnd: null,
         },
       );
-      if (
-        !result.success ||
-        !("businessHours" in result) ||
-        !result.businessHours
-      ) {
-        setError(result.error ?? "Couldn't save business hours.");
+      if (!result.success) {
+        setError(result.error);
         return;
       }
       toast.success("Business hours saved.");

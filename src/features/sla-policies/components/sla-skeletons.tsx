@@ -31,7 +31,6 @@ const LIST_COLUMNS = [
   "w-16", // Applied to
   "w-20", // Updated at
   "w-12", // Status
-  "w-12", // Actions
 ];
 
 export function SlaPoliciesSkeleton() {
@@ -53,10 +52,10 @@ export function SlaPoliciesSkeleton() {
         <Card className="gap-0 border border-gray-200/80 bg-white py-0 shadow-xs ring-0">
           <Table>
             <TableHeader>
-              <TableRow className="border-gray-200/80 bg-slate-50/70 hover:bg-slate-50/70">
+              <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50">
                 {LIST_COLUMNS.map((w, i) => (
-                  <TableHead key={i} className="px-4">
-                    <Skeleton className={cn("h-3", w)} />
+                  <TableHead key={i} className="h-10 px-4">
+                    <Skeleton className={cn("h-2.5", w)} />
                   </TableHead>
                 ))}
               </TableRow>
@@ -95,12 +94,6 @@ export function SlaPoliciesSkeleton() {
                   <TableCell className="px-4 py-4 align-top">
                     <Skeleton className="h-5 w-16 rounded-full" />
                   </TableCell>
-                  <TableCell className="px-4 py-4 align-top">
-                    <div className="flex gap-1">
-                      <Skeleton className="size-7 rounded-md" />
-                      <Skeleton className="size-7 rounded-md" />
-                    </div>
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -130,7 +123,7 @@ function HeaderSkeleton({
           <Skeleton className="h-3 w-56 max-w-full" />
         </div>
       </div>
-      {action && <Skeleton className={cn("h-9 rounded-lg", action)} />}
+      {action && <Skeleton className={cn("h-10 rounded-lg", action)} />}
     </CardHeader>
   );
 }

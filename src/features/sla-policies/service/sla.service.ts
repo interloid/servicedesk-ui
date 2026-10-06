@@ -1,5 +1,9 @@
-import { getTenantPlanRecord } from "@/features/team/services/team.service";
+import {
+  getCallerRole,
+  getTenantPlanRecord,
+} from "@/features/team/services/team.service";
 import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   BusinessHoursOption,
@@ -7,6 +11,7 @@ import {
   CreateSlaPolicyDto,
   EscalationRole,
   FREE_SLA_POLICY_LIMIT,
+  PRIORITY_SCOPES,
   PolicyStatus,
   PriorityScope,
   SLA_CUSTOMER_PICKER_LIMIT,
@@ -18,10 +23,13 @@ import {
   SlaPolicyQuota,
   SlaPolicyTarget,
   UpdateSlaPolicyDto,
-  formatMinutes,
+  describePolicyLimit,
+  emptyEditorTarget,
+  hasPolicyRoom,
   readPolicyLimit,
   toAppliesTo,
 } from "../types/types";
+import { formatDurationShort } from "../duration";
 
 import {
   PolicyScope,
@@ -32,11 +40,59 @@ import {
 
 type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
+type DbError = { code?: string; message: string };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function currentUserId(supabase: SupabaseClient): Promise<string | null> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user?.id ?? null;
+}
+
+/* ── Errors ──────────────────────────────────────────────────────────── */
+
+/** Plain-words messages for the database errors a save can hit. */
+const DB_ERROR_MESSAGES: Record<string, string> = {
+  "23503":
+    "Something this policy refers to no longer exists. Reload and try again.",
+  "23505": "That change clashes with an existing entry. Reload and try again.",
+  "23514": "One of the values isn't allowed. Check the form and try again.",
+  "42501": "You don't have permission to change SLA policies.",
+  PGRST116: "That item no longer exists. Reload and try again.",
+};
+
+/**
+ * The error a caller (and so the toast) gets for a failed query. Known codes
+ * read as plain words; anything else is logged and replaced with `fallback`,
+ * so table and constraint names never reach the browser.
+ */
+function dbError(
+  error: DbError,
+  fallback = "Couldn't save the SLA policy. Try again.",
+): Error {
+  const friendly = error.code ? DB_ERROR_MESSAGES[error.code] : undefined;
+  if (!friendly) console.error("SLA query failed:", error.code, error.message);
+  return new Error(friendly ?? fallback);
+}
+
+/* ── Who may change SLA settings ─────────────────────────────────────── */
+
+/**
+ * Tenant admins and managers, as RLS allows. Everyone else sees the editor
+ * read-only; the write functions below refuse them with a clear message
+ * instead of a raw RLS error.
+ */
+export async function canManageSla(): Promise<boolean> {
+  const role = await getCallerRole();
+  return role === "Tenant Admin" || role === "Manager";
+}
+
+async function assertCanManageSla(): Promise<void> {
+  if (!(await canManageSla())) {
+    throw new Error("Only tenant admins and managers can change SLA settings.");
+  }
 }
 
 /**
@@ -46,9 +102,7 @@ async function currentUserId(supabase: SupabaseClient): Promise<string | null> {
  */
 const EDITOR_FIELD_COLUMNS = ["description", "updated_by"];
 
-function isMissingEditorColumn(
-  error: { code?: string; message: string } | null,
-): boolean {
+function isMissingEditorColumn(error: DbError | null): boolean {
   return (
     error?.code === "PGRST204" &&
     EDITOR_FIELD_COLUMNS.some((c) => error.message.includes(`'${c}'`))
@@ -72,17 +126,17 @@ function warnMissingEditorColumns() {
 const SELECTED_CUSTOMERS_MIGRATION =
   "20261005120000_sla_policy_selected_customers.sql";
 
+/** The sla_policy_customers table isn't on this database yet. */
+function isMissingCustomerTable(error: DbError | null): boolean {
+  // undefined_table / PostgREST "not in the schema cache"
+  return error?.code === "42P01" || error?.code === "PGRST205";
+}
+
 /** The table, or the 'Selected customers' value, isn't on this database yet. */
-function isMissingCustomerScope(
-  error: { code?: string; message: string } | null,
-): boolean {
-  if (!error) return false;
+function isMissingCustomerScope(error: DbError | null): boolean {
   return (
-    // undefined_table / PostgREST "not in the schema cache"
-    error.code === "42P01" ||
-    error.code === "PGRST205" ||
-    error.message.includes("sla_policy_customers") ||
-    error.message.includes("sla_policies_applies_to_check")
+    isMissingCustomerTable(error) ||
+    Boolean(error?.message.includes("sla_policies_applies_to_check"))
   );
 }
 
@@ -95,7 +149,10 @@ function missingCustomerScopeError(): Error {
   );
 }
 
-/** Customer ids per policy; empty when the table isn't there yet. */
+/**
+ * Customer ids per policy. Empty only when the table isn't there yet; any
+ * other error throws, because the one-active rules rely on this list.
+ */
 async function loadPolicyCustomerIds(
   supabase: SupabaseClient,
   policyIds: string[],
@@ -109,10 +166,8 @@ async function loadPolicyCustomerIds(
     .in("policy_id", policyIds);
 
   if (error) {
-    if (!isMissingCustomerScope(error)) {
-      console.error("Error loading SLA policy customers:", error.message);
-    }
-    return byPolicy;
+    if (isMissingCustomerTable(error)) return byPolicy;
+    throw dbError(error, "Couldn't load the policy's customers.");
   }
 
   for (const row of data || []) {
@@ -140,7 +195,7 @@ async function replacePolicyCustomers(
     // Nothing to clear on a database without the table.
     if (isMissingCustomerScope(deleteError) && customerIds.length === 0) return;
     if (isMissingCustomerScope(deleteError)) throw missingCustomerScopeError();
-    throw new Error(deleteError.message);
+    throw dbError(deleteError);
   }
 
   if (customerIds.length === 0) return;
@@ -159,7 +214,7 @@ async function replacePolicyCustomers(
         "One of the selected customers no longer exists. Reload and pick again.",
       );
     }
-    throw new Error(error.message);
+    throw dbError(error);
   }
 }
 
@@ -173,7 +228,7 @@ async function loadPolicyScopes(
     .select("id, name, status, applies_to, is_default")
     .eq("tenant_id", tenantId);
 
-  if (error) throw new Error(error.message);
+  if (error) throw dbError(error, "Couldn't load SLA policies.");
 
   const rows = data || [];
   const customerIds = await loadPolicyCustomerIds(
@@ -228,28 +283,46 @@ async function assertScopeAllowed(
  * live at once (scope-rules.ts). The editor says so before the save.
  *
  * Clears the old flag before setting the new one so there is never a moment
- * with two defaults; if the second write fails the tenant briefly has none,
- * and the error reaches the caller.
+ * with two defaults. If the second write fails, the old default is put back
+ * before the error reaches the caller.
  */
 async function makeDefaultPolicy(
   supabase: SupabaseClient,
   tenantId: string,
   policyId: string,
 ): Promise<void> {
-  const { error: clearError } = await supabase
+  const { data: previous, error: clearError } = await supabase
     .from("sla_policies")
     .update({ is_default: false, status: "paused" })
     .eq("tenant_id", tenantId)
     .eq("is_default", true)
-    .neq("id", policyId);
-  if (clearError) throw new Error(clearError.message);
+    .neq("id", policyId)
+    .select("id");
+  if (clearError) throw dbError(clearError);
 
   const { error } = await supabase
     .from("sla_policies")
     .update({ is_default: true })
     .eq("id", policyId)
     .eq("tenant_id", tenantId);
-  if (error) throw new Error(error.message);
+  if (!error) return;
+
+  // The default is always active, so that is the state to restore.
+  const previousIds = (previous || []).map((p) => p.id);
+  if (previousIds.length > 0) {
+    const { error: restoreError } = await supabase
+      .from("sla_policies")
+      .update({ is_default: true, status: "active" })
+      .in("id", previousIds)
+      .eq("tenant_id", tenantId);
+    if (restoreError) {
+      console.error(
+        "Couldn't restore the previous default SLA:",
+        restoreError.message,
+      );
+    }
+  }
+  throw dbError(error);
 }
 
 /** The default SLA is the fallback, so it must stay live and cover everyone. */
@@ -274,10 +347,7 @@ async function fetchTenantCustomers(
     .order("full_name", { ascending: true })
     .limit(SLA_CUSTOMER_PICKER_LIMIT);
 
-  if (error) {
-    console.error("Error loading customers:", error.message);
-    return [];
-  }
+  if (error) throw dbError(error, "Couldn't load customers.");
 
   return (data || []).map((c) => ({
     id: c.id,
@@ -307,23 +377,6 @@ async function loadEditorNames(
   );
 }
 
-export const PRIORITY_SCOPES: PriorityScope[] = [
-  "urgent",
-  "high",
-  "normal",
-  "low",
-];
-
-export function emptyEditorTarget(priority: PriorityScope = "normal") {
-  return {
-    priority,
-    firstResponseMins: 60,
-    firstResponseBusiness: false,
-    resolutionMins: 480,
-    resolutionBusiness: false,
-  };
-}
-
 async function loadPolicyTargets(
   policyIds: string[],
 ): Promise<SlaPolicyTarget[]> {
@@ -335,39 +388,43 @@ async function loadPolicyTargets(
     .select("*")
     .in("policy_id", policyIds);
 
-  if (error) return [];
+  // Never fall back to an empty list: the editor would show default targets
+  // and a save would write them over the real ones.
+  if (error) throw dbError(error, "Couldn't load SLA targets.");
   return (data as SlaPolicyTarget[]) || [];
 }
 
+/**
+ * Tickets per policy, counted in the database. Reading the rows instead hit
+ * PostgREST's 1000-row cap, so busy tenants saw wrong numbers.
+ */
 async function loadAppliedTicketCounts(
   policyIds: string[],
 ): Promise<Record<string, number>> {
   if (policyIds.length === 0) return {};
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("tickets")
-    .select("sla_policy_id")
-    .not("sla_policy_id", "is", null)
-    .in("sla_policy_id", policyIds);
+  const counts = await Promise.all(
+    policyIds.map(async (id) => {
+      const { count, error } = await supabase
+        .from("tickets")
+        .select("id", { count: "exact", head: true })
+        .eq("sla_policy_id", id);
+      if (error) throw dbError(error, "Couldn't count SLA tickets.");
+      return [id, count ?? 0] as const;
+    }),
+  );
 
-  if (error) return {};
-
-  return (data || []).reduce<Record<string, number>>((acc, row) => {
-    if (row.sla_policy_id) {
-      acc[row.sla_policy_id] = (acc[row.sla_policy_id] || 0) + 1;
-    }
-    return acc;
-  }, {});
+  return Object.fromEntries(counts);
 }
 
 function describeTargets(targets: SlaPolicyTarget[]): string {
   if (targets.length === 0) return "All tickets";
   const urgent =
     targets.find((t) => t.priority_scope === "urgent") || targets[0];
-  return `First response in ${formatMinutes(
+  return `First response in ${formatDurationShort(
     urgent.first_response_mins,
-  )} · Resolution in ${formatMinutes(urgent.resolution_mins)}`;
+  )} · Resolution in ${formatDurationShort(urgent.resolution_mins)}`;
 }
 
 const BUSINESS_HOURS_COLUMNS = "id, name, schedule_json, holidays_json";
@@ -460,10 +517,7 @@ export async function fetchTenantBusinessHours(
     .eq("tenant_id", tenantId)
     .order("name", { ascending: true });
 
-  if (error) {
-    console.error("Error fetching business hours:", error.message);
-    return [];
-  }
+  if (error) throw dbError(error, "Couldn't load business hours.");
 
   return (data || []).map(toBusinessHoursOption);
 }
@@ -475,14 +529,48 @@ async function loadBusinessHoursRow(
 ) {
   const { data, error } = await supabase
     .from("business_hours")
-    .select("id, name, schedule_json, holidays_json")
+    .select("id, name, schedule_json, holidays_json, updated_at")
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
 
-  if (error) throw new Error(error.message);
+  if (error) throw dbError(error, "Couldn't load business hours.");
   if (!data) throw new Error("Business hours not found.");
   return data;
+}
+
+/**
+ * Writes a read-modify-write change to a business_hours row only if nobody
+ * else saved it since `row` was read. Otherwise two people adding a holiday
+ * at once would each overwrite the other's.
+ */
+async function writeBusinessHoursRow(
+  supabase: SupabaseClient,
+  tenantId: string,
+  row: { id: string; updated_at: string | null },
+  values: Record<string, unknown>,
+): Promise<BusinessHoursOption> {
+  const query = supabase
+    .from("business_hours")
+    .update({ ...values, updated_at: new Date().toISOString() })
+    .eq("id", row.id)
+    .eq("tenant_id", tenantId);
+  // Older rows can have no updated_at; `eq` never matches null.
+  const { data, error } = await (
+    row.updated_at === null
+      ? query.is("updated_at", null)
+      : query.eq("updated_at", row.updated_at)
+  )
+    .select(BUSINESS_HOURS_COLUMNS)
+    .maybeSingle();
+
+  if (error) throw dbError(error, "Couldn't save business hours.");
+  if (!data) {
+    throw new Error(
+      "Someone else changed this calendar just now. Reload and try again.",
+    );
+  }
+  return toBusinessHoursOption(data);
 }
 
 export async function updateBusinessHoursSchedule(
@@ -490,6 +578,7 @@ export async function updateBusinessHoursSchedule(
   id: string,
   schedule: BusinessHoursSchedule,
 ): Promise<BusinessHoursOption> {
+  await assertCanManageSla();
   const supabase = await createSupabaseServerClient();
   const tenantId = await getTenantIdBySlug(tenant);
   if (!tenantId) throw new Error("Tenant not found.");
@@ -506,19 +595,9 @@ export async function updateBusinessHoursSchedule(
   delete nextSchedule.break_start;
   delete nextSchedule.break_end;
 
-  const { data, error } = await supabase
-    .from("business_hours")
-    .update({
-      schedule_json: nextSchedule,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("tenant_id", tenantId)
-    .select(BUSINESS_HOURS_COLUMNS)
-    .single();
-
-  if (error) throw new Error(error.message);
-  return toBusinessHoursOption(data);
+  return writeBusinessHoursRow(supabase, tenantId, row, {
+    schedule_json: nextSchedule,
+  });
 }
 
 /** Read-modify-write of holidays_json; `change` receives the current list. */
@@ -527,6 +606,7 @@ export async function updateBusinessHoursHolidays(
   id: string,
   change: (current: SlaHoliday[]) => SlaHoliday[],
 ): Promise<BusinessHoursOption> {
+  await assertCanManageSla();
   const supabase = await createSupabaseServerClient();
   const tenantId = await getTenantIdBySlug(tenant);
   if (!tenantId) throw new Error("Tenant not found.");
@@ -534,16 +614,9 @@ export async function updateBusinessHoursHolidays(
   const row = await loadBusinessHoursRow(supabase, tenantId, id);
   const next = change(parseHolidays(row.holidays_json)).map(holidayToJson);
 
-  const { data, error } = await supabase
-    .from("business_hours")
-    .update({ holidays_json: next, updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("tenant_id", tenantId)
-    .select(BUSINESS_HOURS_COLUMNS)
-    .single();
-
-  if (error) throw new Error(error.message);
-  return toBusinessHoursOption(data);
+  return writeBusinessHoursRow(supabase, tenantId, row, {
+    holidays_json: next,
+  });
 }
 
 function emptyEditorValue(
@@ -564,7 +637,7 @@ function emptyEditorValue(
     customerIds: [],
     timeCalculation: businessHoursId ? "business" : "24/7",
     businessHoursId,
-    status: "active",
+    status: "draft",
     notifyBeforeBreach: true,
     notifyBeforeMins: 15,
     escalateOnBreach: false,
@@ -573,36 +646,40 @@ function emptyEditorValue(
   };
 }
 
+/**
+ * Everything the editor needs. `value` is null when `policyId` names a policy
+ * that doesn't exist in this tenant; a failed query throws so the route's
+ * error boundary shows instead of a misleading 404 or blank form.
+ */
 export async function getSlaEditorData(
   tenant: string,
   policyId?: string,
 ): Promise<{
-  value: SlaPolicyEditorValue;
+  value: SlaPolicyEditorValue | null;
   businessHours: BusinessHoursOption[];
   customers: SlaCustomerOption[];
   /** The tenant's other policies, so the editor can warn before saving. */
   otherPolicies: PolicyScope[];
+  /** False for roles that may only look (agents). */
+  canManage: boolean;
 }> {
   const supabase = await createSupabaseServerClient();
   const tenantId = await getTenantIdBySlug(tenant);
 
-  const [businessHours, customers, scopes] = await Promise.all([
+  const [businessHours, customers, scopes, canManage] = await Promise.all([
     fetchTenantBusinessHours(tenant),
     tenantId ? fetchTenantCustomers(supabase, tenantId) : [],
-    tenantId
-      ? loadPolicyScopes(supabase, tenantId).catch(() => [] as PolicyScope[])
-      : [],
+    tenantId ? loadPolicyScopes(supabase, tenantId) : [],
+    canManageSla(),
   ]);
   const otherPolicies = scopes.filter((p) => p.id !== policyId);
+  const base = { businessHours, customers, otherPolicies, canManage };
 
-  if (!policyId || !tenantId) {
-    return {
-      businessHours,
-      customers,
-      otherPolicies,
-      value: emptyEditorValue(businessHours, otherPolicies),
-    };
+  if (!policyId) {
+    return { ...base, value: emptyEditorValue(businessHours, otherPolicies) };
   }
+  // A malformed id in the URL is a missing policy, not a query error.
+  if (!tenantId || !UUID.test(policyId)) return { ...base, value: null };
 
   const { data: policy, error } = await supabase
     .from("sla_policies")
@@ -611,14 +688,8 @@ export async function getSlaEditorData(
     .eq("tenant_id", tenantId)
     .maybeSingle();
 
-  if (error || !policy) {
-    return {
-      businessHours,
-      customers,
-      otherPolicies,
-      value: emptyEditorValue(businessHours, otherPolicies),
-    };
-  }
+  if (error) throw dbError(error, "Couldn't load the SLA policy.");
+  if (!policy) return { ...base, value: null };
 
   const [targets, customerIdsByPolicy] = await Promise.all([
     loadPolicyTargets([policyId]),
@@ -647,10 +718,9 @@ export async function getSlaEditorData(
   );
 
   return {
-    businessHours,
-    customers,
-    otherPolicies,
+    ...base,
     value: {
+      id: policyId,
       isDefault: policy.is_default,
       name: policy.name,
       description: policy.description ?? "",
@@ -673,7 +743,8 @@ export async function getSlaEditorData(
 }
 
 /**
- * The plan's cap on SLA policies, for gating the create button.
+ * The plan's cap on SLA policies. Gates the create button and the /sla/new
+ * page, and createSlaPolicy enforces it.
  *
  * The cap is read through getTenantPlanRecord rather than off `subscriptions`
  * here: RLS on that table admits only tenant_admin and billing_admin, so a
@@ -681,8 +752,6 @@ export async function getSlaEditorData(
  * cap on a paid workspace. getTenantPlanRecord uses the service-role client for
  * that reason and caches per request, so this costs nothing extra when both
  * pages read it in one render. Same fallback as getTeamSeats.
- *
- * This is a display gate only — the write is not restricted server-side yet.
  */
 export async function getSlaPolicyQuota(
   tenant: string,
@@ -705,6 +774,21 @@ export async function getSlaPolicyQuota(
   };
 }
 
+/** How many policies the tenant has, every status included (as the list counts). */
+export async function countTenantSlaPolicies(tenant: string): Promise<number> {
+  const supabase = await createSupabaseServerClient();
+  const tenantId = await getTenantIdBySlug(tenant);
+  if (!tenantId) return 0;
+
+  const { count, error } = await supabase
+    .from("sla_policies")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId);
+
+  if (error) throw dbError(error, "Couldn't count SLA policies.");
+  return count ?? 0;
+}
+
 export async function fetchTenantSlaPolicies(
   tenant: string,
 ): Promise<SlaPolicy[]> {
@@ -724,10 +808,9 @@ export async function fetchTenantSlaPolicies(
     .order("is_default", { ascending: false })
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("Error fetching SLA policies:", error.message);
-    return [];
-  }
+  // Throw rather than show "No SLA policies yet": an empty list also unlocks
+  // the create button on a plan that is already full.
+  if (error) throw dbError(error, "Couldn't load SLA policies.");
 
   const rows = data || [];
   const policyIds = rows.map((p) => p.id);
@@ -778,90 +861,142 @@ export async function fetchTenantSlaPolicies(
   });
 }
 
+/** Makes the policy's targets exactly `targets`, one row per priority. */
 async function replacePolicyTargets(
   supabase: SupabaseClient,
   tenantId: string,
   policyId: string,
-  targets: CreateSlaPolicyDto["targets"],
-  existing?: SlaPolicyTarget[],
+  targets: SlaPolicyEditorTarget[],
+  existing: SlaPolicyTarget[] = [],
 ): Promise<void> {
-  const existingById = new Map((existing || []).map((t) => [t.id, t]));
-
   for (const target of targets) {
-    const scope = target.priority as PriorityScope;
-    const current = existing?.find((t) => t.priority_scope === scope);
+    const current = existing.find((t) => t.priority_scope === target.priority);
     const payload = {
       tenant_id: tenantId,
       policy_id: policyId,
-      priority_scope: scope,
+      priority_scope: target.priority,
       first_response_mins: target.firstResponseMins,
       first_response_business: target.firstResponseBusiness,
       resolution_mins: target.resolutionMins,
       resolution_business: target.resolutionBusiness,
     };
 
-    if (current) {
-      const { error } = await supabase
-        .from("sla_policy_targets")
-        .update(payload)
-        .eq("id", current.id)
-        .eq("tenant_id", tenantId);
-      if (error) throw new Error(error.message);
-    } else {
-      const { error } = await supabase
-        .from("sla_policy_targets")
-        .insert(payload);
-      if (error) throw new Error(error.message);
-    }
+    const { error } = current
+      ? await supabase
+          .from("sla_policy_targets")
+          .update(payload)
+          .eq("id", current.id)
+          .eq("tenant_id", tenantId)
+      : await supabase.from("sla_policy_targets").insert(payload);
+    if (error) throw dbError(error);
   }
 
-  const keptScopes = targets.map((t) => t.priority as PriorityScope);
-  for (const existingTarget of existing || []) {
-    if (!keptScopes.includes(existingTarget.priority_scope as PriorityScope)) {
+  const keptScopes = new Set(targets.map((t) => t.priority));
+  for (const existingTarget of existing) {
+    if (!keptScopes.has(existingTarget.priority_scope as PriorityScope)) {
       const { error } = await supabase
         .from("sla_policy_targets")
         .delete()
         .eq("id", existingTarget.id)
         .eq("tenant_id", tenantId);
-      if (error) throw new Error(error.message);
+      if (error) throw dbError(error);
     }
   }
+}
 
-  existingById.clear();
+function toEditorTargets(rows: SlaPolicyTarget[]): SlaPolicyEditorTarget[] {
+  return rows.map((t) => ({
+    priority: t.priority_scope as PriorityScope,
+    firstResponseMins: t.first_response_mins,
+    firstResponseBusiness: t.first_response_business,
+    resolutionMins: t.resolution_mins,
+    resolutionBusiness: t.resolution_business,
+  }));
+}
+
+/**
+ * The sla_policies columns a save writes, named one by one so a field the
+ * editor doesn't offer (id, tenant_id, created_at, …) can never be written
+ * from the request.
+ */
+function policyColumns(dto: CreateSlaPolicyDto | UpdateSlaPolicyDto) {
+  return {
+    name: dto.name,
+    description: dto.description,
+    status: dto.status,
+    applies_to: dto.applies_to,
+    business_hours_id: dto.business_hours_id,
+    notify_before_breach: dto.notify_before_breach,
+    notify_before_mins: dto.notify_before_mins,
+    escalate_on_breach: dto.escalate_on_breach,
+    escalate_to_role: dto.escalate_to_role,
+  };
+}
+
+/** Drops undefined keys so an omitted field keeps its stored value. */
+function definedOnly<T extends Record<string, unknown>>(row: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(row).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
+/** Runs `undo`, logging (not throwing) if it fails, so the original error wins. */
+async function rollBack(what: string, undo: () => Promise<unknown>) {
+  try {
+    await undo();
+  } catch (error) {
+    console.error(
+      `Couldn't roll back ${what}:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
 }
 
 export async function createSlaPolicy(tenant: string, dto: CreateSlaPolicyDto) {
+  await assertCanManageSla();
   const supabase = await createSupabaseServerClient();
   const tenantId = await getTenantIdBySlug(tenant);
 
   if (!tenantId) throw new Error("Tenant not found.");
 
-  if (dto.is_default) {
-    assertDefaultShape(
-      dto.status || "active",
-      dto.applies_to ?? "All customers",
+  // The plan's cap, enforced here and not only by the list's button.
+  const [quota, used] = await Promise.all([
+    getSlaPolicyQuota(tenant),
+    countTenantSlaPolicies(tenant),
+  ]);
+  if (!hasPolicyRoom(quota, used)) {
+    throw new Error(
+      `${describePolicyLimit(quota)} Upgrade your plan to add more.`,
     );
+  }
+
+  const status = dto.status ?? "draft";
+  const appliesTo = dto.applies_to ?? "All customers";
+
+  if (dto.is_default) {
+    assertDefaultShape(status, appliesTo);
   }
   await assertScopeAllowed(supabase, tenantId, {
     isDefault: dto.is_default,
-    status: dto.status || "active",
-    appliesTo: dto.applies_to ?? "All customers",
+    status,
+    appliesTo,
     customerIds: dto.customer_ids ?? [],
   });
 
   const row = {
+    ...policyColumns(dto),
     tenant_id: tenantId,
     name: dto.name,
     description: dto.description ?? "",
-    updated_by: await currentUserId(supabase),
-    status: dto.status || ("active" as const),
-    applies_to: dto.applies_to ?? "All customers",
-    business_hours_id: dto.business_hours_id || null,
-    is_default: false,
+    status,
+    applies_to: appliesTo,
+    business_hours_id: dto.business_hours_id ?? null,
     notify_before_breach: dto.notify_before_breach ?? true,
     notify_before_mins: dto.notify_before_mins ?? 15,
     escalate_on_breach: dto.escalate_on_breach ?? false,
     escalate_to_role: dto.escalate_to_role ?? "manager",
+    updated_by: await currentUserId(supabase),
+    is_default: false,
   };
   const insert = (values: typeof row) =>
     supabase.from("sla_policies").insert(values).select().single();
@@ -873,17 +1008,34 @@ export async function createSlaPolicy(tenant: string, dto: CreateSlaPolicyDto) {
   }
 
   if (isMissingCustomerScope(error)) throw missingCustomerScopeError();
-  if (error || !policy) throw new Error(error?.message ?? "Couldn't create.");
+  if (error || !policy) {
+    throw error ? dbError(error) : new Error("Couldn't create the policy.");
+  }
 
-  await replacePolicyTargets(supabase, tenantId, policy.id, dto.targets);
-  await replacePolicyCustomers(
-    supabase,
-    tenantId,
-    policy.id,
-    dto.customer_ids ?? [],
-  );
-  if (dto.is_default) {
-    await makeDefaultPolicy(supabase, tenantId, policy.id);
+  try {
+    await replacePolicyTargets(supabase, tenantId, policy.id, dto.targets);
+    await replacePolicyCustomers(
+      supabase,
+      tenantId,
+      policy.id,
+      dto.customer_ids ?? [],
+    );
+    if (dto.is_default) {
+      await makeDefaultPolicy(supabase, tenantId, policy.id);
+    }
+  } catch (stepError) {
+    // Remove the half-made policy (targets and customers cascade), so a retry
+    // doesn't leave a stray copy. Service role: managers can't delete
+    // policies under RLS, and this row was created by this request.
+    await rollBack("the new SLA policy", async () => {
+      const { error: deleteError } = await createSupabaseAdminClient()
+        .from("sla_policies")
+        .delete()
+        .eq("id", policy.id)
+        .eq("tenant_id", tenantId);
+      if (deleteError) throw new Error(deleteError.message);
+    });
+    throw stepError;
   }
 
   return policy;
@@ -894,20 +1046,24 @@ export async function updateSlaPolicy(
   policyId: string,
   dto: UpdateSlaPolicyDto,
 ) {
+  await assertCanManageSla();
   const supabase = await createSupabaseServerClient();
   const tenantId = await getTenantIdBySlug(tenant);
 
   if (!tenantId) throw new Error("Tenant not found.");
 
+  // The whole row, kept so a failed later step can put it back.
   const { data: current, error: readError } = await supabase
     .from("sla_policies")
-    .select("status, is_default")
+    .select("*")
     .eq("id", policyId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
-  if (readError || !current) throw new Error("Policy not found.");
+  if (readError) throw dbError(readError, "Couldn't load the SLA policy.");
+  if (!current) throw new Error("Policy not found.");
 
   const status = dto.status ?? (current.status as PolicyStatus);
+  const appliesTo = dto.applies_to ?? "All customers";
   const willBeDefault = dto.is_default ?? current.is_default;
 
   if (current.is_default && dto.is_default === false) {
@@ -916,26 +1072,29 @@ export async function updateSlaPolicy(
     );
   }
   if (willBeDefault) {
-    assertDefaultShape(status, dto.applies_to ?? "All customers");
+    assertDefaultShape(status, appliesTo);
   }
 
   await assertScopeAllowed(supabase, tenantId, {
     id: policyId,
     isDefault: willBeDefault,
     status,
-    appliesTo: dto.applies_to ?? "All customers",
+    appliesTo,
     customerIds: dto.customer_ids ?? [],
   });
 
+  const [previousTargets, previousCustomers] = await Promise.all([
+    loadPolicyTargets([policyId]),
+    loadPolicyCustomerIds(supabase, [policyId]),
+  ]);
+
   const updates: Record<string, unknown> = {
-    ...dto,
+    ...definedOnly(policyColumns(dto)),
+    status,
+    applies_to: appliesTo,
     updated_at: new Date().toISOString(),
     updated_by: await currentUserId(supabase),
   };
-  delete updates.targets;
-  delete updates.customer_ids;
-  // Moved by makeDefaultPolicy below, never written directly.
-  delete updates.is_default;
 
   const update = (values: Record<string, unknown>) =>
     supabase
@@ -947,177 +1106,65 @@ export async function updateSlaPolicy(
       .single();
 
   let { data: policy, error } = await update(updates);
-  if (isMissingEditorColumn(error)) {
+  const missingEditorColumns = isMissingEditorColumn(error);
+  if (missingEditorColumns) {
     warnMissingEditorColumns();
     ({ data: policy, error } = await update(withoutEditorColumns(updates)));
   }
 
   if (isMissingCustomerScope(error)) throw missingCustomerScopeError();
-  if (error) throw new Error(error.message);
+  if (error) throw dbError(error);
 
-  const existing = await loadPolicyTargets([policyId]);
-  await replacePolicyTargets(
-    supabase,
-    tenantId,
-    policyId,
-    dto.targets,
-    existing,
-  );
-  await replacePolicyCustomers(
-    supabase,
-    tenantId,
-    policyId,
-    dto.customer_ids ?? [],
-  );
-  if (willBeDefault && !current.is_default) {
-    await makeDefaultPolicy(supabase, tenantId, policyId);
-  }
-
-  return policy;
-}
-
-/**
- * Copies a policy and its targets. The copy starts inactive so two policies
- * with the same scope are never both live until someone edits the copy.
- */
-export async function duplicateSlaPolicy(tenant: string, id: string) {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
-
-  if (!tenantId) throw new Error("Tenant not found.");
-
-  const { data: source, error: readError } = await supabase
-    .from("sla_policies")
-    .select("*")
-    .eq("id", id)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-
-  if (readError || !source) throw new Error("Policy not found.");
-
-  const copyRow = {
-    tenant_id: tenantId,
-    name: `Copy of ${source.name}`.slice(0, 120),
-    description: source.description ?? "",
-    updated_by: await currentUserId(supabase),
-    status: "paused" as const,
-    applies_to: source.applies_to,
-    business_hours_id: source.business_hours_id,
-    is_default: false,
-    notify_before_breach: source.notify_before_breach,
-    notify_before_mins: source.notify_before_mins ?? 15,
-    escalate_on_breach: source.escalate_on_breach,
-    escalate_to_role: source.escalate_to_role ?? "manager",
-  };
-  const insertCopy = (values: typeof copyRow) =>
-    supabase.from("sla_policies").insert(values).select("id").single();
-
-  let { data: policy, error } = await insertCopy(copyRow);
-  if (isMissingEditorColumn(error)) {
-    warnMissingEditorColumns();
-    ({ data: policy, error } = await insertCopy(withoutEditorColumns(copyRow)));
-  }
-
-  if (error || !policy) throw new Error(error?.message ?? "Couldn't copy.");
-
-  const [targets, customerIds] = await Promise.all([
-    loadPolicyTargets([id]),
-    loadPolicyCustomerIds(supabase, [id]),
-  ]);
-  await replacePolicyCustomers(
-    supabase,
-    tenantId,
-    policy.id,
-    customerIds.get(id) ?? [],
-  );
-  await replacePolicyTargets(
-    supabase,
-    tenantId,
-    policy.id,
-    targets.map((t) => ({
-      priority: t.priority_scope as PriorityScope,
-      firstResponseMins: t.first_response_mins,
-      firstResponseBusiness: t.first_response_business,
-      resolutionMins: t.resolution_mins,
-      resolutionBusiness: t.resolution_business,
-    })),
-  );
-
-  return policy;
-}
-
-export async function toggleSlaPolicyStatus(tenant: string, id: string) {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
-
-  if (!tenantId) throw new Error("Tenant not found.");
-
-  const { data: current, error: readError } = await supabase
-    .from("sla_policies")
-    .select("status, applies_to, is_default")
-    .eq("id", id)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-
-  if (readError || !current) throw new Error("Policy not found.");
-
-  const next: PolicyStatus = current.status === "active" ? "paused" : "active";
-
-  if (current.is_default && next !== "active") {
-    throw new Error(
-      "The default SLA must stay active. Make another policy the default first.",
+  try {
+    await replacePolicyTargets(
+      supabase,
+      tenantId,
+      policyId,
+      dto.targets,
+      previousTargets,
     );
-  }
-
-  if (next === "active") {
-    const customerIds = await loadPolicyCustomerIds(supabase, [id]);
-    await assertScopeAllowed(supabase, tenantId, {
-      id,
-      status: "active",
-      appliesTo: toAppliesTo(current.applies_to),
-      customerIds: customerIds.get(id) ?? [],
+    await replacePolicyCustomers(
+      supabase,
+      tenantId,
+      policyId,
+      dto.customer_ids ?? [],
+    );
+    if (willBeDefault && !current.is_default) {
+      await makeDefaultPolicy(supabase, tenantId, policyId);
+    }
+  } catch (stepError) {
+    // Put the policy back exactly as it was before this save.
+    await rollBack("the SLA policy row", async () => {
+      const restore = Object.fromEntries(
+        Object.keys(updates).map((key) => [
+          key,
+          (current as Record<string, unknown>)[key],
+        ]),
+      );
+      const { error: restoreError } = await update(
+        missingEditorColumns ? withoutEditorColumns(restore) : restore,
+      );
+      if (restoreError) throw new Error(restoreError.message);
     });
+    await rollBack("the SLA targets", async () =>
+      replacePolicyTargets(
+        supabase,
+        tenantId,
+        policyId,
+        toEditorTargets(previousTargets),
+        await loadPolicyTargets([policyId]),
+      ),
+    );
+    await rollBack("the policy's customers", () =>
+      replacePolicyCustomers(
+        supabase,
+        tenantId,
+        policyId,
+        previousCustomers.get(policyId) ?? [],
+      ),
+    );
+    throw stepError;
   }
 
-  const { error } = await supabase
-    .from("sla_policies")
-    .update({ status: next })
-    .eq("id", id)
-    .eq("tenant_id", tenantId);
-
-  if (error) throw new Error(error.message);
-}
-
-export async function deleteSlaPolicy(tenant: string, id: string) {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
-
-  if (!tenantId) throw new Error("Tenant not found.");
-
-  const { data: policy, error: readError } = await supabase
-    .from("sla_policies")
-    .select("is_default")
-    .eq("id", id)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-
-  if (readError || !policy) throw new Error("Policy not found.");
-  if (policy.is_default) {
-    throw new Error("The default SLA policy cannot be deleted.");
-  }
-
-  const { error: targetError } = await supabase
-    .from("sla_policy_targets")
-    .delete()
-    .eq("policy_id", id)
-    .eq("tenant_id", tenantId);
-  if (targetError) throw new Error(targetError.message);
-
-  const { error } = await supabase
-    .from("sla_policies")
-    .delete()
-    .eq("id", id)
-    .eq("tenant_id", tenantId);
-
-  if (error) throw new Error(error.message);
+  return policy;
 }

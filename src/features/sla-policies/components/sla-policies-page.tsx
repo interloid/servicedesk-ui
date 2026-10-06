@@ -1,33 +1,6 @@
-"use client";
-
-import React, { useState, useTransition } from "react";
+import React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import {
-  CalendarDays,
-  Clock,
-  Copy,
-  EllipsisVertical,
-  Pause,
-  Pencil,
-  Play,
-  Plus,
-  Trash2,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { CalendarDays, Clock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import {
   Table,
@@ -40,21 +13,28 @@ import {
 import { BADGE_TONES, StatusBadge } from "./status-badge";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { DeletePolicyDialog } from "./delete-policy-dialog";
+
+import { NewPolicyButton } from "./new-policy-button";
 import {
+  formatUpdatedDate,
   formatWorkingDays,
   formatWorkingHours,
-} from "./business-hours-dialogs";
-import { useSlaActions } from "../hooks/use-sla-actions";
-import { duplicateSlaPolicyAction } from "../action/sla.actions";
+} from "../format";
 import { formatDurationShort } from "../duration";
-import { SlaPolicy, SlaPolicyQuota, hasPolicyRoom } from "../types/types";
+import {
+  SlaPolicy,
+  SlaPolicyQuota,
+  describePolicyLimit,
+  hasPolicyRoom,
+} from "../types/types";
 
 interface SlaPoliciesPageProps {
   tenant: string;
   initialPolicies: SlaPolicy[];
   /** The plan's cap, so the create button can be gated before it's pressed. */
   policyQuota: SlaPolicyQuota;
+  /** Agents may look at policies but not create them. */
+  canManage: boolean;
 }
 
 const COLUMNS = [
@@ -64,92 +44,20 @@ const COLUMNS = [
   "Applied to",
   "Updated at",
   "Status",
-  "Actions",
 ];
 
-const NEW_POLICY_BUTTON =
-  "inline-flex h-10 items-center gap-2 self-start rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground transition-colors hover:bg-brand-accent/90";
-
-function formatUpdated(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-}
-
+/**
+ * A Server Component: the list has no client state, so it renders straight
+ * from the server's rows and a refresh always shows the latest ones.
+ */
 export const SlaPoliciesPage: React.FC<SlaPoliciesPageProps> = ({
   tenant,
-  initialPolicies,
+  initialPolicies: policies,
   policyQuota,
+  canManage,
 }) => {
-  const router = useRouter();
-  const { policies, handleToggleStatus, handleDeletePolicy } = useSlaActions(
-    tenant,
-    initialPolicies,
-  );
-  const [toDelete, setToDelete] = useState<SlaPolicy | null>(null);
-  const [deleting, startDelete] = useTransition();
-  const [, startDuplicate] = useTransition();
-
-  // Counted off the rendered list rather than a second number from the server,
-  // so deleting a row frees the slot without waiting for a refresh. The write
-  // isn't gated server-side yet, so this is the only thing holding the line.
-  const used = policies.length;
-  const canCreate = hasPolicyRoom(policyQuota, used);
-  const limitReason =
-    policyQuota.limit === null
-      ? ""
-      : `Your ${policyQuota.planName} plan includes ${policyQuota.limit} SLA ${
-          policyQuota.limit === 1 ? "policy" : "policies"
-        }. Delete one, or upgrade your plan, to create another.`;
-
-  const toggle = async (policy: SlaPolicy) => {
-    const result = await handleToggleStatus(policy.id);
-    if (!result.success) {
-      toast.error(result.error ?? "Couldn't change the status.");
-      return;
-    }
-    toast.success(
-      policy.status === "active"
-        ? `${policy.name} is now inactive.`
-        : `${policy.name} is now active.`,
-    );
-  };
-
-  const duplicate = (policy: SlaPolicy) => {
-    if (!canCreate) {
-      toast.error(limitReason);
-      return;
-    }
-    startDuplicate(async () => {
-      const result = await duplicateSlaPolicyAction(tenant, policy.id);
-      if (!result.success || !("policyId" in result)) {
-        toast.error(result.error ?? "Couldn't duplicate the policy.");
-        return;
-      }
-      toast.success(`Created a copy of ${policy.name}. It starts inactive.`);
-      router.push(`/${tenant}/sla/${result.policyId}`);
-    });
-  };
-
-  const confirmDelete = () => {
-    if (!toDelete) return;
-    const policy = toDelete;
-    startDelete(async () => {
-      const result = await handleDeletePolicy(policy.id);
-      if (!result.success) {
-        toast.error(result.error ?? "Couldn't delete the policy.");
-        return;
-      }
-      setToDelete(null);
-      toast.success(`Deleted ${policy.name}.`);
-      router.refresh();
-    });
-  };
+  // createSlaPolicy enforces the same cap on the server.
+  const canCreate = hasPolicyRoom(policyQuota, policies.length);
 
   return (
     <div className="h-full overflow-y-auto p-4 font-sans text-slate-900 sm:p-6 lg:p-8">
@@ -163,42 +71,25 @@ export const SlaPoliciesPage: React.FC<SlaPoliciesPageProps> = ({
             </p>
           </div>
 
-          {canCreate ? (
-            <Link href={`/${tenant}/sla/new`} className={NEW_POLICY_BUTTON}>
-              <Plus className="size-4" aria-hidden />
-              New policy
-            </Link>
-          ) : (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-disabled
-                    onClick={(event) => event.preventDefault()}
-                    className={`${NEW_POLICY_BUTTON} cursor-not-allowed opacity-60 hover:bg-brand-accent`}
-                  >
-                    <Plus className="size-4" aria-hidden />
-                    New policy
-                  </button>
-                </TooltipTrigger>
-
-                <TooltipContent side="bottom" className="max-w-xs">
-                  {limitReason}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          {canManage && (
+            <NewPolicyButton
+              href={`/${tenant}/sla/new`}
+              disabledReason={
+                canCreate ? null : describePolicyLimit(policyQuota)
+              }
+            />
           )}
         </div>
 
         <Card className="gap-0 border border-gray-200/80 bg-white py-0 shadow-xs ring-0">
           <Table>
             <TableHeader>
-              <TableRow className="border-gray-200/80 bg-slate-50/70 hover:bg-slate-50/70">
+              {/* Same header style as the billing invoices table. */}
+              <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50">
                 {COLUMNS.map((c) => (
                   <TableHead
                     key={c}
-                    className="px-4 text-xs font-semibold text-gray-600"
+                    className="h-10 px-4 text-[11px] font-semibold tracking-wider text-slate-500 uppercase"
                   >
                     {c}
                   </TableHead>
@@ -218,48 +109,18 @@ export const SlaPoliciesPage: React.FC<SlaPoliciesPageProps> = ({
                 </TableRow>
               ) : (
                 policies.map((policy) => (
-                  <PolicyRow
-                    key={policy.id}
-                    tenant={tenant}
-                    policy={policy}
-                    canCreate={canCreate}
-                    limitReason={limitReason}
-                    onToggle={() => toggle(policy)}
-                    onDuplicate={() => duplicate(policy)}
-                    onDelete={() => setToDelete(policy)}
-                  />
+                  <PolicyRow key={policy.id} tenant={tenant} policy={policy} />
                 ))
               )}
             </TableBody>
           </Table>
         </Card>
       </div>
-
-      <DeletePolicyDialog
-        policyName={toDelete?.name ?? null}
-        open={toDelete !== null}
-        pending={deleting}
-        onOpenChange={(open) => !open && setToDelete(null)}
-        onConfirm={confirmDelete}
-      />
     </div>
   );
 };
 
-function PolicyRow({
-  tenant,
-  policy,
-  onToggle,
-  onDelete,
-}: {
-  tenant: string;
-  policy: SlaPolicy;
-  canCreate: boolean;
-  limitReason: string;
-  onToggle: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-}) {
+function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
   const href = `/${tenant}/sla/${policy.id}`;
   const urgent = policy.targets.find((t) => t.priority_scope === "urgent");
   const low = policy.targets.find((t) => t.priority_scope === "low");
@@ -271,7 +132,7 @@ function PolicyRow({
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={href}
-            className="font-semibold text-gray-900 hover:text-brand-accent hover:underline"
+            className="font-semibold text-gray-900 transition-colors hover:text-brand-accent"
           >
             {policy.name}
           </Link>
@@ -344,13 +205,13 @@ function PolicyRow({
             : "All customers"}
         </p>
         <p className="text-xs text-gray-500">
-          {policy.appliedTickets.toLocaleString()} ticket
+          {policy.appliedTickets.toLocaleString("en-US")} ticket
           {policy.appliedTickets === 1 ? "" : "s"}
         </p>
       </TableCell>
 
       <TableCell className="px-4 py-4 align-top">
-        <p className="text-gray-900">{formatUpdated(policy.updated_at)}</p>
+        <p className="text-gray-900">{formatUpdatedDate(policy.updated_at)}</p>
         {policy.updated_by_name && (
           <p className="text-xs text-gray-500">by {policy.updated_by_name}</p>
         )}
@@ -358,53 +219,6 @@ function PolicyRow({
 
       <TableCell className="px-4 py-4 align-top whitespace-normal">
         <StatusBadge status={policy.status} />
-      </TableCell>
-
-      <TableCell className="px-4 py-4 align-top whitespace-normal">
-        <div className="flex items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              aria-label={`More actions for ${policy.name}`}
-              className="rounded-md p-1.5 text-gray-500 transition-colors outline-none hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-2 focus-visible:ring-brand-accent/40"
-            >
-              <EllipsisVertical className="size-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <TooltipProvider>
-                <DropdownMenuItem asChild>
-                  <Link href={href}>
-                    <Pencil className="size-4" /> Edit
-                  </Link>
-                </DropdownMenuItem>
-
-                {!(policy.is_default && policy.status === "active") && (
-                  <DropdownMenuItem onClick={onToggle}>
-                    {policy.status === "active" ? (
-                      <>
-                        <Pause className="size-4" /> Deactivate
-                      </>
-                    ) : (
-                      <>
-                        <Play className="size-4" /> Activate
-                      </>
-                    )}
-                  </DropdownMenuItem>
-                )}
-                {!policy.is_default && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={onDelete}
-                      className="text-red-600 focus:bg-red-50 focus:text-red-700"
-                    >
-                      <Trash2 className="size-4 text-current" /> Delete
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </TooltipProvider>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
       </TableCell>
     </TableRow>
   );

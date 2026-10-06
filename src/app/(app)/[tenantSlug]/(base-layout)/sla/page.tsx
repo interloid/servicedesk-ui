@@ -1,5 +1,6 @@
 import SlaPoliciesPage from "@/features/sla-policies/components/sla-policies-page";
 import {
+  canManageSla,
   fetchTenantSlaPolicies,
   getSlaPolicyQuota,
 } from "@/features/sla-policies/service/sla.service";
@@ -15,9 +16,10 @@ interface SlaPageProps {
 
 export default async function SlaPage({ params }: SlaPageProps) {
   const { tenantSlug } = await params;
-  const [initialPolicies, policyQuota] = await Promise.all([
+  const [initialPolicies, policyQuota, canManage] = await Promise.all([
     fetchTenantSlaPolicies(tenantSlug),
     getSlaPolicyQuota(tenantSlug),
+    canManageSla(),
   ]);
 
   return (
@@ -25,6 +27,7 @@ export default async function SlaPage({ params }: SlaPageProps) {
       tenant={tenantSlug}
       initialPolicies={initialPolicies}
       policyQuota={policyQuota}
+      canManage={canManage}
     />
   );
 }

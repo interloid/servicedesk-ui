@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
 import { ShellIdentity } from "@/types/shell-identity";
 import { getTenantClaims } from "@/features/auth/claims";
+import { STAFF_ROLES } from "@/features/team/types/team";
 
 export async function getShellIdentity(
   tenantSlug: string,
@@ -144,6 +145,9 @@ export async function getShellIdentity(
       head: true,
     })
     .eq("tenant_id", tenantId)
+    // Seats are staff only, as on the Team page and in the seat trigger:
+    // portal customers hold a membership too, but never a seat.
+    .in("role", [...STAFF_ROLES])
     .eq("status", "active");
 
   if (memberError) {

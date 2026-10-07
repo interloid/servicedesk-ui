@@ -1,6 +1,39 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
+/**
+ * The only external host `<Image>` is allowed to load from.
+ *
+ * The portal renders the tenant logo with `next/image`. An unconfigured host
+ * there is not a warning: the optimizer answers 400 and the image is simply
+ * broken. Rather than allow every hostname (`hostname: "**"`, which would let
+ * anyone make our server fetch a URL of their choosing), the pattern is pinned
+ * to this project's public storage, which is where an uploaded logo lives.
+ * trustedTenantLogoUrl drops anything outside that prefix before it reaches the
+ * component, so the two halves agree.
+ */
+function remotePatterns(): NonNullable<NextConfig["images"]>["remotePatterns"] {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  if (!url) {
+    return [];
+  }
+
+  try {
+    const { protocol, hostname } = new URL(url);
+
+    return [
+      {
+        protocol: protocol === "http:" ? "http" : "https",
+        hostname,
+        pathname: "/storage/v1/object/public/**",
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
 const securityHeaders = [
   {
     key: "Strict-Transport-Security",
@@ -20,6 +53,9 @@ const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
   generateBuildId: async () => process.env.NEXT_BUILD_ID || null,
+  images: {
+    remotePatterns: remotePatterns(),
+  },
   async headers() {
     return [
       {

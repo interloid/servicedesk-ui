@@ -77,6 +77,33 @@ export function TimePickerPopover({
     }
   }, [open]);
 
+  /**
+   * Inside a Dialog the scroll lock (react-remove-scroll) listens on the
+   * document's bubble phase and cancels every wheel/touchmove that comes from
+   * a portal outside the dialog — which is where this popover renders. The
+   * columns then never scroll with the mouse. Stopping the event at the column
+   * (capture phase) keeps it away from that listener, so the browser's own
+   * scrolling runs untouched.
+   */
+  React.useEffect(() => {
+    if (!open) return;
+    const columns = [hourContainerRef.current, minuteContainerRef.current];
+    const stop = (event: Event) => event.stopPropagation();
+
+    for (const column of columns) {
+      if (!column) continue;
+      column.addEventListener("wheel", stop, { capture: true });
+      column.addEventListener("touchmove", stop, { capture: true });
+    }
+    return () => {
+      for (const column of columns) {
+        if (!column) continue;
+        column.removeEventListener("wheel", stop, { capture: true });
+        column.removeEventListener("touchmove", stop, { capture: true });
+      }
+    };
+  }, [open]);
+
   const handleSelect = (
     newHour: string,
     newMinute: string,
@@ -99,7 +126,7 @@ export function TimePickerPopover({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "h-11 w-full justify-between px-3 text-left font-normal text-slate-800 shadow-sm",
+            "h-11 w-full justify-between px-3 text-left font-normal text-slate-800 shadow-sm hover:bg-background",
             className,
           )}
         >
@@ -114,6 +141,12 @@ export function TimePickerPopover({
         <div className="flex h-64 border rounded-md bg-white shadow-md divide-x divide-slate-100">
           <div
             ref={hourContainerRef}
+            onWheelCapture={(e) => {
+              e.stopPropagation();
+            }}
+            onTouchMoveCapture={(e) => {
+              e.stopPropagation();
+            }}
             className="flex flex-col overflow-y-auto p-1 w-14 no-scrollbar"
           >
             {HOURS.map((h) => (
@@ -136,6 +169,12 @@ export function TimePickerPopover({
 
           <div
             ref={minuteContainerRef}
+            onWheelCapture={(e) => {
+              e.stopPropagation();
+            }}
+            onTouchMoveCapture={(e) => {
+              e.stopPropagation();
+            }}
             className="flex flex-col overflow-y-auto p-1 w-14 no-scrollbar"
           >
             {MINUTES.map((m) => (

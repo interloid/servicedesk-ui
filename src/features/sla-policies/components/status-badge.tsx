@@ -19,7 +19,7 @@ export const BADGE_TONES = {
 } as const;
 
 /** Shared shape: shadcn Badge at the Team table's size. */
-export const BADGE = "h-6 border px-2.5 text-xs font-semibold";
+export const BADGE = "h-6 border-none px-2.5 text-xs font-semibold";
 
 const TONES: Record<PolicyStatus, string> = {
   active: BADGE_TONES.emerald,

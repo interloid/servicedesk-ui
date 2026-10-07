@@ -21,6 +21,8 @@ import {
   SlaPolicyEditorTarget,
   UpdateSlaPolicyDto,
   WEEK_DAYS,
+  describePriorityOrderViolation,
+  findPriorityOrderViolation,
 } from "../types/types";
 import { isValidDurationMins } from "../duration";
 import { DUPLICATE_HOLIDAY_MESSAGE, findHolidayOnDate } from "../holiday-rules";
@@ -111,6 +113,12 @@ function checkTargets(
       resolutionBusiness: t.resolutionBusiness === true,
     });
   }
+
+  // The ladder: urgent tightest, low loosest — a lower priority may never be
+  // answered or resolved faster than a higher one.
+  const violation = findPriorityOrderViolation(targets);
+  if (violation) return describePriorityOrderViolation(violation);
+
   dto.targets = targets;
   return null;
 }

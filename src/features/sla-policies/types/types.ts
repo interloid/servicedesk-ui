@@ -16,6 +16,75 @@ export const PRIORITY_SCOPES: PriorityScope[] = [
   "low",
 ];
 
+export const PRIORITY_LABELS: Record<PriorityScope, string> = {
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
+/**
+ * Where each priority starts on a new policy: the ladder tightens as priority
+ * rises (urgent tightest, low loosest), the same numbers onboarding seeds.
+ */
+export const DEFAULT_TARGET_MINS: Record<
+  PriorityScope,
+  { firstResponseMins: number; resolutionMins: number }
+> = {
+  urgent: { firstResponseMins: 15, resolutionMins: 240 },
+  high: { firstResponseMins: 60, resolutionMins: 480 },
+  normal: { firstResponseMins: 240, resolutionMins: 2880 },
+  low: { firstResponseMins: 1440, resolutionMins: 7200 },
+};
+
+/** What the priority ladder rule looks at. */
+export type OrderedTarget = Pick<
+  SlaPolicyEditorTarget,
+  "priority" | "firstResponseMins" | "resolutionMins"
+>;
+
+export interface PriorityOrderViolation {
+  /** The priority whose time is too short. */
+  scope: PriorityScope;
+  /** The tighter priority it has to respect. */
+  tighterScope: PriorityScope;
+}
+
+/**
+ * Times may not shrink as priority drops: urgent is the tightest and low the
+ * loosest, so within a policy urgent ≤ high ≤ normal ≤ low for both the first
+ * response and the resolution clock. Priorities with no target are skipped.
+ */
+export function findPriorityOrderViolation(
+  targets: readonly OrderedTarget[],
+): PriorityOrderViolation | null {
+  const byScope = new Map(targets.map((t) => [t.priority, t]));
+  let tighter: OrderedTarget | undefined;
+
+  for (const scope of PRIORITY_SCOPES) {
+    const current = byScope.get(scope);
+    if (!current) continue;
+    if (
+      tighter &&
+      (current.firstResponseMins < tighter.firstResponseMins ||
+        current.resolutionMins < tighter.resolutionMins)
+    ) {
+      return { scope, tighterScope: tighter.priority };
+    }
+    tighter = current;
+  }
+  return null;
+}
+
+/** The message shown on the offending row (editor) or returned by the action. */
+export function describePriorityOrderViolation(
+  violation: PriorityOrderViolation,
+): string {
+  return `${PRIORITY_LABELS[violation.scope]} must allow at least as much time as ${
+    PRIORITY_LABELS[violation.tighterScope]
+  } for both first response and resolution.`;
+}
+
 export interface SlaPolicyTarget {
   id: string;
   policy_id: string;
@@ -112,11 +181,12 @@ export interface SlaPolicyEditorTarget {
 export function emptyEditorTarget(
   priority: PriorityScope = "normal",
 ): SlaPolicyEditorTarget {
+  const defaults = DEFAULT_TARGET_MINS[priority];
   return {
     priority,
-    firstResponseMins: 60,
+    firstResponseMins: defaults.firstResponseMins,
     firstResponseBusiness: false,
-    resolutionMins: 480,
+    resolutionMins: defaults.resolutionMins,
     resolutionBusiness: false,
   };
 }

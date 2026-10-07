@@ -16,7 +16,18 @@ import {
   Trash2,
   TreePalm,
   TriangleAlert,
+  X,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Checkbox as CheckboxPrimitive } from "radix-ui";
 import { Label } from "@/components/ui/label";
@@ -39,7 +50,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -62,6 +72,8 @@ import {
   SlaHoliday,
   SlaPolicyEditorValue,
   TimeCalculation,
+  describePriorityOrderViolation,
+  findPriorityOrderViolation,
   type EscalationRole,
 } from "../types/types";
 import {
@@ -111,7 +123,7 @@ interface SlaEditorProps {
   readOnly: boolean;
 }
 
-const CONTROL = "h-10 border-gray-200 text-sm";
+const CONTROL = "h-10 border-gray-200 text-sm focus:border-0";
 /** shadcn Card at the page's 20px padding, with a border instead of its ring. */
 const CARD =
   "gap-4 border border-gray-200/80 bg-white shadow-xs ring-0 [--card-spacing:--spacing(5)]";
@@ -122,7 +134,6 @@ const INSET_TABLE = "overflow-hidden rounded-xl border border-gray-200";
  * borders = 199px), locked or not; more holidays scroll inside it under a
  * sticky header. Targets the shadcn Table's own scroll container.
  */
-const HOLIDAY_VISIBLE_ROWS = 3;
 const HOLIDAY_TABLE_SCROLL =
   "[&_[data-slot=table-container]]:h-[199px] [&_[data-slot=table-container]]:overflow-y-auto";
 const TABLE_HEAD_ROW = "border-gray-200 bg-gray-50/70 hover:bg-gray-50/70";
@@ -189,7 +200,10 @@ export default function SlaEditor({
   const [removingHolidayId, setRemovingHolidayId] = useState<string | null>(
     null,
   );
-  const [, startHolidayRemoval] = useTransition();
+  // The holiday the delete confirmation is asking about; null = no dialog.
+  const [holidayToDelete, setHolidayToDelete] = useState<SlaHoliday | null>(
+    null,
+  );
 
   const [targetInputs, setTargetInputs] = useState<TargetInputs>(
     () =>
@@ -256,20 +270,18 @@ export default function SlaEditor({
   const replaceCalendar = (next: BusinessHoursOption) =>
     setCalendars((prev) => prev.map((c) => (c.id === next.id ? next : c)));
 
-  const removeHoliday = (holiday: SlaHoliday) => {
+  const removeHoliday = async (holiday: SlaHoliday) => {
     if (!activeCalendar) return;
     const calendarId = activeCalendar.id;
     setRemovingHolidayId(holiday.id);
-    startHolidayRemoval(async () => {
-      const result = await removeHolidayAction(tenant, calendarId, holiday.id);
-      setRemovingHolidayId(null);
-      if (!result.success) {
-        toast.error(result.error ?? "Couldn't remove the holiday.");
-        return;
-      }
-      toast.success(`Removed ${holiday.name}.`);
-      replaceCalendar(result.businessHours);
-    });
+    const result = await removeHolidayAction(tenant, calendarId, holiday.id);
+    setRemovingHolidayId(null);
+    if (!result.success) {
+      toast.error(result.error ?? "Couldn't remove the holiday.");
+      return;
+    }
+    toast.success(`Removed ${holiday.name}.`);
+    replaceCalendar(result.businessHours);
   };
 
   const setTimeCalculation = (value: TimeCalculation) =>
@@ -342,6 +354,13 @@ export default function SlaEditor({
         resolutionBusiness: business,
       };
     });
+
+    // The ladder: urgent is the tightest, low the loosest, so a lower priority
+    // may never answer or resolve faster than a higher one.
+    const violation = findPriorityOrderViolation(targets);
+    if (violation && !next.targets[violation.scope]) {
+      next.targets[violation.scope] = describePriorityOrderViolation(violation);
+    }
 
     setErrors(next);
     const ok =
@@ -417,7 +436,7 @@ export default function SlaEditor({
             SLA policies
           </Link>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="truncate text-2xl font-bold tracking-tight text-gray-900">
+            <h1 className="truncate text-2xl capitalize font-bold tracking-tight text-gray-900">
               {mode === "new"
                 ? "Create SLA policy"
                 : initial.name || "Edit SLA policy"}
@@ -430,8 +449,6 @@ export default function SlaEditor({
           </p>
         </div>
 
-        {/* Same buttons and order as the Team & roles page header
-            (Invite member, then View permissions). */}
         <div
           className={cn(
             "flex w-full flex-wrap items-center gap-3 *:flex-1 sm:w-auto sm:*:flex-none",
@@ -479,7 +496,6 @@ export default function SlaEditor({
         </p>
       )}
 
-      {/* A disabled fieldset disables every input and button inside it. */}
       <fieldset disabled={readOnly} className="min-w-0">
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
           <div className="flex flex-col gap-5">
@@ -525,7 +541,11 @@ export default function SlaEditor({
                       {(
                         Object.keys(POLICY_STATUS_LABELS) as PolicyStatus[]
                       ).map((s) => (
-                        <SelectItem key={s} value={s} className="min-h-11">
+                        <SelectItem
+                          key={s}
+                          value={s}
+                          className="min-h-11 cursor-pointer"
+                        >
                           {POLICY_STATUS_LABELS[s]}
                         </SelectItem>
                       ))}
@@ -537,7 +557,7 @@ export default function SlaEditor({
                   <Textarea
                     maxLength={SLA_DESCRIPTION_MAX}
                     // Full height from the start instead of growing with the text.
-                    className="field-sizing-fixed h-21 resize-none overflow-y-auto border-gray-200 text-sm"
+                    className="field-sizing-fixed h-21 resize-none overflow-y-auto border-gray-200 text-sm focus-within:border-0"
                     value={draft.description}
                     onChange={(e) =>
                       setDraft((p) => ({ ...p, description: e.target.value }))
@@ -615,7 +635,7 @@ export default function SlaEditor({
             <Section
               step={2}
               title="SLA Targets by Priority"
-              hint="Set the first response and resolution time for each ticket priority."
+              hint="Set the first response and resolution time for each ticket priority. Times must get longer as priority drops: urgent is the tightest, low the loosest."
             >
               <div className={INSET_TABLE}>
                 <Table className="min-w-160 md:min-w-0">
@@ -749,7 +769,11 @@ export default function SlaEditor({
                   variant="outline"
                   disabled={!activeCalendar}
                   onClick={() => setHoursOpen(true)}
-                  className={CARD_BUTTON}
+                  className={`${CARD_BUTTON} ${
+                    !activeCalendar
+                      ? "cursor-not-allowed opacity-50 text-gray-400"
+                      : ""
+                  }`}
                 >
                   Edit business hours
                 </Button>
@@ -790,9 +814,7 @@ export default function SlaEditor({
                 <LockedPreview
                   title="Business hours are disabled"
                   body="Business hours are not used when 24/7 calculation is selected."
-                >
-                  <BusinessHoursSkeleton />
-                </LockedPreview>
+                ></LockedPreview>
               )}
             </IconCard>
 
@@ -807,7 +829,11 @@ export default function SlaEditor({
                   variant="outline"
                   disabled={!activeCalendar}
                   onClick={() => setHolidayDialog({ holiday: null })}
-                  className={CARD_BUTTON}
+                  className={`${CARD_BUTTON} ${
+                    !activeCalendar
+                      ? "cursor-not-allowed opacity-50 text-gray-400"
+                      : ""
+                  }`}
                 >
                   <Plus className="size-4" aria-hidden />
                   Add holiday
@@ -819,15 +845,13 @@ export default function SlaEditor({
                   holidays={activeCalendar.holidays}
                   removingId={removingHolidayId}
                   onEdit={(holiday) => setHolidayDialog({ holiday })}
-                  onRemove={removeHoliday}
+                  onRemove={(holiday) => setHolidayToDelete(holiday)}
                 />
               ) : (
                 <LockedPreview
                   title="Holidays are disabled"
                   body="Holidays are not used when 24/7 calculation is selected."
-                >
-                  <HolidaysSkeleton />
-                </LockedPreview>
+                ></LockedPreview>
               )}
             </IconCard>
 
@@ -873,7 +897,7 @@ export default function SlaEditor({
                       }
                     >
                       <SelectTrigger
-                        className="h-9 w-28 border-gray-200 text-sm"
+                        className="min-h-9 w-28 border-gray-200 text-sm"
                         aria-label="Lead time unit"
                       >
                         <SelectValue />
@@ -885,13 +909,19 @@ export default function SlaEditor({
                         className="p-1"
                       >
                         {(["minutes", "hours"] as Unit[]).map((u) => (
-                          <SelectItem key={u} value={u}>
+                          <SelectItem
+                            key={u}
+                            value={u}
+                            className="p-2 cursor-pointer"
+                          >
                             {unitLabel(u, notifyLead.amount)}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    before target
+                    <p className="text-xs text-gray-500">
+                      Before the SLA deadline
+                    </p>
                   </div>
                   {errors.notifyBefore && (
                     <p className="text-xs text-red-600">
@@ -905,10 +935,14 @@ export default function SlaEditor({
                     id="escalate-breach"
                     checked={draft.escalateOnBreach}
                     onCheckedChange={(v) =>
-                      setDraft((p) => ({ ...p, escalateOnBreach: v }))
+                      setDraft((p) => ({
+                        ...p,
+                        escalateOnBreach: v,
+                      }))
                     }
                     className="data-[state=checked]:bg-brand-accent"
                   />
+
                   <Label
                     htmlFor="escalate-breach"
                     className="cursor-pointer text-sm font-semibold text-gray-800"
@@ -916,37 +950,43 @@ export default function SlaEditor({
                     Escalate on breach
                   </Label>
                 </div>
+
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  {draft.escalateOnBreach && (
-                    <Select
-                      value={draft.escalateToRole}
-                      onValueChange={(v) =>
-                        setDraft((p) => ({
-                          ...p,
-                          escalateToRole: v as EscalationRole,
-                        }))
-                      }
+                  <Select
+                    value={draft.escalateToRole}
+                    onValueChange={(v) =>
+                      setDraft((p) => ({
+                        ...p,
+                        escalateToRole: v as EscalationRole,
+                      }))
+                    }
+                    disabled={!draft.escalateOnBreach}
+                  >
+                    <SelectTrigger
+                      className="min-h-9 w-44 border-gray-200 text-sm"
+                      aria-label="Escalate to"
                     >
-                      <SelectTrigger
-                        className="h-9 w-44 border-gray-200 text-sm"
-                        aria-label="Escalate to"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent
-                        side="bottom"
-                        align="start"
-                        position="popper"
-                        className="p-1"
-                      >
-                        {ESCALATION_ROLES.map((role) => (
-                          <SelectItem key={role.value} value={role.value}>
-                            {role.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
+                      <SelectValue />
+                    </SelectTrigger>
+
+                    <SelectContent
+                      side="bottom"
+                      align="start"
+                      position="popper"
+                      className="p-1"
+                    >
+                      {ESCALATION_ROLES.map((role) => (
+                        <SelectItem
+                          key={role.value}
+                          value={role.value}
+                          className="min-h-9 cursor-pointer p-2"
+                        >
+                          {role.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
                   <p className="text-xs text-gray-500">
                     Automatically escalate the ticket if SLA is breached.
                   </p>
@@ -977,6 +1017,92 @@ export default function SlaEditor({
             onOpenChange={setHoursOpen}
             onSaved={replaceCalendar}
           />
+          <AlertDialog
+            open={holidayToDelete !== null}
+            onOpenChange={(open) => {
+              if (!open) setHolidayToDelete(null);
+            }}
+          >
+            <AlertDialogContent
+              className="
+                w-[calc(100%-2rem)]
+                data-[size=default]:max-w-110
+                rounded-2xl
+                border
+                border-border
+                bg-background
+                p-0
+                shadow-xl
+                overflow-hidden
+              "
+            >
+              <AlertDialogHeader className="block px-6 pt-5 pb-4 text-left">
+                <div className="flex items-center justify-between gap-4">
+                  <AlertDialogTitle className="text-xl font-bold text-foreground">
+                    Remove holiday
+                  </AlertDialogTitle>
+                  <AlertDialogCancel
+                    disabled={removingHolidayId !== null}
+                    className="
+                      absolute
+                      right-4
+                      top-4
+                      z-20
+                      flex
+                      size-8
+                      items-center
+                      justify-center
+                      rounded-md
+                      border-0
+                      bg-transparent
+                      p-0
+                      text-muted-foreground
+                      shadow-none
+                      hover:bg-transparent
+                      hover:text-foreground
+                      focus:outline-none
+                      focus:ring-2
+                      focus:ring-current/20
+                      disabled:pointer-events-none
+                    "
+                    aria-label="Close"
+                  >
+                    <X className="size-4" />
+                  </AlertDialogCancel>
+                </div>
+                <AlertDialogDescription asChild>
+                  <div className="mt-4 space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Are you sure you want to remove{" "}
+                      <span className="font-semibold text-foreground">
+                        {holidayToDelete?.name}
+                      </span>
+                      ? This action cannot be undone.
+                    </p>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="flex flex-col-reverse gap-2 px-6 pb-6 sm:flex-row sm:justify-end">
+                <AlertDialogCancel
+                  disabled={removingHolidayId !== null}
+                  className="h-10 px-4"
+                >
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={removingHolidayId !== null}
+                  onClick={async () => {
+                    if (!holidayToDelete) return;
+                    await removeHoliday(holidayToDelete);
+                    setHolidayToDelete(null);
+                  }}
+                  className="h-10 px-4 border-red-600 bg-background text-red-600 hover:border-red-600 hover:bg-red-50 hover:text-red-600 disabled:border-red-300 disabled:bg-background disabled:text-red-300 disabled:opacity-100 dark:hover:bg-red-950/30"
+                >
+                  Remove
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
     </div>
@@ -1003,7 +1129,7 @@ function Section({
           {step}
         </span>
         <div className="space-y-0.5">
-          <CardTitle className="text-base font-semibold text-gray-900">
+          <CardTitle className="text-base font-semibold  text-gray-900">
             {title}
             {optional && (
               <span className="ml-1 text-xs font-normal text-gray-500">
@@ -1100,7 +1226,6 @@ function DefaultSlaCheckbox({
           isCurrentDefault ? "cursor-not-allowed" : "cursor-pointer",
         )}
       >
-        {/* Drawn like the "Applies to" radio so the two cards match. */}
         <CheckboxPrimitive.Root
           checked={checked}
           disabled={isCurrentDefault}
@@ -1254,7 +1379,7 @@ function DurationInputs({
         onValueChange={(v) => onChange({ unit: v as Unit })}
       >
         <SelectTrigger
-          className="h-9 w-32 border-gray-200 text-sm"
+          className="min-h-9 w-32 border-gray-200 text-sm"
           aria-label={`${label} unit`}
         >
           <SelectValue />
@@ -1266,7 +1391,7 @@ function DurationInputs({
           className="p-1"
         >
           {(Object.keys(UNIT_MINS) as Unit[]).map((u) => (
-            <SelectItem key={u} value={u}>
+            <SelectItem key={u} value={u} className="p-2  cursor-pointer">
               {unitLabel(u, value.amount)}
             </SelectItem>
           ))}
@@ -1344,111 +1469,16 @@ function IconCard({
 }
 
 /** A skeleton of the card's content with a lock message over it. */
-function LockedPreview({
-  title,
-  body,
-  children,
-}: {
-  title: string;
-  body: string;
-  children: React.ReactNode;
-}) {
+function LockedPreview({ title, body }: { title: string; body: string }) {
   return (
-    <div className="relative">
-      <div aria-hidden inert className="select-none">
-        {children}
-      </div>
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-white/70 px-4 text-center">
-        <span className="flex size-10 items-center justify-center rounded-full bg-white text-gray-500 shadow-sm ring-1 ring-gray-200">
-          <Lock className="size-4.5" aria-hidden />
-        </span>
-        <p className="text-sm font-semibold text-gray-900">{title}</p>
-        <p className="text-xs text-gray-500">{body}</p>
-      </div>
-    </div>
-  );
-}
+    <div className="flex min-h-35 flex-col items-center justify-center rounded-xl bg-gray-50 px-4 text-center">
+      <span className="mb-2 flex size-10 items-center justify-center rounded-full bg-white text-gray-400 ring-1 ring-gray-200">
+        <Lock className="size-4" aria-hidden />
+      </span>
 
-/** Static (not pulsing): this is a disabled state, not a loading one. */
-function Bone({ className }: { className?: string }) {
-  return <Skeleton className={cn("animate-none bg-gray-100", className)} />;
-}
+      <p className="text-sm font-semibold text-gray-900">{title}</p>
 
-/**
- * One bar inside a line box of the real text's line height, so a skeleton
- * row is exactly as tall as the row it stands in for.
- */
-function Line({ height, className }: { height: string; className: string }) {
-  return (
-    <span className={cn("flex items-center", height)}>
-      <Bone className={className} />
-    </span>
-  );
-}
-
-/** Same box model as BusinessHoursSummary: 60px cells, 40px footer. */
-function BusinessHoursSkeleton() {
-  return (
-    <Card className="gap-0 border border-gray-200 py-0 shadow-none ring-0">
-      <div className="grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
-        {[0, 1].map((i) => (
-          <div key={i} className="flex items-center gap-3 px-4 py-3">
-            <Bone className="size-5 shrink-0 rounded" />
-            <div>
-              <Line height="h-5" className="h-3.5 w-24" />
-              <Line height="h-4" className="h-3 w-16" />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-2.5">
-        <Line height="h-5" className="h-3.5 w-36" />
-        <Line height="h-5" className="h-3.5 w-24" />
-      </div>
-    </Card>
-  );
-}
-
-const HOLIDAY_GRID =
-  "grid grid-cols-[2fr_1.2fr_1fr_1fr_3.5rem] items-center gap-4 px-4";
-
-/**
- * Same box model as HolidaysTable: 40px header and HOLIDAY_VISIBLE_ROWS
- * 52px rows, so locking and unlocking doesn't change the card's height.
- */
-function HolidaysSkeleton() {
-  return (
-    <div className={INSET_TABLE}>
-      <div
-        className={cn(
-          HOLIDAY_GRID,
-          "h-10 border-b border-gray-200 bg-gray-50/70",
-        )}
-      >
-        <Bone className="h-3 w-24" />
-        <Bone className="h-3 w-12" />
-        <Bone className="h-3 w-12" />
-        <Bone className="h-3 w-14" />
-        <span />
-      </div>
-      {Array.from({ length: HOLIDAY_VISIBLE_ROWS }, (_, i) => (
-        <div
-          key={i}
-          className={cn(
-            HOLIDAY_GRID,
-            "border-b border-gray-100 py-3 last:border-b-0",
-          )}
-        >
-          <Line height="h-7" className="h-3.5 w-28" />
-          <Bone className="h-3.5 w-20" />
-          <Bone className="h-3.5 w-14" />
-          <Bone className="h-5 w-14 rounded-md" />
-          <div className="flex justify-end gap-1">
-            <Bone className="size-7 rounded-md" />
-            <Bone className="size-7 rounded-md" />
-          </div>
-        </div>
-      ))}
+      <p className="mt-1 text-xs text-gray-500">{body}</p>
     </div>
   );
 }
@@ -1457,7 +1487,6 @@ function BusinessHoursSummary({
   workingDays,
   workingHours,
   holidayCount,
-  onManageHolidays,
 }: {
   workingDays: string;
   workingHours: string;
@@ -1475,15 +1504,6 @@ function BusinessHoursSummary({
           <TreePalm className="size-4" aria-hidden />
           {holidayCount} holiday{holidayCount !== 1 ? "s" : ""} configured
         </div>
-        {onManageHolidays && (
-          <button
-            type="button"
-            onClick={onManageHolidays}
-            className="text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-          >
-            Manage holidays
-          </button>
-        )}
       </div>
     </Card>
   );
@@ -1509,10 +1529,9 @@ function HolidaysTable({
           <TableRow className={TABLE_HEAD_ROW}>
             <TableHead className={cn(TH, "px-4")}>Holiday name</TableHead>
             <TableHead className={cn(TH, "px-4")}>Date</TableHead>
-            <TableHead className={cn(TH, "px-4")}>Time</TableHead>
             <TableHead className={cn(TH, "px-4")}>Repeat</TableHead>
             <TableHead className="w-20 px-4">
-              <span className="sr-only">Actions</span>
+              <span className="">Actions</span>
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -1535,9 +1554,6 @@ function HolidaysTable({
                 </TableCell>
                 <TableCell className="px-4 py-3 text-gray-700">
                   {formatHolidayDate(h)}
-                </TableCell>
-                <TableCell className="px-4 py-3 text-gray-700">
-                  {h.allDay ? "All day" : `${h.startTime} – ${h.endTime}`}
                 </TableCell>
                 <TableCell className="px-4 py-3">
                   <Badge

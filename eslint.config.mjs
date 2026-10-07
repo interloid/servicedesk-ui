@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party package (patched braces, see vendor/braces).
+    "vendor/**",
   ]),
 ]);
 

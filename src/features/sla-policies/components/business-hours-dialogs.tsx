@@ -92,7 +92,7 @@ function DatePicker({
           aria-invalid={invalid || undefined}
           className={cn(
             TEAM_MODAL_CONTROL,
-            "w-full justify-between px-3 text-left font-normal shadow-sm",
+            "w-full justify-between px-3 text-left font-normal shadow-sm hover:bg-background",
             invalid && "border-destructive",
           )}
         >
@@ -115,7 +115,7 @@ function DatePicker({
           endMonth={lastMonth}
           captionLayout="dropdown"
           // Same accent as TimePickerPopover's selected cell.
-          className="[&_[data-selected-single=true]]:bg-brand-accent [&_[data-selected-single=true]]:text-brand-accent-foreground"
+          className="**:data-[selected-single=true]:bg-brand-accent **:data-[selected-single=true]:text-brand-accent-foreground"
           onSelect={(day) => {
             if (!day) return;
             onChange(format(day, ISO_DAY));
@@ -170,15 +170,16 @@ export function HolidayDialog({
   const [form, setForm] = useState(() => toHolidayForm(holiday));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Start from the holiday being edited (or a blank form) on every open, and
+  // reset the form when it closes so stale data never shows. Adjusted while
+  // rendering, like EditBusinessHoursDialog below.
   const [wasOpen, setWasOpen] = useState(open);
-
-  // Start from the holiday being edited (or a blank form) on every open.
-  if (open !== wasOpen) {
+  const [wasHoliday, setWasHoliday] = useState(holiday);
+  if (open !== wasOpen || holiday !== wasHoliday) {
     setWasOpen(open);
-    if (open) {
-      setForm(toHolidayForm(holiday));
-      setError(null);
-    }
+    setWasHoliday(holiday);
+    setForm(open ? toHolidayForm(holiday) : EMPTY_HOLIDAY);
+    setError(null);
   }
 
   const change = (next: boolean) => onOpenChange(next);
@@ -222,7 +223,7 @@ export function HolidayDialog({
           <DialogTitle className={TEAM_DIALOG_TITLE}>
             {editing ? "Edit holiday" : "Add holiday"}
           </DialogTitle>
-          <DialogDescription className="sr-only">
+          <DialogDescription className="">
             {editing
               ? "Change a day the SLA clock does not count."
               : "Add a day the SLA clock does not count."}
@@ -427,7 +428,8 @@ export function EditBusinessHoursDialog({
             Edit business hours
           </DialogTitle>
           <DialogDescription>
-            Changes apply to every SLA policy that uses {businessHours.name}.
+            Changes will apply to all SLA policies that use these business
+            hours.
           </DialogDescription>
         </DialogHeader>
 

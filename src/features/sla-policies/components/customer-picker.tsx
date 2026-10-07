@@ -110,7 +110,7 @@ export function CustomerPicker({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name, email or company…"
               aria-label="Search customers"
-              className="h-9 border-gray-200 pl-8 text-sm"
+              className="h-9 border-0 pl-8 text-sm"
             />
           </div>
 
@@ -156,7 +156,7 @@ export function CustomerPicker({
                       checked={checked}
                       disabled={locked}
                       onCheckedChange={() => toggle(c.id)}
-                      className="rounded-[4px] border-gray-300 data-checked:border-brand-accent data-checked:bg-brand-accent [&_svg]:size-3"
+                      className="border-gray-300 data-checked:border-brand-accent data-checked:bg-brand-accent [&_svg]:size-3"
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-gray-900">
@@ -183,7 +183,7 @@ export function CustomerPicker({
               <button
                 type="button"
                 onClick={() => onChange([])}
-                className="font-semibold text-brand-accent hover:underline"
+                className="font-semibold text-brand-accent"
               >
                 Clear
               </button>

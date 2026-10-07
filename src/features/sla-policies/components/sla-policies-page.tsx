@@ -1,5 +1,5 @@
+"use client";
 import React from "react";
-import Link from "next/link";
 import { CalendarDays, Clock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import {
@@ -27,6 +27,7 @@ import {
   describePolicyLimit,
   hasPolicyRoom,
 } from "../types/types";
+import { useRouter } from "next/navigation";
 
 interface SlaPoliciesPageProps {
   tenant: string;
@@ -46,6 +47,43 @@ const COLUMNS = [
   "Status",
 ];
 
+interface ClickablePolicyRowProps {
+  href: string;
+  children: React.ReactNode;
+}
+
+export function ClickablePolicyRow({
+  href,
+  children,
+}: ClickablePolicyRowProps) {
+  const router = useRouter();
+
+  const navigate = () => {
+    router.push(href);
+  };
+
+  return (
+    <TableRow
+      tabIndex={0}
+      role="link"
+      onClick={navigate}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          navigate();
+        }
+      }}
+      className={cn(
+        "cursor-pointer border-gray-100 align-middle",
+        "hover:bg-gray-50/70",
+        "focus-visible:outline-none focus-visible:ring-2",
+        "focus-visible:ring-brand-accent focus-visible:ring-inset",
+      )}
+    >
+      {children}
+    </TableRow>
+  );
+}
 /**
  * A Server Component: the list has no client state, so it renders straight
  * from the server's rows and a refresh always shows the latest ones.
@@ -82,14 +120,13 @@ export const SlaPoliciesPage: React.FC<SlaPoliciesPageProps> = ({
         </div>
 
         <Card className="gap-0 border border-gray-200/80 bg-white py-0 shadow-xs ring-0">
-          <Table>
+          <Table className="rounded-none border-0">
             <TableHeader>
-              {/* Same header style as the billing invoices table. */}
-              <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50">
+              <TableRow className="h-14 border-slate-100 bg-slate-50 hover:bg-slate-50">
                 {COLUMNS.map((c) => (
                   <TableHead
                     key={c}
-                    className="h-10 px-4 text-[11px] font-semibold tracking-wider text-slate-500 uppercase"
+                    className="h-10 px-4 text-[11px] font-bold tracking-wider text-slate-500 uppercase"
                   >
                     {c}
                   </TableHead>
@@ -122,53 +159,54 @@ export const SlaPoliciesPage: React.FC<SlaPoliciesPageProps> = ({
 
 function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
   const href = `/${tenant}/sla/${policy.id}`;
+
   const urgent = policy.targets.find((t) => t.priority_scope === "urgent");
+
   const low = policy.targets.find((t) => t.priority_scope === "low");
+
   const calendar = policy.business_hours;
 
   return (
-    <TableRow className="border-gray-100 align-top hover:bg-gray-50/50">
-      <TableCell className="max-w-60 px-4 py-4 align-top whitespace-normal">
+    <ClickablePolicyRow href={href}>
+      <TableCell className="max-w-60 px-4 py-4 align-middle whitespace-normal">
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href={href}
-            className="font-semibold text-gray-900 transition-colors hover:text-brand-accent"
-          >
+          <span className="font-semibold capitalize text-gray-900 transition-colors group-hover:text-brand-accent">
             {policy.name}
-          </Link>
+          </span>
+
           {policy.is_default && (
             <Badge
               className={cn(
                 BADGE_TONES.slate,
-                "h-5 border-none px-2 text-[10px] font-semibold tracking-wide uppercase",
+                "inline-flex h-5 shrink-0 items-center border-none px-2 text-[10px] font-semibold leading-none tracking-wide uppercase",
               )}
             >
               Default
             </Badge>
           )}
         </div>
+
         <p className="mt-1 line-clamp-2 text-xs text-gray-500">
           {policy.description}
         </p>
       </TableCell>
 
-      <TableCell className="px-4 py-4 align-top whitespace-normal">
-        <div className="flex items-start gap-2.5">
+      <TableCell className="px-4 py-4 align-middle whitespace-normal">
+        <div className="flex items-center gap-2.5">
           {calendar ? (
             <CalendarDays
-              className="mt-0.5 size-5 shrink-0 text-gray-500"
+              className="size-5 shrink-0 text-gray-500"
               aria-hidden
             />
           ) : (
-            <Clock
-              className="mt-0.5 size-5 shrink-0 text-gray-500"
-              aria-hidden
-            />
+            <Clock className="size-5 shrink-0 text-gray-500" aria-hidden />
           )}
+
           <div>
             <p className="font-medium text-gray-900">
               {calendar ? "Business Hours" : "24/7"}
             </p>
+
             <p className="text-xs text-gray-500">
               {calendar
                 ? `${formatWorkingDays(calendar.workingDays)}, ${formatWorkingHours(calendar)}`
@@ -178,25 +216,50 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
         </div>
       </TableCell>
 
-      <TableCell className="px-4 py-4 align-top">
-        {[
-          { target: urgent, label: "Urgent" },
-          { target: low, label: "Low" },
-        ].map(
-          ({ target, label }) =>
-            target && (
-              <p key={label} className="tabular-nums">
-                <span className="font-semibold text-gray-900">
-                  {formatDurationShort(target.first_response_mins)} /{" "}
-                  {formatDurationShort(target.resolution_mins)}
-                </span>{" "}
-                <span className="text-gray-500">({label})</span>
-              </p>
-            ),
-        )}
+      <TableCell className="px-4 py-4 align-middle">
+        <div className="flex flex-col gap-1.5">
+          {[
+            {
+              target: urgent,
+              label: "Urgent",
+              className: "bg-red-50 text-red-600 border-0 ring-0",
+              dot: "bg-red-500",
+            },
+            {
+              target: low,
+              label: "Low",
+              className: "bg-emerald-50 text-emerald-600 border-0 ring-0",
+              dot: "bg-emerald-500",
+            },
+          ].map(
+            ({ target, label, className, dot }) =>
+              target && (
+                <div
+                  key={label}
+                  className="flex items-center gap-2 whitespace-nowrap"
+                >
+                  <span className="font-semibold tabular-nums text-gray-900">
+                    {formatDurationShort(target.first_response_mins)} /{" "}
+                    {formatDurationShort(target.resolution_mins)}
+                  </span>
+
+                  <Badge
+                    className={cn(
+                      "h-5 gap-1.5 rounded-full border-0 px-2 text-[10px] font-semibold",
+                      "ring-1 ring-inset",
+                      className,
+                    )}
+                  >
+                    <span className={cn("size-1.5 rounded-full", dot)} />
+                    {label}
+                  </Badge>
+                </div>
+              ),
+          )}
+        </div>
       </TableCell>
 
-      <TableCell className="px-4 py-4 align-top whitespace-normal">
+      <TableCell className="px-4 py-4 align-middle whitespace-normal">
         <p className="text-gray-900">
           {policy.applies_to === "Selected customers"
             ? `${policy.selected_customer_count} selected customer${
@@ -204,23 +267,28 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
               }`
             : "All customers"}
         </p>
+
         <p className="text-xs text-gray-500">
           {policy.appliedTickets.toLocaleString("en-US")} ticket
           {policy.appliedTickets === 1 ? "" : "s"}
         </p>
       </TableCell>
 
-      <TableCell className="px-4 py-4 align-top">
-        <p className="text-gray-900">{formatUpdatedDate(policy.updated_at)}</p>
+      <TableCell className="px-4 py-4 align-middle">
+        <p className="whitespace-nowrap text-gray-900">
+          {formatUpdatedDate(policy.updated_at)}
+        </p>
+
         {policy.updated_by_name && (
-          <p className="text-xs text-gray-500">by {policy.updated_by_name}</p>
+          <p className="mt-0.5 whitespace-nowrap text-xs text-gray-500">
+            by {policy.updated_by_name}
+          </p>
         )}
       </TableCell>
-
-      <TableCell className="px-4 py-4 align-top whitespace-normal">
+      <TableCell className="px-4 py-4 align-middle">
         <StatusBadge status={policy.status} />
       </TableCell>
-    </TableRow>
+    </ClickablePolicyRow>
   );
 }
 

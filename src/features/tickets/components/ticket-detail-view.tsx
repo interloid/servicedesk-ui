@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useTransition, useEffect, useMemo } from "react";
+import { useState, useRef, useTransition, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
@@ -20,6 +20,10 @@ import {
   MessageVisibility,
   TicketAttachment,
   SlaEvent,
+  SlaPolicy,
+  TicketCsat,
+  TicketSlaPolicy,
+  TicketTag,
 } from "@/features/tickets/types/tickets.types";
 import { AssignableAgent } from "@/features/tickets/services/tickets.service";
 import {
@@ -33,6 +37,18 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useRealtimeSlaEvents } from "@/hooks/use-realtime-sla-events";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
+import { useRealtimeTicket } from "@/hooks/use-realtime-ticket";
+import { useNow } from "@/hooks/use-now";
+import {
+  SlaHeadlineBadge,
+  TicketSlaCard,
+} from "@/features/tickets/components/ticket-sla-card";
+import { TicketTagsField } from "@/features/tickets/components/ticket-tags-field";
+import { TicketCsatCard } from "@/features/tickets/components/ticket-csat-card";
+import {
+  TicketLifecycleActions,
+  TicketLifecycleBanner,
+} from "@/features/tickets/components/ticket-lifecycle";
 import { Label } from "@/components/ui/label";
 import { IndeterminateProgress } from "@/components/ui/indeterminate-progress";
 import { BackLink } from "@/components/shared/back-link";
@@ -47,6 +63,13 @@ interface TicketDetailViewProps {
   agents?: AssignableAgent[];
   mentionableMembers?: AssignableAgent[];
   currentUserId?: string | null;
+  slaPolicy?: TicketSlaPolicy | null;
+  slaPolicies?: SlaPolicy[];
+  tags?: TicketTag[];
+  tenantTags?: TicketTag[];
+  csat?: TicketCsat[];
+  /** Days a resolved ticket waits before it is closed automatically. */
+  autoCloseDays?: number;
 }
 
 export default function TicketDetailView({
@@ -58,7 +81,14 @@ export default function TicketDetailView({
   agents = [],
   mentionableMembers = [],
   currentUserId = null,
+  slaPolicy = null,
+  slaPolicies = [],
+  tags = [],
+  tenantTags = [],
+  csat = [],
+  autoCloseDays = 0,
 }: TicketDetailViewProps) {
+  const router = useRouter();
   const slaEvents = useRealtimeSlaEvents(ticket.id, initialSlaEvents);
 
   const memberNameById = useMemo(() => {
@@ -84,6 +114,32 @@ export default function TicketDetailView({
       ? ticket.assignee_id!
       : "unassigned",
   );
+  const [slaPolicyId, setSlaPolicyId] = useState<string | null>(
+    ticket.sla_policy_id ?? null,
+  );
+  const [resolvedAt, setResolvedAt] = useState<string | null>(
+    ticket.resolved_at ?? null,
+  );
+  const [closedAt, setClosedAt] = useState<string | null>(
+    ticket.closed_at ?? null,
+  );
+
+  // Changes made elsewhere: auto-close, a portal reopen, a teammate.
+  useRealtimeTicket(ticket.id, (row) => {
+    const statusMoved = row.status !== status;
+    setStatus(row.status);
+    setPriority(row.priority);
+    setSlaPolicyId(row.sla_policy_id);
+    setResolvedAt(row.resolved_at);
+    setClosedAt(row.closed_at);
+    setAssigneeId(
+      row.assignee_user_id && agents.some((a) => a.id === row.assignee_user_id)
+        ? row.assignee_user_id
+        : "unassigned",
+    );
+    // CSAT and the policy summary are server-rendered.
+    if (statusMoved || row.sla_policy_id !== slaPolicyId) router.refresh();
+  });
   const [replyType, setReplyType] = useState<MessageVisibility>("public");
   const [replyText, setReplyText] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -187,13 +243,7 @@ export default function TicketDetailView({
     }
   };
 
-  const hasPendingSla = slaEvents.some((e) => e.status === "pending");
-  const [now, setNow] = useState<number>(() => Date.now());
-  useEffect(() => {
-    if (!hasPendingSla) return;
-    const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, [hasPendingSla]);
+  const now = useNow(30_000);
 
   const handleSendReply = () => {
     if (!replyText.trim() && pendingFiles.length === 0) return;
@@ -254,36 +304,6 @@ export default function TicketDetailView({
   const fileExtension = (name: string) =>
     (name.match(/\.([^.]+)$/) || [])[1]?.toUpperCase() || "FILE";
 
-  const formatDurationShort = (ms: number) => {
-    const minutes = Math.floor(ms / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    if (days > 0) return `${days}d ${hours % 24}h`;
-    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-    return `${minutes}m`;
-  };
-
-  const formatRemaining = (ms: number) => {
-    const abs = Math.abs(ms);
-    const minutes = Math.floor(abs / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    if (days > 0) return `${days}d ${hours % 24}h left`;
-    if (hours > 0) return `${hours}h ${minutes % 60}m left`;
-    return `${minutes}m left`;
-  };
-
-  const formatClock = (iso?: string | null) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    return d.toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
   const activityAt = lastActivityAt ?? ticket.created_at;
   const lastActivityText = (() => {
     const diff = now - new Date(activityAt).getTime();
@@ -295,132 +315,6 @@ export default function TicketDetailView({
     const days = Math.floor(hrs / 24);
     return `${days} day${days > 1 ? "s" : ""} ago`;
   })();
-  const slaRemainingText = (ev: SlaEvent) => {
-    const start = new Date(ev.created_at).getTime();
-    const due = new Date(ev.due_at).getTime();
-    const total = due - start;
-    const remaining = due - now;
-    const elapsedPct = total > 0 ? ((now - start) / total) * 100 : 100;
-
-    let text = `${formatRemaining(remaining)}`;
-    let badgeStyle =
-      "bg-[#0e7adf]/10 text-[#0e7adf] border border-[#0e7adf]/20";
-    let dotStyle = "bg-[#0e7adf]";
-
-    if (ev.status === "completed") {
-      text = ev.completed_at
-        ? `Met in ${formatDurationShort(
-            new Date(ev.completed_at).getTime() -
-              new Date(ev.created_at).getTime(),
-          )}`
-        : "Completed";
-      badgeStyle =
-        "bg-emerald-100 text-emerald-800 border border-emerald-200/60";
-      dotStyle = "bg-emerald-600";
-    } else if (ev.status === "breached" || remaining <= 0) {
-      text = "Breached";
-      badgeStyle = "bg-rose-100 text-rose-800 border border-rose-200/80";
-      dotStyle = "bg-rose-500";
-    } else if (elapsedPct >= 75 || remaining < 600000) {
-      badgeStyle = "bg-amber-100 text-amber-900 border border-amber-200/60";
-      dotStyle = "bg-amber-600";
-    }
-
-    return (
-      <span
-        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${badgeStyle}`}
-      >
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotStyle}`} />
-        {text}
-      </span>
-    );
-  };
-
-  const slaProgressPercent = (ev: SlaEvent) => {
-    if (ev.status === "breached") return 100;
-    if (ev.status === "completed") return 100;
-    const start = new Date(ev.created_at).getTime();
-    const due = new Date(ev.due_at).getTime();
-    const total = due - start;
-    if (total <= 0) return 100;
-    const elapsed = ((now - start) / total) * 100;
-    return Math.max(0, Math.min(100, Math.round(elapsed)));
-  };
-
-  const slaBarColor = (ev: SlaEvent) => {
-    if (ev.status === "completed") return "bg-emerald-400";
-    if (ev.status === "breached") return "bg-red-400";
-    const pct = slaProgressPercent(ev);
-    if (pct >= 100) return "bg-red-400";
-    if (pct >= 75) return "bg-amber-400";
-    return "bg-[#0e7adf]";
-  };
-
-  const slaCardBadge = (ev: SlaEvent) => {
-    const start = new Date(ev.created_at).getTime();
-    const due = new Date(ev.due_at).getTime();
-    const total = due - start;
-    const remaining = due - now;
-    const elapsedPct = total > 0 ? ((now - start) / total) * 100 : 100;
-
-    let badge = "bg-[#0e7adf]/10 text-[#0e7adf]";
-    let dot = "bg-[#0e7adf]";
-
-    if (ev.status === "completed") {
-      badge = "bg-emerald-100 text-emerald-800";
-      dot = "bg-emerald-600";
-    } else if (ev.status === "breached" || remaining <= 0) {
-      badge = "bg-rose-100 text-rose-800";
-      dot = "bg-rose-500";
-    } else if (elapsedPct >= 75 || remaining < 600000) {
-      badge = "bg-amber-100 text-amber-900";
-      dot = "bg-amber-600";
-    }
-
-    return (
-      <span
-        className={cn(
-          "inline-flex items-center gap-1.5 rounded-full  text-[11px] font-semibold whitespace-nowrap",
-          badge,
-        )}
-      >
-        <span className={`size-1.5 rounded-full shrink-0 ${dot}`} />
-        {slaCardText(ev)}
-      </span>
-    );
-  };
-
-  const slaCardText = (ev: SlaEvent) => {
-    const start = new Date(ev.created_at).getTime();
-    if (ev.status === "completed" && ev.completed_at) {
-      const completedAt = new Date(ev.completed_at).getTime();
-      const due = new Date(ev.due_at).getTime();
-      const duration = formatDurationShort(completedAt - start);
-      const metEarlyBy = due - completedAt;
-      if (metEarlyBy > 0) {
-        return `Met in ${duration} `;
-      }
-      return `Met in ${duration} (${formatClock(ev.completed_at)})`;
-    }
-    if (ev.status === "completed") {
-      return "Completed";
-    }
-    if (ev.status === "breached") {
-      const onset = ev.breached_at || ev.completed_at;
-      const duration = onset
-        ? formatDurationShort(
-            new Date(onset).getTime() - new Date(ev.created_at).getTime(),
-          )
-        : null;
-      const at = formatClock(ev.breached_at) ?? formatClock(ev.due_at) ?? "—";
-      return duration
-        ? `Breached after ${duration} (${at})`
-        : `Breached · ${at}`;
-    }
-    const due = new Date(ev.due_at).getTime();
-    const remaining = due - now;
-    return formatRemaining(remaining);
-  };
   const handleStatusChange = (val: TicketStatus) => {
     const prev = status;
     setStatus(val);
@@ -435,12 +329,43 @@ export default function TicketDetailView({
         if (!res.success) {
           setStatus(prev);
           toast.error(res.error || "Failed to update status.");
+        } else {
+          if (val === "resolved") toast.success("Ticket resolved.");
+          else if (val === "closed") toast.success("Ticket closed.");
+          else if (prev === "resolved" || prev === "closed")
+            toast.success("Ticket reopened.");
+          router.refresh();
         }
       } finally {
         setIsUpdatingTicket(false);
       }
     });
   };
+
+  const handleSlaPolicyChange = (val: string | null) => {
+    const prev = slaPolicyId;
+    setSlaPolicyId(val);
+    setIsUpdatingTicket(true);
+    startTransition(async () => {
+      try {
+        const res = await updateTicketDetailsAction({
+          ticketId: ticket.id,
+          tenantId: tenant,
+          slaPolicyId: val,
+        });
+        if (!res.success) {
+          setSlaPolicyId(prev);
+          toast.error(res.error || "Failed to change the SLA policy.");
+        } else {
+          router.refresh();
+        }
+      } finally {
+        setIsUpdatingTicket(false);
+      }
+    });
+  };
+
+  const isClosed = status === "closed";
 
   const handlePriorityChange = (val: TicketPriority) => {
     const prev = priority;
@@ -533,23 +458,30 @@ export default function TicketDetailView({
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center space-x-3 text-xs">
+          <div className="flex flex-wrap items-center gap-3 text-xs">
             <span className="text-slate-400 font-medium">
               #{ticket.number ?? "-"}
             </span>
-            {(() => {
-              const headEv =
-                slaEvents.find((e) => e.status === "pending") || slaEvents[0];
-              if (headEv) {
-                return slaRemainingText(headEv);
-              }
-              return null;
-            })()}
+            {!isClosed && status !== "resolved" && (
+              <SlaHeadlineBadge
+                events={slaEvents}
+                warnBeforeMins={slaPolicy?.warn_before_mins}
+              />
+            )}
           </div>
 
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            {ticket.subject}
-          </h1>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <h1 className="min-w-0 text-2xl font-bold tracking-tight text-slate-900 wrap-break-word">
+              {ticket.subject}
+            </h1>
+            <div className="shrink-0">
+              <TicketLifecycleActions
+                status={status}
+                disabled={isUpdatingTicket}
+                onChange={handleStatusChange}
+              />
+            </div>
+          </div>
 
           <p className="text-xs text-slate-500">
             Opened by{" "}
@@ -570,6 +502,13 @@ export default function TicketDetailView({
               · last activity {lastActivityText}
             </span>
           </p>
+
+          <TicketLifecycleBanner
+            status={status}
+            resolvedAt={resolvedAt}
+            closedAt={closedAt}
+            autoCloseDays={autoCloseDays}
+          />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
@@ -655,172 +594,174 @@ export default function TicketDetailView({
               );
             })}
 
-            <div
-              className={`rounded-xl border overflow-hidden transition-colors ${
-                replyType === "internal"
-                  ? "bg-amber-50 border-amber-200"
-                  : "bg-white border-slate-200"
-              }`}
-            >
-              <div className="flex items-center space-x-2 px-3 sm:px-4 py-3">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  aria-pressed={replyType === "public"}
-                  onClick={() => setReplyType("public")}
-                  className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
-                    replyType === "public"
-                      ? "border-teal-700 text-teal-700 bg-teal-700/10 shadow-sm ring-1 ring-teal-700 hover:bg-teal-700/10 hover:text-teal-700"
-                      : "border-transparent text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  Public reply
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  aria-pressed={replyType === "internal"}
-                  onClick={() => setReplyType("internal")}
-                  className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
-                    replyType === "internal"
-                      ? "border-amber-600 text-amber-800 bg-amber-100/50 shadow-sm ring-1 ring-amber-600 hover:bg-amber-100/50 hover:text-amber-800"
-                      : "border-transparent text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  Internal note
-                </Button>
-              </div>
-
-              <div className="px-3 sm:px-6 py-3 relative min-h-30">
-                <textarea
-                  rows={4}
-                  value={replyText}
-                  onChange={handleReplyTextChange}
-                  onKeyDown={handleMentionKeyDown}
-                  placeholder={
-                    replyType === "internal"
-                      ? "Visible to your team only — context, root cause, next steps."
-                      : `Write a reply to ${ticket.requester_name || "John Doe"}...`
-                  }
-                  className="w-full bg-transparent text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 border-none outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 p-0 resize-none"
-                />
-                {mentionActive && mentionMatches.length > 0 && (
-                  <div
-                    ref={mentionRef}
-                    className="absolute z-30 top-10 left-3 sm:left-6 mt-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
+            {!isClosed && (
+              <div
+                className={`rounded-xl border overflow-hidden transition-colors ${
+                  replyType === "internal"
+                    ? "bg-amber-50 border-amber-200"
+                    : "bg-white border-slate-200"
+                }`}
+              >
+                <div className="flex items-center space-x-2 px-3 sm:px-4 py-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    aria-pressed={replyType === "public"}
+                    onClick={() => setReplyType("public")}
+                    className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
+                      replyType === "public"
+                        ? "border-teal-700 text-teal-700 bg-teal-700/10 shadow-sm ring-1 ring-teal-700 hover:bg-teal-700/10 hover:text-teal-700"
+                        : "border-transparent text-slate-500 hover:text-slate-800"
+                    }`}
                   >
-                    <p className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                      Mention someone
-                    </p>
-                    <div className="max-h-48 overflow-y-auto">
-                      {mentionMatches.map((member, idx) => (
+                    Public reply
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    aria-pressed={replyType === "internal"}
+                    onClick={() => setReplyType("internal")}
+                    className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
+                      replyType === "internal"
+                        ? "border-amber-600 text-amber-800 bg-amber-100/50 shadow-sm ring-1 ring-amber-600 hover:bg-amber-100/50 hover:text-amber-800"
+                        : "border-transparent text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Internal note
+                  </Button>
+                </div>
+
+                <div className="px-3 sm:px-6 py-3 relative min-h-30">
+                  <textarea
+                    rows={4}
+                    value={replyText}
+                    onChange={handleReplyTextChange}
+                    onKeyDown={handleMentionKeyDown}
+                    placeholder={
+                      replyType === "internal"
+                        ? "Visible to your team only — context, root cause, next steps."
+                        : `Write a reply to ${ticket.requester_name || "John Doe"}...`
+                    }
+                    className="w-full bg-transparent text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 border-none outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 p-0 resize-none"
+                  />
+                  {mentionActive && mentionMatches.length > 0 && (
+                    <div
+                      ref={mentionRef}
+                      className="absolute z-30 top-10 left-3 sm:left-6 mt-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
+                    >
+                      <p className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        Mention someone
+                      </p>
+                      <div className="max-h-48 overflow-y-auto">
+                        {mentionMatches.map((member, idx) => (
+                          <Button
+                            key={member.id}
+                            type="button"
+                            variant="ghost"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setMentionIndex(idx);
+                              applyMention(member);
+                            }}
+                            onMouseEnter={() => setMentionIndex(idx)}
+                            className={cn(
+                              "h-auto w-full justify-start gap-2 rounded-none px-3 py-2 text-left",
+                              idx === mentionIndex
+                                ? "bg-slate-50"
+                                : "hover:bg-slate-50",
+                            )}
+                          >
+                            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
+                              {member.full_name
+                                .split(" ")
+                                .map((s) => s[0])
+                                .join("")
+                                .slice(0, 2)
+                                .toUpperCase()}
+                            </span>
+                            <span className="truncate text-xs font-medium text-slate-800">
+                              {member.full_name}
+                            </span>
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {pendingFiles.length > 0 && (
+                  <div className="px-3 sm:px-4 pb-3 flex flex-wrap gap-2">
+                    {pendingFiles.map((file, i) => (
+                      <div
+                        key={`${file.name}-${i}`}
+                        className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-md pl-2 pr-1 py-1 text-[11px] font-medium text-slate-700 shadow-sm"
+                      >
+                        <span className="w-4 h-4 rounded bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 shrink-0">
+                          {fileExtension(file.name).slice(0, 3)}
+                        </span>
+                        <span className="truncate max-w-30">{file.name}</span>
+                        <span className="text-slate-400 text-[10px] shrink-0">
+                          {formatSize(file.size)}
+                        </span>
                         <Button
-                          key={member.id}
                           type="button"
                           variant="ghost"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setMentionIndex(idx);
-                            applyMention(member);
-                          }}
-                          onMouseEnter={() => setMentionIndex(idx)}
-                          className={cn(
-                            "h-auto w-full justify-start gap-2 rounded-none px-3 py-2 text-left",
-                            idx === mentionIndex
-                              ? "bg-slate-50"
-                              : "hover:bg-slate-50",
-                          )}
+                          size="icon-xs"
+                          onClick={() => removePendingFile(i)}
+                          aria-label={`Remove ${file.name}`}
+                          className="ml-1 shrink-0 text-slate-400 hover:text-slate-700"
                         >
-                          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
-                            {member.full_name
-                              .split(" ")
-                              .map((s) => s[0])
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase()}
-                          </span>
-                          <span className="truncate text-xs font-medium text-slate-800">
-                            {member.full_name}
-                          </span>
+                          <X className="size-3" />
                         </Button>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
                 )}
-              </div>
 
-              {pendingFiles.length > 0 && (
-                <div className="px-3 sm:px-4 pb-3 flex flex-wrap gap-2">
-                  {pendingFiles.map((file, i) => (
-                    <div
-                      key={`${file.name}-${i}`}
-                      className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-md pl-2 pr-1 py-1 text-[11px] font-medium text-slate-700 shadow-sm"
+                <div className="px-3 sm:px-4 py-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 border-t border-transparent ring-0">
+                  <div className="flex items-center space-x-3">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={handleFilesSelected}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-10 px-3 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50"
+                      onClick={() => fileInputRef.current?.click()}
                     >
-                      <span className="w-4 h-4 rounded bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 shrink-0">
-                        {fileExtension(file.name).slice(0, 3)}
-                      </span>
-                      <span className="truncate max-w-30">{file.name}</span>
-                      <span className="text-slate-400 text-[10px] shrink-0">
-                        {formatSize(file.size)}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => removePendingFile(i)}
-                        aria-label={`Remove ${file.name}`}
-                        className="ml-1 shrink-0 text-slate-400 hover:text-slate-700"
-                      >
-                        <X className="size-3" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                      <Paperclip className="size-4 mr-1.5 text-slate-600" />
+                      Attach
+                    </Button>
+                    <span className="text-[10px] sm:text-xs text-slate-400 hidden sm:inline">
+                      {replyType === "internal"
+                        ? "Not sent to the customer."
+                        : "Sends by email and shows on the portal."}
+                    </span>
+                  </div>
 
-              <div className="px-3 sm:px-4 py-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 border-t border-transparent ring-0">
-                <div className="flex items-center space-x-3">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={handleFilesSelected}
-                  />
                   <Button
-                    variant="outline"
                     size="sm"
-                    className="h-10 px-3 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={handleSendReply}
+                    disabled={
+                      isReplying ||
+                      (!replyText.trim() && pendingFiles.length === 0)
+                    }
+                    className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold px-4 h-10 rounded-lg transition-colors shadow-sm"
                   >
-                    <Paperclip className="size-4 mr-1.5 text-slate-600" />
-                    Attach
-                  </Button>
-                  <span className="text-[10px] sm:text-xs text-slate-400 hidden sm:inline">
+                    {isReplying && (
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    )}
                     {replyType === "internal"
-                      ? "Not sent to the customer."
-                      : "Sends by email and shows on the portal."}
-                  </span>
+                      ? "Add internal note"
+                      : "Send public reply"}
+                  </Button>
                 </div>
-
-                <Button
-                  size="sm"
-                  onClick={handleSendReply}
-                  disabled={
-                    isReplying ||
-                    (!replyText.trim() && pendingFiles.length === 0)
-                  }
-                  className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold px-4 h-10 rounded-lg transition-colors shadow-sm"
-                >
-                  {isReplying && (
-                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                  )}
-                  {replyType === "internal"
-                    ? "Add internal note"
-                    : "Send public reply"}
-                </Button>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="space-y-4">
@@ -996,69 +937,29 @@ export default function TicketDetailView({
                   </Select>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label className="font-semibold text-slate-700">Tags</Label>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {ticket.tags && ticket.tags.length > 0 ? (
-                      ticket.tags.map((tag) => (
-                        <Badge
-                          key={tag}
-                          variant="secondary"
-                          className="rounded-full bg-slate-100 text-slate-700 font-medium text-[11px] px-2 py-0.5"
-                        >
-                          {tag}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-[11px] text-slate-400">
-                        No tags
-                      </span>
-                    )}
-                  </div>
-                </div>
+                <TicketTagsField
+                  tenant={tenant}
+                  ticketId={ticket.id}
+                  initialTags={tags}
+                  suggestions={tenantTags}
+                />
               </CardContent>
             </Card>
 
-            <Card className="shadow-sm border-slate-200 bg-white ring-0">
-              <CardContent className="p-5 space-y-4 text-xs">
-                <h4 className="font-bold uppercase tracking-wider text-[11px] text-slate-400">
-                  SLA
-                </h4>
+            <TicketSlaCard
+              events={slaEvents}
+              policy={slaPolicy}
+              policies={slaPolicies}
+              policyId={slaPolicyId}
+              onPolicyChange={handleSlaPolicyChange}
+              disabled={isUpdatingTicket || isClosed}
+            />
 
-                {slaEvents.length === 0 ? (
-                  <p className="text-[11px] text-slate-400">
-                    No SLA policy assigned to this ticket.
-                  </p>
-                ) : (
-                  slaEvents.map((ev) => {
-                    const label =
-                      ev.type === "first_response"
-                        ? "First response"
-                        : "Resolution";
-
-                    return (
-                      <div
-                        key={ev.id}
-                        className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-slate-600">
-                            {label}
-                          </span>
-                          {slaCardBadge(ev)}
-                        </div>
-                        <div className="w-full h-1.5 bg-slate-200/70 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full ${slaBarColor(ev)} transition-all`}
-                            style={{ width: `${slaProgressPercent(ev)}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </CardContent>
-            </Card>
+            <TicketCsatCard
+              ratings={csat}
+              status={status}
+              resolvedAt={resolvedAt}
+            />
 
             <Card className="shadow-sm border-slate-200 bg-white ring-0">
               <CardContent className="p-5 space-y-3 text-xs">

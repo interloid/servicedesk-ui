@@ -9,10 +9,19 @@ import {
   SlaPolicy,
   Ticket,
   TicketAttachment,
+  TicketCsat,
+  TicketSlaPolicy,
+  TicketTag,
   TicketMessage,
   TicketPriority,
   TicketStatus,
 } from "../types/tickets.types";
+import {
+  DEFAULT_SLA_WARN_MINS,
+  computeSlaClock,
+  headlineSlaEvent,
+} from "../lib/sla";
+import { normalizeTagName } from "../lib/tags";
 
 const VISIBLE_ASSIGNEE_ROLES = ["agent", "manager", "tenant_admin"] as const;
 export interface Customer {
@@ -197,162 +206,293 @@ export async function fetchTicketStatusCounts(
   return counts;
 }
 
-function formatDuration(ms: number): string {
-  const abs = Math.abs(ms);
-  const minutes = Math.floor(abs / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `${days}d ${hours % 24}h`;
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  return `${minutes}m`;
-}
-
 /**
- * Attach SLA status to each ticket in the list.
- * For a ticket that is not resolved/closed we use the pending SLA events
- * (first_response / resolution) to build a "Xd Yh left" or "Breached" label.
+ * Attach each ticket's SLA snapshot (the clock that matters most right now)
+ * and its tags. The list ticks the countdown itself from this (computeLiveSla).
  */
 async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
   if (tickets.length === 0) return tickets;
 
   const supabase = await createSupabaseServerClient();
   const ids = tickets.map((t) => t.id);
+  const policyIds = [
+    ...new Set(tickets.map((t) => t.sla_policy_id).filter(Boolean)),
+  ] as string[];
 
-  const { data: events, error } = await supabase
-    .from("sla_events")
-    .select("ticket_id, type, status, due_at, completed_at, breached_at")
-    .in("ticket_id", ids)
-    .order("type", { ascending: true });
+  const [eventsRes, policiesRes, tagsByTicket] = await Promise.all([
+    supabase
+      .from("sla_events")
+      .select("*")
+      .in("ticket_id", ids)
+      .order("type", { ascending: true }),
+    policyIds.length > 0
+      ? supabase
+          .from("sla_policies")
+          .select("id, notify_before_mins")
+          .in("id", policyIds)
+      : Promise.resolve({ data: [], error: null }),
+    fetchTagsForTickets(ids),
+  ]);
 
-  if (error || !events) {
-    return tickets.map((t) => ({
-      ...t,
-      sla_type: "normal",
-      sla_text: "—",
-      sla_due_at: null,
-      sla_status: null,
-      sla_completed_at: null,
-    }));
-  }
+  const warnByPolicy = new Map(
+    (policiesRes.data || []).map((p) => [p.id, p.notify_before_mins]),
+  );
 
   const byTicket = new Map<string, SlaEvent[]>();
-  for (const ev of events) {
+  for (const ev of (eventsRes.data || []) as SlaEvent[]) {
     const list = byTicket.get(ev.ticket_id) || [];
-    list.push(ev as SlaEvent);
+    list.push(ev);
     byTicket.set(ev.ticket_id, list);
   }
 
   const now = Date.now();
-  const editable = tickets.map(
-    (t) => ({ ...t }) as Ticket & { status: string },
-  );
 
-  return editable.map((t) => {
-    const evs = byTicket.get(t.id) || [];
-    const active = evs.find((e) => e.status === "pending") || evs[0];
-    const completed = evs.find((e) => e.status === "completed");
-    const breached =
-      t.status === "resolved" || t.status === "closed"
-        ? evs.find((e) => e.status === "breached")
-        : undefined;
+  return tickets.map((t) => {
+    const tags = tagsByTicket.get(t.id) || [];
+    const warnMins =
+      (t.sla_policy_id && warnByPolicy.get(t.sla_policy_id)) ||
+      DEFAULT_SLA_WARN_MINS;
+    const ev = eventsRes.error
+      ? undefined
+      : headlineSlaEvent(byTicket.get(t.id) || []);
 
-    if ((t.status === "resolved" || t.status === "closed") && breached) {
-      const onset = breached.breached_at || breached.due_at;
+    if (!ev) {
       return {
         ...t,
-        sla_type: "breached" as const,
-        sla_text: breachedText(breached, onset),
-        sla_due_at: breached.due_at,
-        sla_status: "breached" as const,
-        sla_completed_at: null,
-      };
-    }
-    if ((t.status === "resolved" || t.status === "closed") && completed) {
-      return {
-        ...t,
-        sla_type: "normal" as const,
-        sla_text: metIn(completed),
-        sla_due_at: completed.due_at,
-        sla_status: "completed" as const,
-        sla_completed_at: completed.completed_at,
-      };
-    }
-    if (t.status === "resolved" || t.status === "closed") {
-      return {
-        ...t,
-        sla_type: "normal" as const,
-        sla_text: "Completed",
-        sla_due_at: null,
-        sla_status: "completed" as const,
-        sla_completed_at: null,
-      };
-    }
-
-    if (!active) {
-      return {
-        ...t,
+        tags,
         sla_type: "normal" as const,
         sla_text: "—",
         sla_due_at: null,
         sla_status: null,
         sla_completed_at: null,
+        sla_paused: false,
+        sla_warn_before_mins: warnMins,
       };
     }
 
-    if (active.status === "breached") {
-      const over = now - new Date(active.due_at).getTime();
-      return {
-        ...t,
-        sla_type: "breached" as const,
-        sla_text: `Breached ${formatDuration(over)} ago`,
-        sla_due_at: active.due_at,
-        sla_status: "breached" as const,
-        sla_completed_at: null,
-      };
-    }
-
-    const due = new Date(active.due_at).getTime();
-    const remaining = due - now;
-
-    if (remaining <= 0) {
-      return {
-        ...t,
-        sla_type: "breached" as const,
-        sla_text: `Breached ${formatDuration(remaining)} ago`,
-        sla_due_at: active.due_at,
-        sla_status: "breached" as const,
-        sla_completed_at: null,
-      };
-    }
-
+    const clock = computeSlaClock(ev, now, warnMins);
     return {
       ...t,
-      sla_type: remaining < 600000 ? ("warning" as const) : ("normal" as const),
-      sla_text: `${formatDuration(remaining)} left`,
-      sla_due_at: active.due_at,
-      sla_status: "pending" as const,
-      sla_completed_at: null,
+      tags,
+      sla_type:
+        clock.state === "breached"
+          ? ("breached" as const)
+          : clock.state === "warning"
+            ? ("warning" as const)
+            : clock.state === "paused"
+              ? ("paused" as const)
+              : ("normal" as const),
+      sla_text: clock.text,
+      sla_due_at: ev.due_at,
+      sla_status: clock.state === "breached" ? "breached" : ev.status,
+      sla_completed_at: ev.completed_at,
+      sla_paused: clock.state === "paused",
+      sla_remaining_secs: ev.remaining_secs,
+      sla_warn_before_mins: warnMins,
     };
   });
 }
 
-function metIn(ev: SlaEvent): string {
-  if (ev.completed_at) {
-    return `Met in ${formatDuration(
-      new Date(ev.completed_at).getTime() - new Date(ev.created_at).getTime(),
-    )}`;
+/** Ticket id → its tags, for the rows on screen. */
+async function fetchTagsForTickets(
+  ticketIds: string[],
+): Promise<Map<string, TicketTag[]>> {
+  const map = new Map<string, TicketTag[]>();
+  if (ticketIds.length === 0) return map;
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("ticket_tags")
+    .select("ticket_id, tags(id, name, color)")
+    .in("ticket_id", ticketIds);
+
+  if (error) {
+    console.error("Error fetching ticket tags:", error.message);
+    return map;
   }
-  return "Completed";
+
+  for (const row of data || []) {
+    const tag = Array.isArray(row.tags) ? row.tags[0] : row.tags;
+    if (!tag) continue;
+    const list = map.get(row.ticket_id) || [];
+    list.push(tag as TicketTag);
+    map.set(row.ticket_id, list);
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return map;
 }
 
-function breachedText(ev: SlaEvent, onset: string | null): string {
-  if (onset) {
-    const duration = formatDuration(
-      new Date(onset).getTime() - new Date(ev.created_at).getTime(),
-    );
-    return `Breached after ${duration}`;
+export async function fetchTicketTags(ticketId: string): Promise<TicketTag[]> {
+  return (await fetchTagsForTickets([ticketId])).get(ticketId) || [];
+}
+
+/** Every tag in the tenant, for the tag picker's suggestions. */
+export async function fetchTenantTags(tenant: string): Promise<TicketTag[]> {
+  const supabase = await createSupabaseServerClient();
+  const tenantId = await getTenantIdBySlug(tenant);
+  if (!tenantId) return [];
+
+  const { data, error } = await supabase
+    .from("tags")
+    .select("id, name, color")
+    .eq("tenant_id", tenantId)
+    .order("name", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching tags:", error.message);
+    return [];
   }
-  return "Breached";
+  return (data || []) as TicketTag[];
+}
+
+/**
+ * Make the ticket's tags exactly `names`: creates tags the tenant doesn't have
+ * yet, links the new ones, unlinks the rest. Returns the resulting tags.
+ */
+export async function setTicketTags(
+  tenant: string,
+  ticketId: string,
+  names: string[],
+): Promise<TicketTag[]> {
+  const supabase = await createSupabaseServerClient();
+  const tenantId = await getTenantIdBySlug(tenant);
+  if (!tenantId) throw new Error("Tenant not found.");
+
+  const wanted = [...new Set(names.map(normalizeTagName).filter(Boolean))];
+
+  const byName = new Map<string, TicketTag>();
+  if (wanted.length > 0) {
+    const { data: existing, error: existingError } = await supabase
+      .from("tags")
+      .select("id, name, color")
+      .eq("tenant_id", tenantId)
+      .in("name", wanted);
+    if (existingError) {
+      throw new Error(`Failed to load tags: ${existingError.message}`);
+    }
+    for (const t of existing || []) byName.set(t.name, t as TicketTag);
+  }
+  const missing = wanted.filter((n) => !byName.has(n));
+
+  if (missing.length > 0) {
+    // ignoreDuplicates: somebody else may create the same tag in between.
+    const { error: insertError } = await supabase.from("tags").upsert(
+      missing.map((name) => ({ tenant_id: tenantId, name })),
+      { onConflict: "tenant_id,name", ignoreDuplicates: true },
+    );
+    if (insertError) {
+      throw new Error(`Failed to create tags: ${insertError.message}`);
+    }
+    const { data: created } = await supabase
+      .from("tags")
+      .select("id, name, color")
+      .eq("tenant_id", tenantId)
+      .in("name", missing);
+    for (const t of created || []) byName.set(t.name, t as TicketTag);
+  }
+
+  const wantedIds = new Set(
+    wanted.map((n) => byName.get(n)?.id).filter(Boolean) as string[],
+  );
+
+  const { data: links, error: linksError } = await supabase
+    .from("ticket_tags")
+    .select("tag_id")
+    .eq("ticket_id", ticketId)
+    .eq("tenant_id", tenantId);
+  if (linksError) {
+    throw new Error(`Failed to load ticket tags: ${linksError.message}`);
+  }
+
+  const current = new Set((links || []).map((l) => l.tag_id));
+  const toAdd = [...wantedIds].filter((id) => !current.has(id));
+  const toRemove = [...current].filter((id) => !wantedIds.has(id));
+
+  if (toAdd.length > 0) {
+    const { error } = await supabase.from("ticket_tags").upsert(
+      toAdd.map((tag_id) => ({
+        tenant_id: tenantId,
+        ticket_id: ticketId,
+        tag_id,
+      })),
+      { onConflict: "ticket_id,tag_id", ignoreDuplicates: true },
+    );
+    if (error) throw new Error(`Failed to tag ticket: ${error.message}`);
+  }
+
+  if (toRemove.length > 0) {
+    const { error } = await supabase
+      .from("ticket_tags")
+      .delete()
+      .eq("ticket_id", ticketId)
+      .eq("tenant_id", tenantId)
+      .in("tag_id", toRemove);
+    if (error) throw new Error(`Failed to untag ticket: ${error.message}`);
+  }
+
+  return fetchTicketTags(ticketId);
+}
+
+/** The policy a ticket runs against, with what the SLA card shows of it. */
+export async function fetchTicketSlaPolicy(
+  policyId: string | null | undefined,
+): Promise<TicketSlaPolicy | null> {
+  if (!policyId) return null;
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("sla_policies")
+    .select("id, name, notify_before_mins, business_hours(name)")
+    .eq("id", policyId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error)
+      console.error("Error fetching ticket SLA policy:", error.message);
+    return null;
+  }
+
+  const calendar = Array.isArray(data.business_hours)
+    ? data.business_hours[0]
+    : data.business_hours;
+  return {
+    id: data.id,
+    name: data.name,
+    warn_before_mins: data.notify_before_mins ?? DEFAULT_SLA_WARN_MINS,
+    business_hours_name: calendar?.name ?? null,
+  };
+}
+
+/** Ratings the requester left on this ticket, newest resolution first. */
+export async function fetchTicketCsat(
+  ticketId: string,
+  tenantId: string,
+): Promise<TicketCsat[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("csat_ratings")
+    .select("id, score, comment, resolved_at, created_at")
+    .eq("ticket_id", ticketId)
+    .eq("tenant_id", tenantId)
+    .order("resolved_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching CSAT:", error.message);
+    return [];
+  }
+  return (data || []) as TicketCsat[];
+}
+
+/** Days a resolved ticket waits before sla_tick() closes it (0 = never). */
+export async function fetchAutoCloseDays(tenantId: string): Promise<number> {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("tenants")
+    .select("auto_close_after_days")
+    .eq("id", tenantId)
+    .maybeSingle();
+  return data?.auto_close_after_days ?? 0;
 }
 
 export interface AssignableAgent {
@@ -497,7 +637,9 @@ export async function fetchTenantSlaPolicies(
     .from("sla_policies")
     .select("*")
     .eq("tenant_id", tenantId)
-    .eq("status", "active");
+    .eq("status", "active")
+    .order("is_default", { ascending: false })
+    .order("name", { ascending: true });
 
   if (error) {
     console.error("Error fetching SLA policies:", error.message);
@@ -513,14 +655,9 @@ export async function createTenantTicket(
 ): Promise<Ticket> {
   const supabase = await createSupabaseServerClient();
 
-  let selectedSlaId = ticketData.sla_policy_id || null;
-  if (!selectedSlaId) {
-    const policies = await fetchTenantSlaPolicies(tenant);
-    const defaultPolicy = policies.find((p) => p.is_default);
-    if (defaultPolicy) {
-      selectedSlaId = defaultPolicy.id;
-    }
-  }
+  // No sla_policy_id: the tickets_assign_sla_policy trigger picks the
+  // customer's policy (their 'Selected customers' one, else the default) and
+  // tickets_sync_sla starts the clocks.
   const tenantId = await getTenantIdBySlug(tenant);
   const { count, error: countError } = await supabase
     .from("tickets")
@@ -540,7 +677,6 @@ export async function createTenantTicket(
         ...ticketData,
         tenant_id: tenantId,
         number: nextNumber,
-        sla_policy_id: selectedSlaId,
         status: ticketData.status || "new",
         priority: ticketData.priority || "normal",
       },
@@ -702,6 +838,7 @@ export async function updateTicketDetails(
     priority?: TicketPriority;
     assignee_user_id?: string | null;
     resolved_at?: string | null;
+    sla_policy_id?: string | null;
   },
 ) {
   const supabase = await createSupabaseServerClient();

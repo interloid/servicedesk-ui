@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import { createSupabaseClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { notifySlaBreachAction } from "@/features/tickets/actions/tickets.actions";
 
 /**
  * Subscribe to realtime changes on `tickets` and `sla_events` for the current
@@ -11,8 +10,8 @@ import { notifySlaBreachAction } from "@/features/tickets/actions/tickets.action
  * re-fetches its server-rendered rows and recomputes the SLA column text.
  * RLS on both tables (tenant-wide for members) governs delivery.
  *
- * When an SLA event transitions `pending` -> `breached`, also notify the
- * ticket's assignee via `notifySlaBreachAction` (idempotent per event).
+ * Breach and due-soon notifications are sent by the database (sla_tick), not
+ * from here, so they go out whether or not anyone has the queue open.
  */
 export function useRealtimeTicketsRefresh(tenantSlug?: string) {
   const router = useRouter();
@@ -29,29 +28,6 @@ export function useRealtimeTicketsRefresh(tenantSlug?: string) {
       timer.current = setTimeout(() => router.refresh(), 400);
     };
 
-    const handleSlaChange = (payload: {
-      new: Record<string, unknown>;
-      old: Record<string, unknown>;
-    }) => {
-      schedule();
-      const prev = payload.old?.status as string | undefined;
-      const next = payload.new?.status as string | undefined;
-      const ticketId = payload.new?.ticket_id as string | undefined;
-      const eventId = payload.new?.id as string | undefined;
-      const eventType = payload.new?.type as string | undefined;
-      if (prev === "pending" && next === "breached" && ticketId && eventId) {
-        notifySlaBreachAction({
-          tenantId: tenantSlug,
-          ticketId,
-          slaEventId: eventId,
-          slaLabel:
-            eventType === "first_response"
-              ? "First response SLA"
-              : "Resolution SLA",
-        });
-      }
-    };
-
     const channel = supabase
       .channel("realtime-tickets-table")
       .on(
@@ -62,7 +38,7 @@ export function useRealtimeTicketsRefresh(tenantSlug?: string) {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "sla_events" },
-        handleSlaChange,
+        schedule,
       )
       .on(
         "postgres_changes",

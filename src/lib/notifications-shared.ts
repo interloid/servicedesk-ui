@@ -5,6 +5,7 @@ export type NotificationType =
   | "ticket_closed"
   | "mention"
   | "sla_breach"
+  | "sla_warning"
   | "billing"
   | "system";
 
@@ -63,6 +64,11 @@ const TYPE_META: Record<
     tone: "error",
     icon: "alert-triangle",
     fallbackTitle: "SLA breached",
+  },
+  sla_warning: {
+    tone: "warning",
+    icon: "clock",
+    fallbackTitle: "SLA due soon",
   },
   billing: {
     tone: "warning",

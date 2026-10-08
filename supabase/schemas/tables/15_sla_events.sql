@@ -23,6 +23,27 @@ CREATE TABLE IF NOT EXISTS public.sla_events
 
     breached_at TIMESTAMPTZ,
 
+    -- When this clock started: the ticket's created_at, or the reopen time
+    -- for a restarted resolution clock.
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- The target the clock runs against, kept so a priority change can
+    -- re-target it without losing the time already used.
+    target_mins INTEGER,
+
+    -- The calendar it counts in; null means wall-clock (24/7).
+    business_hours_id UUID
+        REFERENCES public.business_hours(id) ON DELETE SET NULL,
+
+    -- Set while the ticket is Pending / On hold; due_at is re-derived from
+    -- remaining_secs on resume.
+    paused_at TIMESTAMPTZ,
+    remaining_secs BIGINT,
+
+    -- Whether sla_tick() has sent the due-soon / breach notifications.
+    warned_at TIMESTAMPTZ,
+    breach_notified_at TIMESTAMPTZ,
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -39,3 +60,7 @@ CREATE INDEX idx_sla_events_tenant
 
 CREATE INDEX idx_sla_events_status_due
     ON public.sla_events(status, due_at);
+
+CREATE INDEX idx_sla_events_tick
+    ON public.sla_events(due_at)
+    WHERE status = 'pending' AND paused_at IS NULL;

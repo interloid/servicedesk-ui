@@ -14,19 +14,52 @@ export interface SlaEvent {
   due_at: string;
   completed_at: string | null;
   breached_at: string | null;
+  /** When the clock started: ticket creation, or the reopen for a restart. */
+  started_at: string;
+  target_mins: number | null;
+  /** Null for a wall-clock (24/7) clock. */
+  business_hours_id: string | null;
+  /** Set while the ticket is Pending / On hold. */
+  paused_at: string | null;
+  /** SLA seconds left at the moment the clock paused. */
+  remaining_secs: number | null;
   created_at: string;
   updated_at: string;
+}
+
+/** The policy a ticket is measured against, as the detail page shows it. */
+export interface TicketSlaPolicy {
+  id: string;
+  name: string;
+  /** Minutes before a deadline the clock turns amber (notify_before_mins). */
+  warn_before_mins: number;
+  business_hours_name: string | null;
+}
+
+export interface TicketTag {
+  id: string;
+  name: string;
+  color: string | null;
+}
+
+export interface TicketCsat {
+  id: string;
+  score: number;
+  comment: string | null;
+  resolved_at: string;
+  created_at: string;
 }
 
 export interface SlaPolicy {
   id: string;
   tenant_id: string;
   name: string;
-  business_hours_id: string;
+  business_hours_id: string | null;
   is_default: boolean;
-  status: "active" | "inactive";
+  status: "active" | "paused" | "draft";
   applies_to: string;
   notify_before_breach: boolean;
+  notify_before_mins: number;
   escalate_on_breach: boolean;
   created_at: string;
   updated_at: string;
@@ -53,17 +86,24 @@ export interface Ticket {
   assignee_initials?: string;
   assignee_role?: string;
   status: TicketStatus;
-  sla_type: "warning" | "breached" | "normal";
+  sla_type: "warning" | "breached" | "normal" | "paused";
   sla_text: string;
   sla_due_at?: string | null;
   sla_status?: "pending" | "completed" | "breached" | null;
   sla_completed_at?: string | null;
+  /** The running clock is paused (ticket Pending / On hold). */
+  sla_paused?: boolean;
+  /** SLA seconds left when it paused; the list shows it frozen. */
+  sla_remaining_secs?: number | null;
+  /** The policy's warning lead, so the list turns amber when the policy says. */
+  sla_warn_before_mins?: number;
+  sla_policy_id?: string | null;
   created_at: string;
   assignee_id?: string | null;
   first_response_at?: string | null;
   resolved_at?: string | null;
   closed_at?: string | null;
-  tags?: string[];
+  tags?: TicketTag[];
   customers: {
     email: string;
     company: string;
@@ -115,7 +155,6 @@ export interface TicketComment {
 export interface SingleTicketDetail extends Ticket {
   comments?: TicketComment[];
   requester_plan?: string;
-  tags?: string[];
   sla_first_response?: string;
   sla_resolution?: string;
   attachments?: Array<{

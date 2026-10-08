@@ -769,9 +769,28 @@ export default function TicketsTable({
                             <TableCell className="px-4 align-middle">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block py-1 font-semibold text-slate-900 group-hover:text-teal-900 transition-colors truncate"
+                                className="block py-1"
                               >
-                                {ticket.subject}
+                                <span className="block font-semibold text-slate-900 group-hover:text-teal-900 transition-colors truncate">
+                                  {ticket.subject}
+                                </span>
+                                {ticket.tags && ticket.tags.length > 0 && (
+                                  <span className="mt-1 flex flex-wrap gap-1">
+                                    {ticket.tags.slice(0, 3).map((tag) => (
+                                      <span
+                                        key={tag.id}
+                                        className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-600"
+                                      >
+                                        {tag.name}
+                                      </span>
+                                    ))}
+                                    {ticket.tags.length > 3 && (
+                                      <span className="text-[10px] font-medium text-slate-400">
+                                        +{ticket.tags.length - 3}
+                                      </span>
+                                    )}
+                                  </span>
+                                )}
                               </Link>
                             </TableCell>
                           )}
@@ -862,9 +881,11 @@ export default function TicketsTable({
                                             ? "bg-rose-100/80 text-rose-800"
                                             : live.type === "warning"
                                               ? "bg-amber-100/80 text-amber-900"
-                                              : live.type === "completed"
-                                                ? "bg-emerald-100/80 text-emerald-800"
-                                                : "bg-[#0e7adf]/10 text-[#0e7adf]",
+                                              : live.type === "paused"
+                                                ? "bg-slate-100 text-slate-600"
+                                                : live.type === "completed"
+                                                  ? "bg-emerald-100/80 text-emerald-800"
+                                                  : "bg-[#0e7adf]/10 text-[#0e7adf]",
                                         )}
                                       >
                                         <span
@@ -874,9 +895,11 @@ export default function TicketsTable({
                                               ? "bg-rose-600"
                                               : live.type === "warning"
                                                 ? "bg-amber-600"
-                                                : live.type === "completed"
-                                                  ? "bg-emerald-600"
-                                                  : "bg-[#0e7adf]",
+                                                : live.type === "paused"
+                                                  ? "bg-slate-400"
+                                                  : live.type === "completed"
+                                                    ? "bg-emerald-600"
+                                                    : "bg-[#0e7adf]",
                                           )}
                                         />
                                         {live.text}

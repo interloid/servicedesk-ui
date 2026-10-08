@@ -11,6 +11,7 @@ import {
   uploadTicketAttachments,
   getCurrentUserIdentity,
   fetchTenantCustomers,
+  setTicketTags,
 } from "../services/tickets.service";
 import {
   CreateTicketPayload,
@@ -20,7 +21,6 @@ import {
   TicketStatus,
 } from "../types/tickets.types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createNotification } from "@/lib/notifications.service";
 import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import { extractMentionIds, stripMentions } from "@/lib/mentions";
@@ -268,6 +268,8 @@ export async function updateTicketDetailsAction(formData: {
   priority?: TicketPriority;
   assigneeId?: string;
   unassign?: boolean;
+  /** A policy id, or null to stop measuring the ticket. */
+  slaPolicyId?: string | null;
 }) {
   try {
     const tenantIdResolved = await getTenantIdBySlug(formData.tenantId);
@@ -291,6 +293,9 @@ export async function updateTicketDetailsAction(formData: {
     await updateTicketDetails(formData.ticketId, formData.tenantId, {
       ...(formData.status && { status: formData.status }),
       ...(formData.priority && { priority: formData.priority }),
+      ...(formData.slaPolicyId !== undefined && {
+        sla_policy_id: formData.slaPolicyId,
+      }),
       ...(formData.unassign
         ? { assignee_user_id: null }
         : formData.assigneeId && { assignee_user_id: formData.assigneeId }),
@@ -416,90 +421,6 @@ export async function bulkSetPriorityAction(payload: {
   }
 }
 
-/**
- * Notify a ticket's assignee that one of its SLA events has breached.
- *
- * Triggered by the realtime client when it sees a `sla_events` row transition
- * from `pending` -> `breached`. Insertion is idempotent per SLA event so that
- * multiple realtime clients observing the same breach cannot create duplicates.
- */
-export async function notifySlaBreachAction(payload: {
-  tenantId: string;
-  ticketId: string;
-  slaEventId: string;
-  slaLabel?: string;
-}) {
-  try {
-    const { tenantId, ticketId, slaEventId } = payload;
-    if (!tenantId || !ticketId || !slaEventId) {
-      return { success: false, error: "Missing data." };
-    }
-
-    const tenantIdResolved = await getTenantIdBySlug(tenantId);
-    if (!tenantIdResolved) {
-      return { success: false, error: "Tenant not found." };
-    }
-
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return { success: false, error: "Unauthorized." };
-    }
-
-    const { data: ticket } = await supabase
-      .from("tickets")
-      .select("assignee_user_id, subject, number")
-      .eq("id", ticketId)
-      .eq("tenant_id", tenantIdResolved)
-      .single();
-
-    const assigneeId = ticket?.assignee_user_id;
-    if (!ticket || !assigneeId || assigneeId === user.id) {
-      return { success: true };
-    }
-
-    // Idempotency: skip if this breach was already notified for this event.
-    const { data: existing } = await createSupabaseAdminClient()
-      .from("notifications")
-      .select("id")
-      .eq("tenant_id", tenantIdResolved)
-      .eq("user_id", assigneeId)
-      .eq("type", "sla_breach")
-      .eq("payload_json->>sla_event_id", slaEventId)
-      .maybeSingle();
-
-    if (existing?.id) {
-      return { success: true };
-    }
-
-    await createNotification({
-      tenantId: tenantIdResolved,
-      userId: assigneeId,
-      type: "sla_breach",
-      payload: {
-        ticket_id: ticketId,
-        ticket_number: ticket?.number,
-        subject: ticket?.subject,
-        sla_event_id: slaEventId,
-        sla_label: payload.slaLabel,
-        body: payload.slaLabel
-          ? `${payload.slaLabel} is overdue for "${ticket.subject}".`
-          : `SLA is now breached for "${ticket.subject}".`,
-      },
-    });
-
-    return { success: true };
-  } catch (error) {
-    console.error("[notifySlaBreachAction] failed:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "An error occurred",
-    };
-  }
-}
-
 export async function bulkMarkSolvedAction(payload: {
   tenantId: string;
   ticketIds: string[];
@@ -536,6 +457,30 @@ export async function getCustomersAction(tenant: string) {
       success: false,
       error: message,
       customers: [],
+    };
+  }
+}
+
+export async function setTicketTagsAction(payload: {
+  tenantId: string;
+  ticketId: string;
+  names: string[];
+}) {
+  try {
+    if (!payload.ticketId) {
+      return { success: false as const, error: "Missing ticket." };
+    }
+    const tags = await setTicketTags(
+      payload.tenantId,
+      payload.ticketId,
+      payload.names,
+    );
+    revalidatePath(`/${payload.tenantId}/tickets`);
+    return { success: true as const, tags };
+  } catch (error) {
+    return {
+      success: false as const,
+      error: errorMessage(error),
     };
   }
 }

@@ -26,6 +26,13 @@ create table if not exists public.tenants
         not null
         default '{}'::jsonb,
 
+    -- Days a ticket may sit in Resolved before sla_tick() closes it; 0 is off.
+    auto_close_after_days integer
+        not null
+        default 4
+        constraint chk_tenants_auto_close_after_days
+            check (auto_close_after_days between 0 and 90),
+
     created_at timestamptz
         not null
         default now(),

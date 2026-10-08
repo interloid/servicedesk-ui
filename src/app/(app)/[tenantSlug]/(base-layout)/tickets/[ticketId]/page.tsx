@@ -7,6 +7,12 @@ import {
   fetchAssignableAgents,
   fetchMentionableMembers,
   fetchTicketSlaEvents,
+  fetchTicketSlaPolicy,
+  fetchTenantSlaPolicies,
+  fetchTicketTags,
+  fetchTenantTags,
+  fetchTicketCsat,
+  fetchAutoCloseDays,
   getCurrentUserIdentity,
   getTicketMessages,
   withVisibleAssignee,
@@ -64,15 +70,33 @@ export default async function TicketDetailPage({
     tenantId!,
   );
 
-  const [messages, attachments, slaEvents, agents, mentionable, currentUser] =
-    await Promise.all([
-      getTicketMessages(ticketId, tenantId!),
-      fetchTicketAttachments(ticketId, tenantId!),
-      fetchTicketSlaEvents(ticketId, tenantId!),
-      fetchAssignableAgents(tenantSlug),
-      fetchMentionableMembers(tenantSlug),
-      getCurrentUserIdentity(tenantSlug),
-    ]);
+  const [
+    messages,
+    attachments,
+    slaEvents,
+    agents,
+    mentionable,
+    currentUser,
+    slaPolicy,
+    slaPolicies,
+    tags,
+    tenantTags,
+    csat,
+    autoCloseDays,
+  ] = await Promise.all([
+    getTicketMessages(ticketId, tenantId!),
+    fetchTicketAttachments(ticketId, tenantId!),
+    fetchTicketSlaEvents(ticketId, tenantId!),
+    fetchAssignableAgents(tenantSlug),
+    fetchMentionableMembers(tenantSlug),
+    getCurrentUserIdentity(tenantSlug),
+    fetchTicketSlaPolicy(ticket.sla_policy_id),
+    fetchTenantSlaPolicies(tenantSlug),
+    fetchTicketTags(ticketId),
+    fetchTenantTags(tenantSlug),
+    fetchTicketCsat(ticketId, tenantId!),
+    fetchAutoCloseDays(tenantId!),
+  ]);
 
   return (
     <TicketDetailView
@@ -85,6 +109,12 @@ export default async function TicketDetailPage({
       agents={agents}
       mentionableMembers={mentionable}
       currentUserId={currentUser?.id ?? null}
+      slaPolicy={slaPolicy}
+      slaPolicies={slaPolicies}
+      tags={tags}
+      tenantTags={tenantTags}
+      csat={csat}
+      autoCloseDays={autoCloseDays}
     />
   );
 }

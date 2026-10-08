@@ -312,7 +312,7 @@ export default function SlaEditor({
     const business = draft.timeCalculation === "business";
 
     if (draft.name.trim().length === 0) {
-      next.name = "Give this policy a name.";
+      next.name = "Please provide a name for this policy.";
     }
     if (draft.description.length > SLA_DESCRIPTION_MAX) {
       next.description = `Keep it under ${SLA_DESCRIPTION_MAX} characters.`;
@@ -529,7 +529,7 @@ export default function SlaEditor({
                       setDraft((p) => ({ ...p, status: v as PolicyStatus }))
                     }
                   >
-                    <SelectTrigger className={cn(CONTROL, "w-full min-h-11")}>
+                    <SelectTrigger className="w-full min-h-11 h-10 border-gray-200 text-sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent
@@ -603,7 +603,6 @@ export default function SlaEditor({
                       value={draft.customerIds}
                       invalid={Boolean(errors.appliesTo)}
                       taken={takenCustomers}
-                      lockTaken={draft.status === "active"}
                       onChange={(customerIds) =>
                         setDraft((p) => ({ ...p, customerIds }))
                       }

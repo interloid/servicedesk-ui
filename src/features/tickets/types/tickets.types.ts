@@ -43,6 +43,8 @@ export interface CreateTicketPayload {
 export interface Ticket {
   id: string;
   tenant_id: string;
+  /** Per-tenant ticket number, assigned by the set_tickets_number trigger. */
+  number: number;
   subject: string;
   requester_name: string;
   requester_company: string;

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useTransition, useEffect, useMemo } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, Paperclip, Loader2, X } from "lucide-react";
+import { Paperclip, Loader2, X } from "lucide-react";
 import {
   Ticket,
   TicketMessage,
@@ -36,6 +35,8 @@ import { useRealtimeSlaEvents } from "@/hooks/use-realtime-sla-events";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { Label } from "@/components/ui/label";
 import { IndeterminateProgress } from "@/components/ui/indeterminate-progress";
+import { BackLink } from "@/components/shared/back-link";
+import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 
 interface TicketDetailViewProps {
   ticket: Ticket;
@@ -526,19 +527,15 @@ export default function TicketDetailView({
     <div className="h-full overflow-y-auto p-4 font-sans sm:p-6 lg:p-8">
       <div className="max-w mx-auto space-y-6">
         <div>
-          <Link
-            href={`/${tenant}/tickets`}
-            className="inline-flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800 transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4 mr-0.5" />
+          <BackLink href={tenantPath(tenant, TENANT_ROUTES.TICKETS)}>
             Back to queue
-          </Link>
+          </BackLink>
         </div>
 
         <div className="space-y-2">
           <div className="flex items-center space-x-3 text-xs">
             <span className="text-slate-400 font-medium">
-              #{ticket.id.substring(0, 4)}
+              #{ticket.number ?? "-"}
             </span>
             {(() => {
               const headEv =
@@ -666,28 +663,32 @@ export default function TicketDetailView({
               }`}
             >
               <div className="flex items-center space-x-2 px-3 sm:px-4 py-3">
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  aria-pressed={replyType === "public"}
                   onClick={() => setReplyType("public")}
-                  className={`px-2.5 sm:px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                  className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
                     replyType === "public"
-                      ? "border-teal-700 text-teal-700 bg-teal-700/10 shadow-sm ring-1 ring-teal-700"
+                      ? "border-teal-700 text-teal-700 bg-teal-700/10 shadow-sm ring-1 ring-teal-700 hover:bg-teal-700/10 hover:text-teal-700"
                       : "border-transparent text-slate-500 hover:text-slate-800"
                   }`}
                 >
                   Public reply
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  aria-pressed={replyType === "internal"}
                   onClick={() => setReplyType("internal")}
-                  className={`px-2.5 sm:px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${
+                  className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
                     replyType === "internal"
-                      ? "border-amber-600 text-amber-800 bg-amber-100/50 shadow-sm ring-1 ring-amber-600"
+                      ? "border-amber-600 text-amber-800 bg-amber-100/50 shadow-sm ring-1 ring-amber-600 hover:bg-amber-100/50 hover:text-amber-800"
                       : "border-transparent text-slate-500 hover:text-slate-800"
                   }`}
                 >
                   Internal note
-                </button>
+                </Button>
               </div>
 
               <div className="px-3 sm:px-6 py-3 relative min-h-30">
@@ -713,9 +714,10 @@ export default function TicketDetailView({
                     </p>
                     <div className="max-h-48 overflow-y-auto">
                       {mentionMatches.map((member, idx) => (
-                        <button
+                        <Button
                           key={member.id}
                           type="button"
+                          variant="ghost"
                           onMouseDown={(e) => {
                             e.preventDefault();
                             setMentionIndex(idx);
@@ -723,7 +725,7 @@ export default function TicketDetailView({
                           }}
                           onMouseEnter={() => setMentionIndex(idx)}
                           className={cn(
-                            "flex w-full items-center gap-2 px-3 py-2 text-left",
+                            "h-auto w-full justify-start gap-2 rounded-none px-3 py-2 text-left",
                             idx === mentionIndex
                               ? "bg-slate-50"
                               : "hover:bg-slate-50",
@@ -740,7 +742,7 @@ export default function TicketDetailView({
                           <span className="truncate text-xs font-medium text-slate-800">
                             {member.full_name}
                           </span>
-                        </button>
+                        </Button>
                       ))}
                     </div>
                   </div>
@@ -761,13 +763,16 @@ export default function TicketDetailView({
                       <span className="text-slate-400 text-[10px] shrink-0">
                         {formatSize(file.size)}
                       </span>
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="icon-xs"
                         onClick={() => removePendingFile(i)}
-                        className="text-slate-400 hover:text-slate-700 ml-1 shrink-0"
+                        aria-label={`Remove ${file.name}`}
+                        className="ml-1 shrink-0 text-slate-400 hover:text-slate-700"
                       >
-                        <X className="w-3 h-3" />
-                      </button>
+                        <X className="size-3" />
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -785,10 +790,10 @@ export default function TicketDetailView({
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 px-3 rounded-md"
+                    className="h-10 px-3 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <Paperclip className="w-3.5 h-3.5 mr-1.5 text-slate-600" />
+                    <Paperclip className="size-4 mr-1.5 text-slate-600" />
                     Attach
                   </Button>
                   <span className="text-[10px] sm:text-xs text-slate-400 hidden sm:inline">
@@ -805,7 +810,7 @@ export default function TicketDetailView({
                     isReplying ||
                     (!replyText.trim() && pendingFiles.length === 0)
                   }
-                  className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold px-4 h-11 rounded-lg transition-colors shadow-sm"
+                  className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold px-4 h-10 rounded-lg transition-colors shadow-sm"
                 >
                   {isReplying && (
                     <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
@@ -862,7 +867,7 @@ export default function TicketDetailView({
                   >
                     <SelectTrigger
                       id="status"
-                      className="h-9 w-full text-xs bg-white border-slate-200"
+                      className="h-10 min-h-10 w-full bg-white border-slate-200"
                     >
                       <SelectValue />
                     </SelectTrigger>
@@ -870,13 +875,35 @@ export default function TicketDetailView({
                       side="bottom"
                       align="start"
                       position="popper"
+                      className="p-1"
                     >
-                      <SelectItem value="new">New</SelectItem>
-                      <SelectItem value="open">Open</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="on_hold">On hold</SelectItem>
-                      <SelectItem value="resolved">Resolved</SelectItem>
-                      <SelectItem value="closed">Closed</SelectItem>
+                      <SelectItem value="new" className="cursor-pointer p-2">
+                        New
+                      </SelectItem>
+                      <SelectItem value="open" className="cursor-pointer p-2">
+                        Open
+                      </SelectItem>
+                      <SelectItem
+                        value="pending"
+                        className="cursor-pointer p-2"
+                      >
+                        Pending
+                      </SelectItem>
+                      <SelectItem
+                        value="on_hold"
+                        className="cursor-pointer p-2"
+                      >
+                        On hold
+                      </SelectItem>
+                      <SelectItem
+                        value="resolved"
+                        className="cursor-pointer p-2"
+                      >
+                        Resolved
+                      </SelectItem>
+                      <SelectItem value="closed" className="cursor-pointer p-2">
+                        Closed
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -895,7 +922,7 @@ export default function TicketDetailView({
                   >
                     <SelectTrigger
                       id="priority"
-                      className="h-9 w-full text-xs bg-white border-slate-200"
+                      className="h-10 min-h-10 w-full bg-white border-slate-200"
                     >
                       <SelectValue />
                     </SelectTrigger>
@@ -903,11 +930,20 @@ export default function TicketDetailView({
                       side="bottom"
                       align="start"
                       position="popper"
+                      className="p-1"
                     >
-                      <SelectItem value="urgent">Urgent</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="normal">Normal</SelectItem>
-                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="urgent" className="cursor-pointer p-2">
+                        Urgent
+                      </SelectItem>
+                      <SelectItem value="high" className="cursor-pointer p-2">
+                        High
+                      </SelectItem>
+                      <SelectItem value="normal" className="cursor-pointer p-2">
+                        Normal
+                      </SelectItem>
+                      <SelectItem value="low" className="cursor-pointer p-2">
+                        Low
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -926,7 +962,7 @@ export default function TicketDetailView({
                   >
                     <SelectTrigger
                       id="assignee"
-                      className="h-9 w-full text-xs bg-white border-slate-200"
+                      className="h-10 min-h-10 w-full bg-white border-slate-200"
                     >
                       <SelectValue placeholder="Unassigned" />
                     </SelectTrigger>
@@ -934,16 +970,28 @@ export default function TicketDetailView({
                       side="bottom"
                       align="start"
                       position="popper"
+                      className="p-1"
                     >
                       {currentUserId && (
-                        <SelectItem value="me">Assign to me</SelectItem>
+                        <SelectItem value="me" className="cursor-pointer p-2">
+                          Assign to me
+                        </SelectItem>
                       )}
                       {agents.map((agent) => (
-                        <SelectItem key={agent.id} value={agent.id}>
+                        <SelectItem
+                          key={agent.id}
+                          value={agent.id}
+                          className="cursor-pointer p-2"
+                        >
                           {agent.full_name}
                         </SelectItem>
                       ))}
-                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      <SelectItem
+                        value="unassigned"
+                        className="cursor-pointer p-2"
+                      >
+                        Unassigned
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1056,10 +1104,11 @@ export default function TicketDetailView({
                         </a>
                       ))}
                     {attachments.length > VISIBLE_ATTACHMENTS && (
-                      <button
+                      <Button
                         type="button"
+                        variant="link"
                         onClick={() => setShowAllAttachments((prev) => !prev)}
-                        className="text-xs font-semibold text-[#0e7adf] hover:underline transition-colors cursor-pointer"
+                        className="h-auto p-0 text-xs font-semibold text-[#0e7adf]"
                       >
                         {showAllAttachments
                           ? "Show less"
@@ -1068,7 +1117,7 @@ export default function TicketDetailView({
                                 ? "s"
                                 : ""
                             }`}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}

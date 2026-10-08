@@ -336,7 +336,7 @@ export default function TicketsTable({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="text-xs font-semibold flex items-center gap-1.5 h-9"
+                  className="h-10 gap-1.5 px-3 text-sm font-semibold"
                 >
                   <Columns className="w-3.5 h-3.5" />
                   Columns
@@ -402,7 +402,7 @@ export default function TicketsTable({
             <Button
               size="sm"
               onClick={() => setIsSheetOpen(true)}
-              className="bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold h-9"
+              className="h-10 bg-teal-800 px-4 text-sm font-semibold text-white hover:bg-teal-900"
             >
               New ticket
             </Button>
@@ -411,7 +411,7 @@ export default function TicketsTable({
               variant="outline"
               size="sm"
               onClick={() => setView("import")}
-              className="bg-white text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 h-9 border-slate-200"
+              className="h-10 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"
             >
               Import from CSV
             </Button>
@@ -487,7 +487,7 @@ export default function TicketsTable({
               Search
             </label>
             <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-slate-400" />
               <Input
                 type="text"
                 value={searchQuery}
@@ -496,7 +496,7 @@ export default function TicketsTable({
                   setSearchQuery(e.target.value);
                   updateQueryParam("search", e.target.value);
                 }}
-                className="pl-8 h-10 text-xs bg-white border-slate-200 "
+                className="pl-8 h-10 bg-white border-slate-200"
               />
             </div>
           </div>
@@ -510,15 +510,30 @@ export default function TicketsTable({
                 value={searchParams?.get("priority") || "all"}
                 onValueChange={(val) => updateQueryParam("priority", val)}
               >
-                <SelectTrigger className="w-full min-h-10 text-xs bg-white border-slate-200">
+                <SelectTrigger className="h-10 min-h-10 w-full bg-white border-slate-200">
                   <SelectValue placeholder="All priorities" />
                 </SelectTrigger>
-                <SelectContent side="bottom" align="start" position="popper">
-                  <SelectItem value="all">All priorities</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
+                <SelectContent
+                  side="bottom"
+                  align="start"
+                  position="popper"
+                  className="p-1"
+                >
+                  <SelectItem value="all" className="cursor-pointer p-2">
+                    All priorities
+                  </SelectItem>
+                  <SelectItem value="urgent" className="cursor-pointer p-2">
+                    Urgent
+                  </SelectItem>
+                  <SelectItem value="high" className="cursor-pointer p-2">
+                    High
+                  </SelectItem>
+                  <SelectItem value="normal" className="cursor-pointer p-2">
+                    Normal
+                  </SelectItem>
+                  <SelectItem value="low" className="cursor-pointer p-2">
+                    Low
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -531,17 +546,36 @@ export default function TicketsTable({
                 value={searchParams?.get("status") || "all"}
                 onValueChange={(val) => updateQueryParam("status", val)}
               >
-                <SelectTrigger className="w-full min-h-10 text-xs bg-white border-slate-200">
+                <SelectTrigger className="h-10 min-h-10 w-full bg-white border-slate-200">
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
-                <SelectContent side="bottom" align="start" position="popper">
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="new">New</SelectItem>
-                  <SelectItem value="open">Open</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="on_hold">On hold</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                  <SelectItem value="closed">Closed</SelectItem>
+                <SelectContent
+                  side="bottom"
+                  align="start"
+                  position="popper"
+                  className="p-1"
+                >
+                  <SelectItem value="all" className="cursor-pointer p-2">
+                    All statuses
+                  </SelectItem>
+                  <SelectItem value="new" className="cursor-pointer p-2">
+                    New
+                  </SelectItem>
+                  <SelectItem value="open" className="cursor-pointer p-2">
+                    Open
+                  </SelectItem>
+                  <SelectItem value="pending" className="cursor-pointer p-2">
+                    Pending
+                  </SelectItem>
+                  <SelectItem value="on_hold" className="cursor-pointer p-2">
+                    On hold
+                  </SelectItem>
+                  <SelectItem value="resolved" className="cursor-pointer p-2">
+                    Resolved
+                  </SelectItem>
+                  <SelectItem value="closed" className="cursor-pointer p-2">
+                    Closed
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -562,7 +596,7 @@ export default function TicketsTable({
                 size="sm"
                 onClick={handleAssignToMe}
                 disabled={bulkAction !== null || isPending}
-                className="h-8 border-teal-600/40 bg-white text-teal-800 hover:bg-teal-50 text-xs font-semibold"
+                className="h-9 px-3 border-teal-600/40 bg-white text-teal-800 hover:bg-teal-50 text-xs font-semibold"
               >
                 {bulkAction === "assign" && (
                   <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
@@ -575,14 +609,27 @@ export default function TicketsTable({
                 onValueChange={handleSetPriority}
                 disabled={bulkAction !== null || isPending}
               >
-                <SelectTrigger className="h-8 border-teal-600/40 bg-white text-teal-800 hover:bg-teal-50 text-xs font-semibold w-28">
+                <SelectTrigger className="h-9 min-h-9 w-32 border-teal-600/40 bg-white text-xs font-semibold text-teal-800 hover:bg-teal-50">
                   <SelectValue placeholder="Set priority" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
+                <SelectContent
+                  side="bottom"
+                  align="start"
+                  position="popper"
+                  className="p-1"
+                >
+                  <SelectItem value="urgent" className="cursor-pointer p-2">
+                    Urgent
+                  </SelectItem>
+                  <SelectItem value="high" className="cursor-pointer p-2">
+                    High
+                  </SelectItem>
+                  <SelectItem value="normal" className="cursor-pointer p-2">
+                    Normal
+                  </SelectItem>
+                  <SelectItem value="low" className="cursor-pointer p-2">
+                    Low
+                  </SelectItem>
                 </SelectContent>
               </Select>
 
@@ -591,7 +638,7 @@ export default function TicketsTable({
                 size="sm"
                 onClick={handleMarkSolved}
                 disabled={bulkAction !== null || isPending}
-                className="h-8 border-teal-600/40 bg-white text-teal-800 hover:bg-teal-50 text-xs font-semibold"
+                className="h-9 px-3 border-teal-600/40 bg-white text-teal-800 hover:bg-teal-50 text-xs font-semibold"
               >
                 {bulkAction === "solved" && (
                   <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
@@ -604,7 +651,7 @@ export default function TicketsTable({
                 size="sm"
                 onClick={() => setSelectedTicketIds([])}
                 disabled={bulkAction !== null || isPending}
-                className="h-8 text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-teal-100/50"
+                className="h-9 px-3 text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-teal-100/50"
               >
                 Clear
               </Button>
@@ -713,7 +760,7 @@ export default function TicketsTable({
                                 href={`/${tenant}/tickets/${ticket.id}`}
                                 className="block py-1 hover:text-slate-600"
                               >
-                                #{ticket.id.substring(0, 4)}
+                                #{ticket.number ?? "-"}
                               </Link>
                             </TableCell>
                           )}
@@ -859,13 +906,24 @@ export default function TicketsTable({
                 value={String(currentLimit)}
                 onValueChange={(val) => updateQueryParam("limit", val)}
               >
-                <SelectTrigger className="w-16 h-7 text-xs bg-white border-slate-200">
+                <SelectTrigger className="h-8 min-h-8 w-18 bg-white border-slate-200 text-xs">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="8">8</SelectItem>
-                  <SelectItem value="15">15</SelectItem>
-                  <SelectItem value="25">25</SelectItem>
+                <SelectContent
+                  side="bottom"
+                  align="start"
+                  position="popper"
+                  className="p-1"
+                >
+                  <SelectItem value="8" className="cursor-pointer p-2">
+                    8
+                  </SelectItem>
+                  <SelectItem value="15" className="cursor-pointer p-2">
+                    15
+                  </SelectItem>
+                  <SelectItem value="25" className="cursor-pointer p-2">
+                    25
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -878,14 +936,14 @@ export default function TicketsTable({
                 onClick={() =>
                   updateQueryParam("page", String(currentPage - 1))
                 }
-                className="h-7 w-7"
+                className="size-8"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 px-2.5 bg-teal-50 text-teal-800 font-bold border-teal-200"
+                className="h-8 min-w-8 px-2.5 bg-teal-50 text-teal-800 font-bold border-teal-200"
               >
                 {currentPage}
               </Button>
@@ -896,7 +954,7 @@ export default function TicketsTable({
                 onClick={() =>
                   updateQueryParam("page", String(currentPage + 1))
                 }
-                className="h-7 w-7"
+                className="size-8"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </Button>

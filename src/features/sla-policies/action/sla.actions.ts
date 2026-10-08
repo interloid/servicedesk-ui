@@ -21,7 +21,9 @@ import {
   SlaPolicyEditorTarget,
   UpdateSlaPolicyDto,
   WEEK_DAYS,
+  describeNotifyLeadConflict,
   describePriorityOrderViolation,
+  findNotifyLeadConflict,
   findPriorityOrderViolation,
 } from "../types/types";
 import { isValidDurationMins } from "../duration";
@@ -181,7 +183,24 @@ function checkPolicy(
     return "Pick who a breach escalates to.";
   }
 
-  return checkTargets(dto) ?? checkScope(dto);
+  const targetError = checkTargets(dto);
+  if (targetError) return targetError;
+
+  // checkTargets has normalised dto.targets by now.
+  if (
+    dto.notify_before_breach !== false &&
+    dto.notify_before_mins !== undefined
+  ) {
+    const conflict = findNotifyLeadConflict(
+      dto.notify_before_mins,
+      dto.targets,
+    );
+    if (conflict) {
+      return `Notify lead time: ${describeNotifyLeadConflict(conflict)}`;
+    }
+  }
+
+  return checkScope(dto);
 }
 
 export async function createSlaPolicyAction(

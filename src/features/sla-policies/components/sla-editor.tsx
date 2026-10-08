@@ -72,7 +72,9 @@ import {
   SlaHoliday,
   SlaPolicyEditorValue,
   TimeCalculation,
+  describeNotifyLeadConflict,
   describePriorityOrderViolation,
+  findNotifyLeadConflict,
   findPriorityOrderViolation,
   type EscalationRole,
 } from "../types/types";
@@ -360,6 +362,12 @@ export default function SlaEditor({
     const violation = findPriorityOrderViolation(targets);
     if (violation && !next.targets[violation.scope]) {
       next.targets[violation.scope] = describePriorityOrderViolation(violation);
+    }
+
+    // The warning has to fire before the tightest target is due.
+    if (draft.notifyBeforeBreach && notifyMins && !next.notifyBefore) {
+      const conflict = findNotifyLeadConflict(notifyMins, targets);
+      if (conflict) next.notifyBefore = describeNotifyLeadConflict(conflict);
     }
 
     setErrors(next);

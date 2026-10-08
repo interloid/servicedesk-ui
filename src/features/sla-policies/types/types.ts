@@ -1,3 +1,5 @@
+import { formatDurationShort } from "../duration";
+
 export type PolicyStatus = "active" | "paused" | "draft";
 
 /** "paused" is shown as Inactive, as the design labels it. */
@@ -83,6 +85,47 @@ export function describePriorityOrderViolation(
   return `${PRIORITY_LABELS[violation.scope]} must allow at least as much time as ${
     PRIORITY_LABELS[violation.tighterScope]
   } for both first response and resolution.`;
+}
+
+/** The SLA target a "notify before breach" lead time runs into. */
+export interface NotifyLeadConflict {
+  scope: PriorityScope;
+  metric: "first response" | "resolution";
+  targetMins: number;
+}
+
+/**
+ * A warning must land before the deadline, so the lead time has to be shorter
+ * than every priority's first response and resolution target. Returns the
+ * tightest target it isn't shorter than, or null when it fits them all.
+ */
+export function findNotifyLeadConflict(
+  leadMins: number,
+  targets: readonly OrderedTarget[],
+): NotifyLeadConflict | null {
+  let conflict: NotifyLeadConflict | null = null;
+  for (const t of targets) {
+    for (const [metric, targetMins] of [
+      ["first response", t.firstResponseMins],
+      ["resolution", t.resolutionMins],
+    ] as const) {
+      if (
+        leadMins >= targetMins &&
+        (!conflict || targetMins < conflict.targetMins)
+      ) {
+        conflict = { scope: t.priority, metric, targetMins };
+      }
+    }
+  }
+  return conflict;
+}
+
+export function describeNotifyLeadConflict(
+  conflict: NotifyLeadConflict,
+): string {
+  return `Must be less than the ${PRIORITY_LABELS[conflict.scope]} ${
+    conflict.metric
+  } target (${formatDurationShort(conflict.targetMins)}).`;
 }
 
 export interface SlaPolicyTarget {

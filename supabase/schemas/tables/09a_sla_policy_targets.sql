@@ -25,6 +25,9 @@ create table if not exists public.sla_policy_targets
     priority_scope public.ticket_priority
         not null,
 
+    -- Minutes the clock counts. A "days" target on a business-hours policy
+    -- is days * the calendar's working day (10:00-19:00 -> 540 per day); on a
+    -- 24/7 policy days * 1440. See functions/18_sla_target_units.sql.
     first_response_mins integer
         not null
         check (first_response_mins > 0),
@@ -32,6 +35,17 @@ create table if not exists public.sla_policy_targets
     resolution_mins integer
         not null
         check (resolution_mins > 0),
+
+    -- The unit the editor shows the minutes in.
+    first_response_unit text
+        not null
+        constraint chk_sla_first_response_unit
+        check (first_response_unit in ('minutes', 'hours', 'days')),
+
+    resolution_unit text
+        not null
+        constraint chk_sla_resolution_unit
+        check (resolution_unit in ('minutes', 'hours', 'days')),
 
     -- Whether the matching prose said "business hours/days". Stored so the
     -- editor can round-trip the string; the clock itself is still wall time

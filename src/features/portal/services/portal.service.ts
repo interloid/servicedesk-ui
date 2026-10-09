@@ -46,6 +46,7 @@ import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { slaDayMins } from "@/features/sla-policies/duration";
 
 /**
  * The `type` a portal sign-in link may legitimately carry. Anything else is
@@ -1459,8 +1460,20 @@ export async function createPortalRequest({
 // SLA promise
 // ---------------------------------------------------------------------------
 
-function formatTarget(mins: number, business: boolean): string {
+function formatTarget(
+  mins: number,
+  business: boolean,
+  unit?: string | null,
+  dayMins?: number,
+): string {
   const qualifier = business ? "business " : "";
+
+  // A "days" target is stored as days of the policy's SLA day: on business
+  // hours one working day (10:00-19:00 is 540 minutes), not 24 hours.
+  if (unit === "days" && dayMins && mins % dayMins === 0) {
+    const days = mins / dayMins;
+    return `${days} ${qualifier}day${days === 1 ? "" : "s"}`;
+  }
 
   if (mins < 60) {
     return `${mins} minute${mins === 1 ? "" : "s"}`;
@@ -1505,14 +1518,39 @@ async function getPolicyFirstResponse(
 ): Promise<string | null> {
   const { data: target } = await admin
     .from("sla_policy_targets")
-    .select("first_response_mins, first_response_business")
+    .select(
+      "first_response_mins, first_response_unit, first_response_business, policy:policy_id(business_hours:business_hours_id(schedule_json))",
+    )
     .eq("policy_id", policyId)
     .eq("priority_scope", priority)
     .maybeSingle();
 
-  return target
-    ? formatTarget(target.first_response_mins, target.first_response_business)
-    : null;
+  if (!target) return null;
+
+  // Both embeds are many-to-one, so PostgREST returns objects; the generated
+  // types can't tell and type them as arrays.
+  const policy = target.policy as unknown as {
+    business_hours: { schedule_json: unknown } | null;
+  } | null;
+  const schedule = (policy?.business_hours?.schedule_json ?? null) as {
+    day_start?: string;
+    day_end?: string;
+  } | null;
+  const dayMins = slaDayMins(
+    schedule
+      ? {
+          dayStart: schedule.day_start ?? null,
+          dayEnd: schedule.day_end ?? null,
+        }
+      : null,
+  );
+
+  return formatTarget(
+    target.first_response_mins,
+    target.first_response_business,
+    target.first_response_unit,
+    dayMins,
+  );
 }
 
 /**

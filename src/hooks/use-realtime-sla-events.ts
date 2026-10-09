@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createSupabaseClient } from "@/lib/supabase/client";
 import { SlaEvent } from "@/features/tickets/types/tickets.types";
 
@@ -78,7 +78,14 @@ export function useRealtimeSlaEvents(
     };
   }, [ticketId]);
 
-  return events;
+  // A server answer (an action's fresh rows) wins over whatever realtime
+  // delivered so far; later realtime changes still apply on top.
+  const replaceEvents = useCallback(
+    (next: SlaEvent[]) => setEvents(sortEvents(next)),
+    [],
+  );
+
+  return { events, replaceEvents };
 }
 
 function sortEvents(events: SlaEvent[]): SlaEvent[] {

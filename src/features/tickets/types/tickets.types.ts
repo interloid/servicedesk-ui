@@ -42,28 +42,6 @@ export interface TicketTag {
   color: string | null;
 }
 
-export interface TicketCsat {
-  id: string;
-  score: number;
-  comment: string | null;
-  resolved_at: string;
-  created_at: string;
-}
-
-export interface SlaPolicy {
-  id: string;
-  tenant_id: string;
-  name: string;
-  business_hours_id: string | null;
-  is_default: boolean;
-  status: "active" | "paused" | "draft";
-  applies_to: string;
-  notify_before_breach: boolean;
-  notify_before_mins: number;
-  escalate_on_breach: boolean;
-  created_at: string;
-  updated_at: string;
-}
 export interface CreateTicketPayload {
   subject: string;
   description: string;

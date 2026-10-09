@@ -8,10 +8,8 @@ import {
   fetchMentionableMembers,
   fetchTicketSlaEvents,
   fetchTicketSlaPolicy,
-  fetchTenantSlaPolicies,
   fetchTicketTags,
   fetchTenantTags,
-  fetchTicketCsat,
   fetchAutoCloseDays,
   getCurrentUserIdentity,
   getTicketMessages,
@@ -78,10 +76,8 @@ export default async function TicketDetailPage({
     mentionable,
     currentUser,
     slaPolicy,
-    slaPolicies,
     tags,
     tenantTags,
-    csat,
     autoCloseDays,
   ] = await Promise.all([
     getTicketMessages(ticketId, tenantId!),
@@ -91,10 +87,8 @@ export default async function TicketDetailPage({
     fetchMentionableMembers(tenantSlug),
     getCurrentUserIdentity(tenantSlug),
     fetchTicketSlaPolicy(ticket.sla_policy_id),
-    fetchTenantSlaPolicies(tenantSlug),
     fetchTicketTags(ticketId),
     fetchTenantTags(tenantSlug),
-    fetchTicketCsat(ticketId, tenantId!),
     fetchAutoCloseDays(tenantId!),
   ]);
 
@@ -110,10 +104,8 @@ export default async function TicketDetailPage({
       mentionableMembers={mentionable}
       currentUserId={currentUser?.id ?? null}
       slaPolicy={slaPolicy}
-      slaPolicies={slaPolicies}
       tags={tags}
       tenantTags={tenantTags}
-      csat={csat}
       autoCloseDays={autoCloseDays}
     />
   );

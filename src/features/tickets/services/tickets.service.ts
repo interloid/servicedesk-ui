@@ -6,10 +6,8 @@ import {
   FetchTicketsOptions,
   MessageVisibility,
   SlaEvent,
-  SlaPolicy,
   Ticket,
   TicketAttachment,
-  TicketCsat,
   TicketSlaPolicy,
   TicketTag,
   TicketMessage,
@@ -464,26 +462,6 @@ export async function fetchTicketSlaPolicy(
   };
 }
 
-/** Ratings the requester left on this ticket, newest resolution first. */
-export async function fetchTicketCsat(
-  ticketId: string,
-  tenantId: string,
-): Promise<TicketCsat[]> {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("csat_ratings")
-    .select("id, score, comment, resolved_at, created_at")
-    .eq("ticket_id", ticketId)
-    .eq("tenant_id", tenantId)
-    .order("resolved_at", { ascending: false });
-
-  if (error) {
-    console.error("Error fetching CSAT:", error.message);
-    return [];
-  }
-  return (data || []) as TicketCsat[];
-}
-
 /** Days a resolved ticket waits before sla_tick() closes it (0 = never). */
 export async function fetchAutoCloseDays(tenantId: string): Promise<number> {
   const supabase = await createSupabaseServerClient();
@@ -626,27 +604,6 @@ export async function getCurrentUserIdentity(tenant: string) {
     full_name: memberUser?.full_name || user.email || "",
     role: membership?.role || null,
   };
-}
-
-export async function fetchTenantSlaPolicies(
-  tenant: string,
-): Promise<SlaPolicy[]> {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
-  const { data, error } = await supabase
-    .from("sla_policies")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("status", "active")
-    .order("is_default", { ascending: false })
-    .order("name", { ascending: true });
-
-  if (error) {
-    console.error("Error fetching SLA policies:", error.message);
-    return [];
-  }
-
-  return (data as SlaPolicy[]) || [];
 }
 
 export async function createTenantTicket(
@@ -838,7 +795,6 @@ export async function updateTicketDetails(
     priority?: TicketPriority;
     assignee_user_id?: string | null;
     resolved_at?: string | null;
-    sla_policy_id?: string | null;
   },
 ) {
   const supabase = await createSupabaseServerClient();

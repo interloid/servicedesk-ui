@@ -27,7 +27,7 @@ export interface SlaClock {
   remainingMs: number;
   /** 0–100 of the target used, for the progress bar. */
   usedPct: number;
-  /** Short text for the badge: "3h 12m left", "Overdue by 8m", "Met in 40m". */
+  /** Short text for the badge: "3h 12m left", "Breached", "Met in 40m". */
   text: string;
 }
 
@@ -66,7 +66,7 @@ export function computeSlaClock(
       state: "breached",
       remainingMs: due - finishedAt,
       usedPct: 100,
-      text: `Overdue by ${formatSlaDuration(finishedAt - due)}`,
+      text: "Breached",
     };
   }
 
@@ -86,13 +86,17 @@ export function computeSlaClock(
       state: "breached",
       remainingMs,
       usedPct: 100,
-      text: `Overdue by ${formatSlaDuration(remainingMs)}`,
+      text: "Breached",
     };
   }
 
-  // Business-hours clocks have a due_at further out than their target, so the
-  // bar is the share of wall time between start and deadline.
-  const usedPct = pct(now - start, due - start);
+  // A 24/7 clock's remaining time is wall time, so the bar is the share of the
+  // target used -- which stays right after a pause or a priority change moved
+  // due_at. A business-hours deadline sits further out than its target, so
+  // there the bar is the share of wall time between start and deadline.
+  const usedPct = ev.business_hours_id
+    ? pct(now - start, due - start)
+    : pct(targetMs - remainingMs, targetMs);
   return {
     state: remainingMs <= warnBeforeMins * 60000 ? "warning" : "running",
     remainingMs,
@@ -163,7 +167,7 @@ export function computeLiveSla(ticket: Ticket, now: number): LiveSla {
   if (sla_status === "breached" || remaining <= 0) {
     return {
       type: "breached",
-      text: `Overdue by ${formatSlaDuration(remaining)}`,
+      text: "Breached",
     };
   }
 

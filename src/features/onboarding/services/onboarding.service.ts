@@ -26,6 +26,8 @@ const ONBOARDING_ROLE_LABEL: Record<
 
 export interface Timezone {
   id: string;
+  /** IANA identifier, e.g. "Asia/Kolkata". */
+  code?: string;
   label?: string;
   name?: string;
   utc_offset?: string;
@@ -432,7 +434,10 @@ export async function registerTenant(payload: RegisterInput) {
 export async function getTimezones(): Promise<Timezone[]> {
   try {
     const supabase = createSupabaseAnonClient();
-    const { data, error } = await supabase.from("timezones").select("*");
+    const { data, error } = await supabase
+      .from("timezones")
+      .select("*")
+      .order("display_name");
 
     if (error) {
       console.error("Error fetching timezones:", error.message);

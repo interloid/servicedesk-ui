@@ -12,6 +12,7 @@ import {
   getCurrentUserIdentity,
   fetchTenantCustomers,
   setTicketTags,
+  fetchTicketSlaEvents,
 } from "../services/tickets.service";
 import {
   CreateTicketPayload,
@@ -268,8 +269,6 @@ export async function updateTicketDetailsAction(formData: {
   priority?: TicketPriority;
   assigneeId?: string;
   unassign?: boolean;
-  /** A policy id, or null to stop measuring the ticket. */
-  slaPolicyId?: string | null;
 }) {
   try {
     const tenantIdResolved = await getTenantIdBySlug(formData.tenantId);
@@ -293,9 +292,6 @@ export async function updateTicketDetailsAction(formData: {
     await updateTicketDetails(formData.ticketId, formData.tenantId, {
       ...(formData.status && { status: formData.status }),
       ...(formData.priority && { priority: formData.priority }),
-      ...(formData.slaPolicyId !== undefined && {
-        sla_policy_id: formData.slaPolicyId,
-      }),
       ...(formData.unassign
         ? { assignee_user_id: null }
         : formData.assigneeId && { assignee_user_id: formData.assigneeId }),
@@ -333,8 +329,15 @@ export async function updateTicketDetailsAction(formData: {
       }
     }
 
+    // Priority and status move the SLA clocks (re-target, pause, resume,
+    // finish) in the same transaction, so hand back what they are now.
+    const slaEvents =
+      (formData.priority || formData.status) && tenantIdResolved
+        ? await fetchTicketSlaEvents(formData.ticketId, tenantIdResolved)
+        : undefined;
+
     revalidatePath(`/${formData.tenantId}/tickets/${formData.ticketId}`);
-    return { success: true };
+    return { success: true, slaEvents };
   } catch (error) {
     return {
       success: false,

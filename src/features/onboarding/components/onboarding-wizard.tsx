@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { MailCheck } from "lucide-react";
 import { StepperHeader } from "./stepper-header";
 
@@ -17,6 +17,17 @@ import { landingUrlForSlug } from "@/lib/tenancy";
 import { APP_ROUTES } from "@/lib/routes";
 import { toast } from "sonner";
 import { registerOnboardingAction } from "../actions/register-actions";
+
+const subscribeNever = () => () => {};
+
+/** The browser's IANA zone; null while rendering on the server. */
+function useBrowserTimeZone(): string | null {
+  return useSyncExternalStore(
+    subscribeNever,
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    () => null,
+  );
+}
 
 interface OnboardingWizardProps {
   timezones: Timezone[];
@@ -37,13 +48,26 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
     agreeToTerms: false,
     orgName: "",
     portalAddress: "",
-    timezone_id: timezones[0]?.id || "",
+    timezone_id: "",
     workingDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
     dayStarts: "09:00",
     dayEnds: "18:30",
     slaTargets: DEFAULT_SLA_TARGETS,
     invites: [{ email: "", role: "Agent" }],
   });
+
+  // Until the user picks one, default to the browser's zone rather than
+  // whichever row comes first: business hours count in this zone, and a silent
+  // UTC default shifts every SLA deadline.
+  const browserTimeZone = useBrowserTimeZone();
+  const defaultTimezoneId =
+    timezones.find((tz) => tz.code === browserTimeZone)?.id ||
+    timezones[0]?.id ||
+    "";
+  const stepData: OnboardingState = {
+    ...formData,
+    timezone_id: formData.timezone_id || defaultTimezoneId,
+  };
 
   const updateFormData = (partial: Partial<OnboardingState>) => {
     setFormData((prev) => ({ ...prev, ...partial }));
@@ -77,7 +101,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
       full_name: formData.fullName,
       organization_name: formData.orgName,
       portal_slug: formData.portalAddress,
-      timezone_id: formData.timezone_id || timezones[0]?.id || "",
+      timezone_id: stepData.timezone_id,
       working_days: formData.workingDays,
       day_start: formData.dayStarts,
       day_end: formData.dayEnds,
@@ -197,7 +221,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
         <div className="pb-4">
           {currentStep === 1 && (
             <StepAccount
-              data={formData}
+              data={stepData}
               onChange={updateFormData}
               onNext={handleNext}
             />
@@ -205,7 +229,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
           {currentStep === 2 && (
             <StepOrganization
               timezones={timezones}
-              data={formData}
+              data={stepData}
               onChange={updateFormData}
               onNext={handleNext}
               onBack={handleBack}
@@ -214,7 +238,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
           {currentStep === 3 && (
             <StepBusinessHours
               timezones={timezones}
-              data={formData}
+              data={stepData}
               onChange={updateFormData}
               onNext={handleNext}
               onSkip={handleSkip}
@@ -223,7 +247,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
           )}
           {currentStep === 4 && (
             <StepSlaPolicy
-              data={formData}
+              data={stepData}
               onNext={handleNext}
               onSkip={handleSkip}
               onBack={handleBack}
@@ -231,7 +255,7 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
           )}
           {currentStep === 5 && (
             <StepInviteTeam
-              data={formData}
+              data={stepData}
               onChange={updateFormData}
               onFinish={handleFinish}
               onSkip={handleSkip}

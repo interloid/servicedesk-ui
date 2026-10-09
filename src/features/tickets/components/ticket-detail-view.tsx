@@ -20,8 +20,6 @@ import {
   MessageVisibility,
   TicketAttachment,
   SlaEvent,
-  SlaPolicy,
-  TicketCsat,
   TicketSlaPolicy,
   TicketTag,
 } from "@/features/tickets/types/tickets.types";
@@ -44,7 +42,6 @@ import {
   TicketSlaCard,
 } from "@/features/tickets/components/ticket-sla-card";
 import { TicketTagsField } from "@/features/tickets/components/ticket-tags-field";
-import { TicketCsatCard } from "@/features/tickets/components/ticket-csat-card";
 import {
   TicketLifecycleActions,
   TicketLifecycleBanner,
@@ -64,10 +61,8 @@ interface TicketDetailViewProps {
   mentionableMembers?: AssignableAgent[];
   currentUserId?: string | null;
   slaPolicy?: TicketSlaPolicy | null;
-  slaPolicies?: SlaPolicy[];
   tags?: TicketTag[];
   tenantTags?: TicketTag[];
-  csat?: TicketCsat[];
   /** Days a resolved ticket waits before it is closed automatically. */
   autoCloseDays?: number;
 }
@@ -82,14 +77,13 @@ export default function TicketDetailView({
   mentionableMembers = [],
   currentUserId = null,
   slaPolicy = null,
-  slaPolicies = [],
   tags = [],
   tenantTags = [],
-  csat = [],
   autoCloseDays = 0,
 }: TicketDetailViewProps) {
   const router = useRouter();
-  const slaEvents = useRealtimeSlaEvents(ticket.id, initialSlaEvents);
+  const { events: slaEvents, replaceEvents: replaceSlaEvents } =
+    useRealtimeSlaEvents(ticket.id, initialSlaEvents);
 
   const memberNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -114,9 +108,6 @@ export default function TicketDetailView({
       ? ticket.assignee_id!
       : "unassigned",
   );
-  const [slaPolicyId, setSlaPolicyId] = useState<string | null>(
-    ticket.sla_policy_id ?? null,
-  );
   const [resolvedAt, setResolvedAt] = useState<string | null>(
     ticket.resolved_at ?? null,
   );
@@ -129,7 +120,6 @@ export default function TicketDetailView({
     const statusMoved = row.status !== status;
     setStatus(row.status);
     setPriority(row.priority);
-    setSlaPolicyId(row.sla_policy_id);
     setResolvedAt(row.resolved_at);
     setClosedAt(row.closed_at);
     setAssigneeId(
@@ -137,8 +127,9 @@ export default function TicketDetailView({
         ? row.assignee_user_id
         : "unassigned",
     );
-    // CSAT and the policy summary are server-rendered.
-    if (statusMoved || row.sla_policy_id !== slaPolicyId) router.refresh();
+    // The policy summary is server-rendered.
+    if (statusMoved || row.sla_policy_id !== (slaPolicy?.id ?? null))
+      router.refresh();
   });
   const [replyType, setReplyType] = useState<MessageVisibility>("public");
   const [replyText, setReplyText] = useState("");
@@ -330,33 +321,12 @@ export default function TicketDetailView({
           setStatus(prev);
           toast.error(res.error || "Failed to update status.");
         } else {
+          if ("slaEvents" in res && res.slaEvents)
+            replaceSlaEvents(res.slaEvents);
           if (val === "resolved") toast.success("Ticket resolved.");
           else if (val === "closed") toast.success("Ticket closed.");
           else if (prev === "resolved" || prev === "closed")
             toast.success("Ticket reopened.");
-          router.refresh();
-        }
-      } finally {
-        setIsUpdatingTicket(false);
-      }
-    });
-  };
-
-  const handleSlaPolicyChange = (val: string | null) => {
-    const prev = slaPolicyId;
-    setSlaPolicyId(val);
-    setIsUpdatingTicket(true);
-    startTransition(async () => {
-      try {
-        const res = await updateTicketDetailsAction({
-          ticketId: ticket.id,
-          tenantId: tenant,
-          slaPolicyId: val,
-        });
-        if (!res.success) {
-          setSlaPolicyId(prev);
-          toast.error(res.error || "Failed to change the SLA policy.");
-        } else {
           router.refresh();
         }
       } finally {
@@ -381,6 +351,9 @@ export default function TicketDetailView({
         if (!res.success) {
           setPriority(prev);
           toast.error(res.error || "Failed to update priority.");
+        } else if ("slaEvents" in res && res.slaEvents) {
+          // The new priority's targets, with the time already used kept.
+          replaceSlaEvents(res.slaEvents);
         }
       } finally {
         setIsUpdatingTicket(false);
@@ -610,7 +583,7 @@ export default function TicketDetailView({
                     onClick={() => setReplyType("public")}
                     className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
                       replyType === "public"
-                        ? "border-teal-700 text-teal-700 bg-teal-700/10 shadow-sm ring-1 ring-teal-700 hover:bg-teal-700/10 hover:text-teal-700"
+                        ? "border-teal-700 text-teal-700 bg-teal-700/10 shadow-sm  hover:bg-teal-700/10 hover:text-teal-700"
                         : "border-transparent text-slate-500 hover:text-slate-800"
                     }`}
                   >
@@ -623,7 +596,7 @@ export default function TicketDetailView({
                     onClick={() => setReplyType("internal")}
                     className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
                       replyType === "internal"
-                        ? "border-amber-600 text-amber-800 bg-amber-100/50 shadow-sm ring-1 ring-amber-600 hover:bg-amber-100/50 hover:text-amber-800"
+                        ? "border-amber-600 text-amber-800 bg-amber-100/50 shadow-sm  hover:bg-amber-100/50 hover:text-amber-800"
                         : "border-transparent text-slate-500 hover:text-slate-800"
                     }`}
                   >
@@ -949,16 +922,7 @@ export default function TicketDetailView({
             <TicketSlaCard
               events={slaEvents}
               policy={slaPolicy}
-              policies={slaPolicies}
-              policyId={slaPolicyId}
-              onPolicyChange={handleSlaPolicyChange}
-              disabled={isUpdatingTicket || isClosed}
-            />
-
-            <TicketCsatCard
-              ratings={csat}
-              status={status}
-              resolvedAt={resolvedAt}
+              updating={isUpdatingTicket}
             />
 
             <Card className="shadow-sm border-slate-200 bg-white ring-0">

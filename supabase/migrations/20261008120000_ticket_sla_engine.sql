@@ -91,7 +91,7 @@ alter table public.sla_events
 comment on column public.sla_events.started_at is
 'When this clock started. The ticket''s created_at, or the reopen time for a restarted resolution clock.';
 comment on column public.sla_events.target_mins is
-'The target (minutes, business or wall-clock) the clock runs against; needed to re-target on a priority change.';
+'The target (minutes, business or wall-clock) the clock runs against, after sla_target_mins() turns whole days into working days; needed to re-target on a priority change.';
 comment on column public.sla_events.business_hours_id is
 'The calendar the clock counts in; null means wall-clock (24/7).';
 comment on column public.sla_events.paused_at is
@@ -414,6 +414,47 @@ begin
 end;
 $$;
 
+-- The policy target in the minutes the clock actually counts. The SLA editor
+-- stores a "days" target as whole multiples of 1440 (it has no unit column and
+-- reads 1440 back as "1 day"). Against a calendar that would mean 24 business
+-- hours -- with a 09:00-18:00 day, nearly three working days per "day" -- so a
+-- whole-day target counts one working day, the calendar's day_end - day_start,
+-- per day. Minutes and hours, and every 24/7 policy, are taken as written.
+create or replace function public.sla_target_mins(
+    p_mins integer,
+    p_business_hours_id uuid
+)
+returns integer
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+    v_start time;
+    v_end time;
+begin
+    if p_mins is null
+       or p_business_hours_id is null
+       or p_mins % 1440 <> 0 then
+        return p_mins;
+    end if;
+
+    select c.day_start, c.day_end
+    into v_start, v_end
+    from public.sla_calendar(p_business_hours_id) c;
+
+    -- No usable calendar: the clock falls back to wall-clock time, where a
+    -- day is 24 hours.
+    if v_start is null or v_end is null then
+        return p_mins;
+    end if;
+
+    return (p_mins / 1440)
+         * (extract(epoch from (v_end - v_start)) / 60)::integer;
+end;
+$$;
+
 ------------------------------------------------------------
 -- 3. Which policy a ticket gets
 ------------------------------------------------------------
@@ -504,6 +545,8 @@ begin
     where t.policy_id = p_ticket.sla_policy_id
       and t.priority_scope = p_ticket.priority;
 
+    v_mins := public.sla_target_mins(v_mins, v_calendar);
+
     if v_mins is null then
         delete from public.sla_events
         where ticket_id = p_ticket.id
@@ -566,6 +609,8 @@ begin
     join public.sla_policies p on p.id = t.policy_id
     where t.policy_id = p_ticket.sla_policy_id
       and t.priority_scope = p_ticket.priority;
+
+    v_mins := public.sla_target_mins(v_mins, v_calendar);
 
     if v_mins is null then
         delete from public.sla_events where id = p_event.id;

@@ -2,14 +2,6 @@
 
 import { Clock, PauseCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useNow } from "@/hooks/use-now";
 import {
@@ -19,11 +11,8 @@ import {
 } from "@/features/tickets/lib/sla";
 import {
   SlaEvent,
-  SlaPolicy,
   TicketSlaPolicy,
 } from "@/features/tickets/types/tickets.types";
-
-const NO_POLICY = "none";
 
 const LABELS: Record<SlaEvent["type"], string> = {
   first_response: "First response",
@@ -127,29 +116,21 @@ export function SlaHeadlineBadge({
 
 interface TicketSlaCardProps {
   events: SlaEvent[];
+  /**
+   * The policy the database attached when the ticket was created: the
+   * customer's own policy, otherwise the tenant default. Not editable here.
+   */
   policy: TicketSlaPolicy | null;
-  /** Active policies the ticket can be moved to. */
-  policies: SlaPolicy[];
-  policyId: string | null;
-  onPolicyChange: (policyId: string | null) => void;
-  disabled?: boolean;
+  /** A change that moves the clocks (priority, status) is in flight. */
+  updating?: boolean;
 }
 
 export function TicketSlaCard({
   events,
   policy,
-  policies,
-  policyId,
-  onPolicyChange,
-  disabled,
+  updating,
 }: TicketSlaCardProps) {
   const now = useSlaNow(events);
-
-  // The ticket's own policy stays selectable even once it's inactive.
-  const options =
-    policy && !policies.some((p) => p.id === policy.id)
-      ? [{ id: policy.id, name: `${policy.name} (inactive)` }, ...policies]
-      : policies;
 
   const paused = events.some((e) => e.status === "pending" && e.paused_at);
 
@@ -160,41 +141,18 @@ export function TicketSlaCard({
           SLA
         </h4>
 
-        <div className="grid gap-2">
-          <Label htmlFor="sla-policy" className="font-semibold text-slate-700">
-            Policy
-          </Label>
-          <Select
-            value={policyId ?? NO_POLICY}
-            onValueChange={(v) => onPolicyChange(v === NO_POLICY ? null : v)}
-            disabled={disabled}
-          >
-            <SelectTrigger
-              id="sla-policy"
-              className="h-10 min-h-10 w-full bg-white border-slate-200"
+        <div className="grid gap-1">
+          <p className="flex min-w-0 items-baseline gap-1.5 text-xs">
+            <span className="shrink-0 font-semibold text-slate-700">
+              Policy:
+            </span>
+            <span
+              className="min-w-0 truncate font-medium text-slate-900"
+              title={policy?.name}
             >
-              <SelectValue placeholder="No SLA" />
-            </SelectTrigger>
-            <SelectContent
-              side="bottom"
-              align="start"
-              position="popper"
-              className="p-1"
-            >
-              {options.map((p) => (
-                <SelectItem
-                  key={p.id}
-                  value={p.id}
-                  className="cursor-pointer p-2"
-                >
-                  {p.name}
-                </SelectItem>
-              ))}
-              <SelectItem value={NO_POLICY} className="cursor-pointer p-2">
-                No SLA
-              </SelectItem>
-            </SelectContent>
-          </Select>
+              {policy?.name ?? "No SLA"}
+            </span>
+          </p>
           {policy && (
             <p className="flex items-center gap-1.5 text-[11px] text-slate-400">
               <Clock className="size-3 shrink-0" aria-hidden />
@@ -214,7 +172,7 @@ export function TicketSlaCard({
 
         {events.length === 0 ? (
           <p className="text-[11px] text-slate-400">
-            {policyId
+            {policy
               ? "This policy has no target for the ticket's priority."
               : "No SLA policy is measuring this ticket."}
           </p>
@@ -234,7 +192,10 @@ export function TicketSlaCard({
             return (
               <div
                 key={ev.id}
-                className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2.5"
+                className={cn(
+                  "space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2.5 transition-opacity",
+                  updating && "opacity-50",
+                )}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-slate-600">

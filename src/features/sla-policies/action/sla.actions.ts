@@ -26,7 +26,7 @@ import {
   findNotifyLeadConflict,
   findPriorityOrderViolation,
 } from "../types/types";
-import { isValidDurationMins } from "../duration";
+import { isDurationUnit, isValidDurationMins } from "../duration";
 import { DUPLICATE_HOLIDAY_MESSAGE, findHolidayOnDate } from "../holiday-rules";
 
 const failure = (error: unknown) => ({
@@ -104,14 +104,22 @@ function checkTargets(
     ) {
       return "Enter SLA targets as whole numbers greater than zero, up to a year.";
     }
+    if (
+      !isDurationUnit(t.firstResponseUnit) ||
+      !isDurationUnit(t.resolutionUnit)
+    ) {
+      return "Pick minutes, hours or days for each SLA target.";
+    }
     if (t.resolutionMins < t.firstResponseMins) {
       return "Resolution must be at least the first response time.";
     }
     targets.push({
       priority: t.priority,
       firstResponseMins: t.firstResponseMins,
+      firstResponseUnit: t.firstResponseUnit,
       firstResponseBusiness: t.firstResponseBusiness === true,
       resolutionMins: t.resolutionMins,
+      resolutionUnit: t.resolutionUnit,
       resolutionBusiness: t.resolutionBusiness === true,
     });
   }

@@ -1,4 +1,8 @@
-import { formatDurationShort } from "../duration";
+import {
+  DurationUnit,
+  formatDurationShort,
+  toDurationInput,
+} from "../duration";
 
 export type PolicyStatus = "active" | "paused" | "draft";
 
@@ -134,8 +138,11 @@ export interface SlaPolicyTarget {
   tenant_id: string;
   priority_scope: string;
   first_response_mins: number;
+  /** Missing until migration 20261009120000; the minutes are then 24-hour days. */
+  first_response_unit?: DurationUnit;
   first_response_business: boolean;
   resolution_mins: number;
+  resolution_unit?: DurationUnit;
   resolution_business: boolean;
 }
 
@@ -214,9 +221,16 @@ export const ESCALATION_ROLES: { value: EscalationRole; label: string }[] = [
 
 export interface SlaPolicyEditorTarget {
   priority: PriorityScope;
+  /** Minutes the clock counts: "days" are working days on business hours. */
   firstResponseMins: number;
+  /**
+   * Missing only for a row read before migration 20261009120000, whose
+   * minutes count a day as 1440. The editor always sends one.
+   */
+  firstResponseUnit?: DurationUnit;
   firstResponseBusiness: boolean;
   resolutionMins: number;
+  resolutionUnit?: DurationUnit;
   resolutionBusiness: boolean;
 }
 
@@ -228,8 +242,10 @@ export function emptyEditorTarget(
   return {
     priority,
     firstResponseMins: defaults.firstResponseMins,
+    firstResponseUnit: toDurationInput(defaults.firstResponseMins).unit,
     firstResponseBusiness: false,
     resolutionMins: defaults.resolutionMins,
+    resolutionUnit: toDurationInput(defaults.resolutionMins).unit,
     resolutionBusiness: false,
   };
 }

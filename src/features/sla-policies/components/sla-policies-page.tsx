@@ -20,7 +20,7 @@ import {
   formatWorkingDays,
   formatWorkingHours,
 } from "../format";
-import { formatDurationShort } from "../duration";
+import { formatDurationShort, slaDayMins } from "../duration";
 import {
   SlaPolicy,
   SlaPolicyQuota,
@@ -165,6 +165,7 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
   const low = policy.targets.find((t) => t.priority_scope === "low");
 
   const calendar = policy.business_hours;
+  const dayMins = slaDayMins(calendar ?? null);
 
   return (
     <ClickablePolicyRow href={href}>
@@ -239,8 +240,17 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
                   className="flex items-center gap-2 whitespace-nowrap"
                 >
                   <span className="font-semibold tabular-nums text-gray-900">
-                    {formatDurationShort(target.first_response_mins)} /{" "}
-                    {formatDurationShort(target.resolution_mins)}
+                    {formatDurationShort(
+                      target.first_response_mins,
+                      target.first_response_unit,
+                      dayMins,
+                    )}{" "}
+                    /{" "}
+                    {formatDurationShort(
+                      target.resolution_mins,
+                      target.resolution_unit,
+                      dayMins,
+                    )}
                   </span>
 
                   <Badge

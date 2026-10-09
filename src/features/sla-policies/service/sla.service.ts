@@ -29,7 +29,7 @@ import {
   readPolicyLimit,
   toAppliesTo,
 } from "../types/types";
-import { formatDurationShort } from "../duration";
+import { formatDurationShort, slaDayMins, UNIT_MINS } from "../duration";
 
 import {
   PolicyScope,
@@ -119,6 +119,58 @@ function warnMissingEditorColumns() {
   console.warn(
     "sla_policies has no description/updated_by columns; apply migration 20261002120000_sla_policy_editor_fields.sql. Saved without them.",
   );
+}
+
+/* ── Target units (migration 20261009120000) ─────────────────────────── */
+
+/**
+ * Columns added by migration 20261009120000. Before it, a target row stores a
+ * day as 1440 minutes whatever the policy counts, so a write that PostgREST
+ * rejects for naming them (PGRST204) is retried in that older form.
+ */
+const TARGET_UNIT_COLUMNS = ["first_response_unit", "resolution_unit"];
+
+function isMissingTargetUnitColumn(error: DbError | null): boolean {
+  return (
+    error?.code === "PGRST204" &&
+    TARGET_UNIT_COLUMNS.some((c) => error.message.includes(`'${c}'`))
+  );
+}
+
+/** A target row as a database without the unit columns stores it. */
+function toLegacyTargetRow(row: ReturnType<typeof targetRow>, dayMins: number) {
+  const legacyMins = (mins: number, unit: string | undefined) =>
+    unit === "days" ? (mins / dayMins) * UNIT_MINS.days : mins;
+  const {
+    first_response_unit: firstUnit,
+    resolution_unit: resolutionUnit,
+    ...rest
+  } = row;
+  return {
+    ...rest,
+    first_response_mins: legacyMins(row.first_response_mins, firstUnit),
+    resolution_mins: legacyMins(row.resolution_mins, resolutionUnit),
+  };
+}
+
+function warnMissingTargetUnitColumns() {
+  console.warn(
+    "sla_policy_targets has no unit columns; apply migration 20261009120000_sla_target_units.sql. Saved days as 24 hours.",
+  );
+}
+
+/**
+ * Minutes in one SLA day of the calendar a policy counts: its working day,
+ * or 1440 for 24/7.
+ */
+async function loadPolicyDayMins(
+  supabase: SupabaseClient,
+  tenantId: string,
+  businessHoursId: string | null | undefined,
+): Promise<number> {
+  if (!businessHoursId) return UNIT_MINS.days;
+  const row = await loadBusinessHoursRow(supabase, tenantId, businessHoursId);
+  return slaDayMins(toBusinessHoursOption(row));
 }
 
 /* ── Selected customers (migration 20261005120000) ───────────────────── */
@@ -418,13 +470,19 @@ async function loadAppliedTicketCounts(
   return Object.fromEntries(counts);
 }
 
-function describeTargets(targets: SlaPolicyTarget[]): string {
+function describeTargets(targets: SlaPolicyTarget[], dayMins: number): string {
   if (targets.length === 0) return "All tickets";
   const urgent =
     targets.find((t) => t.priority_scope === "urgent") || targets[0];
   return `First response in ${formatDurationShort(
     urgent.first_response_mins,
-  )} · Resolution in ${formatDurationShort(urgent.resolution_mins)}`;
+    urgent.first_response_unit,
+    dayMins,
+  )} · Resolution in ${formatDurationShort(
+    urgent.resolution_mins,
+    urgent.resolution_unit,
+    dayMins,
+  )}`;
 }
 
 const BUSINESS_HOURS_COLUMNS = "id, name, schedule_json, holidays_json";
@@ -709,8 +767,10 @@ export async function getSlaEditorData(
         ? {
             priority: existing.priority_scope as PriorityScope,
             firstResponseMins: existing.first_response_mins,
+            firstResponseUnit: existing.first_response_unit,
             firstResponseBusiness: existing.first_response_business,
             resolutionMins: existing.resolution_mins,
+            resolutionUnit: existing.resolution_unit,
             resolutionBusiness: existing.resolution_business,
           }
         : emptyEditorTarget(scope);
@@ -836,7 +896,8 @@ export async function fetchTenantSlaPolicies(
     return {
       id: p.id,
       name: p.name,
-      description: p.description || describeTargets(policyTargets),
+      description:
+        p.description || describeTargets(policyTargets, slaDayMins(calendar)),
       appliedTickets: counts[p.id] || 0,
       updated_at: p.updated_at,
       // Null when the editor is gone or users RLS hides them; the list then
@@ -861,33 +922,60 @@ export async function fetchTenantSlaPolicies(
   });
 }
 
-/** Makes the policy's targets exactly `targets`, one row per priority. */
+function targetRow(
+  tenantId: string,
+  policyId: string,
+  target: SlaPolicyEditorTarget,
+) {
+  return {
+    tenant_id: tenantId,
+    policy_id: policyId,
+    priority_scope: target.priority,
+    first_response_mins: target.firstResponseMins,
+    first_response_unit: target.firstResponseUnit,
+    first_response_business: target.firstResponseBusiness,
+    resolution_mins: target.resolutionMins,
+    resolution_unit: target.resolutionUnit,
+    resolution_business: target.resolutionBusiness,
+  };
+}
+
+/**
+ * Makes the policy's targets exactly `targets`, one row per priority.
+ * `dayMins` is only asked for on a database without the unit columns, to
+ * write "days" in the older 1440-a-day form.
+ */
 async function replacePolicyTargets(
   supabase: SupabaseClient,
   tenantId: string,
   policyId: string,
   targets: SlaPolicyEditorTarget[],
   existing: SlaPolicyTarget[] = [],
+  dayMins: () => Promise<number> = async () => UNIT_MINS.days,
 ): Promise<void> {
+  let legacyDayMins: number | null = null;
+
   for (const target of targets) {
     const current = existing.find((t) => t.priority_scope === target.priority);
-    const payload = {
-      tenant_id: tenantId,
-      policy_id: policyId,
-      priority_scope: target.priority,
-      first_response_mins: target.firstResponseMins,
-      first_response_business: target.firstResponseBusiness,
-      resolution_mins: target.resolutionMins,
-      resolution_business: target.resolutionBusiness,
-    };
+    const row = targetRow(tenantId, policyId, target);
+    const write = (payload: Record<string, unknown>) =>
+      current
+        ? supabase
+            .from("sla_policy_targets")
+            .update(payload)
+            .eq("id", current.id)
+            .eq("tenant_id", tenantId)
+        : supabase.from("sla_policy_targets").insert(payload);
 
-    const { error } = current
-      ? await supabase
-          .from("sla_policy_targets")
-          .update(payload)
-          .eq("id", current.id)
-          .eq("tenant_id", tenantId)
-      : await supabase.from("sla_policy_targets").insert(payload);
+    let { error } =
+      legacyDayMins === null
+        ? await write(row)
+        : await write(toLegacyTargetRow(row, legacyDayMins));
+    if (legacyDayMins === null && isMissingTargetUnitColumn(error)) {
+      warnMissingTargetUnitColumns();
+      legacyDayMins = await dayMins();
+      ({ error } = await write(toLegacyTargetRow(row, legacyDayMins)));
+    }
     if (error) throw dbError(error);
   }
 
@@ -908,8 +996,10 @@ function toEditorTargets(rows: SlaPolicyTarget[]): SlaPolicyEditorTarget[] {
   return rows.map((t) => ({
     priority: t.priority_scope as PriorityScope,
     firstResponseMins: t.first_response_mins,
+    firstResponseUnit: t.first_response_unit,
     firstResponseBusiness: t.first_response_business,
     resolutionMins: t.resolution_mins,
+    resolutionUnit: t.resolution_unit,
     resolutionBusiness: t.resolution_business,
   }));
 }
@@ -1013,7 +1103,14 @@ export async function createSlaPolicy(tenant: string, dto: CreateSlaPolicyDto) {
   }
 
   try {
-    await replacePolicyTargets(supabase, tenantId, policy.id, dto.targets);
+    await replacePolicyTargets(
+      supabase,
+      tenantId,
+      policy.id,
+      dto.targets,
+      [],
+      () => loadPolicyDayMins(supabase, tenantId, policy.business_hours_id),
+    );
     await replacePolicyCustomers(
       supabase,
       tenantId,
@@ -1122,6 +1219,12 @@ export async function updateSlaPolicy(
       policyId,
       dto.targets,
       previousTargets,
+      () =>
+        loadPolicyDayMins(
+          supabase,
+          tenantId,
+          policy?.business_hours_id ?? current.business_hours_id,
+        ),
     );
     await replacePolicyCustomers(
       supabase,

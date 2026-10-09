@@ -82,6 +82,7 @@ import {
   DurationInput,
   DurationUnit as Unit,
   UNIT_MINS,
+  slaDayMins,
   toDurationInput,
   toMinutes,
 } from "../duration";
@@ -207,18 +208,36 @@ export default function SlaEditor({
     null,
   );
 
-  const [targetInputs, setTargetInputs] = useState<TargetInputs>(
-    () =>
-      Object.fromEntries(
-        initial.targets.map((t) => [
-          t.priority,
-          {
-            firstResponse: toDurationInput(t.firstResponseMins),
-            resolution: toDurationInput(t.resolutionMins),
-          },
-        ]),
-      ) as TargetInputs,
-  );
+  const [targetInputs, setTargetInputs] = useState<TargetInputs>(() => {
+    // Stored "days" are working days of the policy's calendar.
+    const dayMins =
+      initial.timeCalculation === "business"
+        ? slaDayMins(
+            initialBusinessHours.find(
+              (c) => c.id === initial.businessHoursId,
+            ) ?? null,
+          )
+        : UNIT_MINS.days;
+    return Object.fromEntries(
+      initial.targets.map((t) => [
+        t.priority,
+        {
+          // A row without a unit predates migration 20261009120000 and
+          // counts a day as 1440 minutes.
+          firstResponse: toDurationInput(
+            t.firstResponseMins,
+            t.firstResponseUnit,
+            t.firstResponseUnit ? dayMins : UNIT_MINS.days,
+          ),
+          resolution: toDurationInput(
+            t.resolutionMins,
+            t.resolutionUnit,
+            t.resolutionUnit ? dayMins : UNIT_MINS.days,
+          ),
+        },
+      ]),
+    ) as TargetInputs;
+  });
 
   // The warning lead time only goes up to a day, so no "days" unit here.
   const [notifyLead, setNotifyLead] = useState<DurationInput>(() =>
@@ -335,10 +354,14 @@ export default function SlaEditor({
       next.notifyBefore = "Use a whole number, up to 24 hours.";
     }
 
+    // A business-hours day is one working day of the calendar (10:00–19:00
+    // is 540 minutes), so "1 day" is stored as the minutes the clock counts.
+    const dayMins = business ? slaDayMins(calendar) : UNIT_MINS.days;
+
     const targets = draft.targets.map((t) => {
       const input = targetInputs[t.priority];
-      const first = toMinutes(input.firstResponse);
-      const resolution = toMinutes(input.resolution);
+      const first = toMinutes(input.firstResponse, dayMins);
+      const resolution = toMinutes(input.resolution, dayMins);
 
       if (!first || !resolution) {
         next.targets[t.priority] = "Enter whole numbers greater than zero.";
@@ -351,8 +374,10 @@ export default function SlaEditor({
       return {
         priority: t.priority,
         firstResponseMins: first ?? 0,
+        firstResponseUnit: input.firstResponse.unit,
         firstResponseBusiness: business,
         resolutionMins: resolution ?? 0,
+        resolutionUnit: input.resolution.unit,
         resolutionBusiness: business,
       };
     });

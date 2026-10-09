@@ -21,12 +21,15 @@ export default async function TicketsPage({
   const status = typeof sp.status === "string" ? sp.status : undefined;
   const priority = typeof sp.priority === "string" ? sp.priority : undefined;
   const search = typeof sp.search === "string" ? sp.search : undefined;
+  // Subject A→Z unless the list asks otherwise; the table shows the same.
   const sort =
-    sp.sort === "subject" || sp.sort === "created_at" ? sp.sort : undefined;
+    sp.sort === "subject" || sp.sort === "created_at" ? sp.sort : "subject";
   const sortOrder =
     sp.sortOrder === "asc" || sp.sortOrder === "desc"
       ? sp.sortOrder
-      : undefined;
+      : sort === "subject"
+        ? "asc"
+        : "desc";
   const page = typeof sp.page === "string" ? Number(sp.page) || 1 : 1;
   const limit = typeof sp.limit === "string" ? Number(sp.limit) || 8 : 8;
 

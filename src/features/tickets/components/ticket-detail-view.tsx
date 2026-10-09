@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useRef, useTransition, useMemo } from "react";
+import {
+  useState,
+  useRef,
+  useTransition,
+  useMemo,
+  useLayoutEffect,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -97,6 +103,16 @@ export default function TicketDetailView({
     initialMessages,
     memberNameById,
   );
+
+  // Opens on the newest message and follows the thread when one lands, as a
+  // chat does. Keyed on the last message rather than every render, so an agent
+  // scrolled up to reread something is not pulled back down while typing.
+  const threadRef = useRef<HTMLDivElement>(null);
+  const lastMessageId = messages.at(-1)?.id;
+  useLayoutEffect(() => {
+    const thread = threadRef.current;
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }, [lastMessageId]);
 
   const [, startTransition] = useTransition();
   const [isReplying, setIsReplying] = useState(false);
@@ -422,8 +438,12 @@ export default function TicketDetailView({
   };
 
   return (
-    <div className="h-full overflow-y-auto p-4 font-sans sm:p-6 lg:p-8">
-      <div className="max-w mx-auto space-y-6">
+    // Laid out like a chat window: from lg up the page is the height of <main>,
+    // the conversation fills the left column with only its thread scrolling and
+    // the composer pinned under it, and the sidebar scrolls on its own. Below
+    // lg the chat card takes most of the screen and the sidebar follows it.
+    <div className="flex h-full flex-col overflow-y-auto p-4 font-sans sm:p-6 lg:p-8">
+      <div className="mx-auto flex w-full flex-1 flex-col gap-6 lg:min-h-0">
         <div>
           <BackLink href={tenantPath(tenant, TENANT_ROUTES.TICKETS)}>
             Back to queue
@@ -436,10 +456,7 @@ export default function TicketDetailView({
               #{ticket.number ?? "-"}
             </span>
             {!isClosed && status !== "resolved" && (
-              <SlaHeadlineBadge
-                events={slaEvents}
-                warnBeforeMins={slaPolicy?.warn_before_mins}
-              />
+              <SlaHeadlineBadge events={slaEvents} policy={slaPolicy} />
             )}
           </div>
 
@@ -484,98 +501,116 @@ export default function TicketDetailView({
           />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            {messages.map((msg) => {
-              const isInternal = msg.visibility === "internal";
-              const isCustomer = msg.author_type === "customer";
+        {/* min-h keeps a short laptop screen from squeezing the thread to
+            nothing -- there the page scrolls instead. */}
+        <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:min-h-112 lg:flex-1 lg:grid-cols-3">
+          <section className="flex h-[75dvh] min-h-112 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2 lg:h-auto lg:min-h-0">
+            {/* The only part of the card that scrolls. */}
+            <div
+              ref={threadRef}
+              className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-5"
+            >
+              {messages.length === 0 && (
+                <p className="py-10 text-center text-xs text-slate-400">
+                  No messages on this ticket yet.
+                </p>
+              )}
+              {messages.map((msg) => {
+                const isInternal = msg.visibility === "internal";
+                const isCustomer = msg.author_type === "customer";
 
-              return (
-                <div
-                  key={msg.id}
-                  className={cn(
-                    "flex min-w-0 items-start gap-3",
-                    !isCustomer && "flex-row-reverse",
-                  )}
-                >
+                return (
                   <div
-                    className={`w-8 h-8 rounded-full text-white flex items-center justify-center text-sm font-semibold shrink-0 ${
-                      isCustomer
-                        ? "bg-slate-600"
-                        : isInternal
-                          ? "bg-amber-600"
-                          : "bg-teal-700"
-                    }`}
-                  >
-                    {msg.author_initials ||
-                      (isCustomer
-                        ? ticket.requester_name
-                            .split(" ")
-                            .map((s) => s[0])
-                            .join("")
-                            .slice(0, 2)
-                            .toUpperCase() || "CU"
-                        : "AG")}
-                  </div>
-
-                  <div
+                    key={msg.id}
                     className={cn(
-                      "flex min-w-0 max-w-[85%] flex-col gap-1 sm:max-w-[75%]",
-                      isCustomer ? "items-start" : "items-end",
+                      "flex min-w-0 items-start gap-3",
+                      !isCustomer && "flex-row-reverse",
                     )}
                   >
                     <div
-                      className={cn(
-                        "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs",
-                        !isCustomer && "flex-row-reverse",
-                      )}
+                      className={`w-8 h-8 rounded-full text-white flex items-center justify-center text-sm font-semibold shrink-0 ${
+                        isCustomer
+                          ? "bg-slate-600"
+                          : isInternal
+                            ? "bg-amber-600"
+                            : "bg-teal-700"
+                      }`}
                     >
-                      <span className="font-semibold text-slate-900">
-                        {msg.author_name ||
-                          (isCustomer
-                            ? ticket.requester_name || "Customer"
-                            : "Agent")}
-                      </span>
-                      {isInternal && (
-                        <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200 tracking-wider uppercase">
-                          Internal Note
-                        </span>
-                      )}
-                      <span className="text-slate-400 text-xs">
-                        {new Date(msg.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
+                      {msg.author_initials ||
+                        (isCustomer
+                          ? ticket.requester_name
+                              .split(" ")
+                              .map((s) => s[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase() || "CU"
+                          : "AG")}
                     </div>
 
                     <div
-                      className={`min-w-0 p-3.5 rounded-lg text-sm leading-relaxed border whitespace-pre-line wrap-break-word ${
-                        isCustomer ? "rounded-tl-sm" : "rounded-tr-sm"
-                      } ${
-                        isInternal
-                          ? "bg-amber-50 border-amber-200 text-slate-800"
-                          : isCustomer
-                            ? "bg-white border-slate-200 text-slate-800 shadow-sm"
-                            : "bg-emerald-50/50 border-emerald-200 text-slate-800"
-                      }`}
+                      className={cn(
+                        "flex min-w-0 max-w-[85%] flex-col gap-1 sm:max-w-[75%]",
+                        isCustomer ? "items-start" : "items-end",
+                      )}
                     >
-                      <MentionText text={msg.body} />
+                      <div
+                        className={cn(
+                          "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs",
+                          !isCustomer && "flex-row-reverse",
+                        )}
+                      >
+                        <span className="font-semibold text-slate-900">
+                          {msg.author_name ||
+                            (isCustomer
+                              ? ticket.requester_name || "Customer"
+                              : "Agent")}
+                        </span>
+                        {isInternal && (
+                          <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200 tracking-wider uppercase">
+                            Internal Note
+                          </span>
+                        )}
+                        <span className="text-slate-400 text-xs">
+                          {new Date(msg.created_at).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+
+                      <div
+                        className={`min-w-0 p-3.5 rounded-lg text-sm leading-relaxed border whitespace-pre-line wrap-break-word ${
+                          isCustomer ? "rounded-tl-sm" : "rounded-tr-sm"
+                        } ${
+                          isInternal
+                            ? "bg-amber-50 border-amber-200 text-slate-800"
+                            : isCustomer
+                              ? "bg-white border-slate-200 text-slate-800 shadow-sm"
+                              : "bg-emerald-50/50 border-emerald-200 text-slate-800"
+                        }`}
+                      >
+                        <MentionText text={msg.body} />
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
 
-            {!isClosed && (
+            {/* Pinned under the thread, as a chat composer is. */}
+            {isClosed ? (
+              <p className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-3 text-center text-xs text-slate-500">
+                This ticket is closed. Reopen it to reply.
+              </p>
+            ) : (
               <div
-                className={`rounded-xl border overflow-hidden transition-colors ${
+                className={`shrink-0 border-t transition-colors ${
                   replyType === "internal"
                     ? "bg-amber-50 border-amber-200"
-                    : "bg-white border-slate-200"
+                    : "bg-slate-50/60 border-slate-200"
                 }`}
               >
-                <div className="flex items-center space-x-2 px-3 sm:px-4 py-3">
+                <div className="flex items-center space-x-2 px-3 sm:px-4 pt-3">
                   <Button
                     type="button"
                     variant="ghost"
@@ -604,9 +639,9 @@ export default function TicketDetailView({
                   </Button>
                 </div>
 
-                <div className="px-3 sm:px-6 py-3 relative min-h-30">
+                <div className="relative px-3 pt-2 sm:px-4">
                   <textarea
-                    rows={4}
+                    rows={2}
                     value={replyText}
                     onChange={handleReplyTextChange}
                     onKeyDown={handleMentionKeyDown}
@@ -615,12 +650,13 @@ export default function TicketDetailView({
                         ? "Visible to your team only — context, root cause, next steps."
                         : `Write a reply to ${ticket.requester_name || "John Doe"}...`
                     }
-                    className="w-full bg-transparent text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 border-none outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 p-0 resize-none"
+                    className="block max-h-40 min-h-16 w-full resize-none overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-0 focus-visible:ring-0 sm:text-sm"
                   />
+                  {/* Opens upward: the composer sits at the bottom of the card. */}
                   {mentionActive && mentionMatches.length > 0 && (
                     <div
                       ref={mentionRef}
-                      className="absolute z-30 top-10 left-3 sm:left-6 mt-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
+                      className="absolute bottom-full left-3 z-30 mb-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg sm:left-4"
                     >
                       <p className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                         Mention someone
@@ -663,7 +699,7 @@ export default function TicketDetailView({
                 </div>
 
                 {pendingFiles.length > 0 && (
-                  <div className="px-3 sm:px-4 pb-3 flex flex-wrap gap-2">
+                  <div className="px-3 sm:px-4 pt-2 flex flex-wrap gap-2">
                     {pendingFiles.map((file, i) => (
                       <div
                         key={`${file.name}-${i}`}
@@ -691,7 +727,7 @@ export default function TicketDetailView({
                   </div>
                 )}
 
-                <div className="px-3 sm:px-4 py-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 border-t border-transparent ring-0">
+                <div className="px-3 sm:px-4 pt-2 pb-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
                   <div className="flex items-center space-x-3">
                     <input
                       ref={fileInputRef}
@@ -735,9 +771,10 @@ export default function TicketDetailView({
                 </div>
               </div>
             )}
-          </div>
+          </section>
 
-          <div className="space-y-4">
+          {/* Scrolls on its own from lg up, beside the fixed chat card. */}
+          <div className="space-y-4 lg:min-h-0 lg:overflow-y-auto">
             <Card className="shadow-sm border-slate-200 bg-white ring-0 relative">
               <div className="absolute top-0 left-0 right-0 z-10">
                 <IndeterminateProgress
@@ -923,6 +960,7 @@ export default function TicketDetailView({
               events={slaEvents}
               policy={slaPolicy}
               updating={isUpdatingTicket}
+              priority={priority}
             />
 
             <Card className="shadow-sm border-slate-200 bg-white ring-0">

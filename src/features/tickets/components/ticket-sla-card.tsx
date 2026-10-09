@@ -7,12 +7,15 @@ import { useNow } from "@/hooks/use-now";
 import {
   SlaClockState,
   computeSlaClock,
+  formatSlaDuration,
   headlineSlaEvent,
 } from "@/features/tickets/lib/sla";
 import {
   SlaEvent,
+  TicketPriority,
   TicketSlaPolicy,
 } from "@/features/tickets/types/tickets.types";
+import { toDurationInput } from "@/features/sla-policies/duration";
 
 const LABELS: Record<SlaEvent["type"], string> = {
   first_response: "First response",
@@ -32,6 +35,11 @@ const BADGE: Record<
     badge: "bg-amber-100 text-amber-900",
     dot: "bg-amber-600",
     bar: "bg-amber-400",
+  },
+  waiting: {
+    badge: "bg-slate-100 text-slate-600",
+    dot: "bg-slate-400",
+    bar: "bg-[#0e7adf]",
   },
   paused: {
     badge: "bg-slate-100 text-slate-600",
@@ -57,6 +65,28 @@ function formatClock(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * The target as the policy editor shows it: "1 day", "4 hours", "15 minutes".
+ * A day on a business-hours policy is one working day of its calendar.
+ */
+function formatTarget(
+  ev: SlaEvent,
+  policy: TicketSlaPolicy | null,
+  priority: TicketPriority | undefined,
+): string | null {
+  if (!ev.target_mins) return null;
+  const unit = priority ? policy?.target_units[priority]?.[ev.type] : undefined;
+  const dayMins = policy?.calendar ? policy.day_mins : 1440;
+  const { amount, unit: shown } = toDurationInput(
+    ev.target_mins,
+    unit,
+    dayMins,
+  );
+  const label = amount === "1" ? shown.slice(0, -1) : shown;
+  const working = policy?.calendar && shown === "days" ? "working " : "";
+  return `${amount} ${working}${label}`;
 }
 
 /** Ticks every second only while a clock is actually running. */
@@ -85,6 +115,8 @@ function ClockBadge({
     >
       {state === "paused" ? (
         <PauseCircle className="size-3 shrink-0" aria-hidden />
+      ) : state === "waiting" ? (
+        <Clock className="size-3 shrink-0" aria-hidden />
       ) : (
         <span className={cn("size-1.5 shrink-0 rounded-full", style.dot)} />
       )}
@@ -96,15 +128,21 @@ function ClockBadge({
 /** The clock that matters most, for the line above the ticket title. */
 export function SlaHeadlineBadge({
   events,
-  warnBeforeMins,
+  policy,
 }: {
   events: SlaEvent[];
-  warnBeforeMins?: number;
+  policy?: TicketSlaPolicy | null;
 }) {
   const now = useSlaNow(events);
   const ev = headlineSlaEvent(events);
   if (!ev) return null;
-  const clock = computeSlaClock(ev, now, warnBeforeMins);
+  const clock = computeSlaClock(
+    ev,
+    now,
+    policy?.warn_before_mins,
+    policy?.calendar,
+    policy?.day_mins,
+  );
   return (
     <ClockBadge
       state={clock.state}
@@ -123,12 +161,15 @@ interface TicketSlaCardProps {
   policy: TicketSlaPolicy | null;
   /** A change that moves the clocks (priority, status) is in flight. */
   updating?: boolean;
+  /** The ticket's priority, whose targets the clocks run against. */
+  priority?: TicketPriority;
 }
 
 export function TicketSlaCard({
   events,
   policy,
   updating,
+  priority,
 }: TicketSlaCardProps) {
   const now = useSlaNow(events);
 
@@ -178,8 +219,15 @@ export function TicketSlaCard({
           </p>
         ) : (
           events.map((ev) => {
-            const clock = computeSlaClock(ev, now, policy?.warn_before_mins);
+            const clock = computeSlaClock(
+              ev,
+              now,
+              policy?.warn_before_mins,
+              policy?.calendar,
+              policy?.day_mins,
+            );
             const style = BADGE[clock.state];
+            const target = formatTarget(ev, policy, priority);
             const footnote =
               clock.state === "met" && ev.completed_at
                 ? `Met ${formatClock(ev.completed_at)} · due ${formatClock(ev.due_at)}`
@@ -187,7 +235,9 @@ export function TicketSlaCard({
                   ? `Was due ${formatClock(ev.breached_at ?? ev.due_at)}`
                   : clock.state === "paused"
                     ? `Paused ${formatClock(ev.paused_at!)}`
-                    : `Due ${formatClock(ev.due_at)}`;
+                    : clock.state === "waiting"
+                      ? `Outside business hours · ${formatSlaDuration(clock.remainingMs, policy?.calendar ? policy.day_mins : 1440)} left · due ${formatClock(ev.due_at)}`
+                      : `Due ${formatClock(ev.due_at)}`;
 
             return (
               <div
@@ -198,8 +248,14 @@ export function TicketSlaCard({
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-slate-600">
+                  <span className="min-w-0 text-xs font-medium text-slate-600">
                     {LABELS[ev.type]}
+                    {target && (
+                      <span className="font-normal text-slate-400">
+                        {" "}
+                        · {target}
+                      </span>
+                    )}
                   </span>
                   <ClockBadge state={clock.state} text={clock.text} />
                 </div>

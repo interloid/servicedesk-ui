@@ -68,6 +68,32 @@ interface TabButtonProps {
   children: ReactNode;
 }
 
+const PRIORITY_STYLES: Record<
+  string,
+  { badge: string; dot: string; label: string }
+> = {
+  urgent: {
+    badge: "bg-red-100 text-red-800",
+    dot: "bg-red-500",
+    label: "Urgent",
+  },
+  high: {
+    badge: "bg-orange-100 text-orange-800",
+    dot: "bg-orange-500",
+    label: "High",
+  },
+  normal: {
+    badge: "bg-blue-100 text-blue-800",
+    dot: "bg-blue-500",
+    label: "Normal",
+  },
+  low: {
+    badge: "bg-emerald-100 text-emerald-800",
+    dot: "bg-emerald-600",
+    label: "Low",
+  },
+};
+
 function TabButton({ active, onClick, children }: TabButtonProps) {
   return (
     <Button
@@ -76,7 +102,7 @@ function TabButton({ active, onClick, children }: TabButtonProps) {
       onClick={onClick}
       className={`h-8 whitespace-nowrap border ${
         active
-          ? "bg-accent text-accent-foreground font-semibold border-accent-foreground/20"
+          ? "border-transparent bg-(--brand-accent) font-semibold text-primary-foreground hover:bg-brand-hover hover:text-primary-foreground"
           : "border-transparent text-slate-500 hover:text-slate-800"
       }`}
     >
@@ -200,71 +226,63 @@ export default function TicketsTable({
     switch (status?.toLowerCase()) {
       case "new":
         return (
-          <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-none font-semibold">
+          <Badge className="h-6 rounded-full px-2.5 text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-none font-semibold">
             New
           </Badge>
         );
       case "open":
         return (
-          <Badge className="rounded-full bg-blue-100 text-blue-800 hover:bg-blue-100 border-none font-semibold">
+          <Badge className="h-6 rounded-full px-2.5 text-xs bg-blue-100 text-blue-800 hover:bg-blue-100 border-none font-semibold">
             Open
           </Badge>
         );
       case "pending":
         return (
-          <Badge className="rounded-full bg-amber-100 text-amber-800 hover:bg-amber-100 border-none font-semibold">
+          <Badge className="h-6 rounded-full px-2.5 text-xs bg-amber-100 text-amber-800 hover:bg-amber-100 border-none font-semibold">
             Pending
           </Badge>
         );
       case "solved":
       case "resolved":
         return (
-          <Badge className="rounded-full bg-slate-100 text-slate-700 hover:bg-slate-100 border-none font-semibold">
+          <Badge className="h-6 rounded-full px-2.5 text-xs bg-slate-100 text-slate-700 hover:bg-slate-100 border-none font-semibold">
             Resolved
           </Badge>
         );
       case "on_hold":
         return (
-          <Badge className="rounded-full bg-purple-100 text-purple-800 hover:bg-purple-100 border-none font-semibold">
+          <Badge className="h-6 rounded-full px-2.5 text-xs bg-purple-100 text-purple-800 hover:bg-purple-100 border-none font-semibold">
             On hold
           </Badge>
         );
       default:
         return (
-          <Badge variant="outline" className="rounded-full">
+          <Badge variant="outline" className="h-6 rounded-full px-2.5 text-xs">
             {status}
           </Badge>
         );
     }
   };
 
+  // The status badge's pill, with the SLA editor's priority dot inside.
   const getPriorityBadge = (priority: string) => {
-    switch (priority?.toLowerCase()) {
-      case "urgent":
-        return (
-          <Badge className="rounded-full bg-red-50 text-red-700 border-red-200 font-semibold">
-            Urgent
-          </Badge>
-        );
-      case "high":
-        return (
-          <Badge className="rounded-full bg-orange-50 text-orange-700 border-orange-200 font-semibold">
-            High
-          </Badge>
-        );
-      case "normal":
-        return (
-          <Badge className="rounded-full bg-slate-50 text-slate-600 border-slate-200 font-semibold">
-            Normal
-          </Badge>
-        );
-      default:
-        return (
-          <Badge variant="outline" className="rounded-full">
-            {priority}
-          </Badge>
-        );
-    }
+    const style = PRIORITY_STYLES[priority?.toLowerCase()];
+    return (
+      <Badge
+        className={cn(
+          "h-6 gap-1.5 rounded-full border-none px-2.5 text-xs font-semibold",
+          style?.badge ?? "bg-slate-100 text-slate-700",
+        )}
+      >
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            style?.dot ?? "bg-slate-400",
+          )}
+        />
+        {style?.label ?? priority}
+      </Badge>
+    );
   };
 
   const updateQueryParam = (key: string, value: string) => {
@@ -281,8 +299,11 @@ export default function TicketsTable({
     });
   };
 
-  const currentSort = searchParams.get("sort") || "";
-  const currentSortOrder = searchParams.get("sortOrder") || "desc";
+  // Same defaults as the page: subject A→Z.
+  const currentSort = searchParams.get("sort") || "subject";
+  const currentSortOrder =
+    searchParams.get("sortOrder") ||
+    (currentSort === "subject" ? "asc" : "desc");
 
   const handleSortToggle = () => {
     const params = new URLSearchParams(searchParams.toString());
@@ -427,7 +448,7 @@ export default function TicketsTable({
             <Badge
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 !searchParams?.get("status")
-                  ? "bg-brand-badge text-brand-badge-foreground"
+                  ? "bg-primary-foreground/20 text-primary-foreground"
                   : "bg-teal-100 text-teal-800"
               }`}
             >
@@ -442,7 +463,7 @@ export default function TicketsTable({
             <Badge
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 searchParams?.get("status") === "new"
-                  ? "bg-brand-badge text-brand-badge-foreground"
+                  ? "bg-primary-foreground/20 text-primary-foreground"
                   : "bg-teal-100 text-teal-800"
               }`}
             >
@@ -457,7 +478,7 @@ export default function TicketsTable({
             <Badge
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 searchParams?.get("status") === "open"
-                  ? "bg-brand-badge text-brand-badge-foreground"
+                  ? "bg-primary-foreground/20 text-primary-foreground"
                   : "bg-teal-100 text-teal-800"
               }`}
             >
@@ -472,7 +493,7 @@ export default function TicketsTable({
             <Badge
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 searchParams?.get("status") === "resolved"
-                  ? "bg-brand-badge text-brand-badge-foreground"
+                  ? "bg-primary-foreground/20 text-primary-foreground"
                   : "bg-teal-100 text-teal-800"
               }`}
             >
@@ -666,7 +687,7 @@ export default function TicketsTable({
             ) : (
               <div className="overflow-x-auto rounded-lg border border-slate-200/80 bg-white">
                 <Table>
-                  <TableHeader className="bg-slate-50/50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200/80">
+                  <TableHeader className="bg-slate-50/50 text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground border-b border-slate-200/80">
                     <TableRow className="hover:bg-transparent">
                       <TableHead className="w-12 px-4 text-center align-middle">
                         <Checkbox
@@ -685,15 +706,15 @@ export default function TicketsTable({
                       )}
 
                       {visibleColumns?.subject && (
-                        <TableHead className="px-4 text-left font-bold text-teal-800">
+                        <TableHead className="px-4 text-left font-bold text-slate-500">
                           <button
                             type="button"
                             onClick={handleSortToggle}
-                            className="inline-flex items-center gap-1 cursor-pointer select-none text-teal-800 hover:text-teal-900 transition-colors font-bold uppercase"
+                            className="inline-flex items-center gap-1 cursor-pointer select-none text-slate-500 hover:text-slate-800 transition-colors font-bold uppercase"
                           >
                             <span>SUBJECT</span>
                             {currentSort === "subject" && (
-                              <span className="text-xs">
+                              <span aria-hidden>
                                 {currentSortOrder === "asc" ? "↑" : "↓"}
                               </span>
                             )}
@@ -755,7 +776,7 @@ export default function TicketsTable({
                           </TableCell>
 
                           {visibleColumns?.id && (
-                            <TableCell className="px-4 align-middle text-xs font-normal text-slate-400">
+                            <TableCell className="px-4 align-middle text-sm font-medium text-muted-foreground tabular-nums">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
                                 className="block py-1 hover:text-slate-600"
@@ -771,7 +792,7 @@ export default function TicketsTable({
                                 href={`/${tenant}/tickets/${ticket.id}`}
                                 className="block py-1"
                               >
-                                <span className="block font-semibold text-slate-900 group-hover:text-teal-900 transition-colors truncate">
+                                <span className="block font-semibold text-slate-900 truncate">
                                   {ticket.subject}
                                 </span>
                                 {ticket.tags && ticket.tags.length > 0 && (
@@ -779,13 +800,13 @@ export default function TicketsTable({
                                     {ticket.tags.slice(0, 3).map((tag) => (
                                       <span
                                         key={tag.id}
-                                        className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-600"
+                                        className="rounded-full bg-slate-100 px-1.5 py-px text-[11px] font-medium text-slate-600"
                                       >
                                         {tag.name}
                                       </span>
                                     ))}
                                     {ticket.tags.length > 3 && (
-                                      <span className="text-[10px] font-medium text-slate-400">
+                                      <span className="text-[11px] font-medium text-slate-400">
                                         +{ticket.tags.length - 3}
                                       </span>
                                     )}
@@ -799,13 +820,13 @@ export default function TicketsTable({
                             <TableCell className="px-4 align-middle">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block py-1 text-xs"
+                                className="block py-1"
                               >
-                                <div className="font-semibold text-slate-700 leading-snug">
+                                <div className="text-sm font-semibold text-foreground leading-snug">
                                   {ticket.customers?.full_name || "Customer"}
                                 </div>
                                 {ticket.customers?.company && (
-                                  <div className="text-slate-400 text-[11px] leading-snug">
+                                  <div className="text-xs text-muted-foreground leading-snug">
                                     {ticket.customers.company}
                                   </div>
                                 )}
@@ -825,7 +846,7 @@ export default function TicketsTable({
                           )}
 
                           {visibleColumns?.assignee && (
-                            <TableCell className="px-4 align-middle text-xs text-slate-600">
+                            <TableCell className="px-4 align-middle text-sm text-foreground">
                               <Link
                                 href={`/${tenant}/tickets/${ticket.id}`}
                                 className="block py-1"
@@ -881,7 +902,8 @@ export default function TicketsTable({
                                             ? "bg-rose-100/80 text-rose-800"
                                             : live.type === "warning"
                                               ? "bg-amber-100/80 text-amber-900"
-                                              : live.type === "paused"
+                                              : live.type === "paused" ||
+                                                  live.type === "waiting"
                                                 ? "bg-slate-100 text-slate-600"
                                                 : live.type === "completed"
                                                   ? "bg-emerald-100/80 text-emerald-800"
@@ -895,7 +917,8 @@ export default function TicketsTable({
                                               ? "bg-rose-600"
                                               : live.type === "warning"
                                                 ? "bg-amber-600"
-                                                : live.type === "paused"
+                                                : live.type === "paused" ||
+                                                    live.type === "waiting"
                                                   ? "bg-slate-400"
                                                   : live.type === "completed"
                                                     ? "bg-emerald-600"

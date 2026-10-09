@@ -1,4 +1,10 @@
 import { SlaEvent, Ticket } from "@/features/tickets/types/tickets.types";
+import {
+  SlaCalendar,
+  nextWorkingStart,
+  slaMsBetween,
+  usableCalendar,
+} from "@/features/tickets/lib/sla-calendar";
 
 /**
  * Amber lead when a policy's own warning lead isn't known. Matches the
@@ -6,20 +12,24 @@ import { SlaEvent, Ticket } from "@/features/tickets/types/tickets.types";
  */
 export const DEFAULT_SLA_WARN_MINS = 15;
 
-/** "2d 4h", "3h 12m", "8m"; seconds once under a minute. */
-export function formatSlaDuration(ms: number): string {
+/**
+ * "2d 4h", "3h 12m", "8m"; seconds once under a minute. A day is `dayMins`
+ * long: one working day on a business-hours policy, so 1440 working minutes
+ * on a 08:00-16:00 calendar read as "3d", not "1d 0h".
+ */
+export function formatSlaDuration(ms: number, dayMins = 1440): string {
   const abs = Math.abs(ms);
   const minutes = Math.floor(abs / 60000);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `${days}d ${hours % 24}h`;
+  const days = Math.floor(minutes / dayMins);
+  const hours = Math.floor((minutes % dayMins) / 60);
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   if (minutes > 0) return `${minutes}m`;
   return `${Math.max(0, Math.floor(abs / 1000))}s`;
 }
 
 export type SlaClockState =
-  "running" | "warning" | "paused" | "breached" | "met";
+  "running" | "warning" | "waiting" | "paused" | "breached" | "met";
 
 export interface SlaClock {
   state: SlaClockState;
@@ -29,6 +39,11 @@ export interface SlaClock {
   usedPct: number;
   /** Short text for the badge: "3h 12m left", "Breached", "Met in 40m". */
   text: string;
+  /**
+   * Set in the "waiting" state: the clock runs on business hours and it is
+   * outside them, so nothing counts until this instant (the next opening).
+   */
+  startsAt: number | null;
 }
 
 /**
@@ -36,16 +51,27 @@ export interface SlaClock {
  * (sla_tick marks breaches, the ticket triggers pause and finish); this only
  * animates between them, so an overdue clock reads as breached a few seconds
  * before the tick catches up.
+ *
+ * With the policy's calendar, a business-hours clock counts working time, as
+ * the database does: time left, time used and "met in" leave out nights,
+ * weekends and holidays, and a day is one working day (`dayMins`).
  */
 export function computeSlaClock(
   ev: SlaEvent,
   now: number,
   warnBeforeMins: number = DEFAULT_SLA_WARN_MINS,
+  calendar?: SlaCalendar | null,
+  dayMins = 1440,
 ): SlaClock {
+  const cal = ev.business_hours_id ? usableCalendar(calendar) : null;
+  // Without the calendar a business clock can only be shown in wall time.
+  const unitDay = cal ? dayMins : 1440;
+  const fmt = (ms: number) => formatSlaDuration(ms, unitDay);
   const start = new Date(ev.started_at || ev.created_at).getTime();
   const due = new Date(ev.due_at).getTime();
   const targetMs =
-    (ev.target_mins ?? Math.max(1, (due - start) / 60000)) * 60000;
+    (ev.target_mins ?? Math.max(1, slaMsBetween(start, due, cal) / 60000)) *
+    60000;
 
   if (ev.status === "completed") {
     const at = ev.completed_at ? new Date(ev.completed_at).getTime() : due;
@@ -53,7 +79,10 @@ export function computeSlaClock(
       state: "met",
       remainingMs: due - at,
       usedPct: 100,
-      text: ev.completed_at ? `Met in ${formatSlaDuration(at - start)}` : "Met",
+      text: ev.completed_at
+        ? `Met in ${fmt(slaMsBetween(start, at, cal))}`
+        : "Met",
+      startsAt: null,
     };
   }
 
@@ -67,6 +96,7 @@ export function computeSlaClock(
       remainingMs: due - finishedAt,
       usedPct: 100,
       text: "Breached",
+      startsAt: null,
     };
   }
 
@@ -76,33 +106,61 @@ export function computeSlaClock(
       state: "paused",
       remainingMs: leftMs,
       usedPct: pct(targetMs - leftMs, targetMs),
-      text: `Paused · ${formatSlaDuration(leftMs)} left`,
+      text: `Paused · ${fmt(leftMs)} left`,
+      startsAt: null,
     };
   }
 
-  const remainingMs = due - now;
-  if (remainingMs <= 0) {
+  const wallLeftMs = due - now;
+  if (wallLeftMs <= 0) {
     return {
       state: "breached",
-      remainingMs,
+      remainingMs: wallLeftMs,
       usedPct: 100,
       text: "Breached",
+      startsAt: null,
     };
   }
 
-  // A 24/7 clock's remaining time is wall time, so the bar is the share of the
-  // target used -- which stays right after a pause or a priority change moved
-  // due_at. A business-hours deadline sits further out than its target, so
-  // there the bar is the share of wall time between start and deadline.
-  const usedPct = ev.business_hours_id
-    ? pct(now - start, due - start)
-    : pct(targetMs - remainingMs, targetMs);
+  // Working time left, so the bar is the share of the target used -- which
+  // stays right after a pause or a priority change moved due_at.
+  const remainingMs = slaMsBetween(now, due, cal);
+  const usedPct = pct(targetMs - remainingMs, targetMs);
+
+  // Outside business hours nothing counts: a ticket opened at night waits for
+  // the morning, and the card flips to a live countdown at opening on its own.
+  const opensAt = nextWorkingStart(now, cal);
+  if (opensAt !== null && opensAt > now) {
+    const started = slaMsBetween(start, now, cal) > 0;
+    return {
+      state: "waiting",
+      remainingMs,
+      usedPct,
+      text: `${started ? "Resumes" : "Starts"} ${formatOpening(opensAt, now)}`,
+      startsAt: opensAt,
+    };
+  }
+
   return {
-    state: remainingMs <= warnBeforeMins * 60000 ? "warning" : "running",
+    // Amber on the wall-clock lead, as sla_tick sends its warning.
+    state: wallLeftMs <= warnBeforeMins * 60000 ? "warning" : "running",
     remainingMs,
     usedPct,
-    text: `${formatSlaDuration(remainingMs)} left`,
+    text: `${fmt(remainingMs)} left`,
+    startsAt: null,
   };
+}
+
+/** "10:00 AM" today, "tomorrow 10:00 AM", otherwise "Mon 10:00 AM". */
+export function formatOpening(at: number, now: number): string {
+  const time = new Date(at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const day = (ms: number) => new Date(ms).toDateString();
+  if (day(at) === day(now)) return time;
+  if (day(at) === day(now + 86_400_000)) return `tomorrow ${time}`;
+  return `${new Date(at).toLocaleDateString([], { weekday: "short" })} ${time}`;
 }
 
 function pct(part: number, whole: number): number {
@@ -121,7 +179,7 @@ export function headlineSlaEvent(events: SlaEvent[]): SlaEvent | undefined {
 }
 
 export type LiveSla = {
-  type: "warning" | "breached" | "normal" | "completed" | "paused";
+  type: "warning" | "breached" | "normal" | "completed" | "paused" | "waiting";
   text: string;
 };
 
@@ -131,6 +189,8 @@ export type LiveSla = {
  */
 export function computeLiveSla(ticket: Ticket, now: number): LiveSla {
   const { sla_status, sla_due_at } = ticket;
+  const cal = usableCalendar(ticket.sla_calendar);
+  const dayMins = cal ? (ticket.sla_day_mins ?? 1440) : 1440;
 
   if (ticket.status === "resolved" || ticket.status === "closed") {
     return {
@@ -151,7 +211,7 @@ export function computeLiveSla(ticket: Ticket, now: number): LiveSla {
   if (ticket.sla_paused) {
     return {
       type: "paused",
-      text: `Paused · ${formatSlaDuration((ticket.sla_remaining_secs ?? 0) * 1000)}`,
+      text: `Paused · ${formatSlaDuration((ticket.sla_remaining_secs ?? 0) * 1000, dayMins)}`,
     };
   }
 
@@ -172,8 +232,23 @@ export function computeLiveSla(ticket: Ticket, now: number): LiveSla {
   }
 
   const warnMs = (ticket.sla_warn_before_mins ?? DEFAULT_SLA_WARN_MINS) * 60000;
+  const due = new Date(sla_due_at).getTime();
+
+  // Outside business hours: the clock waits for the next opening.
+  const opensAt = nextWorkingStart(now, cal);
+  if (opensAt !== null && opensAt > now) {
+    const start = ticket.sla_started_at
+      ? new Date(ticket.sla_started_at).getTime()
+      : now;
+    const started = slaMsBetween(start, now, cal) > 0;
+    return {
+      type: "waiting",
+      text: `${started ? "Resumes" : "Starts"} ${formatOpening(opensAt, now)}`,
+    };
+  }
+
   return {
     type: remaining <= warnMs ? "warning" : "normal",
-    text: `${formatSlaDuration(remaining)} left`,
+    text: `${formatSlaDuration(slaMsBetween(now, due, cal), dayMins)} left`,
   };
 }

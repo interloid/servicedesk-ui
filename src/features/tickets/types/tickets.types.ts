@@ -1,3 +1,6 @@
+import type { SlaCalendar } from "@/features/tickets/lib/sla-calendar";
+import type { DurationUnit } from "@/features/sla-policies/duration";
+
 export type TicketStatus =
   "new" | "open" | "pending" | "on_hold" | "resolved" | "closed";
 export type TicketPriority = "urgent" | "high" | "normal" | "low";
@@ -34,6 +37,17 @@ export interface TicketSlaPolicy {
   /** Minutes before a deadline the clock turns amber (notify_before_mins). */
   warn_before_mins: number;
   business_hours_name: string | null;
+  /** The calendar the clocks count; null for 24/7 or an unusable one. */
+  calendar: SlaCalendar | null;
+  /** Minutes in one SLA day: a working day, or 1440 for 24/7. */
+  day_mins: number;
+  /** The unit each priority's targets were entered in ("1 day", "4 hours"). */
+  target_units: Partial<
+    Record<
+      TicketPriority,
+      { first_response: DurationUnit | null; resolution: DurationUnit | null }
+    >
+  >;
 }
 
 export interface TicketTag {
@@ -67,6 +81,8 @@ export interface Ticket {
   sla_type: "warning" | "breached" | "normal" | "paused";
   sla_text: string;
   sla_due_at?: string | null;
+  /** When the headline clock started, to tell "Starts" from "Resumes". */
+  sla_started_at?: string | null;
   sla_status?: "pending" | "completed" | "breached" | null;
   sla_completed_at?: string | null;
   /** The running clock is paused (ticket Pending / On hold). */
@@ -75,6 +91,10 @@ export interface Ticket {
   sla_remaining_secs?: number | null;
   /** The policy's warning lead, so the list turns amber when the policy says. */
   sla_warn_before_mins?: number;
+  /** The policy's calendar, so the list counts working time; null for 24/7. */
+  sla_calendar?: SlaCalendar | null;
+  /** Minutes in one SLA day: a working day, or 1440 for 24/7. */
+  sla_day_mins?: number;
   sla_policy_id?: string | null;
   created_at: string;
   assignee_id?: string | null;

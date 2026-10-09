@@ -20,6 +20,12 @@ import {
   headlineSlaEvent,
 } from "../lib/sla";
 import { normalizeTagName } from "../lib/tags";
+import { SlaCalendar, usableCalendar } from "../lib/sla-calendar";
+import {
+  DurationUnit,
+  isDurationUnit,
+  slaDayMins,
+} from "@/features/sla-policies/duration";
 
 const VISIBLE_ASSIGNEE_ROLES = ["agent", "manager", "tenant_admin"] as const;
 export interface Customer {
@@ -226,7 +232,7 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
     policyIds.length > 0
       ? supabase
           .from("sla_policies")
-          .select("id, notify_before_mins")
+          .select(`id, notify_before_mins, ${CALENDAR_SELECT}`)
           .in("id", policyIds)
       : Promise.resolve({ data: [], error: null }),
     fetchTagsForTickets(ids),
@@ -234,6 +240,12 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
 
   const warnByPolicy = new Map(
     (policiesRes.data || []).map((p) => [p.id, p.notify_before_mins]),
+  );
+  const calendarByPolicy = new Map(
+    (policiesRes.data || []).map((p) => [
+      p.id,
+      toSlaCalendar(p.business_hours as CalendarJoin),
+    ]),
   );
 
   const byTicket = new Map<string, SlaEvent[]>();
@@ -250,6 +262,11 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
     const warnMins =
       (t.sla_policy_id && warnByPolicy.get(t.sla_policy_id)) ||
       DEFAULT_SLA_WARN_MINS;
+    const { calendar, dayMins } = (t.sla_policy_id &&
+      calendarByPolicy.get(t.sla_policy_id)) || {
+      calendar: null,
+      dayMins: 1440,
+    };
     const ev = eventsRes.error
       ? undefined
       : headlineSlaEvent(byTicket.get(t.id) || []);
@@ -265,10 +282,12 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
         sla_completed_at: null,
         sla_paused: false,
         sla_warn_before_mins: warnMins,
+        sla_calendar: calendar,
+        sla_day_mins: dayMins,
       };
     }
 
-    const clock = computeSlaClock(ev, now, warnMins);
+    const clock = computeSlaClock(ev, now, warnMins, calendar, dayMins);
     return {
       ...t,
       tags,
@@ -277,18 +296,82 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
           ? ("breached" as const)
           : clock.state === "warning"
             ? ("warning" as const)
-            : clock.state === "paused"
+            : clock.state === "paused" || clock.state === "waiting"
               ? ("paused" as const)
               : ("normal" as const),
       sla_text: clock.text,
       sla_due_at: ev.due_at,
+      sla_started_at: ev.started_at,
       sla_status: clock.state === "breached" ? "breached" : ev.status,
       sla_completed_at: ev.completed_at,
       sla_paused: clock.state === "paused",
       sla_remaining_secs: ev.remaining_secs,
       sla_warn_before_mins: warnMins,
+      sla_calendar: ev.business_hours_id ? calendar : null,
+      sla_day_mins: dayMins,
     };
   });
+}
+
+/** A policy's calendar, embedded from sla_policies. */
+const CALENDAR_SELECT =
+  "business_hours(name, schedule_json, holidays_json, timezones(code))";
+
+type CalendarRow = {
+  name: string;
+  schedule_json: unknown;
+  holidays_json: unknown;
+  timezones: { code: string } | { code: string }[] | null;
+};
+type CalendarJoin = CalendarRow | CalendarRow[] | null;
+
+const one = <T>(v: T | T[] | null | undefined): T | null =>
+  (Array.isArray(v) ? v[0] : v) ?? null;
+
+const asRecord = (v: unknown): Record<string, unknown> =>
+  v && typeof v === "object" && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : {};
+
+const asTime = (v: unknown): string | null =>
+  typeof v === "string" && /^\d{2}:\d{2}/.test(v) ? v.slice(0, 5) : null;
+
+/**
+ * The calendar the SLA engine counts (sla_calendar in SQL), parsed for the
+ * client's countdown, and the minutes in one of its days. Null and 1440 for a
+ * 24/7 policy or a calendar the engine would not use either.
+ */
+function toSlaCalendar(join: CalendarJoin): {
+  calendar: SlaCalendar | null;
+  dayMins: number;
+} {
+  const row = one(join);
+  if (!row) return { calendar: null, dayMins: 1440 };
+  const schedule = asRecord(row.schedule_json);
+  const dayStart = asTime(schedule.day_start);
+  const dayEnd = asTime(schedule.day_end);
+  const calendar = usableCalendar({
+    tz: one(row.timezones)?.code ?? "",
+    workingDays: Array.isArray(schedule.working_days)
+      ? schedule.working_days.filter((d): d is string => typeof d === "string")
+      : [],
+    dayStart: dayStart ?? "",
+    dayEnd: dayEnd ?? "",
+    holidays: (Array.isArray(row.holidays_json) ? row.holidays_json : [])
+      .map(asRecord)
+      .filter((h) => typeof h.date === "string")
+      .map((h) => ({
+        date: h.date as string,
+        allDay: h.all_day !== false,
+        startTime: asTime(h.start_time) ?? undefined,
+        endTime: asTime(h.end_time) ?? undefined,
+        repeatsYearly: h.repeats_yearly === true,
+      })),
+  });
+  return {
+    calendar,
+    dayMins: calendar ? slaDayMins({ dayStart, dayEnd }) : 1440,
+  };
 }
 
 /** Ticket id → its tags, for the rows on screen. */
@@ -441,7 +524,7 @@ export async function fetchTicketSlaPolicy(
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("sla_policies")
-    .select("id, name, notify_before_mins, business_hours(name)")
+    .select(`id, name, notify_before_mins, ${CALENDAR_SELECT}`)
     .eq("id", policyId)
     .maybeSingle();
 
@@ -451,14 +534,34 @@ export async function fetchTicketSlaPolicy(
     return null;
   }
 
-  const calendar = Array.isArray(data.business_hours)
-    ? data.business_hours[0]
-    : data.business_hours;
+  // Separate and select("*"): only the units are wanted, and a database
+  // without the unit columns yet still shows the card.
+  const { data: targets } = await supabase
+    .from("sla_policy_targets")
+    .select("*")
+    .eq("policy_id", policyId);
+
+  const unit = (v: unknown): DurationUnit | null =>
+    isDurationUnit(v) ? v : null;
+  const target_units: TicketSlaPolicy["target_units"] = {};
+  for (const t of (targets || []) as Record<string, unknown>[]) {
+    const scope = t.priority_scope as TicketPriority;
+    target_units[scope] = {
+      first_response: unit(t.first_response_unit),
+      resolution: unit(t.resolution_unit),
+    };
+  }
+
+  const join = data.business_hours as CalendarJoin;
+  const { calendar, dayMins } = toSlaCalendar(join);
   return {
     id: data.id,
     name: data.name,
     warn_before_mins: data.notify_before_mins ?? DEFAULT_SLA_WARN_MINS,
-    business_hours_name: calendar?.name ?? null,
+    business_hours_name: one(join)?.name ?? null,
+    calendar,
+    day_mins: dayMins,
+    target_units,
   };
 }
 

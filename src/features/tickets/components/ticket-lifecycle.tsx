@@ -17,7 +17,10 @@ function formatDay(ms: number): string {
 
 const isDone = (s: TicketStatus) => s === "resolved" || s === "closed";
 
-/** Resolve → (CSAT) → Close, and Reopen back out of either. */
+/**
+ * Reopen and Close for a resolved or closed ticket. An open ticket is resolved
+ * from the Status field in the sidebar.
+ */
 export function TicketLifecycleActions({
   status,
   disabled,
@@ -27,19 +30,7 @@ export function TicketLifecycleActions({
   disabled?: boolean;
   onChange: (next: TicketStatus) => void;
 }) {
-  if (!isDone(status)) {
-    return (
-      <Button
-        size="sm"
-        onClick={() => onChange("resolved")}
-        disabled={disabled}
-        className="h-9 bg-teal-700 px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-800"
-      >
-        <CheckCircle2 className="size-4" aria-hidden />
-        Resolve
-      </Button>
-    );
-  }
+  if (!isDone(status)) return null;
 
   return (
     <div className="flex items-center gap-2">

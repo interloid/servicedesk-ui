@@ -1,13 +1,24 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { Loader2, Plus, X } from "lucide-react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
-import { useListNavigation } from "@/hooks/use-list-navigation";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { setTicketTagsAction } from "@/features/tickets/actions/tickets.actions";
 import { TAG_NAME_MAX, normalizeTagName } from "@/features/tickets/lib/tags";
 import { TicketTag } from "@/features/tickets/types/tickets.types";
@@ -31,47 +42,82 @@ export function TicketTagsField({
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
   const [isSaving, startTransition] = useTransition();
-  const inputRef = useRef<HTMLInputElement>(null);
+
+  // The tag lists the server last confirmed, and the latest list waiting to
+  // be saved. Saves run one at a time, each sending the newest list, so two
+  // quick changes can't land out of order and drop one.
+  const confirmedRef = useRef<TicketTag[]>(initialTags);
+  const queuedRef = useRef<string[] | null>(null);
+  const runningRef = useRef(false);
+
+  // A fresh server render (router.refresh, a teammate's change) re-syncs the
+  // chips, unless a save of ours is still in flight. Compared by content: the
+  // parent can hand over a new array with the same tags on any render.
+  const tagsKey = initialTags.map((t) => `${t.id}:${t.name}`).join("|");
+  const [seenTagsKey, setSeenTagsKey] = useState(tagsKey);
+  if (tagsKey !== seenTagsKey && !isSaving) {
+    setSeenTagsKey(tagsKey);
+    setTags(initialTags);
+  }
+  useEffect(() => {
+    if (!runningRef.current) confirmedRef.current = initialTags;
+    // initialTags is read by content (tagsKey).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tagsKey]);
+  const suggestionsKey = suggestions.map((t) => t.name).join("|");
+  const [seenSuggestionsKey, setSeenSuggestionsKey] = useState(suggestionsKey);
+  if (suggestionsKey !== seenSuggestionsKey) {
+    setSeenSuggestionsKey(suggestionsKey);
+    setKnown((prev) => mergeTags(prev, suggestions));
+  }
 
   const query = normalizeTagName(draft);
   const have = new Set(tags.map((t) => t.name));
-  const matches = known
-    .filter((t) => !have.has(t.name) && (!query || t.name.includes(query)))
-    .slice(0, 6);
+  // Every tenant tag, applied ones first (ticked, so they can be unticked
+  // here too); the list scrolls past a handful.
+  const matches = known.filter((t) => !query || t.name.includes(query));
+  const ordered = [
+    ...matches.filter((t) => have.has(t.name)),
+    ...matches.filter((t) => !have.has(t.name)),
+  ];
   const canCreate =
     query.length > 0 &&
     !have.has(query) &&
     !known.some((t) => t.name === query);
-  const choices = [
-    ...matches.map((t) => t.name),
-    ...(canCreate ? [query] : []),
-  ];
-  const {
-    index: highlight,
-    setIndex: setHighlight,
-    move,
-    itemProps,
-  } = useListNavigation(choices.length);
 
-  const save = (names: string[], previous: TicketTag[]) => {
+  const save = (names: string[]) => {
+    queuedRef.current = names;
+    if (runningRef.current) return;
+    runningRef.current = true;
     startTransition(async () => {
-      const res = await setTicketTagsAction({
-        tenantSlug: tenant,
-        ticketId,
-        names,
-      });
-      if (res.success) {
-        setTags(res.tags);
-        setKnown((prev) => {
-          const byName = new Map(prev.map((t) => [t.name, t]));
-          for (const t of res.tags) byName.set(t.name, t);
-          return [...byName.values()].sort((a, b) =>
-            a.name.localeCompare(b.name),
-          );
-        });
-      } else {
-        setTags(previous);
-        toast.error(res.error || "Couldn't update tags.");
+      const fail = (message: string) => {
+        // Changes queued on top of the failed one are dropped with it.
+        queuedRef.current = null;
+        setTags(confirmedRef.current);
+        toast.error(message);
+      };
+      try {
+        while (queuedRef.current) {
+          const sending = queuedRef.current;
+          queuedRef.current = null;
+          const res = await setTicketTagsAction({
+            tenantSlug: tenant,
+            ticketId,
+            names: sending,
+          });
+          if (!res.success) {
+            fail(res.error || "Couldn't update tags.");
+            break;
+          }
+          confirmedRef.current = res.tags;
+          setKnown((prev) => mergeTags(prev, res.tags));
+          // A newer list is still to be sent: keep showing it.
+          if (!queuedRef.current) setTags(res.tags);
+        }
+      } catch {
+        fail("Couldn't update tags.");
+      } finally {
+        runningRef.current = false;
       }
     });
   };
@@ -82,38 +128,20 @@ export function TicketTagsField({
       setDraft("");
       return;
     }
-    const previous = tags;
     // Optimistic: the id is replaced by the saved row.
-    setTags([...tags, { id: `pending-${name}`, name, color: null }]);
+    const next = [...tags, { id: `pending-${name}`, name, color: null }];
+    setTags(next);
     setDraft("");
-    setHighlight(0);
-    save([...previous.map((t) => t.name), name], previous);
+    save(next.map((t) => t.name));
   };
 
   const remove = (name: string) => {
-    const previous = tags;
     const next = tags.filter((t) => t.name !== name);
     setTags(next);
-    save(
-      next.map((t) => t.name),
-      previous,
-    );
+    save(next.map((t) => t.name));
   };
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (move(e.key)) {
-      e.preventDefault();
-      setOpen(true);
-    } else if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      const pick = open && choices[highlight] ? choices[highlight] : draft;
-      if (pick.trim()) add(pick);
-    } else if (e.key === "Backspace" && !draft && tags.length > 0) {
-      remove(tags[tags.length - 1].name);
-    } else if (e.key === "Escape") {
-      setOpen(false);
-    }
-  };
+  const toggle = (name: string) => (have.has(name) ? remove(name) : add(name));
 
   return (
     <div className="grid gap-2">
@@ -127,83 +155,127 @@ export function TicketTagsField({
         )}
       </Label>
 
-      {tags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {tags.map((tag) => (
-            <Badge
-              key={tag.name}
-              variant="secondary"
-              className="gap-1 rounded-full bg-slate-100 py-0.5 pr-1 pl-2 text-[11px] font-medium text-slate-700"
-            >
-              {tag.name}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => remove(tag.name)}
-                aria-label={`Remove tag ${tag.name}`}
-                className="size-4 rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-              >
-                <X className="size-3" />
-              </Button>
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      <div className="relative">
-        <input
-          ref={inputRef}
-          id="ticket-tags"
-          value={draft}
-          maxLength={TAG_NAME_MAX}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setOpen(true);
-            setHighlight(0);
+      {/* Input-styled box holding the button and the chips; past ~3 rows
+          of tags it scrolls instead of growing. */}
+      <div className="flex max-h-28 min-h-10 flex-wrap content-start items-center gap-1.5 overflow-y-auto rounded-md border border-slate-200 bg-white p-1.5">
+        <Popover
+          open={open}
+          onOpenChange={(next) => {
+            setOpen(next);
+            if (!next) setDraft("");
           }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
-          onKeyDown={onKeyDown}
-          placeholder={tags.length > 0 ? "Add another tag" : "Add a tag"}
-          autoComplete="off"
-          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-800 placeholder:text-slate-400 outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        />
-        {open && choices.length > 0 && (
-          <div className="absolute top-full left-0 z-30 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-            {choices.map((name, idx) => {
-              const isNew =
-                canCreate && name === query && idx === choices.length - 1;
-              const item = itemProps(idx);
-              return (
-                <Button
-                  key={`${isNew ? "new" : "tag"}-${name}`}
-                  type="button"
-                  variant="ghost"
-                  onMouseDown={(e) => {
+        >
+          <PopoverTrigger asChild>
+            <Button
+              id="ticket-tags"
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-expanded={open}
+              className="h-7 gap-1 rounded-full px-2.5 text-[11px] font-semibold text-slate-700"
+            >
+              <Plus className="size-3" aria-hidden />
+              Add tag
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64 p-0">
+            {/* Filtering is ours (tag names are normalised), not cmdk's. */}
+            <Command shouldFilter={false}>
+              <CommandInput
+                value={draft}
+                maxLength={TAG_NAME_MAX}
+                onValueChange={setDraft}
+                onKeyDown={(e) => {
+                  // Nothing to pick, so Enter creates the typed tag.
+                  if (e.key === "Enter" && ordered.length === 0 && canCreate) {
                     e.preventDefault();
-                    add(name);
-                  }}
-                  {...item}
-                  className={cn(
-                    "h-auto w-full justify-start gap-2 rounded-none px-3 py-2 text-left text-xs font-medium text-slate-700",
-                    item.className,
-                  )}
-                >
-                  {isNew ? (
-                    <>
-                      <Plus className="size-3.5 text-slate-400" aria-hidden />
-                      Create “{name}”
-                    </>
-                  ) : (
-                    name
-                  )}
-                </Button>
-              );
-            })}
-          </div>
-        )}
+                    add(query);
+                  }
+                }}
+                placeholder="Search or create tag…"
+                className="h-10 text-xs"
+              />
+              <CommandList className="max-h-60">
+                <CommandEmpty className="px-3 py-5 text-center text-xs text-slate-500">
+                  {known.length === 0
+                    ? "No tags yet. Type to create one."
+                    : canCreate
+                      ? "No tags match."
+                      : "No other tags match."}
+                </CommandEmpty>
+                {ordered.length > 0 && (
+                  <CommandGroup>
+                    {ordered.map((tag) => {
+                      const selected = have.has(tag.name);
+                      return (
+                        <CommandItem
+                          key={tag.name}
+                          value={tag.name}
+                          onSelect={() => toggle(tag.name)}
+                          className="justify-between text-xs font-medium text-slate-700"
+                        >
+                          <span className="truncate">{tag.name}</span>
+                          {selected && (
+                            <Check
+                              className="size-3.5 text-brand-accent"
+                              aria-hidden
+                            />
+                          )}
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                )}
+              </CommandList>
+
+              {canCreate && (
+                <div className="flex items-center justify-between gap-2 border-t border-slate-100 p-2">
+                  <span className="truncate text-xs text-slate-500">
+                    Create “{query}”
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => add(query)}
+                    className="h-7 shrink-0 gap-1 px-2 text-xs font-semibold text-brand-accent hover:text-brand-accent"
+                  >
+                    <Plus className="size-3" aria-hidden />
+                    Create
+                  </Button>
+                </div>
+              )}
+            </Command>
+          </PopoverContent>
+        </Popover>
+
+        {tags.map((tag) => (
+          <Badge
+            key={tag.name}
+            variant="secondary"
+            className="max-w-40 gap-1 rounded-full bg-slate-100 py-0.5 pr-1 pl-2 text-[11px] font-medium text-slate-700"
+          >
+            <span className="truncate">{tag.name}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => remove(tag.name)}
+              aria-label={`Remove tag ${tag.name}`}
+              className="size-4 shrink-0 rounded-full border-0 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+            >
+              <X className="size-3" />
+            </Button>
+          </Badge>
+        ))}
       </div>
     </div>
   );
+}
+
+/** `prev` with `incoming` added or updated by name, sorted by name. */
+function mergeTags(prev: TicketTag[], incoming: TicketTag[]): TicketTag[] {
+  const byName = new Map(prev.map((t) => [t.name, t]));
+  for (const t of incoming) byName.set(t.name, t);
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

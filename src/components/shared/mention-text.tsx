@@ -16,7 +16,7 @@ export function MentionText({
         seg.type === "mention" ? (
           <span
             key={i}
-            className="inline-flex items-center rounded bg-brand-accent/10 px-1 font-semibold text-brand-accent"
+            className="inline-flex items-center rounded px-1 font-semibold text-brand-accent"
           >
             @{seg.content}
           </span>

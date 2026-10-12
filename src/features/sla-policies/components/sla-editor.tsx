@@ -83,7 +83,6 @@ import {
   describePriorityOrderViolation,
   findNotifyLeadConflict,
   findPriorityOrderViolation,
-  CALENDAR_IN_USE_MESSAGE,
   NEW_POLICY_CALENDAR_MESSAGE,
   POLICY_IN_USE_MESSAGE,
   type EscalationRole,
@@ -309,17 +308,11 @@ export default function SlaEditor({
   const activeCalendar = draft.timeCalculation === "business" ? calendar : null;
 
   // Why the calendar's hours and holidays can't be changed here, if they
-  // can't: it is shared by every policy, so the create page leaves it alone,
-  // and once a policy or the calendar has timed tickets it is locked.
-  const calendarLockReason = !activeCalendar
-    ? null
-    : mode === "new"
-      ? NEW_POLICY_CALENDAR_MESSAGE
-      : inUse
-        ? POLICY_IN_USE_MESSAGE
-        : activeCalendar.inUse
-          ? CALENDAR_IN_USE_MESSAGE
-          : null;
+  // can't: it is shared by every policy, so the create page leaves it alone.
+  // Calendars that have timed tickets stay editable -- the database re-times
+  // running clocks when the hours, time zone or holidays change.
+  const calendarLockReason =
+    activeCalendar && mode === "new" ? NEW_POLICY_CALENDAR_MESSAGE : null;
 
   const replaceCalendar = (next: BusinessHoursOption) =>
     setCalendars((prev) => prev.map((c) => (c.id === next.id ? next : c)));
@@ -521,43 +514,20 @@ export default function SlaEditor({
             readOnly && "hidden",
           )}
         >
-          {inUse ? (
-            <TooltipProvider>
-              <Tooltip>
-                {/* A disabled button fires no pointer events; the span
-                    carries the hover and focus for the tooltip. */}
-                <TooltipTrigger asChild>
-                  <span tabIndex={0} className="inline-flex rounded-lg">
-                    <Button
-                      disabled
-                      className="pointer-events-none h-10 w-full gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none"
-                    >
-                      <Lock className="size-4" aria-hidden />
-                      Save changes
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs">
-                  {POLICY_IN_USE_MESSAGE}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          ) : (
-            <Button
-              onClick={save}
-              disabled={pending}
-              className="h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90"
-            >
-              {mode === "edit" && <Plus className="size-4" aria-hidden />}
-              {pending
-                ? mode === "new"
-                  ? "Creating…"
-                  : "Saving…"
-                : mode === "new"
-                  ? "Create policy"
-                  : "Save changes"}
-            </Button>
-          )}
+          <Button
+            onClick={save}
+            disabled={pending}
+            className="h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90"
+          >
+            {mode === "edit" && <Plus className="size-4" aria-hidden />}
+            {pending
+              ? mode === "new"
+                ? "Creating…"
+                : "Saving…"
+              : mode === "new"
+                ? "Create policy"
+                : "Save changes"}
+          </Button>
           {mode === "new" && (
             <Button
               asChild
@@ -571,7 +541,7 @@ export default function SlaEditor({
         </div>
       </div>
 
-      {readOnly && !inUse && (
+      {readOnly && (
         <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700">
           <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
           You can view this policy. Only tenant admins and managers can change
@@ -579,7 +549,7 @@ export default function SlaEditor({
         </p>
       )}
 
-      {inUse && (
+      {inUse && !readOnly && (
         <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
           <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
           {POLICY_IN_USE_MESSAGE}
@@ -594,7 +564,7 @@ export default function SlaEditor({
 
       <fieldset disabled={readOnly} className="min-w-0">
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <fieldset disabled={inUse} className="flex min-w-0 flex-col gap-5">
+          <fieldset className="flex min-w-0 flex-col gap-5">
             <Section step={1} title="Basic Information">
               <div className="flex flex-col gap-3">
                 <Field label="Policy name" required error={errors.name}>
@@ -727,91 +697,98 @@ export default function SlaEditor({
               </div>
             </Section>
 
-            <Section
-              step={2}
-              title="SLA Targets by Priority"
-              hint="Set the first response and resolution time for each ticket priority. Times must get longer as priority drops: urgent is the tightest, low the loosest."
-            >
-              <div className={INSET_TABLE}>
-                <Table className="min-w-160 md:min-w-0">
-                  <TableHeader>
-                    <TableRow className={TABLE_HEAD_ROW}>
-                      <TableHead className={TH}>Priority</TableHead>
-                      <TableHead className={TH}>First Response Time</TableHead>
-                      <TableHead className={TH}>Resolution Time</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {draft.targets.map((target) => {
-                      const input = targetInputs[target.priority];
-                      const style = PRIORITY_STYLES[target.priority];
-                      const error = errors.targets[target.priority];
+            {/* A used policy keeps its targets: they set its tickets'
+                deadlines. Name, status, scope and notifications stay
+                editable. */}
+            <fieldset disabled={inUse} className="min-w-0">
+              <Section
+                step={2}
+                title="SLA Targets by Priority"
+                hint="Set the first response and resolution time for each ticket priority. Times must get longer as priority drops: urgent is the tightest, low the loosest."
+              >
+                <div className={INSET_TABLE}>
+                  <Table className="min-w-160 md:min-w-0">
+                    <TableHeader>
+                      <TableRow className={TABLE_HEAD_ROW}>
+                        <TableHead className={TH}>Priority</TableHead>
+                        <TableHead className={TH}>
+                          First Response Time
+                        </TableHead>
+                        <TableHead className={TH}>Resolution Time</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {draft.targets.map((target) => {
+                        const input = targetInputs[target.priority];
+                        const style = PRIORITY_STYLES[target.priority];
+                        const error = errors.targets[target.priority];
 
-                      return (
-                        <React.Fragment key={target.priority}>
-                          <TableRow
-                            className={cn(
-                              "border-gray-100 hover:bg-transparent",
-                              error && "border-b-0",
-                            )}
-                          >
-                            <TableCell className="px-3 py-1.5 font-medium text-gray-900">
-                              <span className="inline-flex items-center gap-2">
-                                <span
-                                  className={cn(
-                                    "size-2 rounded-full",
-                                    style.dot,
-                                  )}
+                        return (
+                          <React.Fragment key={target.priority}>
+                            <TableRow
+                              className={cn(
+                                "border-gray-100 hover:bg-transparent",
+                                error && "border-b-0",
+                              )}
+                            >
+                              <TableCell className="px-3 py-1.5 font-medium text-gray-900">
+                                <span className="inline-flex items-center gap-2">
+                                  <span
+                                    className={cn(
+                                      "size-2 rounded-full",
+                                      style.dot,
+                                    )}
+                                  />
+                                  {style.label}
+                                </span>
+                              </TableCell>
+                              <TableCell className="px-3 py-1.5">
+                                <DurationInputs
+                                  label={`${style.label} first response`}
+                                  value={input.firstResponse}
+                                  invalid={Boolean(error)}
+                                  onChange={(patch) =>
+                                    setTargetInput(
+                                      target.priority,
+                                      "firstResponse",
+                                      patch,
+                                    )
+                                  }
                                 />
-                                {style.label}
-                              </span>
-                            </TableCell>
-                            <TableCell className="px-3 py-1.5">
-                              <DurationInputs
-                                label={`${style.label} first response`}
-                                value={input.firstResponse}
-                                invalid={Boolean(error)}
-                                onChange={(patch) =>
-                                  setTargetInput(
-                                    target.priority,
-                                    "firstResponse",
-                                    patch,
-                                  )
-                                }
-                              />
-                            </TableCell>
-                            <TableCell className="px-3 py-1.5">
-                              <DurationInputs
-                                label={`${style.label} resolution`}
-                                value={input.resolution}
-                                invalid={Boolean(error)}
-                                onChange={(patch) =>
-                                  setTargetInput(
-                                    target.priority,
-                                    "resolution",
-                                    patch,
-                                  )
-                                }
-                              />
-                            </TableCell>
-                          </TableRow>
-                          {error && (
-                            <TableRow className="border-gray-100 hover:bg-transparent">
-                              <TableCell
-                                colSpan={3}
-                                className="px-3 pt-0 pb-1.5 text-xs whitespace-normal text-red-600"
-                              >
-                                {error}
+                              </TableCell>
+                              <TableCell className="px-3 py-1.5">
+                                <DurationInputs
+                                  label={`${style.label} resolution`}
+                                  value={input.resolution}
+                                  invalid={Boolean(error)}
+                                  onChange={(patch) =>
+                                    setTargetInput(
+                                      target.priority,
+                                      "resolution",
+                                      patch,
+                                    )
+                                  }
+                                />
                               </TableCell>
                             </TableRow>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            </Section>
+                            {error && (
+                              <TableRow className="border-gray-100 hover:bg-transparent">
+                                <TableCell
+                                  colSpan={3}
+                                  className="px-3 pt-0 pb-1.5 text-xs whitespace-normal text-red-600"
+                                >
+                                  {error}
+                                </TableCell>
+                              </TableRow>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </Section>
+            </fieldset>
           </fieldset>
 
           <div className="flex flex-col gap-5">
@@ -966,7 +943,7 @@ export default function SlaEditor({
               )}
             </IconCard>
 
-            <fieldset disabled={inUse} className="min-w-0">
+            <fieldset className="min-w-0">
               <IconCard icon={Bell} title="Notifications" optional solid>
                 <div className="grid grid-cols-1 items-center gap-x-6 gap-y-3 sm:grid-cols-[auto_1fr]">
                   <div className="flex items-center gap-3">
@@ -1293,9 +1270,17 @@ function AppliesToOption({
         id={id}
         value={value}
         disabled={disabled}
-        className="mt-0.5"
+        className={cn(
+          "relative mt-0.5 size-4 shrink-0 rounded-full",
+          "border-2 border-solid border-gray-300 bg-white shadow-none",
+          "data-[state=checked]:border-brand-accent",
+          "focus-visible:outline-none focus-visible:ring-2",
+          "focus-visible:ring-brand-accent/30 focus-visible:ring-offset-2",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+        )}
       />
-      <span className="space-y-0.5">
+
+      <span className="min-w-0 flex-1 space-y-0.5">
         <span className="block text-sm font-semibold text-gray-900">
           {title}
         </span>
@@ -1356,10 +1341,14 @@ function DefaultSlaCheckbox({
           </span>
           <span className="block text-xs text-gray-500">
             This policy will be used when no customer-specific SLA matches.
+            <p>
+              {note && (
+                <span className="mt-2 text-xs text-gray-600">{note}</span>
+              )}
+            </p>
           </span>
         </span>
       </label>
-      {note && <p className="mt-2 pl-7 text-xs text-gray-600">{note}</p>}
     </div>
   );
 }

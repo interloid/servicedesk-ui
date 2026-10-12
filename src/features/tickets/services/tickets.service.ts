@@ -29,7 +29,11 @@ import { normalizeTagName } from "../lib/tags";
 import { CALENDAR_SELECT, one, toSlaCalendar } from "../lib/sla-calendar-row";
 import { DurationUnit, isDurationUnit } from "@/features/sla-policies/duration";
 import { getInitials } from "@/lib/format";
-import { TICKET_ATTACHMENTS_MAX_BYTES } from "../lib/attachments";
+import {
+  attachmentContentType,
+  attachmentExtension,
+  attachmentsError,
+} from "../lib/attachments";
 
 const VISIBLE_ASSIGNEE_ROLES = ["agent", "manager", "tenant_admin"] as const;
 export interface Customer {
@@ -42,6 +46,19 @@ export interface Customer {
   created_at?: string;
 }
 type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+/**
+ * Log a database or storage error in full on the server and throw a fixed,
+ * user-facing message: raw messages name tables, policies and constraints.
+ */
+function fail(
+  context: string,
+  error: { message: string; code?: string },
+  userMessage: string,
+): never {
+  console.error(`[tickets] ${context}:`, error.code ?? "", error.message);
+  throw new Error(userMessage);
+}
 
 export async function withVisibleAssignee<
   T extends { assignee_user_id?: string | null } & Record<string, unknown>,
@@ -146,19 +163,9 @@ export async function fetchTenantTickets(
   const tenantid = await getTenantIdBySlug(tenant);
   if (!tenantid) throw new Error("Tenant not found.");
 
-  // Mark any overdue SLA events as breached so realtime picks up the change.
-  // Not awaited before the list: the list works out breaches from due_at
-  // itself (computeSlaClock), so it doesn't need this to finish first.
-  const breaches = supabase
-    .rpc("process_sla_breaches")
-    .then(({ error: breachError }) => {
-      if (breachError) {
-        console.error(
-          "[fetchTenantTickets] process_sla_breaches failed:",
-          breachError.message,
-        );
-      }
-    });
+  // No process_sla_breaches() here: pg_cron's sla_tick() marks overdue
+  // clocks every minute, and the list works out breaches from due_at itself
+  // (computeSlaClock), so a list render stays read-only.
   const {
     search,
     priority,
@@ -214,15 +221,40 @@ export async function fetchTenantTickets(
   const sortColumn = sort === "subject" ? "subject" : "created_at";
   const sortAscending = sortOrder === "asc";
 
-  const [{ data, error, count }] = await Promise.all([
-    query.order(sortColumn, { ascending: sortAscending }).range(from, to),
-    breaches,
-  ]);
+  const { data, error, count } = await query
+    .order(sortColumn, { ascending: sortAscending })
+    .range(from, to);
+
+  // A page past the last row is PGRST103 (416), not an empty result. Treat it
+  // as an empty page with the real total, so the table's "past the last
+  // page" redirect can take the agent back to the last one.
+  if (error?.code === "PGRST103") {
+    let countQuery = supabase
+      .from("tickets")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantid);
+    if (isTicketStatus(statusFilter)) {
+      countQuery = countQuery.eq("status", statusFilter);
+    }
+    if (isTicketPriority(priorityFilter)) {
+      countQuery = countQuery.eq("priority", priorityFilter);
+    }
+    if (term) {
+      countQuery = countQuery.or(
+        `subject.ilike."%${term}%",description.ilike."%${term}%"`,
+      );
+    }
+    const { count: total, error: countError } = await countQuery;
+    if (countError) {
+      fail("count tickets", countError, "Couldn't load tickets. Try again.");
+    }
+    return { tickets: [], totalCount: total ?? 0 };
+  }
 
   // Thrown, not an empty list: an empty list reads as "Queue clear", and
   // agents would stop working tickets during an outage. error.tsx shows.
   if (error) {
-    throw new Error(`Failed to load tickets: ${error.message}`);
+    fail("load tickets", error, "Couldn't load tickets. Try again.");
   }
 
   const totalCount = count || 0;
@@ -448,6 +480,23 @@ export async function setTicketTags(
   const tenantId = await getTenantIdBySlug(tenant);
   if (!tenantId) throw new Error("Tenant not found.");
 
+  // ticket_tags only checks the ticket exists somewhere: confirm it is this
+  // tenant's (and visible to the caller) before linking anything to it.
+  const { data: ticket, error: ticketError } = await supabase
+    .from("tickets")
+    .select("id")
+    .eq("id", ticketId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (ticketError) {
+    fail(
+      "load ticket for tags",
+      ticketError,
+      "Couldn't update tags. Try again.",
+    );
+  }
+  if (!ticket) throw new Error("Ticket not found.");
+
   const wanted = [...new Set(names.map(normalizeTagName).filter(Boolean))];
 
   const byName = new Map<string, TicketTag>();
@@ -458,7 +507,7 @@ export async function setTicketTags(
       .eq("tenant_id", tenantId)
       .in("name", wanted);
     if (existingError) {
-      throw new Error(`Failed to load tags: ${existingError.message}`);
+      fail("load tags", existingError, "Couldn't update tags. Try again.");
     }
     for (const t of existing || []) byName.set(t.name, t as TicketTag);
   }
@@ -471,7 +520,7 @@ export async function setTicketTags(
       { onConflict: "tenant_id,name", ignoreDuplicates: true },
     );
     if (insertError) {
-      throw new Error(`Failed to create tags: ${insertError.message}`);
+      fail("create tags", insertError, "Couldn't update tags. Try again.");
     }
     const { data: created } = await supabase
       .from("tags")
@@ -491,7 +540,7 @@ export async function setTicketTags(
     .eq("ticket_id", ticketId)
     .eq("tenant_id", tenantId);
   if (linksError) {
-    throw new Error(`Failed to load ticket tags: ${linksError.message}`);
+    fail("load ticket tags", linksError, "Couldn't update tags. Try again.");
   }
 
   const current = new Set((links || []).map((l) => l.tag_id));
@@ -507,7 +556,7 @@ export async function setTicketTags(
       })),
       { onConflict: "ticket_id,tag_id", ignoreDuplicates: true },
     );
-    if (error) throw new Error(`Failed to tag ticket: ${error.message}`);
+    if (error) fail("tag ticket", error, "Couldn't update tags. Try again.");
   }
 
   if (toRemove.length > 0) {
@@ -517,7 +566,7 @@ export async function setTicketTags(
       .eq("ticket_id", ticketId)
       .eq("tenant_id", tenantId)
       .in("tag_id", toRemove);
-    if (error) throw new Error(`Failed to untag ticket: ${error.message}`);
+    if (error) fail("untag ticket", error, "Couldn't update tags. Try again.");
   }
 
   return fetchTicketTags(ticketId);
@@ -703,6 +752,7 @@ export async function createTenantTicket(
   // assigns it under a per-tenant lock, so deletes and parallel creates can't
   // hand out one that is taken.
   const tenantId = await getTenantIdBySlug(tenant);
+  if (!tenantId) throw new Error("Tenant not found.");
 
   const { data, error } = await supabase
     .from("tickets")
@@ -718,8 +768,7 @@ export async function createTenantTicket(
     .single();
 
   if (error) {
-    console.error("🚀 ~ createTenantTicket error:", error);
-    throw new Error(`Failed to create ticket: ${error.message}`);
+    fail("create ticket", error, "Couldn't create the ticket. Try again.");
   }
 
   return data;
@@ -735,7 +784,9 @@ export async function getTicketMessages(ticketId: string, tenantId: string) {
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: true });
 
-  if (error) throw new Error(`Failed to fetch messages: ${error.message}`);
+  if (error) {
+    fail("load messages", error, "Couldn't load the conversation. Try again.");
+  }
 
   const rows = (data || []) as TicketMessage[];
 
@@ -810,6 +861,7 @@ export async function createMessage(params: {
 }) {
   const supabase = await createSupabaseServerClient();
   const tenantId = await getTenantIdBySlug(params.tenantSlug);
+  if (!tenantId) throw new Error("Tenant not found.");
   const { data, error } = await supabase
     .from("ticket_messages")
     .insert({
@@ -823,7 +875,9 @@ export async function createMessage(params: {
     })
     .select()
     .single();
-  if (error) throw new Error(`Failed to send message: ${error.message}`);
+  if (error) {
+    fail("send message", error, "Couldn't send the message. Try again.");
+  }
   return data;
 }
 
@@ -853,7 +907,9 @@ export async function updateTicketDetails(
     .select()
     .single();
 
-  if (error) throw new Error(`Failed to update ticket: ${error.message}`);
+  if (error) {
+    fail("update ticket", error, "Couldn't update the ticket. Try again.");
+  }
   return data;
 }
 
@@ -880,22 +936,14 @@ export async function changeTicketPriority(
       throw new Error(error.message);
     }
     if (error.code === "PGRST202") {
-      // Before migration 20261011120000 there is no function: change the
-      // priority as before (re-targeted by the SLA engine, but no reason
-      // check, kept deadline or audit entry) rather than fail every change.
-      console.warn(
-        "change_ticket_priority is missing; apply migration 20261011120000_ticket_priority_change_rules.sql. Changed without its rules.",
+      // No plain-update fallback: it would skip the reason check, the kept
+      // deadline and the audit entry that make a priority change trustworthy.
+      console.error(
+        "change_ticket_priority is missing; apply migration 20261011120000_ticket_priority_change_rules.sql.",
       );
-      const { data: rows, error: updateError } = await supabase
-        .from("tickets")
-        .update({ priority, updated_at: new Date().toISOString() })
-        .eq("id", ticketId)
-        .neq("priority", priority)
-        .select("id");
-      if (updateError) {
-        throw new Error(`Failed to update ticket: ${updateError.message}`);
-      }
-      return { changed: (rows?.length ?? 0) > 0, slaKept: [], breached: [] };
+      throw new Error(
+        "Priority changes are unavailable until the database is updated. Contact your administrator.",
+      );
     }
     console.error("change_ticket_priority failed:", error.code, error.message);
     throw new Error("Couldn't change the priority. Try again.");
@@ -950,7 +998,13 @@ export async function bulkUpdateTickets(
   }
   const { data, error } = await query.select("id");
 
-  if (error) throw new Error(`Failed to update tickets: ${error.message}`);
+  if (error) {
+    fail(
+      "bulk update tickets",
+      error,
+      "Couldn't update the tickets. Try again.",
+    );
+  }
   return data?.length ?? 0;
 }
 
@@ -1064,10 +1118,10 @@ export async function stageTicketAttachments(params: {
     throw new Error("Ticket not found.");
   }
 
-  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-  if (totalBytes > TICKET_ATTACHMENTS_MAX_BYTES) {
-    throw new Error("Attachments are limited to 20 MB in total.");
-  }
+  // Count, total size and type: the pickers check these too, but this is the
+  // copy that holds against a hand-made request.
+  const invalid = attachmentsError(files);
+  if (invalid) throw new Error(invalid);
 
   const staged: StagedAttachments = {
     tenantId,
@@ -1077,12 +1131,14 @@ export async function stageTicketAttachments(params: {
   };
 
   for (const file of files) {
-    const ext = (file.name.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || "";
+    // Extension reduced to [a-z0-9] for the storage key; the stored content
+    // type follows from it, never from the browser's file.type.
+    const ext = attachmentExtension(file.name);
     // A random name: Date.now() alone collided for two files of the same
     // type in one millisecond, and upsert: false then failed the whole send.
     const storedName = `${crypto.randomUUID()}${ext ? `.${ext}` : ""}`;
     const path = `${tenantId}/${ticketId}/${storedName}`;
-    const mime = file.type || "application/octet-stream";
+    const mime = attachmentContentType(file.name) ?? "application/octet-stream";
 
     const { error: uploadError } = await admin.storage
       .from("ticket-attachments")
@@ -1091,7 +1147,7 @@ export async function stageTicketAttachments(params: {
     if (uploadError) {
       console.error("Upload failed:", uploadError.message);
       await discardStagedAttachments(staged);
-      throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
+      throw new Error(`Couldn't upload ${file.name}. Try again.`);
     }
 
     staged.files.push({
@@ -1145,7 +1201,7 @@ export async function recordStagedAttachments(
   if (error) {
     console.error("Attachments row insert failed:", error.message);
     await discardStagedAttachments(staged);
-    throw new Error(`Failed to record attachments: ${error.message}`);
+    throw new Error("Couldn't attach the files. Try again.");
   }
 
   return (data || []) as TicketAttachment[];
@@ -1197,6 +1253,8 @@ export async function searchTenantCustomers(
     .order("full_name", { ascending: true })
     .limit(REQUESTER_SEARCH_LIMIT);
 
-  if (error) throw new Error(`Failed to search customers: ${error.message}`);
+  if (error) {
+    fail("search customers", error, "Couldn't search customers. Try again.");
+  }
   return data || [];
 }

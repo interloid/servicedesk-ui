@@ -35,8 +35,12 @@ export function useListNavigation(count: number) {
     return false;
   };
 
-  /** Spread onto each row. */
+  /**
+   * Spread onto each row. The rows are options (aria-selected is only valid
+   * there), so the list around them should be role="listbox".
+   */
   const itemProps = (idx: number) => ({
+    role: "option" as const,
     "aria-selected": idx === active,
     onMouseEnter: () => setIndex(idx),
     ref: idx === active ? scrollIntoView : undefined,

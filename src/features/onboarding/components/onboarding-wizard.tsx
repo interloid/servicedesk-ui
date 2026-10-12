@@ -62,6 +62,9 @@ export function OnboardingWizard({ timezones = [] }: OnboardingWizardProps) {
   const browserTimeZone = useBrowserTimeZone();
   const defaultTimezoneId =
     timezones.find((tz) => tz.code === browserTimeZone)?.id ||
+    // The list is sorted by display name, so the first row is an arbitrary
+    // zone; fall back to UTC explicitly and only then to whatever is first.
+    timezones.find((tz) => tz.code === "UTC" || tz.code === "Etc/UTC")?.id ||
     timezones[0]?.id ||
     "";
   const stepData: OnboardingState = {

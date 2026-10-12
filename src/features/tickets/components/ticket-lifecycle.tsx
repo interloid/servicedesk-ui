@@ -3,6 +3,7 @@
 import { CheckCircle2, Lock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TicketStatus } from "@/features/tickets/types/tickets.types";
+import { useMounted } from "@/hooks/use-mounted";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -72,6 +73,9 @@ export function TicketLifecycleBanner({
   closedAt: string | null;
   autoCloseDays: number;
 }) {
+  // Dates are in the viewer's time zone, which the server can't know: they
+  // are left out of the server render and filled in once mounted.
+  const mounted = useMounted();
   if (status === "resolved") {
     const closesAt =
       resolvedAt && autoCloseDays > 0
@@ -83,12 +87,19 @@ export function TicketLifecycleBanner({
           className="mt-px size-4 shrink-0 text-emerald-600"
           aria-hidden
         />
-        {/* Local time zone: differs between server render and browser. */}
-        <p suppressHydrationWarning>
+        <p>
           <span className="font-semibold">Resolved</span>
-          {resolvedAt && <> {formatDay(new Date(resolvedAt).getTime())}</>}. The
-          customer can rate the resolution or reopen it from the portal.
-          {closesAt && <> It closes automatically on {formatDay(closesAt)}.</>}
+          {mounted && resolvedAt && (
+            <> {formatDay(new Date(resolvedAt).getTime())}</>
+          )}
+          . The customer can rate the resolution or reopen it from the portal.
+          {closesAt && (
+            <>
+              {" "}
+              It closes automatically
+              {mounted ? <> on {formatDay(closesAt)}</> : null}.
+            </>
+          )}
         </p>
       </div>
     );
@@ -98,10 +109,12 @@ export function TicketLifecycleBanner({
     return (
       <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
         <Lock className="mt-px size-4 shrink-0 text-slate-500" aria-hidden />
-        <p suppressHydrationWarning>
+        <p>
           <span className="font-semibold">Closed</span>
-          {closedAt && <> {formatDay(new Date(closedAt).getTime())}</>}. Reopen
-          the ticket to reply.
+          {mounted && closedAt && (
+            <> {formatDay(new Date(closedAt).getTime())}</>
+          )}
+          . Reopen the ticket to reply.
         </p>
       </div>
     );

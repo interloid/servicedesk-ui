@@ -5,7 +5,7 @@
 -- ==========================================================
 --
 -- The triggers that drive these live in triggers/tickets_sla.sql. Migration:
--- 20261008120000_ticket_sla_engine.sql, whose header explains the design.
+-- 20261009140000_ticket_sla_engine.sql, whose header explains the design.
 
 -- schedule_json is what onboarding and the SLA editor write:
 --   { "working_days": ["Mon", ...], "day_start": "09:00", "day_end": "18:00" }
@@ -277,45 +277,24 @@ begin
 end;
 $$;
 
--- The policy target in the minutes the clock actually counts. The SLA editor
--- stores a "days" target as whole multiples of 1440 (it has no unit column and
--- reads 1440 back as "1 day"). Against a calendar that would mean 24 business
--- hours -- with a 09:00-18:00 day, nearly three working days per "day" -- so a
--- whole-day target counts one working day, the calendar's day_end - day_start,
--- per day. Minutes and hours, and every 24/7 policy, are taken as written.
+-- The policy target in the minutes the clock counts. Since
+-- 20261009120000_sla_target_units.sql targets are stored as the minutes the
+-- clock counts -- a business "day" is already one working day of the policy's
+-- calendar -- so this is a pass-through. It used to turn whole multiples of
+-- 1440 into working days; doing that on top of the stored working minutes
+-- would shrink every "days" target (8 days of 09:00-18:00 = 4320 = 3 * 1440
+-- would count as 3 working days). Same signature and body as 20261009120000,
+-- so the clock operations below call it unchanged.
 create or replace function public.sla_target_mins(
     p_mins integer,
     p_business_hours_id uuid
 )
 returns integer
-language plpgsql
-stable
-security definer
+language sql
+immutable
 set search_path = public
 as $$
-declare
-    v_start time;
-    v_end time;
-begin
-    if p_mins is null
-       or p_business_hours_id is null
-       or p_mins % 1440 <> 0 then
-        return p_mins;
-    end if;
-
-    select c.day_start, c.day_end
-    into v_start, v_end
-    from public.sla_calendar(p_business_hours_id) c;
-
-    -- No usable calendar: the clock falls back to wall-clock time, where a
-    -- day is 24 hours.
-    if v_start is null or v_end is null then
-        return p_mins;
-    end if;
-
-    return (p_mins / 1440)
-         * (extract(epoch from (v_end - v_start)) / 60)::integer;
-end;
+    select p_mins;
 $$;
 
 -- The rules the SLA editor enforces (scope-rules.ts): a customer is in at most
@@ -669,6 +648,10 @@ begin
           and e.paused_at is null
           and e.warned_at is null
           and e.due_at > now()
+          -- notify_before_mins is at most 1440 (chk_sla_notify_before_mins),
+          -- so only the next day's deadlines can be due a warning; the bound
+          -- keeps this an index range on idx_sla_events_warn.
+          and e.due_at <= now() + interval '1440 minutes'
           and p.notify_before_breach
           and e.due_at - make_interval(mins => p.notify_before_mins) <= now()
           and t.status not in ('resolved', 'closed')
@@ -731,6 +714,16 @@ revoke execute on function public.sla_start_event(public.tickets, public.sla_eve
 revoke execute on function public.sla_retarget_event(public.tickets, public.sla_events) from public, anon, authenticated;
 revoke execute on function public.sla_finish_events(uuid, public.sla_event_type, timestamptz) from public, anon, authenticated;
 revoke execute on function public.sla_recipients(uuid, uuid, text) from public, anon, authenticated;
+-- The arithmetic and resolver helpers are internal too: as SECURITY DEFINER
+-- RPCs they read any tenant's calendar and policies, and sla_seconds_between
+-- over a wide range ties up a connection. Only the definer functions above and
+-- the triggers call them.
+revoke execute on function public.sla_calendar(uuid) from public, anon, authenticated;
+revoke execute on function public.sla_day_windows(jsonb, time, time, jsonb, text, date) from public, anon, authenticated;
+revoke execute on function public.sla_add_seconds(timestamptz, bigint, uuid) from public, anon, authenticated;
+revoke execute on function public.sla_seconds_between(timestamptz, timestamptz, uuid) from public, anon, authenticated;
+revoke execute on function public.sla_target_mins(integer, uuid) from public, anon, authenticated;
+revoke execute on function public.sla_resolve_policy(uuid, uuid) from public, anon, authenticated;
 
 -- Every minute.
 create extension if not exists pg_cron;

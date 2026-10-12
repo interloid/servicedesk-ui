@@ -1,12 +1,9 @@
 import "server-only";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import {
   NotificationType,
   NotificationPayload,
   UiNotification,
-  toUiNotification,
 } from "@/lib/notifications-shared";
 
 export type { NotificationType, NotificationPayload, UiNotification };
@@ -34,71 +31,29 @@ export async function createNotification(params: {
 }
 
 /**
- * Insert notifications for a set of agents (or any user ids) belonging to a tenant.
+ * Insert one notification per recipient in a single request, bypassing RLS
+ * (service role). The caller decides who may receive it.
  */
-
-/**
- * Fetch notifications for the current user within the given tenant (server-side).
- */
-export async function fetchCurrentUserNotifications(
-  tenant: string,
-): Promise<UiNotification[]> {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || !tenantId) return [];
-
-  const { data, error } = await supabase
-    .from("notifications")
-    .select("id, type, payload_json, read_at, created_at")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (error) {
-    console.error("[notifications] fetch failed:", error.message);
-    return [];
-  }
-
-  return (data || []).map((n) =>
-    toUiNotification(n as Parameters<typeof toUiNotification>[0]),
-  );
-}
-
-export async function markAllNotificationsRead(tenant: string): Promise<void> {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || !tenantId) return;
-
-  const { error } = await supabase
-    .from("notifications")
-    .update({ read_at: new Date().toISOString() })
-    .eq("tenant_id", tenantId)
-    .eq("user_id", user.id)
-    .is("read_at", null);
-
-  if (error) {
-    console.error("[notifications] mark all read failed:", error.message);
-  }
-}
-
-export async function markNotificationRead(
-  notificationId: string,
+export async function createNotifications(
+  rows: {
+    tenantId: string;
+    userId: string;
+    type: NotificationType;
+    payload?: NotificationPayload;
+  }[],
 ): Promise<void> {
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
-    .from("notifications")
-    .update({ read_at: new Date().toISOString() })
-    .eq("id", notificationId);
+  if (rows.length === 0) return;
+  const admin = createSupabaseAdminClient();
+  const { error } = await admin.from("notifications").insert(
+    rows.map((r) => ({
+      tenant_id: r.tenantId,
+      user_id: r.userId,
+      type: r.type,
+      payload_json: (r.payload || {}) as Record<string, unknown>,
+    })),
+  );
 
   if (error) {
-    console.error("[notifications] mark read failed:", error.message);
+    console.error("[notifications] batch create failed:", error.message);
   }
 }

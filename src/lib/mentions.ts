@@ -4,13 +4,31 @@ export type MentionSegment = {
   userId?: string;
 };
 
-const MENTION_REGEX = /@\[([^\]]+)\]\(user:([a-f0-9-]{36})\)/g;
+// The name runs lazily up to the first "](user:<uuid>)"; it may not cross a
+// line or another "@[", so plain text like "@[draft] … @[Bob](user:…)" still
+// reads as text plus one mention. New names are stored with "\\", "[" and "]"
+// escaped (serializeMention), so a "]" inside a name can't end it early; older
+// rows stored the name raw, and the lazy match still reads those -- including
+// names with a "]" in them, which the previous `[^\]]+` pattern left as raw
+// markup with the user id showing.
+const MENTION_REGEX =
+  /@\[((?:\\.|(?!@\[)[^\\\n])+?)\]\(user:([a-f0-9-]{36})\)/g;
+
+function escapeMentionName(name: string): string {
+  return name.replace(/[\\[\]]/g, "\\$&");
+}
+
+function unescapeMentionName(name: string): string {
+  // Only the three escapes serializeMention writes, so a raw backslash in an
+  // older, unescaped name is left as it was.
+  return name.replace(/\\([\\[\]])/g, "$1");
+}
 
 /**
  * Serialize a selected mention into stored form: @[Full Name](user:uuid)
  */
 export function serializeMention(name: string, userId: string): string {
-  return `@[${name}](user:${userId})`;
+  return `@[${escapeMentionName(name)}](user:${userId})`;
 }
 
 /**
@@ -31,7 +49,7 @@ export function parseMentions(body: string): MentionSegment[] {
     }
     segments.push({
       type: "mention",
-      content: match[1],
+      content: unescapeMentionName(match[1]),
       userId: match[2],
     });
     lastIndex = match.index + match[0].length;
@@ -62,7 +80,10 @@ export function extractMentionIds(body: string): string[] {
  * (e.g. "@Name") for use in notification/plain contexts.
  */
 export function stripMentions(body: string): string {
-  return body.replace(MENTION_REGEX, "@$1");
+  return body.replace(
+    new RegExp(MENTION_REGEX.source, "g"),
+    (_, name: string) => `@${unescapeMentionName(name)}`,
+  );
 }
 
 /**
@@ -71,5 +92,8 @@ export function stripMentions(body: string): string {
  * only who was named, not the markup or the user id.
  */
 export function mentionsToNames(body: string): string {
-  return body.replace(MENTION_REGEX, "$1");
+  return body.replace(
+    new RegExp(MENTION_REGEX.source, "g"),
+    (_, name: string) => unescapeMentionName(name),
+  );
 }

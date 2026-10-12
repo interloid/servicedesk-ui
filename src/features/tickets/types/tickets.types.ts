@@ -22,6 +22,22 @@ export const TICKET_PRIORITIES: readonly TicketPriority[] = [
   "low",
 ];
 
+/** Display names, shared by the queue, the detail view and the dialogs. */
+export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
+  new: "New",
+  open: "Open",
+  pending: "Pending",
+  on_hold: "On hold",
+  resolved: "Resolved",
+  closed: "Closed",
+};
+export const TICKET_PRIORITY_LABELS: Record<TicketPriority, string> = {
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
 export function isTicketStatus(v: unknown): v is TicketStatus {
   return (TICKET_STATUSES as readonly unknown[]).includes(v);
 }

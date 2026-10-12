@@ -57,9 +57,12 @@ const nextConfig: NextConfig = {
   // Action (up to 20 MB of files, see TICKET_ATTACHMENTS_MAX_BYTES). Both caps
   // default lower -- 1 MB for the action, 10 MB for the body proxy buffers --
   // and a larger upload would be rejected or cut short before the action ran.
+  // Next has no per-action limit, so this one applies to every action: it is
+  // kept to the attachments cap plus 1 MB for multipart overhead and the text
+  // fields (a 20,000-character reply is at most ~80 KB), no higher.
   experimental: {
-    serverActions: { bodySizeLimit: "25mb" },
-    proxyClientMaxBodySize: "25mb",
+    serverActions: { bodySizeLimit: "21mb" },
+    proxyClientMaxBodySize: "21mb",
   },
   images: {
     remotePatterns: remotePatterns(),

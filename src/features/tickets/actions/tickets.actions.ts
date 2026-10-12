@@ -15,24 +15,38 @@ import {
   searchTenantCustomers,
   getCurrentUserIdentity,
   fetchAssignableAgents,
+  fetchTenantStaff,
   ASSIGNEE_ROLES,
   setTicketTags,
   fetchTicketSlaEvents,
 } from "../services/tickets.service";
 import {
   MessageVisibility,
-  PRIORITY_REASON_MAX,
   PriorityChangeResult,
   TICKET_PRIORITIES,
   TICKET_STATUSES,
   TicketPriority,
   TicketStatus,
-  isTicketStatus,
 } from "../types/tickets.types";
 import { closedReason } from "../lib/sla-calendar";
+import { attachmentsError } from "../lib/attachments";
+import {
+  bulkSetPrioritySchema,
+  bulkTicketsSchema,
+  createTicketSchema,
+  firstIssue,
+  searchRequestersSchema,
+  sendTicketMessageSchema,
+  setTicketTagsSchema,
+  ticketRefSchema,
+  updateTicketDetailsSchema,
+} from "../lib/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createNotification } from "@/lib/notifications.service";
+import {
+  createNotification,
+  createNotifications,
+} from "@/lib/notifications.service";
 import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import { extractMentionIds, stripMentions } from "@/lib/mentions";
 
@@ -42,6 +56,9 @@ function errorMessage(error: unknown): string {
 
 const PRIORITIES = TICKET_PRIORITIES;
 const STATUSES = TICKET_STATUSES;
+
+/** Most people one message can notify by @mention. */
+const MENTION_NOTIFY_MAX = 50;
 
 /** A FormData value as one of `allowed`, else `fallback`. */
 function pick<T extends string>(
@@ -58,17 +75,28 @@ export async function createTicketAction(
   formData: FormData,
 ) {
   try {
-    const subject = String(formData.get("subject") ?? "");
-    const description = String(formData.get("description") ?? "");
-    const requesterCustomerId = String(
-      formData.get("requesterCustomerId") ?? "",
-    );
+    const parsed = createTicketSchema.safeParse({
+      tenantSlug,
+      subject: String(formData.get("subject") ?? ""),
+      description: String(formData.get("description") ?? ""),
+      requesterCustomerId: String(formData.get("requesterCustomerId") ?? ""),
+    });
+    if (!parsed.success) return { error: firstIssue(parsed.error) };
+    const { subject, description, requesterCustomerId } = parsed.data;
     const priority = pick(formData.get("priority"), PRIORITIES, "normal");
     const status = pick(formData.get("status"), STATUSES, "new");
 
     if (!subject || !requesterCustomerId) {
       return { error: "Subject and Requester Customer ID are required." };
     }
+
+    // Files are checked before the ticket exists, so a rejected upload
+    // doesn't create (and then have to withdraw) a ticket.
+    const files = formData
+      .getAll("files")
+      .filter((f): f is File => f instanceof File && f.size > 0);
+    const filesInvalid = attachmentsError(files);
+    if (filesInvalid) return { error: filesInvalid };
 
     // The tickets FK only checks the customer exists somewhere, and the seed
     // message below is written with the admin client: confirm the requester
@@ -95,9 +123,6 @@ export async function createTicketAction(
     // No seeded customer message: the description is the opening post, as
     // for a portal request, and both threads render it from the ticket.
 
-    const files = formData
-      .getAll("files")
-      .filter((f): f is File => f instanceof File && f.size > 0);
     if (files.length > 0) {
       try {
         await uploadTicketAttachments({
@@ -139,22 +164,18 @@ export async function createTicketAction(
         .map((m) => m.user_id)
         .filter((id) => id !== user?.id);
 
-      if (recipients.length > 0) {
-        await Promise.all(
-          recipients.map((userId) =>
-            createNotification({
-              tenantId,
-              userId,
-              type: "ticket_created",
-              payload: {
-                ticket_id: newTicket.id,
-                subject,
-                ticket_number: newTicket.number,
-              },
-            }),
-          ),
-        );
-      }
+      await createNotifications(
+        recipients.map((userId) => ({
+          tenantId,
+          userId,
+          type: "ticket_created" as const,
+          payload: {
+            ticket_id: newTicket.id,
+            subject,
+            ticket_number: newTicket.number,
+          },
+        })),
+      );
     } catch (notifError) {
       console.error("[notifications] skipped:", notifError);
     }
@@ -168,9 +189,15 @@ export async function createTicketAction(
 
 export async function sendTicketMessageAction(formData: FormData) {
   try {
-    const ticketId = String(formData.get("ticketId") ?? "");
-    const tenantSlug = String(formData.get("tenantSlug") ?? "");
-    const body = String(formData.get("body") ?? "");
+    const parsed = sendTicketMessageSchema.safeParse({
+      ticketId: String(formData.get("ticketId") ?? ""),
+      tenantSlug: String(formData.get("tenantSlug") ?? ""),
+      body: String(formData.get("body") ?? ""),
+    });
+    if (!parsed.success) {
+      return { success: false, error: firstIssue(parsed.error) };
+    }
+    const { ticketId, tenantSlug, body } = parsed.data;
     const visibility: MessageVisibility =
       formData.get("visibility") === "internal" ? "internal" : "public";
     const files = formData
@@ -180,6 +207,8 @@ export async function sendTicketMessageAction(formData: FormData) {
     if (!ticketId || !tenantSlug || (!body.trim() && files.length === 0)) {
       return { success: false, error: "Missing message content." };
     }
+    const filesInvalid = attachmentsError(files);
+    if (filesInvalid) return { success: false, error: filesInvalid };
 
     const supabase = await createSupabaseServerClient();
     const {
@@ -291,31 +320,43 @@ export async function sendTicketMessageAction(formData: FormData) {
     }
 
     if (body.trim()) {
-      const mentionedIds = extractMentionIds(body);
+      const mentionedIds = extractMentionIds(body).filter(
+        (id) => id !== user.id,
+      );
       if (mentionedIds.length > 0) {
         try {
-          const senderIdentity = await getCurrentUserIdentity(tenantSlug);
+          // The rows below are written with the service role, so only this
+          // tenant's active staff may be named: a customer's id (or anyone
+          // else's) in hand-made markup gets nothing.
+          const [staff, senderIdentity] = await Promise.all([
+            fetchTenantStaff(tenantSlug),
+            getCurrentUserIdentity(tenantSlug),
+          ]);
+          const staffIds = new Set(staff.map((m) => m.id));
+          const recipients = [...new Set(mentionedIds)]
+            .filter((id) => staffIds.has(id))
+            .slice(0, MENTION_NOTIFY_MAX);
 
-          await Promise.all(
-            mentionedIds
-              .filter((id) => id !== user.id)
-              .map((id) =>
-                createNotification({
-                  tenantId: tenantIdResolved,
-                  userId: id,
-                  type: "mention",
-                  payload: {
-                    ticket_id: ticketId,
-                    ticket_number: ticket?.number,
-                    subject: ticket?.subject,
-                    sender_name:
-                      senderIdentity?.full_name ||
-                      senderIdentity?.email ||
-                      "Someone",
-                    body: stripMentions(body).slice(0, 200),
-                  },
+          await createNotifications(
+            recipients.map((id) => ({
+              tenantId: tenantIdResolved,
+              userId: id,
+              type: "mention" as const,
+              payload: {
+                ticket_id: ticketId,
+                ticket_number: ticket?.number,
+                subject: ticket?.subject,
+                sender_name:
+                  senderIdentity?.full_name ||
+                  senderIdentity?.email ||
+                  "Someone",
+                // An internal note's text stays on the ticket: the alert
+                // links to it and shows the subject instead.
+                ...(visibility === "public" && {
+                  body: stripMentions(body).slice(0, 200),
                 }),
-              ),
+              },
+            })),
           );
         } catch (notifError) {
           console.error("[notifications] skipped:", notifError);
@@ -333,7 +374,7 @@ export async function sendTicketMessageAction(formData: FormData) {
   }
 }
 
-export async function updateTicketDetailsAction(formData: {
+export async function updateTicketDetailsAction(input: {
   ticketId: string;
   tenantSlug: string;
   status?: TicketStatus;
@@ -344,19 +385,15 @@ export async function updateTicketDetailsAction(formData: {
   unassign?: boolean;
 }) {
   try {
-    const tenantIdResolved = await getTenantIdBySlug(formData.tenantSlug);
+    const parsed = updateTicketDetailsSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: firstIssue(parsed.error) };
+    }
+    const formData = parsed.data;
 
-    if (formData.priority && !PRIORITIES.includes(formData.priority)) {
-      return { success: false, error: "Priority is required." };
-    }
-    if (formData.status && !isTicketStatus(formData.status)) {
-      return { success: false, error: "That status doesn't exist." };
-    }
-    if ((formData.priorityReason?.length ?? 0) > PRIORITY_REASON_MAX) {
-      return {
-        success: false,
-        error: `Keep the reason under ${PRIORITY_REASON_MAX} characters.`,
-      };
+    const tenantIdResolved = await getTenantIdBySlug(formData.tenantSlug);
+    if (!tenantIdResolved) {
+      return { success: false, error: "Tenant not found." };
     }
 
     const supabase = await createSupabaseServerClient();
@@ -387,8 +424,10 @@ export async function updateTicketDetailsAction(formData: {
 
     // Priority has its own rules (reason to lower, due-soon deadlines kept,
     // audit), so it goes through change_ticket_priority, not a plain update.
+    // The schema refuses priority mixed with other fields, so a call runs
+    // either the RPC or the update below, never half of both.
     let priorityChange: PriorityChangeResult | undefined;
-    if (formData.priority && tenantIdResolved) {
+    if (formData.priority) {
       priorityChange = await changeTicketPriority(
         formData.ticketId,
         formData.priority,
@@ -408,7 +447,6 @@ export async function updateTicketDetailsAction(formData: {
     const assigneeChanged =
       !formData.unassign &&
       formData.assigneeId &&
-      tenantIdResolved &&
       formData.assigneeId !== previousAssignee &&
       formData.assigneeId !== user?.id;
 
@@ -439,7 +477,7 @@ export async function updateTicketDetailsAction(formData: {
     // Priority and status move the SLA clocks (re-target, pause, resume,
     // finish) in the same transaction, so hand back what they are now.
     const slaEvents =
-      (formData.priority || formData.status) && tenantIdResolved
+      formData.priority || formData.status
         ? await fetchTicketSlaEvents(formData.ticketId, tenantIdResolved)
         : undefined;
 
@@ -453,11 +491,16 @@ export async function updateTicketDetailsAction(formData: {
   }
 }
 
-export async function assignTicketToMeAction(formData: {
+export async function assignTicketToMeAction(input: {
   ticketId: string;
   tenantSlug: string;
 }) {
   try {
+    const parsed = ticketRefSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: firstIssue(parsed.error) };
+    }
+    const formData = parsed.data;
     const identity = await getCurrentUserIdentity(formData.tenantSlug);
     if (!identity || !identity.id) {
       return { success: false, error: "Unauthorized" };
@@ -483,14 +526,16 @@ export async function assignTicketToMeAction(formData: {
   }
 }
 
-export async function bulkAssignToMeAction(payload: {
+export async function bulkAssignToMeAction(input: {
   tenantSlug: string;
   ticketIds: string[];
 }) {
   try {
-    if (!payload.ticketIds?.length) {
-      return { success: false, error: "No tickets selected." };
+    const parsed = bulkTicketsSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: firstIssue(parsed.error) };
     }
+    const payload = parsed.data;
     const identity = await getCurrentUserIdentity(payload.tenantSlug);
     if (!identity?.id) {
       return { success: false, error: "Unauthorized" };
@@ -521,7 +566,7 @@ export async function bulkAssignToMeAction(payload: {
   }
 }
 
-export async function bulkSetPriorityAction(payload: {
+export async function bulkSetPriorityAction(input: {
   tenantSlug: string;
   ticketIds: string[];
   priority: TicketPriority;
@@ -529,18 +574,11 @@ export async function bulkSetPriorityAction(payload: {
   reason?: string;
 }) {
   try {
-    if (!payload.ticketIds?.length) {
-      return { success: false, error: "No tickets selected." };
+    const parsed = bulkSetPrioritySchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: firstIssue(parsed.error) };
     }
-    if (!PRIORITIES.includes(payload.priority)) {
-      return { success: false, error: "Priority is required." };
-    }
-    if ((payload.reason?.length ?? 0) > PRIORITY_REASON_MAX) {
-      return {
-        success: false,
-        error: `Keep the reason under ${PRIORITY_REASON_MAX} characters.`,
-      };
-    }
+    const payload = parsed.data;
     const tenantId = await getTenantIdBySlug(payload.tenantSlug);
     if (!tenantId) return { success: false, error: "Tenant not found." };
 
@@ -583,14 +621,16 @@ export async function bulkSetPriorityAction(payload: {
   }
 }
 
-export async function bulkMarkSolvedAction(payload: {
+export async function bulkMarkSolvedAction(input: {
   tenantSlug: string;
   ticketIds: string[];
 }) {
   try {
-    if (!payload.ticketIds?.length) {
-      return { success: false, error: "No tickets selected." };
+    const parsed = bulkTicketsSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: firstIssue(parsed.error) };
     }
+    const payload = parsed.data;
 
     // Status only: the stamps trigger sets resolved_at. Tickets already
     // resolved or closed are left alone -- re-resolving them would restamp
@@ -616,15 +656,20 @@ export async function bulkMarkSolvedAction(payload: {
   }
 }
 
-export async function setTicketTagsAction(payload: {
+export async function setTicketTagsAction(input: {
   tenantSlug: string;
   ticketId: string;
   names: string[];
 }) {
   try {
-    if (!payload.ticketId) {
+    if (!input?.ticketId) {
       return { success: false as const, error: "Missing ticket." };
     }
+    const parsed = setTicketTagsSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false as const, error: firstIssue(parsed.error) };
+    }
+    const payload = parsed.data;
     const tags = await setTicketTags(
       payload.tenantSlug,
       payload.ticketId,
@@ -649,7 +694,18 @@ export async function searchTicketRequestersAction(
   query: string,
 ) {
   try {
-    const customers = await searchTenantCustomers(tenantSlug, query);
+    const parsed = searchRequestersSchema.safeParse({ tenantSlug, query });
+    if (!parsed.success) {
+      return {
+        success: false as const,
+        error: firstIssue(parsed.error),
+        customers: [],
+      };
+    }
+    const customers = await searchTenantCustomers(
+      parsed.data.tenantSlug,
+      parsed.data.query,
+    );
     return { success: true as const, customers };
   } catch (error) {
     return {

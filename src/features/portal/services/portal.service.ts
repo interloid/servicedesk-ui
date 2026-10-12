@@ -44,7 +44,7 @@ import {
 } from "@/features/portal/avatar-url";
 import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { mentionsToNames } from "@/lib/mentions";
+import { mentionsToNames, stripMentions } from "@/lib/mentions";
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { slaDayMins } from "@/features/sla-policies/duration";
@@ -1341,7 +1341,7 @@ export async function listPortalRequests(
         resolvedAt: row.resolved_at,
         // Trimmed here so a 10,000-character description is not shipped to
         // the browser to show one line of it.
-        preview: (row.description ?? "")
+        preview: mentionsToNames(row.description ?? "")
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, PREVIEW_LENGTH),
@@ -1384,7 +1384,9 @@ export async function createPortalRequest({
     p_tenant_slug: slug,
     p_email: email,
     p_subject: subject,
-    p_description: description,
+    // Mention markup is the team's, not the customer's: typed by hand it would
+    // render as a staff chip on the agent side, so it is flattened to "@Name".
+    p_description: stripMentions(description),
     p_full_name: fullName ?? null,
     p_user_id: userId ?? null,
     // Never the customer's choice -- see PORTAL_REQUEST_PRIORITY.
@@ -1582,17 +1584,67 @@ function supportClosedAt(
 }
 
 /**
- * Whether support is closed right now under the tenant's default policy --
- * the one a new portal request is quoted against -- for the note on the
- * form. Null while open or on a 24/7 policy. Admin client for the same
- * reason as getFirstResponseTarget; only the outcome leaves here.
+ * The calendar of the policy a new ticket from this customer would get --
+ * the same choice as public.sla_resolve_policy (17_sla_engine.sql), which the
+ * tickets_assign_sla_policy trigger runs: the customer's active "Selected
+ * customers" policy (oldest first), else the oldest active non-"Selected
+ * customers" policy with is_default first. Kept in step with that function so
+ * the note on the form names the same opening as the toast after submitting.
+ */
+async function getNewTicketPolicyCalendar(
+  admin: AdminClient,
+  tenantId: string,
+  customerId: string | null,
+): Promise<CalendarJoin | undefined> {
+  if (customerId) {
+    const { data, error } = await admin
+      .from("sla_policies")
+      .select(
+        `created_at, sla_policy_customers!inner(customer_id), ${CALENDAR_SELECT}`,
+      )
+      .eq("tenant_id", tenantId)
+      .eq("status", "active")
+      .eq("applies_to", "Selected customers")
+      .eq("sla_policy_customers.customer_id", customerId)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) return data.business_hours;
+  }
+
+  const { data, error } = await admin
+    .from("sla_policies")
+    .select(CALENDAR_SELECT)
+    .eq("tenant_id", tenantId)
+    .eq("status", "active")
+    .neq("applies_to", "Selected customers")
+    .order("is_default", { ascending: false })
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+
+  return error || !data ? undefined : data.business_hours;
+}
+
+/**
+ * Whether support is closed right now under the policy a new request from
+ * this customer would be held to (their own policy when signed in, else the
+ * tenant's default), for the note on the form. Null while open, on a 24/7
+ * policy, or if it can't be read. Admin client for the same reason as
+ * getFirstResponseTarget; only the outcome leaves here.
  */
 export async function getPortalSupportClosed(
   tenantId: string,
+  customerId: string | null = null,
 ): Promise<PortalSupportClosed | null> {
-  const policy = await getDefaultPolicy(createSupabaseAdminClient(), tenantId);
-  if (!policy) return null;
-  return supportClosedAt(policy.business_hours, Date.now());
+  const calendar = await getNewTicketPolicyCalendar(
+    createSupabaseAdminClient(),
+    tenantId,
+    customerId,
+  );
+  if (calendar === undefined) return null;
+  return supportClosedAt(calendar, Date.now());
 }
 
 /**
@@ -1695,6 +1747,9 @@ export const getPortalSupportHours = cache(async function getPortalSupportHours(
 // ---------------------------------------------------------------------------
 // One request
 // ---------------------------------------------------------------------------
+
+/** How close to the ticket's creation a seeded opening copy is written. */
+const SEEDED_COPY_WINDOW_MS = 10_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -2546,7 +2601,9 @@ export const getPortalRequest = cache(async function getPortalRequest(
     authorType: "customer",
     authorName: identity.customer.fullName,
     initials: identity.customer.initials,
-    body: ticket.description,
+    // An agent-created ticket's description can carry @mention markup; the
+    // customer sees only the name, never the user id.
+    body: ticket.description && mentionsToNames(ticket.description),
     createdAt: ticket.created_at,
     isMine: true,
     // Files sent with the request itself: stored against the ticket with no
@@ -2555,12 +2612,20 @@ export const getPortalRequest = cache(async function getPortalRequest(
   };
 
   // Older agent-created tickets also carry the description as a seeded
-  // customer message; drop that copy so the request shows once.
+  // customer message; drop that copy so the request shows once. Only a copy
+  // written alongside the ticket (within a few seconds of it) and carrying no
+  // files counts: a later follow-up that happens to repeat the description,
+  // or one with attachments, is a real message and stays.
   const openingText = (ticket.description ?? "").trim();
+  const createdMs = Date.parse(ticket.created_at);
   const seededCopy = openingText
     ? messageRows.find(
         (row) =>
-          row.author_type === "customer" && row.body.trim() === openingText,
+          row.author_type === "customer" &&
+          row.body.trim() === openingText &&
+          Math.abs(Date.parse(row.created_at) - createdMs) <=
+            SEEDED_COPY_WINDOW_MS &&
+          (attachments.get(row.id)?.length ?? 0) === 0,
       )
     : undefined;
 
@@ -2601,7 +2666,7 @@ export const getPortalRequest = cache(async function getPortalRequest(
     id: ticket.id,
     number: ticket.number,
     subject: ticket.subject,
-    description: ticket.description,
+    description: ticket.description && mentionsToNames(ticket.description),
     status,
     priority: ticket.priority as PortalPriority,
     state: toPortalState(status),
@@ -2769,7 +2834,8 @@ export async function postPortalReply(
       ticket_id: requestId,
       author_type: "customer",
       author_id: identity.customer.id,
-      body: body.trim(),
+      // Same as the opening post: a customer can't fake a mention chip.
+      body: stripMentions(body).trim(),
       visibility: "public",
     })
     .select("id")

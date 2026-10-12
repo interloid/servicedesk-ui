@@ -17,6 +17,10 @@
 -- (business time since start) - (time used). Re-laying it on the new rules is
 -- exact for a clock that never paused and close for one that did.
 --
+-- When the working day gets longer or shorter, a running "days" clock's
+-- target is resized with it (as sla_rescale_day_targets resizes the policy's
+-- targets), so "1 day" on 10:00-19:00 -> 10:00-18:00 becomes 480 minutes.
+--
 -- Paused clocks keep their remaining_secs: it is banked time, and resuming
 -- lays it out on the calendar as it is then. Met / breached clocks are left
 -- alone; a clock whose new deadline has passed is breached by the next
@@ -109,7 +113,11 @@ as $$
 declare
     v_now timestamptz := now();
     v_old_tz text;
+    v_old_day_mins integer := public.sla_schedule_day_mins(old.schedule_json);
+    v_new_day_mins integer := public.sla_schedule_day_mins(new.schedule_json);
     v_event public.sla_events;
+    v_days_unit boolean;
+    v_target_mins integer;
     v_target bigint;
     v_used bigint;
     v_credit bigint;
@@ -148,12 +156,42 @@ begin
             0
         );
 
+        -- The target on the new rules. A shorter or longer working day
+        -- resizes "days" targets: business_hours_rescale_sla_targets (it
+        -- fires first, triggers run in name order) has already done it to
+        -- the policy's targets, and a running clock follows, or a "1 day"
+        -- clock on 10:00-19:00 -> 10:00-18:00 would keep 540 minutes. Same
+        -- formula as sla_rescale_day_targets, applied to the clock's own
+        -- target so a clock kept on a tighter target by
+        -- change_ticket_priority stays on it. Holidays / time zone only:
+        -- the day length is unchanged and so is the target.
+        v_target_mins := v_event.target_mins;
+        if v_old_day_mins <> v_new_day_mins then
+            select case v_event.type
+                       when 'first_response' then t.first_response_unit
+                       else t.resolution_unit
+                   end = 'days'
+            into v_days_unit
+            from public.tickets tk
+            join public.sla_policy_targets t
+              on t.policy_id = tk.sla_policy_id
+             and t.priority_scope = tk.priority
+            where tk.id = v_event.ticket_id;
+
+            if coalesce(v_days_unit, false) then
+                v_target_mins := greatest(
+                    round(v_event.target_mins::numeric / v_old_day_mins), 1
+                )::integer * v_new_day_mins;
+            end if;
+        end if;
+
         v_due := public.sla_add_seconds(
-            v_event.started_at, v_target + v_credit, new.id
+            v_event.started_at, v_target_mins::bigint * 60 + v_credit, new.id
         );
 
         update public.sla_events
         set due_at = v_due,
+            target_mins = v_target_mins,
             -- A later deadline earns a fresh "due soon" warning.
             warned_at = case when v_due > v_event.due_at then null else warned_at end
         where id = v_event.id;
@@ -162,6 +200,11 @@ begin
     return null;
 end;
 $$;
+
+-- The loop's scan: running clocks on one calendar.
+create index if not exists idx_sla_events_calendar_pending
+on public.sla_events(business_hours_id)
+where status = 'pending';
 
 drop trigger if exists business_hours_retime_sla_events on public.business_hours;
 create trigger business_hours_retime_sla_events

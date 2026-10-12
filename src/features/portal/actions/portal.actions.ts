@@ -528,7 +528,9 @@ export async function submitRequestAction(
       data: {
         redirectTo: portalPath(slug, PORTAL_ROUTES.REQUESTS),
         number: ticket.number,
-        closed: await getTicketSupportClosed(ticket.id),
+        // The ticket is already saved: a failed lookup only drops the
+        // "support is closed" note, it must not report the request as failed.
+        closed: await getTicketSupportClosed(ticket.id).catch(() => null),
       },
     };
   } catch (error) {
@@ -588,7 +590,9 @@ export async function submitGuestRequestAction(
       data: {
         email: parsed.data.email,
         number: ticket.number,
-        closed: await getTicketSupportClosed(ticket.id),
+        // The ticket is already saved: a failed lookup only drops the
+        // "support is closed" note, it must not report the request as failed.
+        closed: await getTicketSupportClosed(ticket.id).catch(() => null),
       },
     };
   } catch (error) {

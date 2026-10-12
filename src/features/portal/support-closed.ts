@@ -13,12 +13,12 @@ export interface PortalSupportClosed {
   opensAt: string | null;
 }
 
+// No "today": the closed day is judged in the support team's time zone, and
+// the customer's "today" may already be a different date.
 function closedLead(reason: ClosedReason): string {
   return reason === "holiday"
     ? "Support is currently closed for a holiday."
-    : reason === "non_working_day"
-      ? "Support is closed today."
-      : "Support is currently closed.";
+    : "Support is currently closed.";
 }
 
 function resumes(closed: PortalSupportClosed): string {

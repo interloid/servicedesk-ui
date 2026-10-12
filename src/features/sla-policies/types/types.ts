@@ -174,11 +174,6 @@ export interface BusinessHoursOption {
   timezoneId: string | null;
   /** IANA code, e.g. "Asia/Kolkata"; null when the zone can't be read. */
   timezone: string | null;
-  /**
-   * It has timed tickets (sla_events), so its hours, time zone and holidays
-   * can no longer be changed. Only set where it was checked (the editor).
-   */
-  inUse?: boolean;
 }
 
 export interface BusinessHoursSchedule {
@@ -206,13 +201,12 @@ export const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
  */
 export type TimeCalculation = "24/7" | "business";
 
-/** Why a policy that is applied to tickets can't be changed. */
+/**
+ * Why a policy that is applied to tickets can't change its targets or time
+ * calculation. Its name, status, scope and notifications stay editable.
+ */
 export const POLICY_IN_USE_MESSAGE =
-  "This policy is already applied to tickets, so it can't be changed. Create a new policy instead.";
-
-/** Why business hours that have timed tickets can't be changed. */
-export const CALENDAR_IN_USE_MESSAGE =
-  "These business hours are already timing tickets, so the hours and holidays can't be changed.";
+  "This policy is already applied to tickets, so its targets and time calculation can't be changed. Create a new policy instead.";
 
 /** Why the create page can't change the shared business hours. */
 export const NEW_POLICY_CALENDAR_MESSAGE =
@@ -223,7 +217,7 @@ export interface SlaPolicy {
   name: string;
   description: string;
   appliedTickets: number;
-  /** It is applied to at least one ticket, so it can no longer be changed. */
+  /** It is applied to at least one ticket, so its targets and calendar are locked. */
   inUse: boolean;
   updated_at: string;
   updated_by_name: string | null;

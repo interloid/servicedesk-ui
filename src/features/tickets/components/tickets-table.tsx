@@ -41,6 +41,10 @@ import {
 import { cn } from "@/lib/utils";
 import CreateTicketSheet from "./create-ticket-sheet";
 import {
+  TICKET_PRIORITIES,
+  TICKET_PRIORITY_LABELS,
+  TICKET_STATUSES,
+  TICKET_STATUS_LABELS,
   Ticket,
   TicketPriority,
   TicketStatus,
@@ -56,9 +60,10 @@ import {
 import Link from "next/link";
 import { TicketsEmptyState } from "./ticket-empty";
 import { useRealtimeTicketsRefresh } from "@/hooks/use-realtime-tickets-refresh";
-import { computeLiveSla } from "../lib/sla";
+import { LiveSla, computeLiveSla } from "../lib/sla";
 import { TICKET_PAGE_SIZES } from "../lib/list";
 import { useNow } from "@/hooks/use-now";
+import { useMounted } from "@/hooks/use-mounted";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 
 interface TicketsTableProps {
@@ -82,31 +87,63 @@ interface TabButtonProps {
   children: ReactNode;
 }
 
-const PRIORITY_STYLES: Record<
-  string,
-  { badge: string; dot: string; label: string }
-> = {
-  urgent: {
-    badge: "bg-red-100 text-red-800",
-    dot: "bg-red-500",
-    label: "Urgent",
-  },
-  high: {
-    badge: "bg-orange-100 text-orange-800",
-    dot: "bg-orange-500",
-    label: "High",
-  },
-  normal: {
-    badge: "bg-blue-100 text-blue-800",
-    dot: "bg-blue-500",
-    label: "Normal",
-  },
-  low: {
-    badge: "bg-emerald-100 text-emerald-800",
-    dot: "bg-emerald-600",
-    label: "Low",
-  },
+const PRIORITY_STYLES: Record<string, { badge: string; dot: string }> = {
+  urgent: { badge: "bg-red-100 text-red-800", dot: "bg-red-500" },
+  high: { badge: "bg-orange-100 text-orange-800", dot: "bg-orange-500" },
+  normal: { badge: "bg-blue-100 text-blue-800", dot: "bg-blue-500" },
+  low: { badge: "bg-emerald-100 text-emerald-800", dot: "bg-emerald-600" },
 };
+
+const STATUS_BADGE: Record<TicketStatus, string> = {
+  new: "bg-emerald-100 text-emerald-800 hover:bg-emerald-100",
+  open: "bg-blue-100 text-blue-800 hover:bg-blue-100",
+  pending: "bg-amber-100 text-amber-800 hover:bg-amber-100",
+  on_hold: "bg-purple-100 text-purple-800 hover:bg-purple-100",
+  resolved: "bg-slate-100 text-slate-700 hover:bg-slate-100",
+  closed: "bg-slate-200 text-slate-600 hover:bg-slate-200",
+};
+
+const SLA_PILL: Record<LiveSla["type"], { pill: string; dot: string }> = {
+  breached: { pill: "bg-rose-100/80 text-rose-800", dot: "bg-rose-600" },
+  warning: { pill: "bg-amber-100/80 text-amber-900", dot: "bg-amber-600" },
+  paused: { pill: "bg-slate-100 text-slate-600", dot: "bg-slate-400" },
+  waiting: { pill: "bg-slate-100 text-slate-600", dot: "bg-slate-400" },
+  completed: {
+    pill: "bg-emerald-100/80 text-emerald-800",
+    dot: "bg-emerald-600",
+  },
+  normal: { pill: "bg-[#0e7adf]/10 text-[#0e7adf]", dot: "bg-[#0e7adf]" },
+};
+
+/**
+ * The SLA badge, in its own component so the 30-second tick re-renders this
+ * cell and not the whole table. The "Resumes …" opening is in the viewer's
+ * time zone, so it is only shown once mounted.
+ */
+function SlaBadge({ ticket }: { ticket: Ticket }) {
+  const now = useNow(30_000);
+  const mounted = useMounted();
+  const live = computeLiveSla(ticket, now);
+  if (live.text === "—" || !live.text) {
+    return <span className="text-slate-400">—</span>;
+  }
+  const style = SLA_PILL[live.type] ?? SLA_PILL.normal;
+  return (
+    <span
+      // Read from the clock, which differs between server render and browser.
+      suppressHydrationWarning
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
+        style.pill,
+      )}
+    >
+      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", style.dot)} />
+      {live.type === "waiting" && !mounted
+        ? "Outside business hours"
+        : live.text}
+    </span>
+  );
+}
 
 function TabButton({ active, onClick, children }: TabButtonProps) {
   return (
@@ -117,7 +154,7 @@ function TabButton({ active, onClick, children }: TabButtonProps) {
       className={`h-8 whitespace-nowrap border ${
         active
           ? "border-transparent bg-brand-accent font-semibold text-primary-foreground hover:bg-brand-hover hover:text-primary-foreground"
-          : "border-transparent text-slate-500 hover:text-slate-800"
+          : "border-transparent bg-white text-slate-500 hover:text-slate-800"
       }`}
     >
       {children}
@@ -139,8 +176,7 @@ export default function TicketsTable({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  useRealtimeTicketsRefresh(tenant);
-  const now = useNow(30_000);
+  useRealtimeTicketsRefresh(tenant, initialTickets[0]?.tenant_id);
   const [pickedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
   // Only rows still on screen count: a realtime refresh can drop a picked
   // ticket from this view without the URL changing.
@@ -255,7 +291,7 @@ export default function TicketsTable({
             `${res.failed} ticket${res.failed === 1 ? "" : "s"} couldn't be updated. The rest were.`,
           );
         }
-        router.refresh();
+        // The bulk actions' revalidatePath refreshes the list.
       } else {
         setBulkError(res.error || "Failed to update tickets.");
         // The reason dialog covers the inline error; say it there too.
@@ -296,44 +332,24 @@ export default function TicketsTable({
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case "new":
-        return (
-          <Badge className="h-6 rounded-full px-2.5 text-xs bg-emerald-100 text-emerald-800 hover:bg-emerald-100 border-none font-semibold">
-            New
-          </Badge>
-        );
-      case "open":
-        return (
-          <Badge className="h-6 rounded-full px-2.5 text-xs bg-blue-100 text-blue-800 hover:bg-blue-100 border-none font-semibold">
-            Open
-          </Badge>
-        );
-      case "pending":
-        return (
-          <Badge className="h-6 rounded-full px-2.5 text-xs bg-amber-100 text-amber-800 hover:bg-amber-100 border-none font-semibold">
-            Pending
-          </Badge>
-        );
-      case "resolved":
-        return (
-          <Badge className="h-6 rounded-full px-2.5 text-xs bg-slate-100 text-slate-700 hover:bg-slate-100 border-none font-semibold">
-            Resolved
-          </Badge>
-        );
-      case "on_hold":
-        return (
-          <Badge className="h-6 rounded-full px-2.5 text-xs bg-purple-100 text-purple-800 hover:bg-purple-100 border-none font-semibold">
-            On hold
-          </Badge>
-        );
-      default:
-        return (
-          <Badge variant="outline" className="h-6 rounded-full px-2.5 text-xs">
-            {status}
-          </Badge>
-        );
+    const key = status?.toLowerCase() as TicketStatus;
+    if (!(key in STATUS_BADGE)) {
+      return (
+        <Badge variant="outline" className="h-6 rounded-full px-2.5 text-xs">
+          {status}
+        </Badge>
+      );
     }
+    return (
+      <Badge
+        className={cn(
+          "h-6 rounded-full px-2.5 text-xs border-none font-semibold",
+          STATUS_BADGE[key],
+        )}
+      >
+        {TICKET_STATUS_LABELS[key]}
+      </Badge>
+    );
   };
 
   // The status badge's pill, with the SLA editor's priority dot inside.
@@ -352,7 +368,8 @@ export default function TicketsTable({
             style?.dot ?? "bg-slate-400",
           )}
         />
-        {style?.label ?? priority}
+        {TICKET_PRIORITY_LABELS[priority?.toLowerCase() as TicketPriority] ??
+          priority}
       </Badge>
     );
   };
@@ -418,6 +435,20 @@ export default function TicketsTable({
     (sum, n) => sum + (n || 0),
     0,
   );
+
+  // The column that carries the row's link: the subject, else the first
+  // column still shown.
+  const linkColumn = (
+    [
+      "subject",
+      "id",
+      "requester",
+      "priority",
+      "assignee",
+      "status",
+      "sla",
+    ] as ColumnKey[]
+  ).find((c) => visibleColumns[c]);
 
   const isAllSelected =
     initialTickets.length > 0 &&
@@ -511,7 +542,7 @@ export default function TicketsTable({
             <Button
               size="sm"
               onClick={() => setIsSheetOpen(true)}
-              className="h-10 bg-teal-800 px-4 text-sm font-semibold text-white hover:bg-teal-900"
+              className="h-10 bg-brand-accent px-4 text-sm font-semibold text-white hover:bg-brand-accent/90"
             >
               New ticket
             </Button>
@@ -528,8 +559,8 @@ export default function TicketsTable({
             <Badge
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 !searchParams?.get("status")
-                  ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-teal-100 text-teal-800"
+                  ? "bg-primary-foreground/20 text-primary-foreground border-0"
+                  : "bg-brand-accent text-brand-accent-foreground border-0"
               }`}
             >
               {allCount}
@@ -544,7 +575,7 @@ export default function TicketsTable({
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 searchParams?.get("status") === "new"
                   ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-teal-100 text-teal-800"
+                  : "bg-brand-accent text-brand-accent-foreground border-0"
               }`}
             >
               {statusCounts.new ?? 0}
@@ -559,7 +590,7 @@ export default function TicketsTable({
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 searchParams?.get("status") === "open"
                   ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-teal-100 text-teal-800"
+                  : "bg-brand-accent text-brand-accent-foreground border-0"
               }`}
             >
               {statusCounts.open ?? 0}
@@ -574,7 +605,7 @@ export default function TicketsTable({
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 searchParams?.get("status") === "resolved"
                   ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-teal-100 text-teal-800"
+                  : "bg-brand-accent text-brand-accent-foreground border-0"
               }`}
             >
               {statusCounts.resolved ?? 0}
@@ -638,18 +669,15 @@ export default function TicketsTable({
                   <SelectItem value="all" className="cursor-pointer p-2">
                     All priorities
                   </SelectItem>
-                  <SelectItem value="urgent" className="cursor-pointer p-2">
-                    Urgent
-                  </SelectItem>
-                  <SelectItem value="high" className="cursor-pointer p-2">
-                    High
-                  </SelectItem>
-                  <SelectItem value="normal" className="cursor-pointer p-2">
-                    Normal
-                  </SelectItem>
-                  <SelectItem value="low" className="cursor-pointer p-2">
-                    Low
-                  </SelectItem>
+                  {TICKET_PRIORITIES.map((p) => (
+                    <SelectItem
+                      key={p}
+                      value={p}
+                      className="cursor-pointer p-2"
+                    >
+                      {TICKET_PRIORITY_LABELS[p]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -674,24 +702,15 @@ export default function TicketsTable({
                   <SelectItem value="all" className="cursor-pointer p-2">
                     All statuses
                   </SelectItem>
-                  <SelectItem value="new" className="cursor-pointer p-2">
-                    New
-                  </SelectItem>
-                  <SelectItem value="open" className="cursor-pointer p-2">
-                    Open
-                  </SelectItem>
-                  <SelectItem value="pending" className="cursor-pointer p-2">
-                    Pending
-                  </SelectItem>
-                  <SelectItem value="on_hold" className="cursor-pointer p-2">
-                    On hold
-                  </SelectItem>
-                  <SelectItem value="resolved" className="cursor-pointer p-2">
-                    Resolved
-                  </SelectItem>
-                  <SelectItem value="closed" className="cursor-pointer p-2">
-                    Closed
-                  </SelectItem>
+                  {TICKET_STATUSES.map((st) => (
+                    <SelectItem
+                      key={st}
+                      value={st}
+                      className="cursor-pointer p-2"
+                    >
+                      {TICKET_STATUS_LABELS[st]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -727,7 +746,7 @@ export default function TicketsTable({
                 onValueChange={handleSetPriority}
                 disabled={bulkAction !== null || isPending}
               >
-                <SelectTrigger className="h-9 min-h-9 w-32 border-teal-600/40 bg-white text-xs font-semibold text-teal-800 hover:bg-teal-50">
+                <SelectTrigger className="h-9 min-h-9 w-32 border-teal-600/40 bg-white text-xs font-semibold text-teal-800">
                   <SelectValue placeholder="Set priority" />
                 </SelectTrigger>
                 <SelectContent
@@ -736,18 +755,15 @@ export default function TicketsTable({
                   position="popper"
                   className="p-1"
                 >
-                  <SelectItem value="urgent" className="cursor-pointer p-2">
-                    Urgent
-                  </SelectItem>
-                  <SelectItem value="high" className="cursor-pointer p-2">
-                    High
-                  </SelectItem>
-                  <SelectItem value="normal" className="cursor-pointer p-2">
-                    Normal
-                  </SelectItem>
-                  <SelectItem value="low" className="cursor-pointer p-2">
-                    Low
-                  </SelectItem>
+                  {TICKET_PRIORITIES.map((p) => (
+                    <SelectItem
+                      key={p}
+                      value={p}
+                      className="cursor-pointer p-2"
+                    >
+                      {TICKET_PRIORITY_LABELS[p]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -769,7 +785,7 @@ export default function TicketsTable({
                 size="sm"
                 onClick={() => setSelectedTicketIds([])}
                 disabled={bulkAction !== null || isPending}
-                className="h-9 px-3 text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-teal-100/50"
+                className="h-9 px-3 text-xs font-medium bg-brand-accent text-white hover:text-white hover:bg-brand-accent/90"
               >
                 Clear
               </Button>
@@ -777,12 +793,12 @@ export default function TicketsTable({
           </div>
         )}
 
-        <Card className="shadow-sm border-slate-200/80 overflow-hidden p-0 ring-0">
+        <Card className=" border-slate-200/80 overflow-hidden p-0 ring-0">
           <CardContent className="p-0">
             {initialTickets.length === 0 ? (
               <TicketsEmptyState onAction={() => setIsSheetOpen(true)} />
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-slate-200/80 bg-white">
+              <div className="overflow-x-auto rounded-[14px] border border-border bg-card">
                 <Table>
                   <TableHeader className="bg-slate-50/50 text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground border-b border-slate-200/80">
                     <TableRow className="hover:bg-transparent">
@@ -792,7 +808,8 @@ export default function TicketsTable({
                           onCheckedChange={(checked) =>
                             handleSelectAll(Boolean(checked))
                           }
-                          className="h-4 w-4 rounded-md border-slate-300 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white"
+                          aria-label="Select all tickets on this page"
+                          className="h-4 w-4 rounded-xl border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-white"
                         />
                       </TableHead>
 
@@ -858,92 +875,136 @@ export default function TicketsTable({
                         tenant,
                         `${TENANT_ROUTES.TICKETS}/${ticket.id}`,
                       );
+                      // One link per row, in the first visible column, so a
+                      // screen reader meets each ticket once; the rest of the
+                      // row opens it on click as before.
+                      const cell = (
+                        col: ColumnKey,
+                        className: string,
+                        children: ReactNode,
+                      ) =>
+                        col === linkColumn ? (
+                          <Link href={ticketHref} className={className}>
+                            {children}
+                          </Link>
+                        ) : (
+                          <div className={className}>{children}</div>
+                        );
 
                       return (
                         <TableRow
                           key={ticket.id}
+                          onClick={(e) => {
+                            const target = e.target as HTMLElement;
+                            // The link and the checkbox handle their own
+                            // clicks.
+                            if (target.closest("a, button, [data-row-select]"))
+                              return;
+                            // Selecting text in a row shouldn't open it.
+                            if (window.getSelection()?.toString()) return;
+                            if (e.metaKey || e.ctrlKey) {
+                              window.open(ticketHref, "_blank", "noopener");
+                            } else {
+                              router.push(ticketHref);
+                            }
+                          }}
                           className={`transition-colors cursor-pointer group hover:bg-slate-50/50 ${
                             isSelected ? "bg-teal-50/30" : ""
                           }`}
                         >
-                          <TableCell className="px-4 text-center align-middle">
+                          <TableCell
+                            data-row-select
+                            className="px-4 text-center align-middle"
+                          >
                             <Checkbox
                               checked={isSelected}
                               onCheckedChange={(checked) =>
                                 handleSelectRow(ticket.id, Boolean(checked))
                               }
-                              className="h-4 w-4 rounded-md border-slate-300 data-[state=checked]:bg-emerald-600 data-[state=checked]:text-white"
+                              aria-label={`Select ticket #${ticket.number ?? ticket.id}`}
+                              className="h-4 w-4 rounded-md border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-white"
                             />
                           </TableCell>
 
                           {visibleColumns?.id && (
                             <TableCell className="px-4 align-middle text-sm font-medium text-muted-foreground tabular-nums">
-                              <Link
-                                href={ticketHref}
-                                className="block py-1 hover:text-slate-600"
-                              >
-                                #{ticket.number ?? "-"}
-                              </Link>
+                              {cell(
+                                "id",
+                                "block py-1 hover:text-slate-600",
+                                <>#{ticket.number ?? "-"}</>,
+                              )}
                             </TableCell>
                           )}
 
                           {visibleColumns?.subject && (
                             <TableCell className="px-4 align-middle">
-                              <Link href={ticketHref} className="block py-1">
-                                <span className="block font-semibold text-slate-900 truncate">
-                                  {ticket.subject}
-                                </span>
-                                {ticket.tags && ticket.tags.length > 0 && (
-                                  <span className="mt-1 flex flex-wrap gap-1">
-                                    {ticket.tags.slice(0, 3).map((tag) => (
-                                      <span
-                                        key={tag.id}
-                                        className="rounded-full bg-slate-100 px-1.5 py-px text-[11px] font-medium text-slate-600"
-                                      >
-                                        {tag.name}
-                                      </span>
-                                    ))}
-                                    {ticket.tags.length > 3 && (
-                                      <span className="text-[11px] font-medium text-slate-400">
-                                        +{ticket.tags.length - 3}
-                                      </span>
-                                    )}
+                              {cell(
+                                "subject",
+                                "block py-1",
+                                <>
+                                  <span className="block truncate font-semibold text-slate-900">
+                                    {ticket.subject
+                                      ? ticket.subject.charAt(0).toUpperCase() +
+                                        ticket.subject.slice(1)
+                                      : ""}
                                   </span>
-                                )}
-                              </Link>
+                                  {ticket.tags && ticket.tags.length > 0 && (
+                                    <span className="mt-1 flex flex-wrap gap-1">
+                                      {ticket.tags.slice(0, 3).map((tag) => (
+                                        <span
+                                          key={tag.id}
+                                          className="rounded-full bg-slate-100 px-1.5 py-px text-[11px] font-medium text-slate-600"
+                                        >
+                                          {tag.name}
+                                        </span>
+                                      ))}
+                                      {ticket.tags.length > 3 && (
+                                        <span className="text-[11px] font-medium text-slate-400">
+                                          +{ticket.tags.length - 3}
+                                        </span>
+                                      )}
+                                    </span>
+                                  )}
+                                </>,
+                              )}
                             </TableCell>
                           )}
 
                           {visibleColumns?.requester && (
                             <TableCell className="px-4 align-middle">
-                              <Link href={ticketHref} className="block py-1">
-                                <div className="text-sm font-semibold text-foreground leading-snug">
-                                  {ticket.customers?.full_name || "Customer"}
-                                </div>
-                                {ticket.customers?.company && (
-                                  <div className="text-xs text-muted-foreground leading-snug">
-                                    {ticket.customers.company}
+                              {cell(
+                                "requester",
+                                "block py-1",
+                                <>
+                                  <div className="text-sm font-semibold text-foreground leading-snug">
+                                    {ticket.customers?.full_name || "Customer"}
                                   </div>
-                                )}
-                              </Link>
+                                  {ticket.customers?.company && (
+                                    <div className="text-xs text-muted-foreground leading-snug">
+                                      {ticket.customers.company}
+                                    </div>
+                                  )}
+                                </>,
+                              )}
                             </TableCell>
                           )}
 
                           {visibleColumns?.priority && (
                             <TableCell className="px-4 align-middle text-left">
-                              <Link
-                                href={ticketHref}
-                                className="inline-flex py-1"
-                              >
-                                {getPriorityBadge(ticket.priority)}
-                              </Link>
+                              {cell(
+                                "priority",
+                                "inline-flex py-1",
+                                getPriorityBadge(ticket.priority),
+                              )}
                             </TableCell>
                           )}
 
                           {visibleColumns?.assignee && (
                             <TableCell className="px-4 align-middle text-sm text-foreground">
-                              <Link href={ticketHref} className="block py-1">
-                                {ticket.assignee_name ? (
+                              {cell(
+                                "assignee",
+                                "block py-1",
+                                ticket.assignee_name ? (
                                   <span className="inline-flex items-center gap-2 font-medium whitespace-nowrap">
                                     {ticket.assignee_initials && (
                                       <span className="w-5 h-5 shrink-0 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[10px] font-bold">
@@ -959,74 +1020,30 @@ export default function TicketsTable({
                                     </span>
                                     Unassigned
                                   </span>
-                                )}
-                              </Link>
+                                ),
+                              )}
                             </TableCell>
                           )}
 
                           {visibleColumns?.status && (
                             <TableCell className="px-4 align-middle text-left">
-                              <Link
-                                href={ticketHref}
-                                className="inline-flex py-1"
-                              >
-                                {getStatusBadge(ticket.status)}
-                              </Link>
+                              {cell(
+                                "status",
+                                "inline-flex py-1",
+                                getStatusBadge(ticket.status),
+                              )}
                             </TableCell>
                           )}
 
-                          {visibleColumns?.sla &&
-                            (() => {
-                              const live = computeLiveSla(ticket, now);
-                              return (
-                                <TableCell className="px-4 align-middle text-right text-xs">
-                                  <Link
-                                    href={ticketHref}
-                                    className="inline-flex w-full justify-end py-1"
-                                  >
-                                    {live.text === "—" || !live.text ? (
-                                      <span className="text-slate-400">—</span>
-                                    ) : (
-                                      <span
-                                        // Read from the clock, which differs
-                                        // between server render and browser.
-                                        suppressHydrationWarning
-                                        className={cn(
-                                          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                                          live.type === "breached"
-                                            ? "bg-rose-100/80 text-rose-800"
-                                            : live.type === "warning"
-                                              ? "bg-amber-100/80 text-amber-900"
-                                              : live.type === "paused" ||
-                                                  live.type === "waiting"
-                                                ? "bg-slate-100 text-slate-600"
-                                                : live.type === "completed"
-                                                  ? "bg-emerald-100/80 text-emerald-800"
-                                                  : "bg-[#0e7adf]/10 text-[#0e7adf]",
-                                        )}
-                                      >
-                                        <span
-                                          className={cn(
-                                            "w-1.5 h-1.5 rounded-full shrink-0",
-                                            live.type === "breached"
-                                              ? "bg-rose-600"
-                                              : live.type === "warning"
-                                                ? "bg-amber-600"
-                                                : live.type === "paused" ||
-                                                    live.type === "waiting"
-                                                  ? "bg-slate-400"
-                                                  : live.type === "completed"
-                                                    ? "bg-emerald-600"
-                                                    : "bg-[#0e7adf]",
-                                          )}
-                                        />
-                                        {live.text}
-                                      </span>
-                                    )}
-                                  </Link>
-                                </TableCell>
-                              );
-                            })()}
+                          {visibleColumns?.sla && (
+                            <TableCell className="px-4 align-middle text-right text-xs">
+                              {cell(
+                                "sla",
+                                "inline-flex w-full justify-end py-1",
+                                <SlaBadge ticket={ticket} />,
+                              )}
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     })}
@@ -1077,13 +1094,16 @@ export default function TicketsTable({
                 onClick={() =>
                   updateQueryParam("page", String(currentPage - 1))
                 }
+                aria-label="Previous page"
                 className="size-8"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-3.5 h-3.5" aria-hidden />
               </Button>
               <Button
                 variant="outline"
                 size="sm"
+                aria-label={`Page ${currentPage}`}
+                aria-current="page"
                 className="h-8 min-w-8 px-2.5 bg-teal-50 text-teal-800 font-bold border-teal-200"
               >
                 {currentPage}
@@ -1095,9 +1115,10 @@ export default function TicketsTable({
                 onClick={() =>
                   updateQueryParam("page", String(currentPage + 1))
                 }
+                aria-label="Next page"
                 className="size-8"
               >
-                <ChevronRight className="w-3.5 h-3.5" />
+                <ChevronRight className="w-3.5 h-3.5" aria-hidden />
               </Button>
             </div>
           </div>

@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Customer } from "../services/tickets.service";
-import { attachmentsTooLarge } from "../lib/attachments";
+import { attachmentsError } from "../lib/attachments";
 import {
   TEAM_MODAL_BUTTON,
   TEAM_MODAL_BUTTON_PRIMARY,
@@ -52,7 +52,7 @@ import { cn } from "@/lib/utils";
  * select needs its height on the data-size variant, which otherwise wins
  * over a plain h-* and pins it at 32px.
  */
-const FIELD = "h-10 px-3 text-sm border-slate-200";
+const FIELD = "h-10 px-3 text-sm border-slate-200 focus:border-0";
 const SELECT_TRIGGER = `${FIELD} w-full data-[size=default]:h-10 text-slate-800`;
 const SELECT_ITEM = "p-2 text-sm";
 /**
@@ -114,7 +114,7 @@ export default function CreateTicketSheet({
   const addFiles = (picked: File[]) => {
     if (picked.length === 0) return;
     const next = [...files, ...picked];
-    const tooLarge = attachmentsTooLarge(next);
+    const tooLarge = attachmentsError(next);
     if (tooLarge) {
       toast.error(tooLarge);
       return;
@@ -280,7 +280,16 @@ export default function CreateTicketSheet({
                 onChange={handleFileChange}
               />
               <div
+                role="button"
+                tabIndex={0}
+                aria-label="Add attachments: drop files or browse"
                 onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
                 // Without these the browser opens a dropped file itself,
                 // leaving the app and losing the form.
                 onDragOver={(e) => e.preventDefault()}
@@ -288,7 +297,7 @@ export default function CreateTicketSheet({
                   e.preventDefault();
                   addFiles(Array.from(e.dataTransfer.files));
                 }}
-                className="border border-dashed border-slate-300 hover:border-teal-600 bg-slate-50/50 hover:bg-slate-50 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors"
+                className="border border-dashed border-slate-300 hover:border-teal-600 focus-visible:border-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/20 bg-slate-50/50 hover:bg-slate-50 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors"
               >
                 <Paperclip className="w-4 h-4 text-slate-400 mb-1.5 rotate-45" />
                 <p className="text-xs font-medium text-slate-700">
@@ -314,9 +323,10 @@ export default function CreateTicketSheet({
                       <button
                         type="button"
                         onClick={() => removeFile(idx)}
+                        aria-label={`Remove ${file.name}`}
                         className="text-slate-400 hover:text-slate-600 ml-2"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="w-3.5 h-3.5" aria-hidden />
                       </button>
                     </div>
                   ))}

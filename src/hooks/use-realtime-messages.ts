@@ -6,7 +6,7 @@ import { TicketMessage } from "@/features/tickets/types/tickets.types";
 import { getInitials } from "@/lib/format";
 
 /**
- * Subscribe to realtime INSERTs on `ticket_messages` for a single ticket so new
+ * Subscribe to realtime INSERTs and edits on `ticket_messages` for a single ticket so new
  * replies appear live in the conversation without a page refresh. Agent author
  * names are resolved from the `nameById` map when available.
  */
@@ -68,6 +68,32 @@ export function useRealtimeMessages(
             if (prev.some((m) => m.id === msg.id)) return prev;
             return [...prev, msg];
           });
+        },
+      )
+      // Edits: replace the body (and is_edited) in place, keeping the
+      // author name already resolved for the row.
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "ticket_messages",
+          filter: `ticket_id=eq.${ticketId}`,
+        },
+        (payload) => {
+          const raw = payload.new as TicketMessage;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === raw.id
+                ? {
+                    ...m,
+                    ...raw,
+                    author_name: raw.author_name ?? m.author_name,
+                    author_initials: raw.author_initials ?? m.author_initials,
+                  }
+                : m,
+            ),
+          );
         },
       )
       .subscribe();

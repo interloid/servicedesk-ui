@@ -66,6 +66,19 @@ function zonedAsUtc(at: number, tz: string): number {
   );
 }
 
+/**
+ * Minutes past midnight for "HH:MM", "H:MM" or "HH:MM:SS" (what Postgres'
+ * ::time reads in the schedule), or null when unreadable.
+ */
+function timeMins(time: string | undefined): number | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(time?.trim() ?? "");
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (hh > 24 || mm > 59 || (hh === 24 && mm > 0)) return null;
+  return hh * 60 + mm;
+}
+
 /** The instant at local `day` + `time` in `tz`. */
 function zonedInstant(day: string, time: string, tz: string): number {
   const [y, m, d] = day.split("-").map(Number);
@@ -105,8 +118,13 @@ function dayWindows(cal: SlaCalendar, day: string): [number, number][] {
     if (!hits) continue;
     if (h.allDay) return [];
     if (!h.startTime || !h.endTime) continue;
+    // Unreadable or inverted times are ignored, as sla_day_windows does
+    // (its range constructor rejects them).
+    if (timeMins(h.startTime) === null || timeMins(h.endTime) === null)
+      continue;
     const hs = zonedInstant(day, h.startTime, cal.tz);
     const he = zonedInstant(day, h.endTime, cal.tz);
+    if (he <= hs) continue;
     windows = windows.flatMap(([s, e]): [number, number][] => {
       if (he <= s || hs >= e) return [[s, e]];
       const out: [number, number][] = [];
@@ -123,9 +141,10 @@ export function usableCalendar(
   cal: SlaCalendar | null | undefined,
 ): SlaCalendar | null {
   if (!cal || cal.workingDays.length === 0) return null;
-  if (!/^\d{2}:\d{2}/.test(cal.dayStart) || !/^\d{2}:\d{2}/.test(cal.dayEnd))
-    return null;
-  if (cal.dayEnd.slice(0, 5) <= cal.dayStart.slice(0, 5)) return null;
+  // "9:00" reads like "09:00", as the SQL ::time cast does.
+  const start = timeMins(cal.dayStart);
+  const end = timeMins(cal.dayEnd);
+  if (start === null || end === null || end <= start) return null;
   try {
     formatterFor(cal.tz);
   } catch {
@@ -204,6 +223,8 @@ export function closedReason(
     if (!hits) return false;
     if (h.allDay) return true;
     if (!h.startTime || !h.endTime) return false;
+    if (timeMins(h.startTime) === null || timeMins(h.endTime) === null)
+      return false;
     return (
       at >= zonedInstant(day, h.startTime, cal.tz) &&
       at < zonedInstant(day, h.endTime, cal.tz)

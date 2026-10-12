@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useState,
   useRef,
   useTransition,
@@ -30,6 +31,10 @@ import {
   TicketSlaPolicy,
   TicketTag,
   PriorityChangeResult,
+  TICKET_PRIORITIES,
+  TICKET_PRIORITY_LABELS,
+  TICKET_STATUSES,
+  TICKET_STATUS_LABELS,
   isPriorityLowered,
 } from "@/features/tickets/types/tickets.types";
 import { PriorityReasonDialog } from "@/features/tickets/components/priority-reason-dialog";
@@ -47,6 +52,7 @@ import { useRealtimeSlaEvents } from "@/hooks/use-realtime-sla-events";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useRealtimeTicket } from "@/hooks/use-realtime-ticket";
 import { useNow } from "@/hooks/use-now";
+import { useMounted } from "@/hooks/use-mounted";
 import { useListNavigation } from "@/hooks/use-list-navigation";
 import {
   SlaHeadlineBadge,
@@ -66,26 +72,17 @@ import { Label } from "@/components/ui/label";
 import { IndeterminateProgress } from "@/components/ui/indeterminate-progress";
 import { BackLink } from "@/components/shared/back-link";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
-import { getInitials } from "@/lib/format";
-import { attachmentsTooLarge } from "@/features/tickets/lib/attachments";
+import { formatChatDay, formatChatTime, getInitials } from "@/lib/format";
+import {
+  TICKET_ATTACHMENT_ACCEPT,
+  attachmentsError,
+} from "@/features/tickets/lib/attachments";
 
 /**
  * Attachment links are signed for an hour (ATTACHMENT_LINK_TTL_SECS); refetch
  * the page a little before that so a ticket left open keeps working links.
  */
 const ATTACHMENT_LINK_REFRESH_MS = 50 * 60 * 1000;
-
-/** "10:32" for today, "Oct 3, 10:32" for any other day. */
-function formatMessageTime(iso: string): string {
-  const at = new Date(iso);
-  const sameDay = at.toDateString() === new Date().toDateString();
-  return at.toLocaleString(
-    [],
-    sameDay
-      ? { hour: "2-digit", minute: "2-digit" }
-      : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
-  );
-}
 
 /**
  * "last activity 5 min ago", in its own component so its 30-second tick
@@ -155,22 +152,6 @@ const CLOCK_LABELS: Record<SlaEvent["type"], string> = {
   resolution: "Resolution",
 };
 
-const PRIORITY_LABELS: Record<TicketPriority, string> = {
-  urgent: "Urgent",
-  high: "High",
-  normal: "Normal",
-  low: "Low",
-};
-
-const STATUS_LABELS: Record<TicketStatus, string> = {
-  new: "New",
-  open: "Open",
-  pending: "Pending",
-  on_hold: "On hold",
-  resolved: "Resolved",
-  closed: "Closed",
-};
-
 function announcePriorityChange(
   from: TicketPriority,
   to: TicketPriority,
@@ -182,10 +163,10 @@ function announcePriorityChange(
   if (kept.length > 0) {
     const clocks = kept.map((t) => CLOCK_LABELS[t]).join(" and ");
     toast.success(
-      `Priority ${verb} to ${PRIORITY_LABELS[to]}. ${clocks} was due soon, so it keeps its original deadline.`,
+      `Priority ${verb} to ${TICKET_PRIORITY_LABELS[to]}. ${clocks} was due soon, so it keeps its original deadline.`,
     );
   } else {
-    toast.success(`Priority ${verb} to ${PRIORITY_LABELS[to]}.`);
+    toast.success(`Priority ${verb} to ${TICKET_PRIORITY_LABELS[to]}.`);
   }
 }
 
@@ -226,10 +207,14 @@ export default function TicketDetailView({
   // scrolled up to reread something is not pulled back down while typing.
   const threadRef = useRef<HTMLDivElement>(null);
   const lastMessageId = messages.at(-1)?.id;
+  // Message times and day dividers are in the viewer's time zone, which the
+  // server can't know: they render once mounted (and the thread re-pins to
+  // the bottom when they appear).
+  const mounted = useMounted();
   useLayoutEffect(() => {
     const thread = threadRef.current;
     if (thread) thread.scrollTop = thread.scrollHeight;
-  }, [lastMessageId]);
+  }, [lastMessageId, mounted]);
 
   const [, startTransition] = useTransition();
   const [isReplying, setIsReplying] = useState(false);
@@ -416,7 +401,11 @@ export default function TicketDetailView({
     const caret = e.target.selectionStart ?? value.length;
     setReplyText(value);
     const beforeCaret = value.slice(0, caret);
-    const caretMatch = beforeCaret.match(/@([\w .-]*)$/);
+    // Only an "@" at the start or after whitespace opens the picker, so an
+    // email address (name@example.com) doesn't take over Enter.
+    const caretMatch = beforeCaret.match(
+      /(?:^|\s)@([\p{L}\p{M}\p{N}_ .'-]*)$/u,
+    );
     if (caretMatch) {
       const q = caretMatch[1];
       if (q !== mentionQuery) setMentionIndex(0);
@@ -434,7 +423,7 @@ export default function TicketDetailView({
   const handleSendReply = () => {
     if (supportClosed) return;
     if (!replyText.trim() && pendingFiles.length === 0) return;
-    const tooLarge = attachmentsTooLarge(pendingFiles);
+    const tooLarge = attachmentsError(pendingFiles);
     if (tooLarge) {
       toast.error(tooLarge);
       return;
@@ -494,7 +483,7 @@ export default function TicketDetailView({
     const selected = Array.from(e.target.files || []);
     e.target.value = "";
     if (!selected.length) return;
-    const tooLarge = attachmentsTooLarge([...pendingFiles, ...selected]);
+    const tooLarge = attachmentsError([...pendingFiles, ...selected]);
     if (tooLarge) {
       toast.error(tooLarge);
       return;
@@ -537,8 +526,8 @@ export default function TicketDetailView({
           else if (val === "closed") toast.success("Ticket closed.");
           else if (prev === "resolved" || prev === "closed")
             toast.success("Ticket reopened.");
-          else toast.success(`Status changed to ${STATUS_LABELS[val]}.`);
-          router.refresh();
+          else toast.success(`Status changed to ${TICKET_STATUS_LABELS[val]}.`);
+          // updateTicketDetailsAction's revalidatePath refreshes the page.
         }
       } finally {
         setUpdatingField(null);
@@ -728,7 +717,7 @@ export default function TicketDetailView({
             {/* The only part of the card that scrolls. */}
             <div
               ref={threadRef}
-              className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-5"
+              className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5"
             >
               {threadMessages.length === 0 && (
                 <TicketThreadEmptyState
@@ -737,91 +726,90 @@ export default function TicketDetailView({
                   onNote={() => startComposing("internal")}
                 />
               )}
-              {threadMessages.map((msg) => {
+              {threadMessages.map((msg, i) => {
                 const isInternal = msg.visibility === "internal";
                 const isCustomer = msg.author_type === "customer";
+                const isMine =
+                  !isCustomer &&
+                  !!currentUserId &&
+                  msg.author_id === currentUserId;
                 const authorName =
                   msg.author_name ||
                   (isCustomer ? ticket.requester_name || "Customer" : "Agent");
+                const day = mounted ? formatChatDay(msg.created_at) : "";
+                const prev = threadMessages[i - 1];
+                const newDay =
+                  mounted && (!prev || formatChatDay(prev.created_at) !== day);
 
                 // The portal's message, seen from the team's side: the
-                // team's messages on the right, the customer's on the left.
+                // team's messages on the right, the customer's on the left
+                // with an avatar. Your own replies drop the name.
                 return (
-                  <article
-                    key={msg.id}
-                    className={cn(
-                      "flex min-w-0 flex-col gap-2",
-                      isCustomer ? "items-start" : "items-end",
+                  <Fragment key={msg.id}>
+                    {newDay && (
+                      <p className="pt-1 text-center text-xs font-medium text-slate-500">
+                        {day}
+                      </p>
                     )}
-                  >
-                    <div
+                    <article
                       className={cn(
-                        "flex min-w-0 items-center gap-2.5",
-                        !isCustomer && "flex-row-reverse",
+                        "flex min-w-0 flex-col gap-1",
+                        isCustomer ? "items-start" : "items-end",
                       )}
                     >
-                      <span
-                        aria-hidden
+                      <p
                         className={cn(
-                          "flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
-                          isCustomer
-                            ? "bg-brand-accent text-brand-accent-foreground"
-                            : isInternal
-                              ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300 ring-inset"
-                              : // Ringed: the bubble below is the same tint.
-                                "bg-brand-accent/10 text-brand-accent ring-1 ring-brand-accent/25 ring-inset",
+                          "flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-slate-500",
+                          isCustomer && "ml-10.5",
                         )}
                       >
-                        {msg.author_initials ||
-                          (isCustomer
-                            ? ticket.requester_name
-                              ? getInitials(ticket.requester_name, "")
-                              : "CU"
-                            : "AG")}
-                      </span>
+                        {!isMine && (
+                          <span className="font-medium wrap-break-word text-slate-700">
+                            {authorName}
+                          </span>
+                        )}
+                        <span>
+                          {mounted ? formatChatTime(msg.created_at) : "\u00a0"}
+                        </span>
+                        {isInternal && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                            Internal note
+                          </span>
+                        )}
+                      </p>
 
                       <div
                         className={cn(
-                          "min-w-0",
-                          !isCustomer && "flex flex-col items-end text-right",
+                          "flex w-full min-w-0 items-start gap-2.5",
+                          !isCustomer && "justify-end",
                         )}
                       >
-                        <p
+                        {isCustomer && (
+                          <span
+                            aria-hidden
+                            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-accent text-[11px] font-bold text-brand-accent-foreground"
+                          >
+                            {msg.author_initials ||
+                              (ticket.requester_name
+                                ? getInitials(ticket.requester_name, "")
+                                : "CU")}
+                          </span>
+                        )}
+                        <div
                           className={cn(
-                            "flex flex-wrap items-center gap-x-2 text-sm font-semibold wrap-break-word text-slate-900",
-                            !isCustomer && "flex-row-reverse",
+                            "min-w-0 max-w-[85%] rounded-lg px-3.5 py-2 text-sm leading-[1.6] whitespace-pre-line wrap-break-word text-slate-800 sm:max-w-[75%]",
+                            isCustomer
+                              ? "bg-slate-100"
+                              : isInternal
+                                ? "border border-amber-200 bg-amber-50"
+                                : "bg-brand-accent/10",
                           )}
                         >
-                          {authorName}
-                          {isInternal && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                              Internal note
-                            </span>
-                          )}
-                        </p>
-                        {/* Server and browser time zones can differ. */}
-                        <p
-                          className="text-xs text-slate-500"
-                          suppressHydrationWarning
-                        >
-                          {formatMessageTime(msg.created_at)}
-                        </p>
+                          <MentionText text={msg.body} />
+                        </div>
                       </div>
-                    </div>
-
-                    <div
-                      className={cn(
-                        "min-w-0 max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-[1.6] whitespace-pre-line wrap-break-word text-slate-800 sm:max-w-[75%]",
-                        isCustomer
-                          ? "rounded-tl-sm bg-slate-100"
-                          : isInternal
-                            ? "rounded-tr-sm border border-amber-200 bg-amber-50"
-                            : "rounded-tr-sm bg-brand-accent/10",
-                      )}
-                    >
-                      <MentionText text={msg.body} />
-                    </div>
-                  </article>
+                    </article>
+                  </Fragment>
                 );
               })}
             </div>
@@ -896,7 +884,11 @@ export default function TicketDetailView({
                       <p className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                         Mention someone
                       </p>
-                      <div className="max-h-48 overflow-y-auto">
+                      <div
+                        role="listbox"
+                        aria-label="Mention someone"
+                        className="max-h-48 overflow-y-auto"
+                      >
                         {mentionMatches.map((member, idx) => {
                           const item = mentionItemProps(idx);
                           return (
@@ -971,6 +963,7 @@ export default function TicketDetailView({
                       ref={fileInputRef}
                       type="file"
                       multiple
+                      accept={TICKET_ATTACHMENT_ACCEPT}
                       className="hidden"
                       onChange={handleFilesSelected}
                     />
@@ -987,7 +980,7 @@ export default function TicketDetailView({
                     <span className="text-[10px] sm:text-xs text-slate-400 hidden sm:inline">
                       {replyType === "internal"
                         ? "Not sent to the customer."
-                        : "Sends by email and shows on the portal."}
+                        : "Shows on the portal."}
                     </span>
                   </div>
 
@@ -1066,33 +1059,15 @@ export default function TicketDetailView({
                       position="popper"
                       className="p-1"
                     >
-                      <SelectItem value="new" className="cursor-pointer p-2">
-                        New
-                      </SelectItem>
-                      <SelectItem value="open" className="cursor-pointer p-2">
-                        Open
-                      </SelectItem>
-                      <SelectItem
-                        value="pending"
-                        className="cursor-pointer p-2"
-                      >
-                        Pending
-                      </SelectItem>
-                      <SelectItem
-                        value="on_hold"
-                        className="cursor-pointer p-2"
-                      >
-                        On hold
-                      </SelectItem>
-                      <SelectItem
-                        value="resolved"
-                        className="cursor-pointer p-2"
-                      >
-                        Resolved
-                      </SelectItem>
-                      <SelectItem value="closed" className="cursor-pointer p-2">
-                        Closed
-                      </SelectItem>
+                      {TICKET_STATUSES.map((s) => (
+                        <SelectItem
+                          key={s}
+                          value={s}
+                          className="cursor-pointer p-2"
+                        >
+                          {TICKET_STATUS_LABELS[s]}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1122,18 +1097,15 @@ export default function TicketDetailView({
                       position="popper"
                       className="p-1"
                     >
-                      <SelectItem value="urgent" className="cursor-pointer p-2">
-                        Urgent
-                      </SelectItem>
-                      <SelectItem value="high" className="cursor-pointer p-2">
-                        High
-                      </SelectItem>
-                      <SelectItem value="normal" className="cursor-pointer p-2">
-                        Normal
-                      </SelectItem>
-                      <SelectItem value="low" className="cursor-pointer p-2">
-                        Low
-                      </SelectItem>
+                      {TICKET_PRIORITIES.map((p) => (
+                        <SelectItem
+                          key={p}
+                          value={p}
+                          className="cursor-pointer p-2"
+                        >
+                          {TICKET_PRIORITY_LABELS[p]}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CircleAlert,
@@ -38,6 +38,8 @@ import {
   type PortalUploadedFile,
 } from "@/features/portal/portal";
 import { prepareAndUpload } from "@/features/portal/upload";
+import { useMounted } from "@/hooks/use-mounted";
+import { formatChatDay, formatChatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -74,6 +76,10 @@ export function PortalRequestDetailView({
 
   const threadRef = useRef<HTMLDivElement>(null);
   const lastMessageId = request.messages.at(-1)?.id;
+  // Message times and day dividers are in the viewer's time zone, which the
+  // server can't know: they render once mounted, and the thread re-pins to
+  // the bottom when they appear.
+  const mounted = useMounted();
 
   // Opens on the newest message and follows the thread when a reply lands, as
   // a chat does. Keyed on the last message rather than on every render, so a
@@ -86,7 +92,7 @@ export function PortalRequestDetailView({
     if (thread) {
       thread.scrollTop = thread.scrollHeight;
     }
-  }, [lastMessageId, request.csat.resolvedAt]);
+  }, [lastMessageId, request.csat.resolvedAt, mounted]);
 
   /**
    * The reply's files go straight to Storage first; the reply then names the
@@ -264,9 +270,22 @@ export function PortalRequestDetailView({
             </p>
           ) : (
             <div className="flex flex-col">
-              {request.messages.map((message) => (
-                <Message key={message.id} message={message} />
-              ))}
+              {request.messages.map((message, index) => {
+                const day = mounted ? formatChatDay(message.createdAt) : "";
+                const prev = request.messages[index - 1];
+                const newDay =
+                  mounted && (!prev || formatChatDay(prev.createdAt) !== day);
+                return (
+                  <Fragment key={message.id}>
+                    {newDay ? (
+                      <p className="pt-4 pb-1 text-center text-xs font-medium text-muted-foreground first:pt-0">
+                        {day}
+                      </p>
+                    ) : null}
+                    <Message message={message} mounted={mounted} />
+                  </Fragment>
+                );
+              })}
             </div>
           )}
 
@@ -401,86 +420,89 @@ const CHAT_CARD_CLASS =
  * article with no negative margin anywhere, so nothing can be pulled up over
  * the message above it.
  */
-function Message({ message }: { message: PortalMessage }) {
+function Message({
+  message,
+  mounted,
+}: {
+  message: PortalMessage;
+  mounted: boolean;
+}) {
   const fromTeam = message.authorType !== "customer";
-  const fromCustomer = message.authorType === "customer";
 
+  // The customer's own messages: right, no avatar, no name -- just the time.
+  // The team's: left, with avatar, name and time on one line above.
   return (
     <article
       className={cn(
-        "flex min-w-0 flex-col gap-2 py-4 first:pt-0 last:pb-0",
-        fromCustomer ? "items-end" : "items-start",
+        "flex min-w-0 flex-col gap-1 py-2.5 first:pt-0 last:pb-0",
+        fromTeam ? "items-start" : "items-end",
       )}
     >
-      <div
+      <p
         className={cn(
-          "flex min-w-0 items-center gap-2.5",
-          fromCustomer && "flex-row-reverse",
+          "flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground",
+          fromTeam && "ml-10.5",
         )}
       >
-        <span
-          aria-hidden
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
-            fromTeam
-              ? "bg-brand-accent text-brand-accent-foreground"
-              : // Ringed because the customer's bubble below is the same tint:
-                // without an edge the two read as one soft block on the right.
-                "bg-brand-accent/10 text-brand-accent ring-1 ring-brand-accent/25 ring-inset",
-          )}
-        >
-          {message.initials}
-        </span>
+        {fromTeam ? (
+          <span className="font-medium wrap-break-word text-foreground/80">
+            {message.authorName}
+          </span>
+        ) : null}
+        {fromTeam && message.authorType === "agent" ? (
+          <span className="rounded-full bg-brand-accent/10 px-2 py-0.5 text-[11px] font-semibold text-brand-ink">
+            Support team
+          </span>
+        ) : null}
+        {/* Viewer-local time, so only once mounted; a space keeps the line. */}
+        <span>{mounted ? formatChatTime(message.createdAt) : "\u00a0"}</span>
+      </p>
+
+      <div
+        className={cn(
+          "flex w-full min-w-0 items-start gap-2.5",
+          !fromTeam && "justify-end",
+        )}
+      >
+        {fromTeam ? (
+          <span
+            aria-hidden
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-accent text-[11px] font-bold text-brand-accent-foreground"
+          >
+            {message.initials}
+          </span>
+        ) : null}
 
         <div
           className={cn(
-            "min-w-0",
-            fromCustomer && "flex flex-col items-end text-right",
+            "min-w-0 max-w-[85%] rounded-lg px-3.5 py-2 sm:max-w-[75%]",
+            fromTeam
+              ? "bg-muted text-foreground"
+              : "bg-brand-accent/10 text-foreground",
           )}
         >
-          <p className="flex flex-wrap items-center gap-x-2 text-sm font-semibold wrap-break-word text-foreground">
-            {message.authorName}
-            {fromTeam && message.authorType === "agent" ? (
-              <span className="rounded-full bg-brand-accent/10 px-2 py-0.5 text-[11px] font-semibold text-brand-ink">
-                Support team
-              </span>
-            ) : null}
-          </p>
-          <p suppressHydrationWarning className="text-xs text-muted-foreground">
-            {formatStamp(message.createdAt)}
-          </p>
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          "min-w-0 max-w-[85%] rounded-2xl px-3.5 py-2.5 sm:max-w-[75%]",
-          fromCustomer
-            ? "rounded-tr-sm bg-brand-accent/10 text-foreground"
-            : "rounded-tl-sm bg-muted text-foreground",
-        )}
-      >
-        {/* Plain text, split on blank lines. Agent replies are not trusted
+          {/* Plain text, split on blank lines. Agent replies are not trusted
             markup and must never be rendered as HTML. Blank paragraphs are
             dropped, so a message that is only attachments shows its files. */}
-        {message.body
-          .split(/\n{2,}/)
-          .filter((paragraph) => paragraph.trim() !== "")
-          .map((paragraph, index) => (
-            <p
-              key={index}
-              className={cn(
-                "text-sm leading-[1.6] whitespace-pre-line wrap-break-word text-foreground",
-                index > 0 && "mt-2.5",
-              )}
-            >
-              {paragraph}
-            </p>
-          ))}
+          {message.body
+            .split(/\n{2,}/)
+            .filter((paragraph) => paragraph.trim() !== "")
+            .map((paragraph, index) => (
+              <p
+                key={index}
+                className={cn(
+                  "text-sm leading-[1.6] whitespace-pre-line wrap-break-word text-foreground",
+                  index > 0 && "mt-2.5",
+                )}
+              >
+                {paragraph}
+              </p>
+            ))}
 
-        {message.attachments.length > 0 ? (
-          <AttachmentList attachments={message.attachments} />
-        ) : null}
+          {message.attachments.length > 0 ? (
+            <AttachmentList attachments={message.attachments} />
+          ) : null}
+        </div>
       </div>
     </article>
   );
@@ -565,14 +587,6 @@ function isToday(value: Date): boolean {
     value.getMonth() === now.getMonth() &&
     value.getDate() === now.getDate()
   );
-}
-
-function formatStamp(iso: string): string {
-  const value = new Date(iso);
-
-  return isToday(value)
-    ? `Today, ${TIME_FORMAT.format(value)}`
-    : `${DATE_FORMAT.format(value)}, ${TIME_FORMAT.format(value)}`;
 }
 
 function relative(value: Date): string {

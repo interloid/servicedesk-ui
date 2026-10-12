@@ -70,8 +70,14 @@ export function useRealtimeSlaEvents(
         },
         (payload) => {
           const ev = payload.new as SlaEvent;
+          // Upsert: an update can arrive for an event whose INSERT this page
+          // never saw (created while the socket was down).
           setEvents((prev) =>
-            sortEvents(prev.map((e) => (e.id === ev.id ? ev : e))),
+            sortEvents(
+              prev.some((e) => e.id === ev.id)
+                ? prev.map((e) => (e.id === ev.id ? ev : e))
+                : [...prev, ev],
+            ),
           );
         },
       )

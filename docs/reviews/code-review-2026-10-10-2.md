@@ -28,10 +28,20 @@ All 27 items in `code-review-2026-10-10.md` were checked and are not re-reported
 const text =
   body.trim() || `Attached ${files.length} file${files.length > 1 ? "s" : ""}.`;
 const message = await createMessage({
-  tenantSlug, ticketId, authorType: "agent", authorId: user.id, body: text, visibility,
+  tenantSlug,
+  ticketId,
+  authorType: "agent",
+  authorId: user.id,
+  body: text,
+  visibility,
 });
 if (files.length > 0) {
-  await uploadTicketAttachments({ tenant: tenantSlug, ticketId, files, messageId: message.id });
+  await uploadTicketAttachments({
+    tenant: tenantSlug,
+    ticketId,
+    files,
+    messageId: message.id,
+  });
 }
 // uploadTicketAttachments: set uploaded_by: identity.id whenever messageId is set
 ```
@@ -44,9 +54,17 @@ if (files.length > 0) {
 - **Minimal fix:**
 
 ```tsx
-const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+const mounted = useSyncExternalStore(
+  () => () => {},
+  () => true,
+  () => false,
+);
 // …
-{mounted ? supportClosedFormMessage(supportClosed) : "Support is currently closed."}
+{
+  mounted
+    ? supportClosedFormMessage(supportClosed)
+    : "Support is currently closed.";
+}
 ```
 
 ## ⚠️ 2. Medium-Risk Issues (Performance, Anti-patterns, Next.js Violations)
@@ -60,7 +78,12 @@ const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
 
 ```ts
 try {
-  await uploadTicketAttachments({ tenant: tenantSlug, ticketId, files, messageId: message.id });
+  await uploadTicketAttachments({
+    tenant: tenantSlug,
+    ticketId,
+    files,
+    messageId: message.id,
+  });
 } catch (e) {
   await supabase.from("ticket_messages").delete().eq("id", message.id);
   throw e;
@@ -75,8 +98,16 @@ try {
 - **Minimal fix:**
 
 ```ts
-try { await uploadTicketAttachments({ tenant: tenantSlug, ticketId: newTicket.id, files }); }
-catch (e) { await admin.from("tickets").delete().eq("id", newTicket.id); throw e; }
+try {
+  await uploadTicketAttachments({
+    tenant: tenantSlug,
+    ticketId: newTicket.id,
+    files,
+  });
+} catch (e) {
+  await admin.from("tickets").delete().eq("id", newTicket.id);
+  throw e;
+}
 ```
 
 **RISK-005** · `src/features/tickets/actions/tickets.actions.ts:65-83`
@@ -87,8 +118,12 @@ catch (e) { await admin.from("tickets").delete().eq("id", newTicket.id); throw e
 - **Minimal fix:**
 
 ```ts
-const { data: cust } = await supabase.from("customers").select("id")
-  .eq("id", requesterCustomerId).eq("tenant_id", tenantId).maybeSingle();
+const { data: cust } = await supabase
+  .from("customers")
+  .select("id")
+  .eq("id", requesterCustomerId)
+  .eq("tenant_id", tenantId)
+  .maybeSingle();
 if (!cust) return { error: "Customer not found." };
 ```
 
@@ -113,8 +148,12 @@ query = query.not("status", "in", "(resolved,closed)");
 
 ```ts
 for (const id of payload.ticketIds) {
-  try { const r = await changeTicketPriority(id, payload.priority, payload.reason); if (r.changed) count++; }
-  catch { failed++; }
+  try {
+    const r = await changeTicketPriority(id, payload.priority, payload.reason);
+    if (r.changed) count++;
+  } catch {
+    failed++;
+  }
 }
 revalidatePath(`/${payload.tenantSlug}/tickets`);
 ```
@@ -127,8 +166,15 @@ revalidatePath(`/${payload.tenantSlug}/tickets`);
 - **Minimal fix:**
 
 ```ts
-await Promise.all(STATUSES.map((s) => supabase.from("tickets")
-  .select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("status", s)));
+await Promise.all(
+  STATUSES.map((s) =>
+    supabase
+      .from("tickets")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId)
+      .eq("status", s),
+  ),
+);
 ```
 
 **RISK-009** · `src/features/tickets/services/tickets.service.ts:187-213`, `tickets/page.tsx:29-30`
@@ -139,7 +185,9 @@ await Promise.all(STATUSES.map((s) => supabase.from("tickets")
 - **Minimal fix:**
 
 ```ts
-const status = STATUSES.includes(raw as TicketStatus) ? (raw as TicketStatus) : undefined;
+const status = STATUSES.includes(raw as TicketStatus)
+  ? (raw as TicketStatus)
+  : undefined;
 if (error) throw new Error(`Failed to load tickets: ${error.message}`);
 ```
 
@@ -215,7 +263,10 @@ if (initial !== seen) {
 
 ```ts
 if (closedReason(Date.now(), usableCalendar(policy?.calendar ?? null)))
-  return { success: false, error: "Support is closed. Replies open at the next business opening." };
+  return {
+    success: false,
+    error: "Support is closed. Replies open at the next business opening.",
+  };
 ```
 
 **RISK-016** · `src/features/tickets/components/ticket-detail-view.tsx:291`
@@ -239,8 +290,12 @@ if (closedReason(Date.now(), usableCalendar(policy?.calendar ?? null)))
 - **Minimal fix:**
 
 ```ts
-const { data: ev } = await admin.from("sla_events").select("business_hours_id")
-  .eq("ticket_id", ticketId).eq("type", "first_response").maybeSingle();
+const { data: ev } = await admin
+  .from("sla_events")
+  .select("business_hours_id")
+  .eq("ticket_id", ticketId)
+  .eq("type", "first_response")
+  .maybeSingle();
 if (!ev?.business_hours_id) return null;
 ```
 
@@ -388,39 +443,39 @@ onDrop={(e) => { e.preventDefault(); addFiles(Array.from(e.dataTransfer.files));
 
 ## 📋 6. Risk Tracking Table
 
-| Risk ID  | Priority | Risk (Short Description)                    | File                              | Completed | Reason if Not Completed |
-| -------- | -------- | ------------------------------------------- | --------------------------------- | --------- | ----------------------- |
-| RISK-001 | High     | File-only internal note visible to customer | `tickets.actions.ts`              | Yes | — |
-| RISK-002 | High     | Closed-hours time uses server timezone      | `portal-new-request-form.tsx`     | Yes | — |
-| RISK-003 | Medium   | Failed upload duplicates sent reply         | `tickets.actions.ts`              | Yes | — |
-| RISK-004 | Medium   | Failed upload duplicates created ticket     | `tickets.actions.ts`              | Yes | — |
-| RISK-005 | Medium   | Requester not checked against tenant        | `tickets.actions.ts`              | Yes | — |
-| RISK-006 | Medium   | Bulk resolve re-resolves finished tickets   | `tickets.actions.ts`              | Yes | — |
-| RISK-007 | Medium   | Bulk priority partial failure, no revalidate | `tickets.actions.ts`             | Yes | — |
-| RISK-008 | Medium   | Status counts capped at 1000 rows           | `tickets.service.ts`              | Yes | — |
-| RISK-009 | Medium   | Errors and bad filters show empty queue     | `tickets.service.ts`              | Yes | — |
-| RISK-010 | Medium   | Breach RPC blocks list, errors ignored      | `tickets.service.ts`              | Yes | — |
-| RISK-011 | Medium   | Customer sees description twice             | `tickets.actions.ts`              | Yes | — |
-| RISK-012 | Medium   | Assign-to-me failure rolls back wrongly     | `ticket-detail-view.tsx`          | Yes | — |
-| RISK-013 | Medium   | Mention regex matches name prefixes         | `ticket-detail-view.tsx`          | Yes | — |
-| RISK-014 | Medium   | Realtime gaps never resync from server      | `use-realtime-messages.ts`        | Yes | — |
-| RISK-015 | Medium   | Closed-hours reply lock is client-only      | `tickets.actions.ts`              | Yes | — |
-| RISK-016 | Medium   | Closed timer re-renders whole page          | `ticket-detail-view.tsx`          | Yes | — |
-| RISK-017 | Medium   | Closed message ignores 24/7 targets         | `portal.service.ts`               | No | Not a bug — `sla_start_event` uses the policy calendar for every target, so message and clocks agree (documented in code) |
-| RISK-018 | Medium   | Search debounce drops newer filters         | `tickets-table.tsx`               | Yes | — |
-| RISK-019 | Medium   | Selection keeps rows no longer listed       | `tickets-table.tsx`               | Yes | — |
-| RISK-020 | Medium   | Bulk action error crashes to error page     | `tickets-table.tsx`               | Yes | — |
-| RISK-021 | Medium   | Empty page past end hides pager             | `tickets-table.tsx`               | Yes | — |
-| RISK-022 | Medium   | Drop zone has no drop handler               | `create-ticket-sheet.tsx`         | Yes | — |
-| RISK-023 | Medium   | Requester picker loads every customer       | `create-ticket-sheet.tsx`         | Yes | — |
-| RISK-024 | Low      | SLA card ticks every second while waiting   | `ticket-sla-card.tsx`             | Yes | — |
-| RISK-025 | Low      | Waiting clock worded two different ways     | `ticket-sla-card.tsx`             | Yes | — |
-| RISK-026 | Low      | Suggestion list navigation duplicated thrice | `ticket-tags-field.tsx`          | No | Partly — mention and tag lists share `useListNavigation`; tickets-table list not migrated yet |
-| RISK-027 | Low      | Page number parsed twice, inconsistently    | `tickets-table.tsx`               | Yes | — |
-| RISK-028 | Low      | Default-policy query duplicated in portal   | `portal.service.ts`               | Yes | — |
-| RISK-029 | Low      | Unsafe casts on embeds and rows             | `tickets.service.ts`              | Yes | — |
-| RISK-030 | Low      | List SLA logic duplicates detail logic      | `lib/sla.ts`                      | No | Partly — waiting/resume logic shared via `slaWaiting`; a full merge would change list badge text |
-| RISK-031 | Low      | Status unvalidated; dead unassign branch    | `tickets.actions.ts`              | Yes | — |
-| RISK-032 | Low      | Upload names can collide                    | `tickets.service.ts`              | Yes | — |
+| Risk ID  | Priority | Risk (Short Description)                     | File                          | Completed | Reason if Not Completed                                                                                                   |
+| -------- | -------- | -------------------------------------------- | ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| RISK-001 | High     | File-only internal note visible to customer  | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-002 | High     | Closed-hours time uses server timezone       | `portal-new-request-form.tsx` | Yes       | —                                                                                                                         |
+| RISK-003 | Medium   | Failed upload duplicates sent reply          | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-004 | Medium   | Failed upload duplicates created ticket      | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-005 | Medium   | Requester not checked against tenant         | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-006 | Medium   | Bulk resolve re-resolves finished tickets    | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-007 | Medium   | Bulk priority partial failure, no revalidate | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-008 | Medium   | Status counts capped at 1000 rows            | `tickets.service.ts`          | Yes       | —                                                                                                                         |
+| RISK-009 | Medium   | Errors and bad filters show empty queue      | `tickets.service.ts`          | Yes       | —                                                                                                                         |
+| RISK-010 | Medium   | Breach RPC blocks list, errors ignored       | `tickets.service.ts`          | Yes       | —                                                                                                                         |
+| RISK-011 | Medium   | Customer sees description twice              | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-012 | Medium   | Assign-to-me failure rolls back wrongly      | `ticket-detail-view.tsx`      | Yes       | —                                                                                                                         |
+| RISK-013 | Medium   | Mention regex matches name prefixes          | `ticket-detail-view.tsx`      | Yes       | —                                                                                                                         |
+| RISK-014 | Medium   | Realtime gaps never resync from server       | `use-realtime-messages.ts`    | Yes       | —                                                                                                                         |
+| RISK-015 | Medium   | Closed-hours reply lock is client-only       | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-016 | Medium   | Closed timer re-renders whole page           | `ticket-detail-view.tsx`      | Yes       | —                                                                                                                         |
+| RISK-017 | Medium   | Closed message ignores 24/7 targets          | `portal.service.ts`           | No        | Not a bug — `sla_start_event` uses the policy calendar for every target, so message and clocks agree (documented in code) |
+| RISK-018 | Medium   | Search debounce drops newer filters          | `tickets-table.tsx`           | Yes       | —                                                                                                                         |
+| RISK-019 | Medium   | Selection keeps rows no longer listed        | `tickets-table.tsx`           | Yes       | —                                                                                                                         |
+| RISK-020 | Medium   | Bulk action error crashes to error page      | `tickets-table.tsx`           | Yes       | —                                                                                                                         |
+| RISK-021 | Medium   | Empty page past end hides pager              | `tickets-table.tsx`           | Yes       | —                                                                                                                         |
+| RISK-022 | Medium   | Drop zone has no drop handler                | `create-ticket-sheet.tsx`     | Yes       | —                                                                                                                         |
+| RISK-023 | Medium   | Requester picker loads every customer        | `create-ticket-sheet.tsx`     | Yes       | —                                                                                                                         |
+| RISK-024 | Low      | SLA card ticks every second while waiting    | `ticket-sla-card.tsx`         | Yes       | —                                                                                                                         |
+| RISK-025 | Low      | Waiting clock worded two different ways      | `ticket-sla-card.tsx`         | Yes       | —                                                                                                                         |
+| RISK-026 | Low      | Suggestion list navigation duplicated thrice | `ticket-tags-field.tsx`       | No        | Partly — mention and tag lists share `useListNavigation`; tickets-table list not migrated yet                             |
+| RISK-027 | Low      | Page number parsed twice, inconsistently     | `tickets-table.tsx`           | Yes       | —                                                                                                                         |
+| RISK-028 | Low      | Default-policy query duplicated in portal    | `portal.service.ts`           | Yes       | —                                                                                                                         |
+| RISK-029 | Low      | Unsafe casts on embeds and rows              | `tickets.service.ts`          | Yes       | —                                                                                                                         |
+| RISK-030 | Low      | List SLA logic duplicates detail logic       | `lib/sla.ts`                  | No        | Partly — waiting/resume logic shared via `slaWaiting`; a full merge would change list badge text                          |
+| RISK-031 | Low      | Status unvalidated; dead unassign branch     | `tickets.actions.ts`          | Yes       | —                                                                                                                         |
+| RISK-032 | Low      | Upload names can collide                     | `tickets.service.ts`          | Yes       | —                                                                                                                         |
 
 > Update the **Completed** column as you fix each item. If a risk will not be fixed, replace `_Pending_` with the reason (for example: "Deferred to Q3 — requires auth refactor" or "Accepted risk — internal admin page only").

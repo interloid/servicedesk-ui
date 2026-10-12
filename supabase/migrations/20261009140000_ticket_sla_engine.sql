@@ -25,7 +25,12 @@
 --      auto-closes tickets left resolved for tenants.auto_close_after_days.
 --   5. Agents may create tags, so tagging a ticket doesn't need a manager.
 --
--- Needs 20261008110000_sla_notification_types.sql first.
+-- Needs 20261009130000_sla_notification_types.sql first.
+--
+-- Dated after 20261009120000_sla_target_units.sql (it was 20261008120000):
+-- live applied the target-units migration first, and an earlier-dated engine
+-- would run after it anyway and put back the old days conversion. Its
+-- sla_target_mins() is now the same pass-through.
 -- Mirrors supabase/schemas/functions/17_sla_engine.sql,
 -- triggers/tickets_sla.sql, tables/15_sla_events.sql, tables/03_tenants.sql
 -- and policies/12_tags.sql.
@@ -91,7 +96,7 @@ alter table public.sla_events
 comment on column public.sla_events.started_at is
 'When this clock started. The ticket''s created_at, or the reopen time for a restarted resolution clock.';
 comment on column public.sla_events.target_mins is
-'The target (minutes, business or wall-clock) the clock runs against, after sla_target_mins() turns whole days into working days; needed to re-target on a priority change.';
+'The target (minutes, business or wall-clock) the clock runs against, as stored on sla_policy_targets (a business day is one working day); needed to re-target on a priority change.';
 comment on column public.sla_events.business_hours_id is
 'The calendar the clock counts in; null means wall-clock (24/7).';
 comment on column public.sla_events.paused_at is
@@ -119,6 +124,21 @@ alter table public.sla_events
 create index if not exists idx_sla_events_tick
 on public.sla_events(due_at)
 where status = 'pending' and paused_at is null;
+
+-- sla_tick()'s other scans: breaches still to announce, and running clocks
+-- still to warn. Both sets stay small however many events pile up.
+create index if not exists idx_sla_events_breach_unnotified
+on public.sla_events(id)
+where status = 'breached' and breach_notified_at is null;
+
+create index if not exists idx_sla_events_warn
+on public.sla_events(due_at)
+where status = 'pending' and paused_at is null and warned_at is null;
+
+-- Auto-close: tickets left resolved.
+create index if not exists idx_ticket_resolved_at
+on public.tickets(resolved_at)
+where status = 'resolved';
 
 alter table public.tenants
     add column if not exists auto_close_after_days integer
@@ -414,45 +434,24 @@ begin
 end;
 $$;
 
--- The policy target in the minutes the clock actually counts. The SLA editor
--- stores a "days" target as whole multiples of 1440 (it has no unit column and
--- reads 1440 back as "1 day"). Against a calendar that would mean 24 business
--- hours -- with a 09:00-18:00 day, nearly three working days per "day" -- so a
--- whole-day target counts one working day, the calendar's day_end - day_start,
--- per day. Minutes and hours, and every 24/7 policy, are taken as written.
+-- The policy target in the minutes the clock counts. Since
+-- 20261009120000_sla_target_units.sql targets are stored as the minutes the
+-- clock counts -- a business "day" is already one working day of the policy's
+-- calendar -- so this is a pass-through. It used to turn whole multiples of
+-- 1440 into working days; doing that on top of the stored working minutes
+-- would shrink every "days" target (8 days of 09:00-18:00 = 4320 = 3 * 1440
+-- would count as 3 working days). Same signature and body as 20261009120000,
+-- so the clock operations below call it unchanged.
 create or replace function public.sla_target_mins(
     p_mins integer,
     p_business_hours_id uuid
 )
 returns integer
-language plpgsql
-stable
-security definer
+language sql
+immutable
 set search_path = public
 as $$
-declare
-    v_start time;
-    v_end time;
-begin
-    if p_mins is null
-       or p_business_hours_id is null
-       or p_mins % 1440 <> 0 then
-        return p_mins;
-    end if;
-
-    select c.day_start, c.day_end
-    into v_start, v_end
-    from public.sla_calendar(p_business_hours_id) c;
-
-    -- No usable calendar: the clock falls back to wall-clock time, where a
-    -- day is 24 hours.
-    if v_start is null or v_end is null then
-        return p_mins;
-    end if;
-
-    return (p_mins / 1440)
-         * (extract(epoch from (v_end - v_start)) / 60)::integer;
-end;
+    select p_mins;
 $$;
 
 ------------------------------------------------------------
@@ -677,6 +676,12 @@ $$;
 -- BEFORE INSERT: the database picks the policy. None of the three creation
 -- paths can be trusted to apply the 'Selected customers' rule (the portal took
 -- the default regardless), so the resolver wins whenever it finds one.
+--
+-- Whatever policy the row ends up with must be the ticket's own tenant's. On
+-- insert, an id the client sent that belongs to another tenant is dropped
+-- (the resolver found nothing, so the ticket runs without an SLA, as it would
+-- with no id at all); an update that points a ticket at another tenant's
+-- policy is refused.
 create or replace function public.tickets_assign_sla_policy()
 returns trigger
 language plpgsql
@@ -684,16 +689,32 @@ security definer
 set search_path = public
 as $$
 begin
-    new.sla_policy_id := coalesce(
-        public.sla_resolve_policy(new.tenant_id, new.requester_customer_id),
-        new.sla_policy_id
-    );
+    if tg_op = 'INSERT' then
+        new.sla_policy_id := coalesce(
+            public.sla_resolve_policy(new.tenant_id, new.requester_customer_id),
+            new.sla_policy_id
+        );
+    end if;
+
+    if new.sla_policy_id is not null and not exists (
+        select 1
+        from public.sla_policies p
+        where p.id = new.sla_policy_id
+          and p.tenant_id = new.tenant_id
+    ) then
+        if tg_op = 'INSERT' then
+            new.sla_policy_id := null;
+        else
+            raise exception 'SLA policy not found.' using errcode = '23503';
+        end if;
+    end if;
+
     return new;
 end;
 $$;
 
 create or replace trigger tickets_assign_sla_policy
-before insert on public.tickets
+before insert or update of sla_policy_id on public.tickets
 for each row
 execute function public.tickets_assign_sla_policy();
 
@@ -796,10 +817,15 @@ begin
     -- clocks; leaving it resumes them with the time they had.
     -- A clock already past its deadline isn't paused -- the
     -- next tick breaches it.
+    --
+    -- Not only on entering the status: a clock started or
+    -- re-targeted above while the ticket was already waiting
+    -- (a policy attached to an On hold ticket, a new priority
+    -- target) would otherwise run, and breach, while the
+    -- ticket waits. `paused_at is null` picks out exactly
+    -- those; clocks already paused keep their banked time.
     ----------------------------------------------------------
-    if new.status = any (v_waiting)
-       and (not (old.status = any (v_waiting)) or old.status = any (v_terminal))
-    then
+    if new.status = any (v_waiting) then
         update public.sla_events
         set paused_at = now(),
             remaining_secs = public.sla_seconds_between(now(), due_at, business_hours_id)
@@ -999,6 +1025,10 @@ begin
           and e.paused_at is null
           and e.warned_at is null
           and e.due_at > now()
+          -- notify_before_mins is at most 1440 (chk_sla_notify_before_mins),
+          -- so only the next day's deadlines can be due a warning; the bound
+          -- keeps this an index range on idx_sla_events_warn.
+          and e.due_at <= now() + interval '1440 minutes'
           and p.notify_before_breach
           and e.due_at - make_interval(mins => p.notify_before_mins) <= now()
           and t.status not in ('resolved', 'closed')
@@ -1056,33 +1086,29 @@ $$;
 comment on function public.sla_tick() is
 'Every minute (pg_cron): breach overdue SLA clocks, send due-soon and breach notifications (with escalation), auto-close tickets left resolved.';
 
--- The list page still calls this as the signed-in user, so a tenant without a
--- working cron sees breaches the moment they open the queue. RLS scopes it to
--- their tenant; it now skips paused clocks and stamps the deadline.
-create or replace function public.process_sla_breaches()
-returns integer
-language plpgsql
-as $$
-declare
-    v_updated integer;
-begin
-    update public.sla_events
-    set status = 'breached',
-        breached_at = due_at
-    where status = 'pending'
-      and paused_at is null
-      and due_at <= now();
-
-    get diagnostics v_updated = row_count;
-    return v_updated;
-end;
-$$;
+-- process_sla_breaches(), the list page's old in-request breach pass, is
+-- redefined in 20261012120000_ticket_review_hardening.sql (SECURITY DEFINER,
+-- caller's tenant only, paused clocks skipped).
 
 revoke execute on function public.sla_tick() from public, anon, authenticated;
 revoke execute on function public.sla_start_event(public.tickets, public.sla_event_type, timestamptz) from public, anon, authenticated;
 revoke execute on function public.sla_retarget_event(public.tickets, public.sla_events) from public, anon, authenticated;
 revoke execute on function public.sla_finish_events(uuid, public.sla_event_type, timestamptz) from public, anon, authenticated;
 revoke execute on function public.sla_recipients(uuid, uuid, text) from public, anon, authenticated;
+-- The arithmetic and resolver helpers are internal too: as SECURITY DEFINER
+-- RPCs they read any tenant's calendar and policies, and sla_seconds_between
+-- over a wide range ties up a connection. Only the definer functions above and
+-- the triggers call them.
+revoke execute on function public.sla_calendar(uuid) from public, anon, authenticated;
+revoke execute on function public.sla_day_windows(jsonb, time, time, jsonb, text, date) from public, anon, authenticated;
+revoke execute on function public.sla_add_seconds(timestamptz, bigint, uuid) from public, anon, authenticated;
+revoke execute on function public.sla_seconds_between(timestamptz, timestamptz, uuid) from public, anon, authenticated;
+revoke execute on function public.sla_target_mins(integer, uuid) from public, anon, authenticated;
+revoke execute on function public.sla_resolve_policy(uuid, uuid) from public, anon, authenticated;
+-- Trigger functions: never called directly.
+revoke execute on function public.tickets_assign_sla_policy() from public, anon, authenticated;
+revoke execute on function public.tickets_sync_sla() from public, anon, authenticated;
+revoke execute on function public.stamp_ticket_first_response() from public, anon, authenticated;
 
 ------------------------------------------------------------
 -- 7. Tags: agents may create them

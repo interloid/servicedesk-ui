@@ -10,6 +10,12 @@
 -- BEFORE INSERT: the database picks the policy. None of the three creation
 -- paths can be trusted to apply the 'Selected customers' rule (the portal took
 -- the default regardless), so the resolver wins whenever it finds one.
+--
+-- Whatever policy the row ends up with must be the ticket's own tenant's. On
+-- insert, an id the client sent that belongs to another tenant is dropped
+-- (the resolver found nothing, so the ticket runs without an SLA, as it would
+-- with no id at all); an update that points a ticket at another tenant's
+-- policy is refused.
 create or replace function public.tickets_assign_sla_policy()
 returns trigger
 language plpgsql
@@ -17,16 +23,32 @@ security definer
 set search_path = public
 as $$
 begin
-    new.sla_policy_id := coalesce(
-        public.sla_resolve_policy(new.tenant_id, new.requester_customer_id),
-        new.sla_policy_id
-    );
+    if tg_op = 'INSERT' then
+        new.sla_policy_id := coalesce(
+            public.sla_resolve_policy(new.tenant_id, new.requester_customer_id),
+            new.sla_policy_id
+        );
+    end if;
+
+    if new.sla_policy_id is not null and not exists (
+        select 1
+        from public.sla_policies p
+        where p.id = new.sla_policy_id
+          and p.tenant_id = new.tenant_id
+    ) then
+        if tg_op = 'INSERT' then
+            new.sla_policy_id := null;
+        else
+            raise exception 'SLA policy not found.' using errcode = '23503';
+        end if;
+    end if;
+
     return new;
 end;
 $$;
 
 create or replace trigger tickets_assign_sla_policy
-before insert on public.tickets
+before insert or update of sla_policy_id on public.tickets
 for each row
 execute function public.tickets_assign_sla_policy();
 
@@ -129,10 +151,15 @@ begin
     -- clocks; leaving it resumes them with the time they had.
     -- A clock already past its deadline isn't paused -- the
     -- next tick breaches it.
+    --
+    -- Not only on entering the status: a clock started or
+    -- re-targeted above while the ticket was already waiting
+    -- (a policy attached to an On hold ticket, a new priority
+    -- target) would otherwise run, and breach, while the
+    -- ticket waits. `paused_at is null` picks out exactly
+    -- those; clocks already paused keep their banked time.
     ----------------------------------------------------------
-    if new.status = any (v_waiting)
-       and (not (old.status = any (v_waiting)) or old.status = any (v_terminal))
-    then
+    if new.status = any (v_waiting) then
         update public.sla_events
         set paused_at = now(),
             remaining_secs = public.sla_seconds_between(now(), due_at, business_hours_id)
@@ -183,3 +210,8 @@ create or replace trigger stamp_ticket_first_response
 after insert on public.ticket_messages
 for each row
 execute function public.stamp_ticket_first_response();
+
+-- Trigger functions: never called directly.
+revoke execute on function public.tickets_assign_sla_policy() from public, anon, authenticated;
+revoke execute on function public.tickets_sync_sla() from public, anon, authenticated;
+revoke execute on function public.stamp_ticket_first_response() from public, anon, authenticated;

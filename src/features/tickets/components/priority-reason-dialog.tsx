@@ -22,14 +22,11 @@ import {
   TEAM_MODAL_BUTTON_PRIMARY,
 } from "@/features/team/components/modal-buttons";
 import { cn } from "@/lib/utils";
-import { PRIORITY_REASON_MAX, TicketPriority } from "../types/tickets.types";
-
-const PRIORITY_LABELS: Record<TicketPriority, string> = {
-  urgent: "Urgent",
-  high: "High",
-  normal: "Normal",
-  low: "Low",
-};
+import {
+  PRIORITY_REASON_MAX,
+  TICKET_PRIORITY_LABELS,
+  TicketPriority,
+} from "../types/tickets.types";
 
 /**
  * Asks why a priority is being lowered. change_ticket_priority refuses a
@@ -78,7 +75,7 @@ export function PriorityReasonDialog({
     onConfirm(trimmed);
   };
 
-  const label = to ? PRIORITY_LABELS[to] : "";
+  const label = to ? TICKET_PRIORITY_LABELS[to] : "";
 
   return (
     <Dialog
@@ -87,12 +84,18 @@ export function PriorityReasonDialog({
         if (!next && !pending) onCancel();
       }}
     >
-      <DialogContent className={`sm:max-w-120 ${TEAM_DIALOG_CONTENT}`}>
-        <DialogHeader className="pr-6">
+      <DialogContent
+        className={cn(
+          "w-[calc(100%-2rem)] max-w-lg min-w-0 overflow-hidden",
+          TEAM_DIALOG_CONTENT,
+        )}
+      >
+        <DialogHeader className="min-w-0 pr-6">
           <DialogTitle className={TEAM_DIALOG_TITLE}>
             Lower priority to {label}?
           </DialogTitle>
-          <DialogDescription>
+
+          <DialogDescription className="wrap-break-word">
             {ticketCount > 1
               ? `Some of the ${ticketCount} selected tickets will drop in priority.`
               : "This ticket will drop in priority."}{" "}
@@ -100,16 +103,25 @@ export function PriorityReasonDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form id="priority-reason-form" onSubmit={submit} className="space-y-4">
-          <ModalNotice icon={Info} tone="amber">
-            An SLA timer that is due soon keeps its current deadline, and a
-            breach already recorded stays on record.
-          </ModalNotice>
+        <form
+          id="priority-reason-form"
+          onSubmit={submit}
+          className="w-full min-w-0 space-y-4"
+        >
+          <div className="w-full min-w-0">
+            <ModalNotice icon={Info} tone="amber">
+              <span className="block min-w-0 whitespace-normal wrap-break-word">
+                An SLA timer that is due soon keeps its current deadline, and a
+                breach already recorded stays on record.
+              </span>
+            </ModalNotice>
+          </div>
 
-          <div className="space-y-1.5">
+          <div className="w-full min-w-0 space-y-1.5">
             <Label htmlFor="priority-reason" className="text-sm font-semibold">
               Reason <span className="text-red-500">*</span>
             </Label>
+
             <Textarea
               id="priority-reason"
               rows={3}
@@ -119,11 +131,22 @@ export function PriorityReasonDialog({
               aria-invalid={error ? true : undefined}
               onChange={(e) => setReason(e.target.value)}
               placeholder="e.g. Customer confirmed the workaround is enough for now."
-              className="resize-none text-sm"
+              className="block h-24 max-h-24 w-full min-w-0 resize-none overflow-y-auto whitespace-pre-wrap text-sm"
+              style={{
+                overflowWrap: "anywhere",
+                wordBreak: "normal",
+              }}
             />
-            <div className="flex items-start justify-between gap-3">
-              <p className="text-xs text-destructive">{error}</p>
-              <p className="shrink-0 text-xs text-muted-foreground tabular-nums">
+
+            <div className="flex w-full min-w-0 items-start justify-between gap-3">
+              <p
+                className="min-w-0 flex-1 wrap-break-word text-xs text-destructive"
+                role="alert"
+              >
+                {error}
+              </p>
+
+              <p className="shrink-0 text-xs tabular-nums text-muted-foreground">
                 {reason.length}/{PRIORITY_REASON_MAX}
               </p>
             </div>
@@ -140,6 +163,7 @@ export function PriorityReasonDialog({
           >
             Cancel
           </Button>
+
           <Button
             type="submit"
             form="priority-reason-form"

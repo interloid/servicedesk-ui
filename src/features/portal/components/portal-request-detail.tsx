@@ -257,11 +257,18 @@ export function PortalRequestDetailView({
           ref={threadRef}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6"
         >
-          <div className="flex flex-col">
-            {request.messages.map((message) => (
-              <Message key={message.id} message={message} />
-            ))}
-          </div>
+          {request.messages.length === 0 ? (
+            // A request sent with no description, before anyone replies.
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              No messages yet. Replies from the team will appear here.
+            </p>
+          ) : (
+            <div className="flex flex-col">
+              {request.messages.map((message) => (
+                <Message key={message.id} message={message} />
+              ))}
+            </div>
+          )}
 
           {/* At the end of the thread, as the latest thing that happened to
               the request. The thread opens scrolled to the bottom, so this is
@@ -454,18 +461,22 @@ function Message({ message }: { message: PortalMessage }) {
         )}
       >
         {/* Plain text, split on blank lines. Agent replies are not trusted
-            markup and must never be rendered as HTML. */}
-        {message.body.split(/\n{2,}/).map((paragraph, index) => (
-          <p
-            key={index}
-            className={cn(
-              "text-sm leading-[1.6] whitespace-pre-line wrap-break-word text-foreground",
-              index > 0 && "mt-2.5",
-            )}
-          >
-            {paragraph}
-          </p>
-        ))}
+            markup and must never be rendered as HTML. Blank paragraphs are
+            dropped, so a message that is only attachments shows its files. */}
+        {message.body
+          .split(/\n{2,}/)
+          .filter((paragraph) => paragraph.trim() !== "")
+          .map((paragraph, index) => (
+            <p
+              key={index}
+              className={cn(
+                "text-sm leading-[1.6] whitespace-pre-line wrap-break-word text-foreground",
+                index > 0 && "mt-2.5",
+              )}
+            >
+              {paragraph}
+            </p>
+          ))}
 
         {message.attachments.length > 0 ? (
           <AttachmentList attachments={message.attachments} />

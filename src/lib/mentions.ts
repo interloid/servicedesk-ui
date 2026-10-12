@@ -64,3 +64,12 @@ export function extractMentionIds(body: string): string[] {
 export function stripMentions(body: string): string {
   return body.replace(MENTION_REGEX, "@$1");
 }
+
+/**
+ * Replace serialized mentions with the bare name, for customer-facing text:
+ * a mention is the team's way of pulling a colleague in, so the customer sees
+ * only who was named, not the markup or the user id.
+ */
+export function mentionsToNames(body: string): string {
+  return body.replace(MENTION_REGEX, "$1");
+}

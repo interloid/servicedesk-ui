@@ -116,7 +116,7 @@ function TabButton({ active, onClick, children }: TabButtonProps) {
       onClick={onClick}
       className={`h-8 whitespace-nowrap border ${
         active
-          ? "border-transparent bg-(--brand-accent) font-semibold text-primary-foreground hover:bg-brand-hover hover:text-primary-foreground"
+          ? "border-transparent bg-brand-accent font-semibold text-primary-foreground hover:bg-brand-hover hover:text-primary-foreground"
           : "border-transparent text-slate-500 hover:text-slate-800"
       }`}
     >
@@ -514,17 +514,6 @@ export default function TicketsTable({
               className="h-10 bg-teal-800 px-4 text-sm font-semibold text-white hover:bg-teal-900"
             >
               New ticket
-            </Button>
-
-            {/* The import wizard is a preview that saves nothing yet. */}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled
-              title="Coming soon"
-              className="h-10 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-            >
-              Import from CSV · Coming soon
             </Button>
           </div>
         </div>

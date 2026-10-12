@@ -20,7 +20,6 @@ import {
   Bell,
   FileText,
   CreditCard,
-  ChevronDown,
   PanelLeft,
   User,
   BadgeDollarSign,

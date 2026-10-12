@@ -44,6 +44,7 @@ import {
 } from "@/features/portal/avatar-url";
 import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { mentionsToNames } from "@/lib/mentions";
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { slaDayMins } from "@/features/sla-policies/duration";
@@ -2563,8 +2564,12 @@ export const getPortalRequest = cache(async function getPortalRequest(
       )
     : undefined;
 
+  // A request sent with no text and no files has nothing to show: leave it
+  // out rather than draw an empty bubble, as the agent side does.
+  const hasOpening = openingText !== "" || opening.attachments.length > 0;
+
   const messages: PortalMessage[] = [
-    opening,
+    ...(hasOpening ? [opening] : []),
     ...messageRows
       .filter((row) => row !== seededCopy)
       .map((row) => {
@@ -2578,7 +2583,9 @@ export const getPortalRequest = cache(async function getPortalRequest(
           authorType: row.author_type,
           authorName,
           initials: initialsFrom(authorName, ""),
-          body: row.body,
+          // An agent's @mention is stored as @[Name](user:id); the customer
+          // sees just the name.
+          body: mentionsToNames(row.body),
           createdAt: row.created_at,
           isMine:
             row.author_type === "customer" &&

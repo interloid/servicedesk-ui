@@ -1,10 +1,13 @@
+import { cache } from "react";
 import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import type { Database } from "@/lib/supabase/database.types";
 import {
   CreateTicketPayload,
   FetchTicketsOptions,
   MessageVisibility,
+  PriorityChangeResult,
   SlaEvent,
   Ticket,
   TicketAttachment,
@@ -13,6 +16,9 @@ import {
   TicketMessage,
   TicketPriority,
   TicketStatus,
+  TICKET_STATUSES,
+  isTicketPriority,
+  isTicketStatus,
 } from "../types/tickets.types";
 import {
   DEFAULT_SLA_WARN_MINS,
@@ -20,12 +26,10 @@ import {
   headlineSlaEvent,
 } from "../lib/sla";
 import { normalizeTagName } from "../lib/tags";
-import { SlaCalendar, usableCalendar } from "../lib/sla-calendar";
-import {
-  DurationUnit,
-  isDurationUnit,
-  slaDayMins,
-} from "@/features/sla-policies/duration";
+import { CALENDAR_SELECT, one, toSlaCalendar } from "../lib/sla-calendar-row";
+import { DurationUnit, isDurationUnit } from "@/features/sla-policies/duration";
+import { getInitials } from "@/lib/format";
+import { TICKET_ATTACHMENTS_MAX_BYTES } from "../lib/attachments";
 
 const VISIBLE_ASSIGNEE_ROLES = ["agent", "manager", "tenant_admin"] as const;
 export interface Customer {
@@ -75,18 +79,64 @@ export async function withVisibleAssignee<
       assignee_id: t.assignee_user_id ?? null,
       assignee_name: visible && fullName ? fullName : undefined,
       assignee_initials:
-        visible && fullName
-          ? fullName
-              .split(" ")
-              .map((s) => s[0])
-              .join("")
-              .slice(0, 2)
-              .toUpperCase()
-          : undefined,
+        visible && fullName ? getInitials(fullName, "") : undefined,
       assignee_role: visible || undefined,
     };
   });
 }
+
+/**
+ * One ticket for the detail page, shaped like a list row (requester and
+ * visible assignee filled in), or null when it isn't the tenant's or the
+ * caller can't see it. Cached per request: the page and its metadata share it.
+ */
+export const fetchTicketById = cache(
+  async (tenant: string, ticketId: string): Promise<Ticket | null> => {
+    const supabase = await createSupabaseServerClient();
+    const tenantId = await getTenantIdBySlug(tenant);
+    if (!tenantId) return null;
+
+    const { data: ticket, error } = await supabase
+      .from("tickets")
+      .select(
+        `
+          *,
+          customers:requester_customer_id (
+            full_name,
+            company,
+            email
+          ),
+          assignee:assignee_user_id (
+            full_name
+          )
+        `,
+      )
+      .eq("id", ticketId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error fetching single ticket:", error.message);
+    }
+    if (!ticket) return null;
+
+    const cust = ticket.customers;
+    const [formatted] = await withVisibleAssignee(
+      supabase,
+      [
+        {
+          ...ticket,
+          requester_name: cust
+            ? cust.full_name || cust.email
+            : "Unknown Customer",
+          requester_company: cust?.company || "N/A",
+        },
+      ],
+      tenantId,
+    );
+    return formatted;
+  },
+);
 
 export async function fetchTenantTickets(
   tenant: string,
@@ -94,13 +144,21 @@ export async function fetchTenantTickets(
 ): Promise<{ tickets: Ticket[]; totalCount: number }> {
   const supabase = await createSupabaseServerClient();
   const tenantid = await getTenantIdBySlug(tenant);
+  if (!tenantid) throw new Error("Tenant not found.");
 
   // Mark any overdue SLA events as breached so realtime picks up the change.
-  try {
-    await supabase.rpc("process_sla_breaches");
-  } catch (e) {
-    console.error("[fetchTenantTickets] process_sla_breaches failed:", e);
-  }
+  // Not awaited before the list: the list works out breaches from due_at
+  // itself (computeSlaClock), so it doesn't need this to finish first.
+  const breaches = supabase
+    .rpc("process_sla_breaches")
+    .then(({ error: breachError }) => {
+      if (breachError) {
+        console.error(
+          "[fetchTenantTickets] process_sla_breaches failed:",
+          breachError.message,
+        );
+      }
+    });
   const {
     search,
     priority,
@@ -128,51 +186,55 @@ export async function fetchTenantTickets(
           full_name
         )
       `,
+      // Counted with the filters below, so the total and the pages match
+      // what the list shows.
+      { count: "exact" },
     )
     .eq("tenant_id", tenantid);
 
-  const countQuery = supabase
-    .from("tickets")
-    .select("id", { count: "exact" })
-    .eq("tenant_id", tenantid);
-
-  if (status && status !== "all") {
-    query = query.eq("status", status.toLowerCase() as TicketStatus);
+  // Only real enum values reach the query: a hand-typed ?status=foo is "all",
+  // not a Postgres enum error.
+  const statusFilter = status?.toLowerCase();
+  if (isTicketStatus(statusFilter)) {
+    query = query.eq("status", statusFilter);
   }
 
-  if (priority && priority !== "all") {
-    query = query.eq("priority", priority.toLowerCase() as TicketPriority);
+  const priorityFilter = priority?.toLowerCase();
+  if (isTicketPriority(priorityFilter)) {
+    query = query.eq("priority", priorityFilter);
   }
 
-  if (search && search.trim() !== "") {
-    query = query.or(`subject.ilike.%${search}%,description.ilike.%${search}%`);
+  // Commas, parentheses and quotes are syntax in a PostgREST or-filter, so
+  // they are dropped and the pattern quoted: "login, password" is plain text.
+  const term = (search ?? "").replace(/[,()"\\]/g, " ").trim();
+  if (term) {
+    query = query.or(`subject.ilike."%${term}%",description.ilike."%${term}%"`);
   }
 
   const sortColumn = sort === "subject" ? "subject" : "created_at";
   const sortAscending = sortOrder === "asc";
 
-  const [countRes, { data, error }] = await Promise.all([
-    countQuery,
+  const [{ data, error, count }] = await Promise.all([
     query.order(sortColumn, { ascending: sortAscending }).range(from, to),
+    breaches,
   ]);
 
-  const totalCount = countRes.count || 0;
-
+  // Thrown, not an empty list: an empty list reads as "Queue clear", and
+  // agents would stop working tickets during an outage. error.tsx shows.
   if (error) {
-    return { tickets: [], totalCount };
+    throw new Error(`Failed to load tickets: ${error.message}`);
   }
+
+  const totalCount = count || 0;
 
   const tickets: Ticket[] = await withVisibleAssignee(
     supabase,
     (data || []).map((t) => ({
       ...t,
-      requester_name:
-        (t.customers as { full_name?: string } | null)?.full_name ||
-        "Unknown Customer",
-      requester_company:
-        (t.customers as { company?: string } | null)?.company || "N/A",
+      requester_name: t.customers?.full_name || "Unknown Customer",
+      requester_company: t.customers?.company || "N/A",
     })),
-    tenantid!,
+    tenantid,
   );
 
   const withSla = await attachSlaInfo(tickets);
@@ -192,21 +254,26 @@ export async function fetchTicketStatusCounts(
   const tenantId = await getTenantIdBySlug(tenant);
   if (!tenantId) return {};
 
-  const { data, error } = await supabase
-    .from("tickets")
-    .select("status")
-    .eq("tenant_id", tenantId);
-
-  if (error) {
-    console.error("Error fetching ticket status counts:", error.message);
-    return {};
-  }
+  // One head-only count per status: nothing is downloaded, and the totals
+  // aren't cut off at the API's max_rows (1000) the way counting rows was.
+  const results = await Promise.all(
+    TICKET_STATUSES.map((status) =>
+      supabase
+        .from("tickets")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .eq("status", status),
+    ),
+  );
 
   const counts: TicketStatusCounts = {};
-  for (const row of data || []) {
-    const status = row.status as TicketStatus;
-    counts[status] = (counts[status] || 0) + 1;
-  }
+  results.forEach(({ count, error }, i) => {
+    if (error) {
+      console.error("Error fetching ticket status counts:", error.message);
+      return;
+    }
+    if (count) counts[TICKET_STATUSES[i]] = count;
+  });
   return counts;
 }
 
@@ -244,7 +311,7 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
   const calendarByPolicy = new Map(
     (policiesRes.data || []).map((p) => [
       p.id,
-      toSlaCalendar(p.business_hours as CalendarJoin),
+      toSlaCalendar(p.business_hours),
     ]),
   );
 
@@ -259,8 +326,9 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
 
   return tickets.map((t) => {
     const tags = tagsByTicket.get(t.id) || [];
+    // ?? and not ||: a policy may set a 0-minute lead, as the detail page reads it.
     const warnMins =
-      (t.sla_policy_id && warnByPolicy.get(t.sla_policy_id)) ||
+      (t.sla_policy_id ? warnByPolicy.get(t.sla_policy_id) : undefined) ??
       DEFAULT_SLA_WARN_MINS;
     const { calendar, dayMins } = (t.sla_policy_id &&
       calendarByPolicy.get(t.sla_policy_id)) || {
@@ -311,67 +379,6 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
       sla_day_mins: dayMins,
     };
   });
-}
-
-/** A policy's calendar, embedded from sla_policies. */
-const CALENDAR_SELECT =
-  "business_hours(name, schedule_json, holidays_json, timezones(code))";
-
-type CalendarRow = {
-  name: string;
-  schedule_json: unknown;
-  holidays_json: unknown;
-  timezones: { code: string } | { code: string }[] | null;
-};
-type CalendarJoin = CalendarRow | CalendarRow[] | null;
-
-const one = <T>(v: T | T[] | null | undefined): T | null =>
-  (Array.isArray(v) ? v[0] : v) ?? null;
-
-const asRecord = (v: unknown): Record<string, unknown> =>
-  v && typeof v === "object" && !Array.isArray(v)
-    ? (v as Record<string, unknown>)
-    : {};
-
-const asTime = (v: unknown): string | null =>
-  typeof v === "string" && /^\d{2}:\d{2}/.test(v) ? v.slice(0, 5) : null;
-
-/**
- * The calendar the SLA engine counts (sla_calendar in SQL), parsed for the
- * client's countdown, and the minutes in one of its days. Null and 1440 for a
- * 24/7 policy or a calendar the engine would not use either.
- */
-function toSlaCalendar(join: CalendarJoin): {
-  calendar: SlaCalendar | null;
-  dayMins: number;
-} {
-  const row = one(join);
-  if (!row) return { calendar: null, dayMins: 1440 };
-  const schedule = asRecord(row.schedule_json);
-  const dayStart = asTime(schedule.day_start);
-  const dayEnd = asTime(schedule.day_end);
-  const calendar = usableCalendar({
-    tz: one(row.timezones)?.code ?? "",
-    workingDays: Array.isArray(schedule.working_days)
-      ? schedule.working_days.filter((d): d is string => typeof d === "string")
-      : [],
-    dayStart: dayStart ?? "",
-    dayEnd: dayEnd ?? "",
-    holidays: (Array.isArray(row.holidays_json) ? row.holidays_json : [])
-      .map(asRecord)
-      .filter((h) => typeof h.date === "string")
-      .map((h) => ({
-        date: h.date as string,
-        allDay: h.all_day !== false,
-        startTime: asTime(h.start_time) ?? undefined,
-        endTime: asTime(h.end_time) ?? undefined,
-        repeatsYearly: h.repeats_yearly === true,
-      })),
-  });
-  return {
-    calendar,
-    dayMins: calendar ? slaDayMins({ dayStart, dayEnd }) : 1440,
-  };
 }
 
 /** Ticket id → its tags, for the rows on screen. */
@@ -552,7 +559,7 @@ export async function fetchTicketSlaPolicy(
     };
   }
 
-  const join = data.business_hours as CalendarJoin;
+  const join = data.business_hours;
   const { calendar, dayMins } = toSlaCalendar(join);
   return {
     id: data.id,
@@ -583,53 +590,25 @@ export interface AssignableAgent {
   role: string;
 }
 
+/** Staff who work tickets: they can be @mentioned and attach files. */
 const ASSIGNABLE_ROLES = ["agent", "manager", "tenant_admin"] as const;
-const MENTIONABLE_ROLES = ["agent", "manager", "tenant_admin"] as const;
 
-export async function fetchMentionableMembers(
-  tenant: string,
-): Promise<AssignableAgent[]> {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
-
-  if (!tenantId) return [];
-
-  const { data, error } = await supabase
-    .from("memberships")
-    .select("user_id, role, users!memberships_user_id_fkey(full_name, email)")
-    .eq("tenant_id", tenantId)
-    .eq("status", "active")
-    .in("role", [...MENTIONABLE_ROLES]);
-
-  if (error) {
-    console.error("Error fetching mentionable members:", error.message);
-    return [];
-  }
-
-  type MemberUser = { full_name: string | null; email: string };
-
-  const rows = (data || []) as Array<{
-    user_id: string;
-    role: string;
-    users: Array<MemberUser> | MemberUser | null;
-  }>;
-
-  return rows
-    .map((m) => {
-      const user = Array.isArray(m.users) ? m.users[0] : m.users;
-      return user
-        ? {
-            id: m.user_id,
-            full_name: user.full_name || user.email || "Unknown",
-            email: user.email || "",
-            role: m.role,
-          }
-        : null;
-    })
-    .filter((r): r is AssignableAgent => r !== null);
-}
+/**
+ * Who a ticket can be assigned to: agents and managers. Tenant admins run the
+ * workspace rather than the queue, so they are left out of the assignee list
+ * and don't get "Assign to me" (they can still be @mentioned).
+ */
+export const ASSIGNEE_ROLES: readonly string[] = ["agent", "manager"];
 
 export async function fetchAssignableAgents(
+  tenant: string,
+): Promise<AssignableAgent[]> {
+  const staff = await fetchTenantStaff(tenant);
+  return staff.filter((m) => ASSIGNEE_ROLES.includes(m.role));
+}
+
+/** Every active staff member: agents, managers and tenant admins. */
+export async function fetchTenantStaff(
   tenant: string,
 ): Promise<AssignableAgent[]> {
   const supabase = await createSupabaseServerClient();
@@ -709,26 +688,21 @@ export async function getCurrentUserIdentity(tenant: string) {
   };
 }
 
+/** The tickets row as inserted: no requester name, SLA or tags filled in. */
+export type TicketRow = Database["public"]["Tables"]["tickets"]["Row"];
+
 export async function createTenantTicket(
   tenant: string,
   ticketData: CreateTicketPayload,
-): Promise<Ticket> {
+): Promise<TicketRow> {
   const supabase = await createSupabaseServerClient();
 
   // No sla_policy_id: the tickets_assign_sla_policy trigger picks the
   // customer's policy (their 'Selected customers' one, else the default) and
-  // tickets_sync_sla starts the clocks.
+  // tickets_sync_sla starts the clocks. No number either: set_tickets_number
+  // assigns it under a per-tenant lock, so deletes and parallel creates can't
+  // hand out one that is taken.
   const tenantId = await getTenantIdBySlug(tenant);
-  const { count, error: countError } = await supabase
-    .from("tickets")
-    .select("*", { count: "exact", head: true })
-    .eq("tenant_id", tenantId);
-
-  if (countError) {
-    throw new Error(`Failed to calculate ticket number: ${countError.message}`);
-  }
-
-  const nextNumber = (count || 0) + 1;
 
   const { data, error } = await supabase
     .from("tickets")
@@ -736,7 +710,6 @@ export async function createTenantTicket(
       {
         ...ticketData,
         tenant_id: tenantId,
-        number: nextNumber,
         status: ticketData.status || "new",
         priority: ticketData.priority || "normal",
       },
@@ -749,7 +722,7 @@ export async function createTenantTicket(
     throw new Error(`Failed to create ticket: ${error.message}`);
   }
 
-  return data as Ticket;
+  return data;
 }
 
 export async function getTicketMessages(ticketId: string, tenantId: string) {
@@ -797,13 +770,7 @@ export async function getTicketMessages(ticketId: string, tenantId: string) {
         const name = nameById.get(m.author_id);
         if (name) {
           m.author_name = name;
-          m.author_initials = name
-            .split(" ")
-            .map((p) => p[0])
-            .filter(Boolean)
-            .slice(0, 2)
-            .join("")
-            .toUpperCase();
+          m.author_initials = getInitials(name, "");
         }
       }
     });
@@ -834,7 +801,7 @@ export async function fetchTicketSlaEvents(
 }
 
 export async function createMessage(params: {
-  tenantId: string;
+  tenantSlug: string;
   ticketId: string;
   authorType: "agent" | "customer" | "system";
   authorId: string;
@@ -842,7 +809,7 @@ export async function createMessage(params: {
   visibility: MessageVisibility;
 }) {
   const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(params.tenantId);
+  const tenantId = await getTenantIdBySlug(params.tenantSlug);
   const { data, error } = await supabase
     .from("ticket_messages")
     .insert({
@@ -858,36 +825,6 @@ export async function createMessage(params: {
     .single();
   if (error) throw new Error(`Failed to send message: ${error.message}`);
   return data;
-}
-
-/**
- * Insert a ticket message on behalf of a customer using the service-role client,
- * bypassing RLS. Used when an agent creates a ticket with a description so the
- * seed message is attributed to the customer even though the signed-in caller is
- * an agent (the ticket_messages_insert policy only permits agents to insert
- * their own agent-authored rows).
- */
-export async function createSystemCustomerMessage(params: {
-  tenantId: string;
-  ticketId: string;
-  authorId: string;
-  body: string;
-  visibility: MessageVisibility;
-}) {
-  const admin = createSupabaseAdminClient();
-  const tenantId = await getTenantIdBySlug(params.tenantId);
-  const { error } = await admin.from("ticket_messages").insert({
-    tenant_id: tenantId,
-    ticket_id: params.ticketId,
-    author_type: "customer",
-    author_id: params.authorId,
-    body: params.body,
-    visibility: params.visibility,
-    is_edited: false,
-  });
-  if (error) {
-    throw new Error(`Failed to seed message: ${error.message}`);
-  }
 }
 
 export async function updateTicketDetails(
@@ -920,6 +857,64 @@ export async function updateTicketDetails(
   return data;
 }
 
+/**
+ * Changes a ticket's priority through change_ticket_priority, which owns the
+ * rules: lowering needs a reason, a clock due soon keeps its deadline, a
+ * breach stays recorded, and every change is written to audit_logs.
+ */
+export async function changeTicketPriority(
+  ticketId: string,
+  priority: TicketPriority,
+  reason?: string,
+): Promise<PriorityChangeResult> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("change_ticket_priority", {
+    p_ticket_id: ticketId,
+    p_priority: priority,
+    p_reason: reason?.trim() || undefined,
+  });
+
+  if (error) {
+    // P0001 / P0002 carry plain-words messages written for this.
+    if (error.code === "P0001" || error.code === "P0002") {
+      throw new Error(error.message);
+    }
+    if (error.code === "PGRST202") {
+      // Before migration 20261011120000 there is no function: change the
+      // priority as before (re-targeted by the SLA engine, but no reason
+      // check, kept deadline or audit entry) rather than fail every change.
+      console.warn(
+        "change_ticket_priority is missing; apply migration 20261011120000_ticket_priority_change_rules.sql. Changed without its rules.",
+      );
+      const { data: rows, error: updateError } = await supabase
+        .from("tickets")
+        .update({ priority, updated_at: new Date().toISOString() })
+        .eq("id", ticketId)
+        .neq("priority", priority)
+        .select("id");
+      if (updateError) {
+        throw new Error(`Failed to update ticket: ${updateError.message}`);
+      }
+      return { changed: (rows?.length ?? 0) > 0, slaKept: [], breached: [] };
+    }
+    console.error("change_ticket_priority failed:", error.code, error.message);
+    throw new Error("Couldn't change the priority. Try again.");
+  }
+
+  const result = (data ?? {}) as {
+    changed?: boolean;
+    direction?: "raised" | "lowered";
+    sla_kept?: SlaEvent["type"][];
+    breached?: SlaEvent["type"][];
+  };
+  return {
+    changed: result.changed === true,
+    direction: result.direction,
+    slaKept: result.sla_kept ?? [],
+    breached: result.breached ?? [],
+  };
+}
+
 export async function bulkUpdateTickets(
   tenantSlug: string,
   ticketIds: string[],
@@ -927,8 +922,11 @@ export async function bulkUpdateTickets(
     status?: TicketStatus;
     priority?: TicketPriority;
     assignee_user_id?: string | null;
-    resolved_at?: string | null;
   },
+  options: {
+    /** Leave tickets already in these statuses untouched. */
+    skipStatuses?: readonly TicketStatus[];
+  } = {},
 ): Promise<number> {
   if (ticketIds.length === 0) return 0;
 
@@ -937,7 +935,9 @@ export async function bulkUpdateTickets(
 
   if (!tenantId) throw new Error("Tenant not found");
 
-  const { error } = await supabase
+  // RLS skips rows the caller may not change without an error, so count the
+  // rows that actually changed.
+  let query = supabase
     .from("tickets")
     .update({
       ...updates,
@@ -945,10 +945,17 @@ export async function bulkUpdateTickets(
     })
     .eq("tenant_id", tenantId)
     .in("id", ticketIds);
+  if (options.skipStatuses?.length) {
+    query = query.not("status", "in", `(${options.skipStatuses.join(",")})`);
+  }
+  const { data, error } = await query.select("id");
 
   if (error) throw new Error(`Failed to update tickets: ${error.message}`);
-  return ticketIds.length;
+  return data?.length ?? 0;
 }
+
+/** How long an attachment link signed for the detail page stays valid. */
+export const ATTACHMENT_LINK_TTL_SECS = 3600;
 
 export async function fetchTicketAttachments(
   ticketId: string,
@@ -969,104 +976,227 @@ export async function fetchTicketAttachments(
   }
 
   const attachments = (data || []) as TicketAttachment[];
+  if (attachments.length === 0) return attachments;
 
-  const withUrls = await Promise.all(
-    attachments.map(async (att) => {
-      const cleanPath = att.storage_path
-        .replace(/^ticket-attachments\//, "")
-        .replace(/^\//, "");
-      const { data: signed } = await supabase.storage
-        .from("ticket-attachments")
-        .createSignedUrl(cleanPath, 3600);
-      return { ...att, signed_url: signed?.signedUrl || undefined };
-    }),
+  // One request for every link. They last an hour; the detail page refreshes
+  // before that (ATTACHMENT_LINK_REFRESH_MS) so an open ticket keeps working.
+  const paths = attachments.map((att) =>
+    att.storage_path.replace(/^ticket-attachments\//, "").replace(/^\//, ""),
+  );
+  const { data: signed } = await supabase.storage
+    .from("ticket-attachments")
+    .createSignedUrls(paths, ATTACHMENT_LINK_TTL_SECS);
+  const urlByPath = new Map(
+    (signed || []).map((s) => [s.path, s.signedUrl] as const),
   );
 
-  return withUrls;
+  return attachments.map((att, i) => ({
+    ...att,
+    signed_url: urlByPath.get(paths[i]) || undefined,
+  }));
 }
 
-export async function uploadTicketAttachments(params: {
+/** Files already in storage, waiting for their attachments rows. */
+export interface StagedAttachments {
+  tenantId: string;
+  ticketId: string;
+  /** The staff member who uploaded them. */
+  uploadedBy: string;
+  files: {
+    path: string;
+    storedName: string;
+    original: string;
+    mime: string;
+    ext: string;
+    size: number;
+  }[];
+}
+
+/** Remove staged objects from storage; logged, never thrown. */
+export async function discardStagedAttachments(
+  staged: StagedAttachments,
+): Promise<void> {
+  if (staged.files.length === 0) return;
+  const { error } = await createSupabaseAdminClient()
+    .storage.from("ticket-attachments")
+    .remove(staged.files.map((f) => f.path));
+  if (error) {
+    console.error("Could not remove staged attachments:", error.message);
+  }
+}
+
+/**
+ * Step one of attaching files: check the caller may, and put the bytes in
+ * storage. Nothing is visible yet -- no attachments row exists -- so a reply
+ * can be saved only once every file is safely stored (recordStagedAttachments
+ * then links them). If any upload fails, the ones before it are removed.
+ */
+export async function stageTicketAttachments(params: {
   tenant: string;
   ticketId: string;
   files: File[];
-  messageId?: string | null;
-}) {
+}): Promise<StagedAttachments> {
   const admin = createSupabaseAdminClient();
-  const { tenant, ticketId, files, messageId = null } = params;
+  const { tenant, ticketId, files } = params;
   const tenantId = await getTenantIdBySlug(tenant);
 
   if (!tenantId) {
     throw new Error("Tenant not found.");
   }
 
-  const inserted: TicketAttachment[] = [];
+  // The writes below use the admin client, which skips RLS, so check here what
+  // RLS would: the caller is staff of this tenant and the ticket is one of its.
+  const identity = await getCurrentUserIdentity(tenant);
+  if (
+    !identity?.role ||
+    !(ASSIGNABLE_ROLES as readonly string[]).includes(identity.role)
+  ) {
+    throw new Error("Unauthorized");
+  }
+  const supabase = await createSupabaseServerClient();
+  const { data: ticket } = await supabase
+    .from("tickets")
+    .select("id")
+    .eq("id", ticketId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (!ticket) {
+    throw new Error("Ticket not found.");
+  }
+
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  if (totalBytes > TICKET_ATTACHMENTS_MAX_BYTES) {
+    throw new Error("Attachments are limited to 20 MB in total.");
+  }
+
+  const staged: StagedAttachments = {
+    tenantId,
+    ticketId,
+    uploadedBy: identity.id,
+    files: [],
+  };
 
   for (const file of files) {
     const ext = (file.name.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || "";
-    const storedName = `${Date.now()}-${ext}`;
+    // A random name: Date.now() alone collided for two files of the same
+    // type in one millisecond, and upsert: false then failed the whole send.
+    const storedName = `${crypto.randomUUID()}${ext ? `.${ext}` : ""}`;
     const path = `${tenantId}/${ticketId}/${storedName}`;
+    const mime = file.type || "application/octet-stream";
 
     const { error: uploadError } = await admin.storage
       .from("ticket-attachments")
-      .upload(path, file, {
-        contentType: file.type || "application/octet-stream",
-        upsert: false,
-      });
+      .upload(path, file, { contentType: mime, upsert: false });
 
     if (uploadError) {
       console.error("Upload failed:", uploadError.message);
+      await discardStagedAttachments(staged);
       throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
     }
 
-    const { data, error } = await admin
-      .from("attachments")
-      .insert({
-        tenant_id: tenantId,
-        ticket_id: ticketId,
-        message_id: messageId,
-        storage_path: path,
-        filename: storedName,
-        original_filename: file.name,
-        mime: file.type || "application/octet-stream",
-        extension: ext || null,
-        size: file.size,
-        uploaded_by: null,
-        checksum: null,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Attachments row insert failed:", error.message);
-      throw new Error(`Failed to record ${file.name}: ${error.message}`);
-    }
-
-    inserted.push(data as TicketAttachment);
+    staged.files.push({
+      path,
+      storedName,
+      original: file.name,
+      mime,
+      ext,
+      size: file.size,
+    });
   }
 
-  return inserted;
+  return staged;
 }
 
-export async function fetchTenantCustomers(
-  tenant: string,
-): Promise<Customer[]> {
-  const supabase = await createSupabaseServerClient();
-  const tenantid = await getTenantIdBySlug(tenant);
+/**
+ * Step two: the attachments rows that make staged files visible. With a
+ * `messageId` they belong to that reply or note and follow its visibility,
+ * and record who uploaded them. Without one they are the ticket's opening
+ * files, which the customer sees -- so that is only for a new ticket, never
+ * a reply (an internal note's file would leak to the portal). On failure the
+ * staged objects are removed.
+ */
+export async function recordStagedAttachments(
+  staged: StagedAttachments,
+  messageId: string | null,
+): Promise<TicketAttachment[]> {
+  if (staged.files.length === 0) return [];
 
-  if (!tenantid) {
-    throw new Error(`Tenant not found for slug: ${tenant}`);
-  }
-
-  const { data, error } = await supabase
-    .from("customers")
-    .select("id, tenant_id, full_name, email, company, phone, created_at")
-    .eq("tenant_id", tenantid)
-    .order("full_name", { ascending: true });
+  const { data, error } = await createSupabaseAdminClient()
+    .from("attachments")
+    .insert(
+      staged.files.map((f) => ({
+        tenant_id: staged.tenantId,
+        ticket_id: staged.ticketId,
+        message_id: messageId,
+        storage_path: f.path,
+        filename: f.storedName,
+        original_filename: f.original,
+        mime: f.mime,
+        extension: f.ext || null,
+        size: f.size,
+        // Null on opening files: the portal shows message-less files to the
+        // customer only when nobody on staff is named as the uploader.
+        uploaded_by: messageId ? staged.uploadedBy : null,
+        checksum: null,
+      })),
+    )
+    .select();
 
   if (error) {
-    console.error("Error fetching customers:", error.message);
-    return [];
+    console.error("Attachments row insert failed:", error.message);
+    await discardStagedAttachments(staged);
+    throw new Error(`Failed to record attachments: ${error.message}`);
   }
 
-  return (data as Customer[]) || [];
+  return (data || []) as TicketAttachment[];
+}
+
+/** A new ticket's opening files: staged and recorded in one go. */
+export async function uploadTicketAttachments(params: {
+  tenant: string;
+  ticketId: string;
+  files: File[];
+}): Promise<TicketAttachment[]> {
+  const staged = await stageTicketAttachments(params);
+  return recordStagedAttachments(staged, null);
+}
+
+/** How many requesters the create-ticket picker shows per search. */
+const REQUESTER_SEARCH_LIMIT = 50;
+
+/**
+ * Customers matching `query` by name, email or company, A→Z, at most 50 --
+ * so the picker never loads a big tenant's whole customer list. An empty
+ * query returns the first 50.
+ */
+export async function searchTenantCustomers(
+  tenant: string,
+  query: string,
+): Promise<Customer[]> {
+  const supabase = await createSupabaseServerClient();
+  const tenantId = await getTenantIdBySlug(tenant);
+  if (!tenantId) throw new Error("Tenant not found.");
+
+  let request = supabase
+    .from("customers")
+    .select("id, tenant_id, full_name, email, company, phone, created_at")
+    .eq("tenant_id", tenantId);
+
+  // Same escaping as the ticket search: these are or-filter syntax.
+  const term = query
+    .replace(/[,()"\\]/g, " ")
+    .trim()
+    .slice(0, 100);
+  if (term) {
+    request = request.or(
+      `full_name.ilike."%${term}%",email.ilike."%${term}%",company.ilike."%${term}%"`,
+    );
+  }
+
+  const { data, error } = await request
+    .order("full_name", { ascending: true })
+    .limit(REQUESTER_SEARCH_LIMIT);
+
+  if (error) throw new Error(`Failed to search customers: ${error.message}`);
+  return data || [];
 }

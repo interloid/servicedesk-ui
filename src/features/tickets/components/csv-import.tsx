@@ -78,11 +78,11 @@ export default function TicketImportWizard({
   };
 
   const handleMappingChange = (index: number, newValue: string) => {
-    setColumnMappings((prev) => {
-      const next = [...prev];
-      next[index].mappedField = newValue;
-      return next;
-    });
+    setColumnMappings((prev) =>
+      prev.map((row, i) =>
+        i === index ? { ...row, mappedField: newValue } : row,
+      ),
+    );
   };
 
   return (

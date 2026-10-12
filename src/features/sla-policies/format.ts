@@ -25,10 +25,11 @@ export function formatWorkingDays(days: string[]): string {
     : sorted.join(", ");
 }
 
-/** "09:00 – 18:00". */
+/** "09:00 – 18:00 (Asia/Kolkata)". */
 export function formatWorkingHours(hours: BusinessHoursOption): string {
   if (!hours.dayStart || !hours.dayEnd) return "Not set";
-  return `${hours.dayStart} – ${hours.dayEnd}`;
+  const range = `${hours.dayStart} – ${hours.dayEnd}`;
+  return hours.timezone ? `${range} (${hours.timezone})` : range;
 }
 
 /** "Jan 1, 2027". The date is a calendar day, so it is read as UTC. */

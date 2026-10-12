@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition, useState, useEffect, ReactNode } from "react";
+import { useTransition, useState, useEffect, useRef, ReactNode } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CreateTicketSheet from "./create-ticket-sheet";
-import { Ticket, TicketPriority, TicketStatus } from "../types/tickets.types";
+import {
+  Ticket,
+  TicketPriority,
+  TicketStatus,
+  isPriorityLowered,
+} from "../types/tickets.types";
+import { PriorityReasonDialog } from "./priority-reason-dialog";
+import { toast } from "sonner";
 import {
   bulkAssignToMeAction,
   bulkMarkSolvedAction,
@@ -48,15 +55,22 @@ import {
 } from "../actions/tickets.actions";
 import Link from "next/link";
 import { TicketsEmptyState } from "./ticket-empty";
-import TicketImportWizard from "./csv-import";
 import { useRealtimeTicketsRefresh } from "@/hooks/use-realtime-tickets-refresh";
 import { computeLiveSla } from "../lib/sla";
+import { TICKET_PAGE_SIZES } from "../lib/list";
+import { useNow } from "@/hooks/use-now";
+import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 
 interface TicketsTableProps {
   initialTickets: Ticket[];
   totalCount: number;
   statusCounts?: Partial<Record<TicketStatus, number>>;
   tenant: string;
+  /** False for tenant admins: tickets go to agents and managers. */
+  canAssignToSelf?: boolean;
+  /** The page and page size the server loaded, already clamped. */
+  page?: number;
+  limit?: number;
 }
 
 type ColumnKey =
@@ -116,6 +130,9 @@ export default function TicketsTable({
   totalCount,
   statusCounts = {},
   tenant,
+  canAssignToSelf = true,
+  page,
+  limit,
 }: TicketsTableProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -123,20 +140,46 @@ export default function TicketsTable({
   const [isPending, startTransition] = useTransition();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   useRealtimeTicketsRefresh(tenant);
-  const [now, setNow] = useState<number>(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, []);
-  const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState(
-    searchParams.get("search") || "",
+  const now = useNow(30_000);
+  const [pickedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  // Only rows still on screen count: a realtime refresh can drop a picked
+  // ticket from this view without the URL changing.
+  const visibleIds = new Set(initialTickets.map((t) => t.id));
+  const selectedTicketIds = pickedTicketIds.filter((id) => visibleIds.has(id));
+  // A selection only covers the rows on screen: moving to another page,
+  // filter or search drops it, so a bulk action can't reach hidden tickets.
+  const viewKey = searchParams.toString();
+  const [selectionViewKey, setSelectionViewKey] = useState(viewKey);
+  if (selectionViewKey !== viewKey) {
+    setSelectionViewKey(viewKey);
+    setSelectedTicketIds([]);
+  }
+  const urlSearch = searchParams.get("search") || "";
+  const [searchQuery, setSearchQuery] = useState(urlSearch);
+  // Follow ?search= when it changes from outside the box (back/forward), but
+  // not when it's the box's own debounced write catching up.
+  const [seenUrlSearch, setSeenUrlSearch] = useState(urlSearch);
+  const [sentSearch, setSentSearch] = useState(urlSearch);
+  if (seenUrlSearch !== urlSearch) {
+    setSeenUrlSearch(urlSearch);
+    if (urlSearch !== sentSearch) {
+      setSearchQuery(urlSearch);
+      setSentSearch(urlSearch);
+    }
+  }
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    },
+    [],
   );
-  const [view, setView] = useState<"list" | "import">("list");
   const [bulkAction, setBulkAction] = useState<
     "assign" | "priority" | "solved" | null
   >(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  // A bulk priority that lowers at least one ticket, waiting for its reason.
+  const [bulkLowerTo, setBulkLowerTo] = useState<TicketPriority | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<
     Record<ColumnKey, boolean>
   >({
@@ -175,6 +218,7 @@ export default function TicketsTable({
   const runBulkAction = async (
     action: "assign" | "priority" | "solved",
     priority?: TicketPriority,
+    reason?: string,
   ) => {
     if (selectedTicketIds.length === 0) return;
     setBulkAction(action);
@@ -183,26 +227,45 @@ export default function TicketsTable({
     try {
       const res = await (action === "assign"
         ? bulkAssignToMeAction({
-            tenantId: tenant,
+            tenantSlug: tenant,
             ticketIds: selectedTicketIds,
           })
         : action === "priority"
           ? bulkSetPriorityAction({
-              tenantId: tenant,
+              tenantSlug: tenant,
               ticketIds: selectedTicketIds,
               priority: priority!,
+              reason,
             })
           : bulkMarkSolvedAction({
-              tenantId: tenant,
+              tenantSlug: tenant,
               ticketIds: selectedTicketIds,
             }));
 
       if (res.success) {
         setSelectedTicketIds([]);
+        setBulkLowerTo(null);
+        if ("slaKept" in res && res.slaKept) {
+          toast.success(
+            `${res.slaKept} ticket${res.slaKept === 1 ? " was" : "s were"} due soon, so ${res.slaKept === 1 ? "its" : "their"} SLA deadline stays as it was.`,
+          );
+        }
+        if ("failed" in res && res.failed) {
+          toast.warning(
+            `${res.failed} ticket${res.failed === 1 ? "" : "s"} couldn't be updated. The rest were.`,
+          );
+        }
         router.refresh();
       } else {
         setBulkError(res.error || "Failed to update tickets.");
+        // The reason dialog covers the inline error; say it there too.
+        if (reason) toast.error(res.error || "Failed to update tickets.");
       }
+    } catch {
+      // Thrown inside a transition this would reach error.tsx and replace
+      // the whole list; keep it inline like any other failure.
+      setBulkError("Couldn't reach the server. Try again.");
+      if (reason) toast.error("Couldn't reach the server. Try again.");
     } finally {
       setBulkAction(null);
     }
@@ -212,10 +275,20 @@ export default function TicketsTable({
     startTransition(() => runBulkAction("assign"));
   };
 
-  const handleSetPriority = (priority: string) => {
-    startTransition(() =>
-      runBulkAction("priority", priority as TicketPriority),
+  // Lowering any selected ticket asks why first; the reason goes on each
+  // lowered ticket's audit entry.
+  const handleSetPriority = (value: string) => {
+    const priority = value as TicketPriority;
+    const lowersAny = initialTickets.some(
+      (t) =>
+        selectedTicketIds.includes(t.id) &&
+        isPriorityLowered(t.priority, priority),
     );
+    if (lowersAny) {
+      setBulkLowerTo(priority);
+      return;
+    }
+    startTransition(() => runBulkAction("priority", priority));
   };
 
   const handleMarkSolved = () => {
@@ -242,7 +315,6 @@ export default function TicketsTable({
             Pending
           </Badge>
         );
-      case "solved":
       case "resolved":
         return (
           <Badge className="h-6 rounded-full px-2.5 text-xs bg-slate-100 text-slate-700 hover:bg-slate-100 border-none font-semibold">
@@ -285,7 +357,7 @@ export default function TicketsTable({
     );
   };
 
-  const updateQueryParam = (key: string, value: string) => {
+  const updateQueryParam = (key: string, value: string, replace = false) => {
     const params = new URLSearchParams(searchParams.toString());
     if (value && value !== "all") {
       params.set(key, value);
@@ -295,7 +367,9 @@ export default function TicketsTable({
     if (key !== "page") params.set("page", "1");
 
     startTransition(() => {
-      router.push(`${pathname}?${params.toString()}`);
+      const url = `${pathname}?${params.toString()}`;
+      if (replace) router.replace(url);
+      else router.push(url);
     });
   };
 
@@ -319,11 +393,28 @@ export default function TicketsTable({
     });
   };
 
-  const currentPage = Number(searchParams.get("page")) || 1;
-  const currentLimit = Number(searchParams.get("limit")) || 8;
+  // As the page clamps them, so the pager names the page actually loaded.
+  const currentPage =
+    page ?? Math.max(1, Math.floor(Number(searchParams.get("page"))) || 1);
+  const currentLimit =
+    limit ??
+    (TICKET_PAGE_SIZES.includes(Number(searchParams.get("limit")))
+      ? Number(searchParams.get("limit"))
+      : TICKET_PAGE_SIZES[0]);
   const totalPages = Math.ceil(totalCount / currentLimit);
 
-  const allOpenCount = Object.values(statusCounts).reduce(
+  // A page past the end (after a bulk resolve or a realtime removal on page
+  // 2+) would read as "Queue clear" with no pager: go to the last real page.
+  const pastEnd = initialTickets.length === 0 && currentPage > 1;
+  const lastPage = Math.max(1, totalPages);
+  useEffect(() => {
+    if (!pastEnd) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("page", String(lastPage));
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [pastEnd, lastPage, pathname, router]);
+
+  const allCount = Object.values(statusCounts).reduce(
     (sum, n) => sum + (n || 0),
     0,
   );
@@ -332,9 +423,6 @@ export default function TicketsTable({
     initialTickets.length > 0 &&
     initialTickets.every((t) => selectedTicketIds.includes(t.id));
 
-  if (view === "import") {
-    return <TicketImportWizard onBack={() => setView("list")} />;
-  }
   return (
     <div className="h-full overflow-y-auto p-4 font-sans sm:p-6 lg:p-8">
       <div className="flex flex-col gap-3.5">
@@ -428,13 +516,15 @@ export default function TicketsTable({
               New ticket
             </Button>
 
+            {/* The import wizard is a preview that saves nothing yet. */}
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setView("import")}
+              disabled
+              title="Coming soon"
               className="h-10 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"
             >
-              Import from CSV
+              Import from CSV · Coming soon
             </Button>
           </div>
         </div>
@@ -444,7 +534,8 @@ export default function TicketsTable({
             active={!searchParams?.get("status")}
             onClick={() => updateQueryParam("status", "all")}
           >
-            All open
+            {/* Every status: the tab clears the status filter. */}
+            All
             <Badge
               className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
                 !searchParams?.get("status")
@@ -452,7 +543,7 @@ export default function TicketsTable({
                   : "bg-teal-100 text-teal-800"
               }`}
             >
-              {allOpenCount}
+              {allCount}
             </Badge>
           </TabButton>
           <TabButton
@@ -514,8 +605,23 @@ export default function TicketsTable({
                 value={searchQuery}
                 placeholder="Search this view"
                 onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  updateQueryParam("search", e.target.value);
+                  // One navigation once typing stops, replacing the entry,
+                  // instead of a server render and a history step per key.
+                  const value = e.target.value;
+                  setSearchQuery(value);
+                  if (searchTimer.current) clearTimeout(searchTimer.current);
+                  // Built from the live URL when it fires: a filter picked in
+                  // the meantime must not be overwritten by this render's copy.
+                  searchTimer.current = setTimeout(() => {
+                    const params = new URLSearchParams(window.location.search);
+                    if (value) params.set("search", value);
+                    else params.delete("search");
+                    params.set("page", "1");
+                    setSentSearch(value);
+                    startTransition(() => {
+                      router.replace(`${pathname}?${params.toString()}`);
+                    });
+                  }, 300);
                 }}
                 className="pl-8 h-10 bg-white border-slate-200"
               />
@@ -612,18 +718,20 @@ export default function TicketsTable({
                   {bulkError}
                 </span>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAssignToMe}
-                disabled={bulkAction !== null || isPending}
-                className="h-9 px-3 border-teal-600/40 bg-white text-teal-800 hover:bg-teal-50 text-xs font-semibold"
-              >
-                {bulkAction === "assign" && (
-                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                )}
-                Assign to me
-              </Button>
+              {canAssignToSelf && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAssignToMe}
+                  disabled={bulkAction !== null || isPending}
+                  className="h-9 px-3 border-teal-600/40 bg-white text-teal-800 hover:bg-teal-50 text-xs font-semibold"
+                >
+                  {bulkAction === "assign" && (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  )}
+                  Assign to me
+                </Button>
+              )}
 
               <Select
                 value=""
@@ -757,6 +865,10 @@ export default function TicketsTable({
                   <TableBody className="divide-y divide-slate-100 text-sm">
                     {initialTickets.map((ticket) => {
                       const isSelected = selectedTicketIds.includes(ticket.id);
+                      const ticketHref = tenantPath(
+                        tenant,
+                        `${TENANT_ROUTES.TICKETS}/${ticket.id}`,
+                      );
 
                       return (
                         <TableRow
@@ -778,7 +890,7 @@ export default function TicketsTable({
                           {visibleColumns?.id && (
                             <TableCell className="px-4 align-middle text-sm font-medium text-muted-foreground tabular-nums">
                               <Link
-                                href={`/${tenant}/tickets/${ticket.id}`}
+                                href={ticketHref}
                                 className="block py-1 hover:text-slate-600"
                               >
                                 #{ticket.number ?? "-"}
@@ -788,10 +900,7 @@ export default function TicketsTable({
 
                           {visibleColumns?.subject && (
                             <TableCell className="px-4 align-middle">
-                              <Link
-                                href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block py-1"
-                              >
+                              <Link href={ticketHref} className="block py-1">
                                 <span className="block font-semibold text-slate-900 truncate">
                                   {ticket.subject}
                                 </span>
@@ -818,10 +927,7 @@ export default function TicketsTable({
 
                           {visibleColumns?.requester && (
                             <TableCell className="px-4 align-middle">
-                              <Link
-                                href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block py-1"
-                              >
+                              <Link href={ticketHref} className="block py-1">
                                 <div className="text-sm font-semibold text-foreground leading-snug">
                                   {ticket.customers?.full_name || "Customer"}
                                 </div>
@@ -837,7 +943,7 @@ export default function TicketsTable({
                           {visibleColumns?.priority && (
                             <TableCell className="px-4 align-middle text-left">
                               <Link
-                                href={`/${tenant}/tickets/${ticket.id}`}
+                                href={ticketHref}
                                 className="inline-flex py-1"
                               >
                                 {getPriorityBadge(ticket.priority)}
@@ -847,10 +953,7 @@ export default function TicketsTable({
 
                           {visibleColumns?.assignee && (
                             <TableCell className="px-4 align-middle text-sm text-foreground">
-                              <Link
-                                href={`/${tenant}/tickets/${ticket.id}`}
-                                className="block py-1"
-                              >
+                              <Link href={ticketHref} className="block py-1">
                                 {ticket.assignee_name ? (
                                   <span className="inline-flex items-center gap-2 font-medium whitespace-nowrap">
                                     {ticket.assignee_initials && (
@@ -875,7 +978,7 @@ export default function TicketsTable({
                           {visibleColumns?.status && (
                             <TableCell className="px-4 align-middle text-left">
                               <Link
-                                href={`/${tenant}/tickets/${ticket.id}`}
+                                href={ticketHref}
                                 className="inline-flex py-1"
                               >
                                 {getStatusBadge(ticket.status)}
@@ -889,13 +992,16 @@ export default function TicketsTable({
                               return (
                                 <TableCell className="px-4 align-middle text-right text-xs">
                                   <Link
-                                    href={`/${tenant}/tickets/${ticket.id}`}
+                                    href={ticketHref}
                                     className="inline-flex w-full justify-end py-1"
                                   >
                                     {live.text === "—" || !live.text ? (
                                       <span className="text-slate-400">—</span>
                                     ) : (
                                       <span
+                                        // Read from the clock, which differs
+                                        // between server render and browser.
+                                        suppressHydrationWarning
                                         className={cn(
                                           "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold",
                                           live.type === "breached"
@@ -961,15 +1067,15 @@ export default function TicketsTable({
                   position="popper"
                   className="p-1"
                 >
-                  <SelectItem value="8" className="cursor-pointer p-2">
-                    8
-                  </SelectItem>
-                  <SelectItem value="15" className="cursor-pointer p-2">
-                    15
-                  </SelectItem>
-                  <SelectItem value="25" className="cursor-pointer p-2">
-                    25
-                  </SelectItem>
+                  {TICKET_PAGE_SIZES.map((size) => (
+                    <SelectItem
+                      key={size}
+                      value={String(size)}
+                      className="cursor-pointer p-2"
+                    >
+                      {size}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -1011,6 +1117,20 @@ export default function TicketsTable({
           open={isSheetOpen}
           onOpenChange={setIsSheetOpen}
           tenant={tenant}
+        />
+
+        <PriorityReasonDialog
+          open={bulkLowerTo !== null}
+          to={bulkLowerTo}
+          ticketCount={selectedTicketIds.length}
+          pending={bulkAction === "priority"}
+          onCancel={() => setBulkLowerTo(null)}
+          onConfirm={(reason) =>
+            bulkLowerTo &&
+            startTransition(() =>
+              runBulkAction("priority", bulkLowerTo, reason),
+            )
+          }
         />
       </div>
     </div>

@@ -28,6 +28,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Checkbox as CheckboxPrimitive } from "radix-ui";
 import { Label } from "@/components/ui/label";
@@ -71,11 +77,15 @@ import {
   SlaCustomerOption,
   SlaHoliday,
   SlaPolicyEditorValue,
+  SlaTimezoneOption,
   TimeCalculation,
   describeNotifyLeadConflict,
   describePriorityOrderViolation,
   findNotifyLeadConflict,
   findPriorityOrderViolation,
+  CALENDAR_IN_USE_MESSAGE,
+  NEW_POLICY_CALENDAR_MESSAGE,
+  POLICY_IN_USE_MESSAGE,
   type EscalationRole,
 } from "../types/types";
 import {
@@ -119,11 +129,19 @@ interface SlaEditorProps {
   customers: SlaCustomerOption[];
   /** Every other policy, for the one-active-policy rules. */
   otherPolicies: PolicyScope[];
+  /** Every zone a calendar can count in, for "Edit business hours". */
+  timezones: SlaTimezoneOption[];
   /**
    * For roles that may only look (agents): every control is disabled and
    * there is no Save. The server refuses their writes either way.
    */
   readOnly: boolean;
+  /**
+   * The policy is applied to at least one ticket, so it is locked for everyone:
+   * its fields, business hours and holidays are disabled, and Save is inert
+   * with a tooltip saying why. The server refuses those saves either way.
+   */
+  inUse?: boolean;
 }
 
 const CONTROL = "h-10 border-gray-200 text-sm focus:border-0";
@@ -187,7 +205,9 @@ export default function SlaEditor({
   businessHours: initialBusinessHours,
   customers,
   otherPolicies,
+  timezones,
   readOnly,
+  inUse = false,
 }: SlaEditorProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -287,6 +307,19 @@ export default function SlaEditor({
 
   // The calendar cards only unlock for business-hours policies.
   const activeCalendar = draft.timeCalculation === "business" ? calendar : null;
+
+  // Why the calendar's hours and holidays can't be changed here, if they
+  // can't: it is shared by every policy, so the create page leaves it alone,
+  // and once a policy or the calendar has timed tickets it is locked.
+  const calendarLockReason = !activeCalendar
+    ? null
+    : mode === "new"
+      ? NEW_POLICY_CALENDAR_MESSAGE
+      : inUse
+        ? POLICY_IN_USE_MESSAGE
+        : activeCalendar.inUse
+          ? CALENDAR_IN_USE_MESSAGE
+          : null;
 
   const replaceCalendar = (next: BusinessHoursOption) =>
     setCalendars((prev) => prev.map((c) => (c.id === next.id ? next : c)));
@@ -488,20 +521,43 @@ export default function SlaEditor({
             readOnly && "hidden",
           )}
         >
-          <Button
-            onClick={save}
-            disabled={pending}
-            className="h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90"
-          >
-            {mode === "edit" && <Plus className="size-4" aria-hidden />}
-            {pending
-              ? mode === "new"
-                ? "Creating…"
-                : "Saving…"
-              : mode === "new"
-                ? "Create policy"
-                : "Save changes"}
-          </Button>
+          {inUse ? (
+            <TooltipProvider>
+              <Tooltip>
+                {/* A disabled button fires no pointer events; the span
+                    carries the hover and focus for the tooltip. */}
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="inline-flex rounded-lg">
+                    <Button
+                      disabled
+                      className="pointer-events-none h-10 w-full gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none"
+                    >
+                      <Lock className="size-4" aria-hidden />
+                      Save changes
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  {POLICY_IN_USE_MESSAGE}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <Button
+              onClick={save}
+              disabled={pending}
+              className="h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90"
+            >
+              {mode === "edit" && <Plus className="size-4" aria-hidden />}
+              {pending
+                ? mode === "new"
+                  ? "Creating…"
+                  : "Saving…"
+                : mode === "new"
+                  ? "Create policy"
+                  : "Save changes"}
+            </Button>
+          )}
           {mode === "new" && (
             <Button
               asChild
@@ -515,11 +571,18 @@ export default function SlaEditor({
         </div>
       </div>
 
-      {readOnly && (
+      {readOnly && !inUse && (
         <p className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700">
           <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
           You can view this policy. Only tenant admins and managers can change
           it.
+        </p>
+      )}
+
+      {inUse && (
+        <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          <Lock className="mt-0.5 size-4 shrink-0" aria-hidden />
+          {POLICY_IN_USE_MESSAGE}
         </p>
       )}
 
@@ -531,7 +594,7 @@ export default function SlaEditor({
 
       <fieldset disabled={readOnly} className="min-w-0">
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <div className="flex flex-col gap-5">
+          <fieldset disabled={inUse} className="flex min-w-0 flex-col gap-5">
             <Section step={1} title="Basic Information">
               <div className="flex flex-col gap-3">
                 <Field label="Policy name" required error={errors.name}>
@@ -749,46 +812,48 @@ export default function SlaEditor({
                 </Table>
               </div>
             </Section>
-          </div>
+          </fieldset>
 
           <div className="flex flex-col gap-5">
-            <Section
-              step={3}
-              title="Time Calculation"
-              hint="Choose how SLA time should be calculated."
-            >
-              <div
-                role="radiogroup"
-                aria-label="Time calculation"
-                className="grid grid-cols-1 gap-3 md:grid-cols-2"
+            <fieldset disabled={inUse} className="min-w-0">
+              <Section
+                step={3}
+                title="Time Calculation"
+                hint="Choose how SLA time should be calculated."
               >
-                <ChoiceCard
-                  selected={draft.timeCalculation === "24/7"}
-                  onSelect={() => setTimeCalculation("24/7")}
-                  icon={Clock}
-                  title="24/7"
-                  body="SLA is calculated 24/7."
-                />
-                <ChoiceCard
-                  selected={draft.timeCalculation === "business"}
-                  onSelect={() => setTimeCalculation("business")}
-                  disabled={calendars.length === 0}
-                  icon={CalendarDays}
-                  title="Business Hours"
-                  body={
-                    calendars.length === 0
-                      ? "No calendar exists."
-                      : "SLA is calculated only during working days/hours."
-                  }
-                />
-              </div>
+                <div
+                  role="radiogroup"
+                  aria-label="Time calculation"
+                  className="grid grid-cols-1 gap-3 md:grid-cols-2"
+                >
+                  <ChoiceCard
+                    selected={draft.timeCalculation === "24/7"}
+                    onSelect={() => setTimeCalculation("24/7")}
+                    icon={Clock}
+                    title="24/7"
+                    body="SLA is calculated 24/7."
+                  />
+                  <ChoiceCard
+                    selected={draft.timeCalculation === "business"}
+                    onSelect={() => setTimeCalculation("business")}
+                    disabled={calendars.length === 0}
+                    icon={CalendarDays}
+                    title="Business Hours"
+                    body={
+                      calendars.length === 0
+                        ? "No calendar exists."
+                        : "SLA is calculated only during working days/hours."
+                    }
+                  />
+                </div>
 
-              {errors.businessHours && (
-                <p className="mt-2 text-xs text-red-600">
-                  {errors.businessHours}
-                </p>
-              )}
-            </Section>
+                {errors.businessHours && (
+                  <p className="mt-2 text-xs text-red-600">
+                    {errors.businessHours}
+                  </p>
+                )}
+              </Section>
+            </fieldset>
 
             <IconCard
               icon={CalendarDays}
@@ -796,19 +861,25 @@ export default function SlaEditor({
               hint="Define your team's working hours for SLA calculation."
               locked={!activeCalendar}
               action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!activeCalendar}
-                  onClick={() => setHoursOpen(true)}
-                  className={`${CARD_BUTTON} ${
-                    !activeCalendar
-                      ? "cursor-not-allowed opacity-50 text-gray-400"
-                      : ""
-                  }`}
-                >
-                  Edit business hours
-                </Button>
+                calendarLockReason ? (
+                  <LockedCardButton reason={calendarLockReason}>
+                    Edit business hours
+                  </LockedCardButton>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!activeCalendar}
+                    onClick={() => setHoursOpen(true)}
+                    className={`${CARD_BUTTON} ${
+                      !activeCalendar
+                        ? "cursor-not-allowed opacity-50 text-gray-400"
+                        : ""
+                    }`}
+                  >
+                    Edit business hours
+                  </Button>
+                )
               }
             >
               {activeCalendar ? (
@@ -816,6 +887,7 @@ export default function SlaEditor({
                   {calendars.length > 1 && (
                     <Select
                       value={activeCalendar.id}
+                      disabled={inUse}
                       onValueChange={(v) =>
                         setDraft((p) => ({ ...p, businessHoursId: v }))
                       }
@@ -856,26 +928,33 @@ export default function SlaEditor({
               hint="Days excluded from SLA time calculation."
               locked={!activeCalendar}
               action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!activeCalendar}
-                  onClick={() => setHolidayDialog({ holiday: null })}
-                  className={`${CARD_BUTTON} ${
-                    !activeCalendar
-                      ? "cursor-not-allowed opacity-50 text-gray-400"
-                      : ""
-                  }`}
-                >
-                  <Plus className="size-4" aria-hidden />
-                  Add holiday
-                </Button>
+                calendarLockReason ? (
+                  <LockedCardButton reason={calendarLockReason}>
+                    Add holiday
+                  </LockedCardButton>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!activeCalendar}
+                    onClick={() => setHolidayDialog({ holiday: null })}
+                    className={`${CARD_BUTTON} ${
+                      !activeCalendar
+                        ? "cursor-not-allowed opacity-50 text-gray-400"
+                        : ""
+                    }`}
+                  >
+                    <Plus className="size-4" aria-hidden />
+                    Add holiday
+                  </Button>
+                )
               }
             >
               {activeCalendar ? (
                 <HolidaysTable
                   holidays={activeCalendar.holidays}
                   removingId={removingHolidayId}
+                  locked={calendarLockReason !== null}
                   onEdit={(holiday) => setHolidayDialog({ holiday })}
                   onRemove={(holiday) => setHolidayToDelete(holiday)}
                 />
@@ -887,144 +966,146 @@ export default function SlaEditor({
               )}
             </IconCard>
 
-            <IconCard icon={Bell} title="Notifications" optional solid>
-              <div className="grid grid-cols-1 items-center gap-x-6 gap-y-3 sm:grid-cols-[auto_1fr]">
-                <div className="flex items-center gap-3">
-                  <Switch
-                    id="notify-breach"
-                    checked={draft.notifyBeforeBreach}
-                    onCheckedChange={(v) =>
-                      setDraft((p) => ({ ...p, notifyBeforeBreach: v }))
-                    }
-                    className="data-[state=checked]:bg-brand-accent"
-                  />
-                  <Label
-                    htmlFor="notify-breach"
-                    className="cursor-pointer text-sm font-semibold text-gray-800"
-                  >
-                    Notify assignee before breach
-                  </Label>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Input
-                      inputMode="numeric"
-                      className="h-9 w-16 border-gray-200 text-sm"
-                      value={notifyLead.amount}
-                      disabled={!draft.notifyBeforeBreach}
-                      aria-label="How long before the target to warn the assignee"
-                      aria-invalid={Boolean(errors.notifyBefore) || undefined}
-                      onChange={(e) =>
-                        setNotifyLead((n) => ({
-                          ...n,
-                          amount: toDigits(e.target.value),
+            <fieldset disabled={inUse} className="min-w-0">
+              <IconCard icon={Bell} title="Notifications" optional solid>
+                <div className="grid grid-cols-1 items-center gap-x-6 gap-y-3 sm:grid-cols-[auto_1fr]">
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="notify-breach"
+                      checked={draft.notifyBeforeBreach}
+                      onCheckedChange={(v) =>
+                        setDraft((p) => ({ ...p, notifyBeforeBreach: v }))
+                      }
+                      className="data-[state=checked]:bg-brand-accent"
+                    />
+                    <Label
+                      htmlFor="notify-breach"
+                      className="cursor-pointer text-sm font-semibold text-gray-800"
+                    >
+                      Notify assignee before breach
+                    </Label>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Input
+                        inputMode="numeric"
+                        className="h-9 w-16 border-gray-200 text-sm"
+                        value={notifyLead.amount}
+                        disabled={!draft.notifyBeforeBreach}
+                        aria-label="How long before the target to warn the assignee"
+                        aria-invalid={Boolean(errors.notifyBefore) || undefined}
+                        onChange={(e) =>
+                          setNotifyLead((n) => ({
+                            ...n,
+                            amount: toDigits(e.target.value),
+                          }))
+                        }
+                      />
+                      <Select
+                        value={notifyLead.unit}
+                        disabled={!draft.notifyBeforeBreach}
+                        onValueChange={(v) =>
+                          setNotifyLead((n) => ({ ...n, unit: v as Unit }))
+                        }
+                      >
+                        <SelectTrigger
+                          className="min-h-9 w-28 border-gray-200 text-sm"
+                          aria-label="Lead time unit"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent
+                          side="bottom"
+                          align="start"
+                          position="popper"
+                          className="p-1"
+                        >
+                          {(["minutes", "hours"] as Unit[]).map((u) => (
+                            <SelectItem
+                              key={u}
+                              value={u}
+                              className="p-2 cursor-pointer"
+                            >
+                              {unitLabel(u, notifyLead.amount)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500">
+                        Before the SLA deadline
+                      </p>
+                    </div>
+                    {errors.notifyBefore && (
+                      <p className="text-xs text-red-600">
+                        {errors.notifyBefore}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      id="escalate-breach"
+                      checked={draft.escalateOnBreach}
+                      onCheckedChange={(v) =>
+                        setDraft((p) => ({
+                          ...p,
+                          escalateOnBreach: v,
                         }))
                       }
+                      className="data-[state=checked]:bg-brand-accent"
                     />
+
+                    <Label
+                      htmlFor="escalate-breach"
+                      className="cursor-pointer text-sm font-semibold text-gray-800"
+                    >
+                      Escalate on breach
+                    </Label>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                     <Select
-                      value={notifyLead.unit}
-                      disabled={!draft.notifyBeforeBreach}
+                      value={draft.escalateToRole}
                       onValueChange={(v) =>
-                        setNotifyLead((n) => ({ ...n, unit: v as Unit }))
+                        setDraft((p) => ({
+                          ...p,
+                          escalateToRole: v as EscalationRole,
+                        }))
                       }
+                      disabled={!draft.escalateOnBreach}
                     >
                       <SelectTrigger
-                        className="min-h-9 w-28 border-gray-200 text-sm"
-                        aria-label="Lead time unit"
+                        className="min-h-9 w-44 border-gray-200 text-sm"
+                        aria-label="Escalate to"
                       >
                         <SelectValue />
                       </SelectTrigger>
+
                       <SelectContent
                         side="bottom"
                         align="start"
                         position="popper"
                         className="p-1"
                       >
-                        {(["minutes", "hours"] as Unit[]).map((u) => (
+                        {ESCALATION_ROLES.map((role) => (
                           <SelectItem
-                            key={u}
-                            value={u}
-                            className="p-2 cursor-pointer"
+                            key={role.value}
+                            value={role.value}
+                            className="min-h-9 cursor-pointer p-2"
                           >
-                            {unitLabel(u, notifyLead.amount)}
+                            {role.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+
                     <p className="text-xs text-gray-500">
-                      Before the SLA deadline
+                      Automatically escalate the ticket if SLA is breached.
                     </p>
                   </div>
-                  {errors.notifyBefore && (
-                    <p className="text-xs text-red-600">
-                      {errors.notifyBefore}
-                    </p>
-                  )}
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <Switch
-                    id="escalate-breach"
-                    checked={draft.escalateOnBreach}
-                    onCheckedChange={(v) =>
-                      setDraft((p) => ({
-                        ...p,
-                        escalateOnBreach: v,
-                      }))
-                    }
-                    className="data-[state=checked]:bg-brand-accent"
-                  />
-
-                  <Label
-                    htmlFor="escalate-breach"
-                    className="cursor-pointer text-sm font-semibold text-gray-800"
-                  >
-                    Escalate on breach
-                  </Label>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <Select
-                    value={draft.escalateToRole}
-                    onValueChange={(v) =>
-                      setDraft((p) => ({
-                        ...p,
-                        escalateToRole: v as EscalationRole,
-                      }))
-                    }
-                    disabled={!draft.escalateOnBreach}
-                  >
-                    <SelectTrigger
-                      className="min-h-9 w-44 border-gray-200 text-sm"
-                      aria-label="Escalate to"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-
-                    <SelectContent
-                      side="bottom"
-                      align="start"
-                      position="popper"
-                      className="p-1"
-                    >
-                      {ESCALATION_ROLES.map((role) => (
-                        <SelectItem
-                          key={role.value}
-                          value={role.value}
-                          className="min-h-9 cursor-pointer p-2"
-                        >
-                          {role.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <p className="text-xs text-gray-500">
-                    Automatically escalate the ticket if SLA is breached.
-                  </p>
-                </div>
-              </div>
-            </IconCard>
+              </IconCard>
+            </fieldset>
           </div>
         </div>
       </fieldset>
@@ -1045,6 +1126,7 @@ export default function SlaEditor({
           <EditBusinessHoursDialog
             tenant={tenant}
             businessHours={activeCalendar}
+            timezones={timezones}
             open={hoursOpen}
             onOpenChange={setHoursOpen}
             onSaved={replaceCalendar}
@@ -1541,14 +1623,53 @@ function BusinessHoursSummary({
   );
 }
 
+/**
+ * A card header action that can't be used here: disabled, with a lock, and a
+ * tooltip saying why. A disabled button fires no pointer events, so the span
+ * carries the hover and focus for the tooltip.
+ */
+function LockedCardButton({
+  reason,
+  children,
+}: {
+  reason: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0} className="inline-flex rounded-lg">
+            <Button
+              type="button"
+              variant="outline"
+              disabled
+              className={`${CARD_BUTTON} pointer-events-none opacity-50`}
+            >
+              <Lock className="size-4" aria-hidden />
+              {children}
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs">
+          {reason}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function HolidaysTable({
   holidays,
   removingId,
+  locked = false,
   onEdit,
   onRemove,
 }: {
   holidays: SlaHoliday[];
   removingId?: string | null;
+  /** The calendar can't be changed: the row actions are disabled. */
+  locked?: boolean;
   onEdit?: (holiday: SlaHoliday) => void;
   onRemove?: (holiday: SlaHoliday) => void;
 }) {
@@ -1602,17 +1723,18 @@ function HolidaysTable({
                     <button
                       type="button"
                       onClick={() => onEdit?.(h)}
+                      disabled={locked}
                       aria-label={`Edit ${h.name}`}
-                      className="rounded-md p-1.5 text-brand-accent transition-colors hover:bg-brand-accent/10"
+                      className="rounded-md p-1.5 text-brand-accent transition-colors hover:bg-brand-accent/10 disabled:pointer-events-none disabled:opacity-40"
                     >
                       <Pencil className="size-4" />
                     </button>
                     <button
                       type="button"
                       onClick={() => onRemove?.(h)}
-                      disabled={removingId === h.id}
+                      disabled={locked || removingId === h.id}
                       aria-label={`Remove ${h.name}`}
-                      className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                      className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:pointer-events-none disabled:opacity-40"
                     >
                       <Trash2 className="size-4" />
                     </button>

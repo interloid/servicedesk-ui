@@ -4,6 +4,7 @@ import { PortalNewRequestForm } from "@/features/portal/components/portal-new-re
 import {
   getFirstResponseTarget,
   getPortalIdentity,
+  getPortalSupportClosed,
   getPortalTenant,
 } from "@/features/portal/services/portal.service";
 
@@ -32,15 +33,19 @@ export default async function PortalNewRequestPage({
   const identity = await getPortalIdentity(tenantSlug);
   const tenant = identity?.tenant ?? (await getPortalTenant(tenantSlug));
 
-  const firstResponseTarget = tenant
-    ? await getFirstResponseTarget(tenant.id)
-    : "one business day";
+  const [firstResponseTarget, supportClosed] = tenant
+    ? await Promise.all([
+        getFirstResponseTarget(tenant.id),
+        getPortalSupportClosed(tenant.id),
+      ])
+    : ["one business day", null];
 
   return (
     <PortalNewRequestForm
       tenantSlug={tenantSlug}
       isSignedIn={Boolean(identity)}
       firstResponseTarget={firstResponseTarget}
+      supportClosed={supportClosed}
       initialSubject={initialSubject}
     />
   );

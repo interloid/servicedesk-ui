@@ -129,15 +129,14 @@ export function computeSlaClock(
 
   // Outside business hours nothing counts: a ticket opened at night waits for
   // the morning, and the card flips to a live countdown at opening on its own.
-  const opensAt = nextWorkingStart(now, cal);
-  if (opensAt !== null && opensAt > now) {
-    const started = slaMsBetween(start, now, cal) > 0;
+  const waiting = slaWaiting(start, now, cal);
+  if (waiting) {
     return {
       state: "waiting",
       remainingMs,
       usedPct,
-      text: `${started ? "Resumes" : "Starts"} ${formatOpening(opensAt, now)}`,
-      startsAt: opensAt,
+      text: waiting.text,
+      startsAt: waiting.opensAt,
     };
   }
 
@@ -151,6 +150,26 @@ export function computeSlaClock(
   };
 }
 
+/**
+ * Outside business hours a running clock waits for the next opening. Shared
+ * by the detail card (computeSlaClock) and the list (computeLiveSla), so both
+ * say "Starts" for a clock that hasn't counted yet and "Resumes" otherwise.
+ * Null while the calendar is open, or for a 24/7 clock.
+ */
+function slaWaiting(
+  start: number,
+  now: number,
+  cal: SlaCalendar | null,
+): { opensAt: number; text: string } | null {
+  const opensAt = nextWorkingStart(now, cal);
+  if (opensAt === null || opensAt <= now) return null;
+  const started = slaMsBetween(start, now, cal) > 0;
+  return {
+    opensAt,
+    text: `${started ? "Resumes" : "Starts"} ${formatOpening(opensAt, now)}`,
+  };
+}
+
 /** "10:00 AM" today, "tomorrow 10:00 AM", otherwise "Mon 10:00 AM". */
 export function formatOpening(at: number, now: number): string {
   const time = new Date(at).toLocaleTimeString([], {
@@ -161,6 +180,26 @@ export function formatOpening(at: number, now: number): string {
   if (day(at) === day(now)) return time;
   if (day(at) === day(now + 86_400_000)) return `tomorrow ${time}`;
   return `${new Date(at).toLocaleDateString([], { weekday: "short" })} ${time}`;
+}
+
+/**
+ * The opening as a sentence fragment: "today at 10:00 AM", "tomorrow at
+ * 10:00 AM", "Monday at 10:00 AM" within the week, otherwise "Oct 20 at
+ * 10:00 AM".
+ */
+export function formatOpeningLong(at: number, now: number): string {
+  const time = new Date(at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const day = (ms: number) => new Date(ms).toDateString();
+  if (day(at) === day(now)) return `today at ${time}`;
+  if (day(at) === day(now + 86_400_000)) return `tomorrow at ${time}`;
+  const date =
+    at - now < 6 * 86_400_000
+      ? new Date(at).toLocaleDateString([], { weekday: "long" })
+      : new Date(at).toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${date} at ${time}`;
 }
 
 function pct(part: number, whole: number): number {
@@ -235,17 +274,12 @@ export function computeLiveSla(ticket: Ticket, now: number): LiveSla {
   const due = new Date(sla_due_at).getTime();
 
   // Outside business hours: the clock waits for the next opening.
-  const opensAt = nextWorkingStart(now, cal);
-  if (opensAt !== null && opensAt > now) {
-    const start = ticket.sla_started_at
-      ? new Date(ticket.sla_started_at).getTime()
-      : now;
-    const started = slaMsBetween(start, now, cal) > 0;
-    return {
-      type: "waiting",
-      text: `${started ? "Resumes" : "Starts"} ${formatOpening(opensAt, now)}`,
-    };
-  }
+  const waiting = slaWaiting(
+    ticket.sla_started_at ? new Date(ticket.sla_started_at).getTime() : now,
+    now,
+    cal,
+  );
+  if (waiting) return { type: "waiting", text: waiting.text };
 
   return {
     type: remaining <= warnMs ? "warning" : "normal",

@@ -13,6 +13,7 @@ import {
   type PortalUploadedFile,
   type PortalUploadTarget,
 } from "@/features/portal/portal";
+import type { PortalSupportClosed } from "@/features/portal/support-closed";
 import {
   portalEmailSchema,
   portalGuestRequestSchema,
@@ -41,6 +42,7 @@ import {
 import {
   completePortalOnboarding,
   createPortalRequest,
+  getTicketSupportClosed,
   createPortalStagingTargets,
   createPortalUploadTargets,
   discardPortalUploads,
@@ -479,7 +481,13 @@ export async function submitRequestAction(
   slug: string,
   values: PortalRequestValues,
   uploads: PortalUploadedFile[] = [],
-): Promise<PortalResult<{ redirectTo: string; number: number | null }>> {
+): Promise<
+  PortalResult<{
+    redirectTo: string;
+    number: number | null;
+    closed: PortalSupportClosed | null;
+  }>
+> {
   const parsed = portalRequestSchema.safeParse(values);
 
   if (!parsed.success) {
@@ -520,6 +528,7 @@ export async function submitRequestAction(
       data: {
         redirectTo: portalPath(slug, PORTAL_ROUTES.REQUESTS),
         number: ticket.number,
+        closed: await getTicketSupportClosed(ticket.id),
       },
     };
   } catch (error) {
@@ -536,7 +545,13 @@ export async function submitGuestRequestAction(
   slug: string,
   values: PortalGuestRequestValues,
   uploads: PortalUploadedFile[] = [],
-): Promise<PortalResult<{ email: string; number: number | null }>> {
+): Promise<
+  PortalResult<{
+    email: string;
+    number: number | null;
+    closed: PortalSupportClosed | null;
+  }>
+> {
   const parsed = portalGuestRequestSchema.safeParse(values);
 
   if (!parsed.success) {
@@ -570,7 +585,11 @@ export async function submitGuestRequestAction(
 
     return {
       success: true,
-      data: { email: parsed.data.email, number: ticket.number },
+      data: {
+        email: parsed.data.email,
+        number: ticket.number,
+        closed: await getTicketSupportClosed(ticket.id),
+      },
     };
   } catch (error) {
     return failure(error, "We couldn't submit your request. Try again.");

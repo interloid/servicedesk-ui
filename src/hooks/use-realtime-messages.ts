@@ -3,16 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createSupabaseClient } from "@/lib/supabase/client";
 import { TicketMessage } from "@/features/tickets/types/tickets.types";
-
-function initialsFromName(name: string) {
-  return name
-    .split(" ")
-    .map((p) => p[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
+import { getInitials } from "@/lib/format";
 
 /**
  * Subscribe to realtime INSERTs on `ticket_messages` for a single ticket so new
@@ -25,6 +16,20 @@ export function useRealtimeMessages(
   nameById: Record<string, string> = {},
 ) {
   const [messages, setMessages] = useState<TicketMessage[]>(initial);
+
+  // Realtime doesn't replay what was missed while the socket was down, so a
+  // fresh server list (router.refresh, revalidatePath) is merged in by id:
+  // server rows win, replies that arrived live and aren't in it yet stay.
+  const [seen, setSeen] = useState(initial);
+  if (initial !== seen && (initial.length > 0 || seen.length > 0)) {
+    setSeen(initial);
+    setMessages((prev) => {
+      const ids = new Set(initial.map((m) => m.id));
+      return [...initial, ...prev.filter((m) => !ids.has(m.id))].sort((x, y) =>
+        x.created_at.localeCompare(y.created_at),
+      );
+    });
+  }
   const nameByIdRef = useRef(nameById);
 
   useEffect(() => {
@@ -55,7 +60,7 @@ export function useRealtimeMessages(
             const name = nameByIdRef.current[msg.author_id];
             if (name) {
               msg.author_name = name;
-              msg.author_initials = initialsFromName(name);
+              msg.author_initials = getInitials(name, "");
             }
           }
 

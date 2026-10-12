@@ -53,6 +53,14 @@ const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
   generateBuildId: async () => process.env.NEXT_BUILD_ID || null,
+  // Ticket replies and new tickets send their attachments through a Server
+  // Action (up to 20 MB of files, see TICKET_ATTACHMENTS_MAX_BYTES). Both caps
+  // default lower -- 1 MB for the action, 10 MB for the body proxy buffers --
+  // and a larger upload would be rejected or cut short before the action ran.
+  experimental: {
+    serverActions: { bodySizeLimit: "25mb" },
+    proxyClientMaxBodySize: "25mb",
+  },
   images: {
     remotePatterns: remotePatterns(),
   },

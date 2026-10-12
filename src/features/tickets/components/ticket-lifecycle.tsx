@@ -83,7 +83,8 @@ export function TicketLifecycleBanner({
           className="mt-px size-4 shrink-0 text-emerald-600"
           aria-hidden
         />
-        <p>
+        {/* Local time zone: differs between server render and browser. */}
+        <p suppressHydrationWarning>
           <span className="font-semibold">Resolved</span>
           {resolvedAt && <> {formatDay(new Date(resolvedAt).getTime())}</>}. The
           customer can rate the resolution or reopen it from the portal.
@@ -97,7 +98,7 @@ export function TicketLifecycleBanner({
     return (
       <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
         <Lock className="mt-px size-4 shrink-0 text-slate-500" aria-hidden />
-        <p>
+        <p suppressHydrationWarning>
           <span className="font-semibold">Closed</span>
           {closedAt && <> {formatDay(new Date(closedAt).getTime())}</>}. Reopen
           the ticket to reply.

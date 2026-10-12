@@ -6,6 +6,7 @@ import {
   useTransition,
   useMemo,
   useLayoutEffect,
+  useEffect,
 } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,10 @@ import {
   SlaEvent,
   TicketSlaPolicy,
   TicketTag,
+  PriorityChangeResult,
+  isPriorityLowered,
 } from "@/features/tickets/types/tickets.types";
+import { PriorityReasonDialog } from "@/features/tickets/components/priority-reason-dialog";
 import { AssignableAgent } from "@/features/tickets/services/tickets.service";
 import {
   sendTicketMessageAction,
@@ -43,11 +47,17 @@ import { useRealtimeSlaEvents } from "@/hooks/use-realtime-sla-events";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useRealtimeTicket } from "@/hooks/use-realtime-ticket";
 import { useNow } from "@/hooks/use-now";
+import { useListNavigation } from "@/hooks/use-list-navigation";
 import {
   SlaHeadlineBadge,
   TicketSlaCard,
 } from "@/features/tickets/components/ticket-sla-card";
 import { TicketTagsField } from "@/features/tickets/components/ticket-tags-field";
+import { TicketThreadEmptyState } from "@/features/tickets/components/ticket-empty";
+import {
+  SupportClosedNotice,
+  useSupportClosed,
+} from "@/features/tickets/components/support-closed-notice";
 import {
   TicketLifecycleActions,
   TicketLifecycleBanner,
@@ -56,6 +66,51 @@ import { Label } from "@/components/ui/label";
 import { IndeterminateProgress } from "@/components/ui/indeterminate-progress";
 import { BackLink } from "@/components/shared/back-link";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
+import { getInitials } from "@/lib/format";
+import { attachmentsTooLarge } from "@/features/tickets/lib/attachments";
+
+/**
+ * Attachment links are signed for an hour (ATTACHMENT_LINK_TTL_SECS); refetch
+ * the page a little before that so a ticket left open keeps working links.
+ */
+const ATTACHMENT_LINK_REFRESH_MS = 50 * 60 * 1000;
+
+/** "10:32" for today, "Oct 3, 10:32" for any other day. */
+function formatMessageTime(iso: string): string {
+  const at = new Date(iso);
+  const sameDay = at.toDateString() === new Date().toDateString();
+  return at.toLocaleString(
+    [],
+    sameDay
+      ? { hour: "2-digit", minute: "2-digit" }
+      : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
+  );
+}
+
+/**
+ * "last activity 5 min ago", in its own component so its 30-second tick
+ * re-renders this line and not the whole ticket page.
+ */
+function LastActivity({ at }: { at: string }) {
+  const now = useNow(30_000);
+  const mins = Math.max(0, Math.floor((now - new Date(at).getTime()) / 60000));
+  const hrs = Math.floor(mins / 60);
+  const days = Math.floor(hrs / 24);
+  const text =
+    mins < 1
+      ? "just now"
+      : mins < 60
+        ? `${mins} min ago`
+        : hrs < 24
+          ? `${hrs} hr${hrs > 1 ? "s" : ""} ago`
+          : `${days} day${days > 1 ? "s" : ""} ago`;
+  return (
+    <span className="text-slate-400" suppressHydrationWarning>
+      {" "}
+      · last activity {text}
+    </span>
+  );
+}
 
 interface TicketDetailViewProps {
   ticket: Ticket;
@@ -66,11 +121,72 @@ interface TicketDetailViewProps {
   agents?: AssignableAgent[];
   mentionableMembers?: AssignableAgent[];
   currentUserId?: string | null;
+  /** False for tenant admins: they aren't assignees, so no "Assign to me". */
+  canAssignToSelf?: boolean;
   slaPolicy?: TicketSlaPolicy | null;
   tags?: TicketTag[];
   tenantTags?: TicketTag[];
   /** Days a resolved ticket waits before it is closed automatically. */
   autoCloseDays?: number;
+}
+
+/** "Saving…" beside a field's label while that field's change is saving. */
+function SavingHint({ active }: { active: boolean }) {
+  return (
+    <span
+      aria-live="polite"
+      className={cn(
+        "flex items-center gap-1 text-[11px] font-medium text-brand-accent transition-opacity duration-200",
+        active ? "opacity-100" : "opacity-0",
+      )}
+    >
+      {active && (
+        <>
+          <Loader2 className="size-3 animate-spin" aria-hidden />
+          Saving…
+        </>
+      )}
+    </span>
+  );
+}
+
+const CLOCK_LABELS: Record<SlaEvent["type"], string> = {
+  first_response: "First response",
+  resolution: "Resolution",
+};
+
+const PRIORITY_LABELS: Record<TicketPriority, string> = {
+  urgent: "Urgent",
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
+const STATUS_LABELS: Record<TicketStatus, string> = {
+  new: "New",
+  open: "Open",
+  pending: "Pending",
+  on_hold: "On hold",
+  resolved: "Resolved",
+  closed: "Closed",
+};
+
+function announcePriorityChange(
+  from: TicketPriority,
+  to: TicketPriority,
+  change: PriorityChangeResult | undefined,
+) {
+  if (change && !change.changed) return;
+  const verb = isPriorityLowered(from, to) ? "lowered" : "raised";
+  const kept = change?.slaKept ?? [];
+  if (kept.length > 0) {
+    const clocks = kept.map((t) => CLOCK_LABELS[t]).join(" and ");
+    toast.success(
+      `Priority ${verb} to ${PRIORITY_LABELS[to]}. ${clocks} was due soon, so it keeps its original deadline.`,
+    );
+  } else {
+    toast.success(`Priority ${verb} to ${PRIORITY_LABELS[to]}.`);
+  }
 }
 
 export default function TicketDetailView({
@@ -82,6 +198,7 @@ export default function TicketDetailView({
   agents = [],
   mentionableMembers = [],
   currentUserId = null,
+  canAssignToSelf = true,
   slaPolicy = null,
   tags = [],
   tenantTags = [],
@@ -116,13 +233,22 @@ export default function TicketDetailView({
 
   const [, startTransition] = useTransition();
   const [isReplying, setIsReplying] = useState(false);
-  const [isUpdatingTicket, setIsUpdatingTicket] = useState(false);
+  // Which field is saving; the card's progress bar runs while any is.
+  const [updatingField, setUpdatingField] = useState<
+    "status" | "priority" | "assignee" | null
+  >(null);
+  const isUpdatingTicket = updatingField !== null;
   const [status, setStatus] = useState<TicketStatus>(ticket.status);
   const [priority, setPriority] = useState<TicketPriority>(ticket.priority);
+  // A lowered priority waiting for its reason.
+  const [lowerTo, setLowerTo] = useState<TicketPriority | null>(null);
+  // Anyone on staff counts as a real assignee here, so a ticket already given
+  // to a tenant admin (before only agents and managers could be picked) still
+  // shows who has it rather than "Unassigned".
+  const isStaff = (id: string | null | undefined): id is string =>
+    !!id && mentionableMembers.concat(agents).some((m) => m.id === id);
   const [assigneeId, setAssigneeId] = useState<string>(
-    agents.some((a) => a.id === ticket.assignee_id)
-      ? ticket.assignee_id!
-      : "unassigned",
+    isStaff(ticket.assignee_id) ? ticket.assignee_id : "unassigned",
   );
   const [resolvedAt, setResolvedAt] = useState<string | null>(
     ticket.resolved_at ?? null,
@@ -130,6 +256,21 @@ export default function TicketDetailView({
   const [closedAt, setClosedAt] = useState<string | null>(
     ticket.closed_at ?? null,
   );
+
+  // A fresh server row (router.refresh after a realtime gap, or after a
+  // save) replaces what the fields show. Skipped while a field is saving, so
+  // its optimistic value isn't flipped back before the save lands.
+  const [seenTicket, setSeenTicket] = useState(ticket);
+  if (ticket !== seenTicket && updatingField === null) {
+    setSeenTicket(ticket);
+    setStatus(ticket.status);
+    setPriority(ticket.priority);
+    setResolvedAt(ticket.resolved_at ?? null);
+    setClosedAt(ticket.closed_at ?? null);
+    setAssigneeId(
+      isStaff(ticket.assignee_id) ? ticket.assignee_id : "unassigned",
+    );
+  }
 
   // Changes made elsewhere: auto-close, a portal reopen, a teammate.
   useRealtimeTicket(ticket.id, (row) => {
@@ -139,23 +280,59 @@ export default function TicketDetailView({
     setResolvedAt(row.resolved_at);
     setClosedAt(row.closed_at);
     setAssigneeId(
-      row.assignee_user_id && agents.some((a) => a.id === row.assignee_user_id)
-        ? row.assignee_user_id
-        : "unassigned",
+      isStaff(row.assignee_user_id) ? row.assignee_user_id : "unassigned",
     );
     // The policy summary is server-rendered.
     if (statusMoved || row.sla_policy_id !== (slaPolicy?.id ?? null))
       router.refresh();
   });
+
+  useEffect(() => {
+    if (attachments.length === 0) return;
+    const id = setInterval(() => router.refresh(), ATTACHMENT_LINK_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [attachments.length, router]);
   const [replyType, setReplyType] = useState<MessageVisibility>("public");
+  const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  // From the empty thread's buttons: pick the composer's mode and focus it.
+  const startComposing = (type: MessageVisibility) => {
+    setReplyType(type);
+    replyInputRef.current?.focus();
+  };
   const [replyText, setReplyText] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // The opening request is the ticket's description, shown as the first
+  // customer post as the portal does. Older agent-created tickets also carry
+  // it as a seeded customer message; that copy is dropped so it shows once.
+  const opening = ticket.description?.trim() ?? "";
+  const seededCopy = opening
+    ? messages.find(
+        (m) => m.author_type === "customer" && m.body.trim() === opening,
+      )
+    : undefined;
+  const threadMessages: TicketMessage[] = opening
+    ? [
+        {
+          id: `${ticket.id}:description`,
+          tenant_id: ticket.tenant_id,
+          ticket_id: ticket.id,
+          author_type: "customer",
+          author_id: "",
+          body: ticket.description ?? "",
+          visibility: "public",
+          is_edited: false,
+          created_at: ticket.created_at,
+        },
+        ...messages.filter((m) => m !== seededCopy),
+      ]
+    : messages;
+
+  // Outside the policy's business hours the composer is locked.
+  const supportClosed = useSupportClosed(slaPolicy?.calendar);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionActive, setMentionActive] = useState(false);
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const mentionRef = useRef<HTMLDivElement>(null);
   const [showAllAttachments, setShowAllAttachments] = useState(false);
   const VISIBLE_ATTACHMENTS = 3;
   const mentionStartRef = useRef<number | null>(null);
@@ -163,11 +340,19 @@ export default function TicketDetailView({
   const mentionMatches = mentionActive
     ? mentionableMembers.filter(
         (m) =>
-          !mentionQuery ||
-          m.full_name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
-          m.email.toLowerCase().includes(mentionQuery.toLowerCase()),
+          // No point @mentioning yourself.
+          m.id !== currentUserId &&
+          (!mentionQuery ||
+            m.full_name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
+            m.email.toLowerCase().includes(mentionQuery.toLowerCase())),
       )
     : [];
+  const {
+    index: mentionIndex,
+    setIndex: setMentionIndex,
+    move: moveMention,
+    itemProps: mentionItemProps,
+  } = useListNavigation(mentionMatches.length);
 
   const applyMention = (member: AssignableAgent) => {
     if (mentionQuery === null) return;
@@ -195,9 +380,11 @@ export default function TicketDetailView({
       (a, b) => b.length - a.length,
     );
     if (names.length === 0) return body;
+    // Not followed by a letter or digit, so "@Samantha" isn't a mention of
+    // "Sam" with "antha" left over.
     const re = new RegExp(
-      `@(${names.map((n) => escapeRegExp(n)).join("|")})`,
-      "gi",
+      `@(${names.map((n) => escapeRegExp(n)).join("|")})(?![\\p{L}\\p{N}_])`,
+      "giu",
     );
     return body.replace(re, (match, name: string) => {
       const id = mentionMap.get(name.toLowerCase());
@@ -209,14 +396,8 @@ export default function TicketDetailView({
     e: React.KeyboardEvent<HTMLTextAreaElement>,
   ) => {
     if (!mentionActive || mentionMatches.length === 0) return;
-    if (e.key === "ArrowDown") {
+    if (moveMention(e.key)) {
       e.preventDefault();
-      setMentionIndex((i) => (i + 1) % mentionMatches.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setMentionIndex(
-        (i) => (i - 1 + mentionMatches.length) % mentionMatches.length,
-      );
     } else if (e.key === "Enter" || e.key === "Tab") {
       e.preventDefault();
       const member = mentionMatches[mentionIndex];
@@ -250,15 +431,19 @@ export default function TicketDetailView({
     }
   };
 
-  const now = useNow(30_000);
-
   const handleSendReply = () => {
+    if (supportClosed) return;
     if (!replyText.trim() && pendingFiles.length === 0) return;
+    const tooLarge = attachmentsTooLarge(pendingFiles);
+    if (tooLarge) {
+      toast.error(tooLarge);
+      return;
+    }
 
     const body = serializeBodyMentions(replyText);
     const fd = new FormData();
     fd.append("ticketId", ticket.id);
-    fd.append("tenantId", tenant);
+    fd.append("tenantSlug", tenant);
     fd.append("body", body);
     fd.append("visibility", replyType);
     pendingFiles.forEach((f) => fd.append("files", f));
@@ -269,12 +454,23 @@ export default function TicketDetailView({
         const res = await sendTicketMessageAction(fd);
         if (res.success) {
           if (res.message && "id" in res.message) {
+            // The saved row has no author name; the realtime copy that would
+            // carry it is dropped as a duplicate, so add it here.
+            const name = currentUserId
+              ? memberNameById[currentUserId]
+              : undefined;
+            const sent: TicketMessage = {
+              ...(res.message as TicketMessage),
+              author_name: name,
+              author_initials: name ? getInitials(name, "") : undefined,
+            };
             setMessages((prev) =>
-              prev.some((m) => m.id === res.message!.id)
-                ? prev
-                : [...prev, res.message as TicketMessage],
+              prev.some((m) => m.id === sent.id) ? prev : [...prev, sent],
             );
           }
+          // Sent, but its files didn't attach: say so, and don't invite a
+          // resend that would post the reply twice.
+          if ("warning" in res && res.warning) toast.warning(res.warning);
           setReplyText("");
           setPendingFiles([]);
           setMentionQuery(null);
@@ -284,6 +480,10 @@ export default function TicketDetailView({
         } else {
           toast.error(res.error || "Failed to send reply.");
         }
+      } catch {
+        // The request itself failed (network, or a body over the limit):
+        // keep the typed reply and say so instead of the error page.
+        toast.error("Couldn't send the reply. Please try again.");
       } finally {
         setIsReplying(false);
       }
@@ -292,10 +492,14 @@ export default function TicketDetailView({
 
   const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || []);
-    if (selected.length) {
-      setPendingFiles((prev) => [...prev, ...selected]);
-    }
     e.target.value = "";
+    if (!selected.length) return;
+    const tooLarge = attachmentsTooLarge([...pendingFiles, ...selected]);
+    if (tooLarge) {
+      toast.error(tooLarge);
+      return;
+    }
+    setPendingFiles((prev) => [...prev, ...selected]);
   };
 
   const removePendingFile = (index: number) => {
@@ -312,25 +516,15 @@ export default function TicketDetailView({
     (name.match(/\.([^.]+)$/) || [])[1]?.toUpperCase() || "FILE";
 
   const activityAt = lastActivityAt ?? ticket.created_at;
-  const lastActivityText = (() => {
-    const diff = now - new Date(activityAt).getTime();
-    const mins = Math.max(0, Math.floor(diff / 60000));
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins} min ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs} hr${hrs > 1 ? "s" : ""} ago`;
-    const days = Math.floor(hrs / 24);
-    return `${days} day${days > 1 ? "s" : ""} ago`;
-  })();
   const handleStatusChange = (val: TicketStatus) => {
     const prev = status;
     setStatus(val);
-    setIsUpdatingTicket(true);
+    setUpdatingField("status");
     startTransition(async () => {
       try {
         const res = await updateTicketDetailsAction({
           ticketId: ticket.id,
-          tenantId: tenant,
+          tenantSlug: tenant,
           status: val,
         });
         if (!res.success) {
@@ -343,96 +537,125 @@ export default function TicketDetailView({
           else if (val === "closed") toast.success("Ticket closed.");
           else if (prev === "resolved" || prev === "closed")
             toast.success("Ticket reopened.");
+          else toast.success(`Status changed to ${STATUS_LABELS[val]}.`);
           router.refresh();
         }
       } finally {
-        setIsUpdatingTicket(false);
+        setUpdatingField(null);
       }
     });
   };
 
   const isClosed = status === "closed";
 
-  const handlePriorityChange = (val: TicketPriority) => {
+  const savePriority = (val: TicketPriority, reason?: string) => {
     const prev = priority;
     setPriority(val);
-    setIsUpdatingTicket(true);
+    setUpdatingField("priority");
     startTransition(async () => {
       try {
         const res = await updateTicketDetailsAction({
           ticketId: ticket.id,
-          tenantId: tenant,
+          tenantSlug: tenant,
           priority: val,
+          priorityReason: reason,
         });
         if (!res.success) {
           setPriority(prev);
           toast.error(res.error || "Failed to update priority.");
-        } else if ("slaEvents" in res && res.slaEvents) {
-          // The new priority's targets, with the time already used kept.
+          return;
+        }
+        setLowerTo(null);
+        if ("slaEvents" in res && res.slaEvents) {
+          // The new priority's targets, with the time already used kept --
+          // or, for a clock that was due soon, its original deadline.
           replaceSlaEvents(res.slaEvents);
         }
+        announcePriorityChange(
+          prev,
+          val,
+          "priorityChange" in res ? res.priorityChange : undefined,
+        );
       } finally {
-        setIsUpdatingTicket(false);
+        setUpdatingField(null);
       }
     });
+  };
+
+  // Raising is immediate; lowering asks why first.
+  const handlePriorityChange = (val: TicketPriority) => {
+    if (val === priority) return;
+    if (isPriorityLowered(priority, val)) {
+      setLowerTo(val);
+      return;
+    }
+    savePriority(val);
   };
 
   const handleAssigneeChange = (val: string) => {
     const prev = assigneeId;
     setAssigneeId(val);
     if (val === "unassigned") {
-      setIsUpdatingTicket(true);
+      setUpdatingField("assignee");
       startTransition(async () => {
         try {
           const res = await updateTicketDetailsAction({
             ticketId: ticket.id,
-            tenantId: tenant,
+            tenantSlug: tenant,
             unassign: true,
           });
           if (!res.success) {
             setAssigneeId(prev);
             toast.error(res.error || "Failed to unassign ticket.");
+          } else {
+            toast.success("Ticket unassigned.");
           }
         } finally {
-          setIsUpdatingTicket(false);
+          setUpdatingField(null);
         }
       });
       return;
     }
     if (val === "me") {
-      setIsUpdatingTicket(true);
+      setUpdatingField("assignee");
       startTransition(async () => {
         try {
           const res = await assignTicketToMeAction({
             ticketId: ticket.id,
-            tenantId: tenant,
+            tenantSlug: tenant,
           });
           if (res.success && res.assigneeId) {
             setAssigneeId(res.assigneeId);
+            toast.success("Ticket assigned to you.");
           } else {
-            setAssigneeId(ticket.assignee_id || "unassigned");
+            setAssigneeId(prev);
             toast.error(res.error || "Failed to assign ticket to you.");
           }
         } finally {
-          setIsUpdatingTicket(false);
+          setUpdatingField(null);
         }
       });
       return;
     }
-    setIsUpdatingTicket(true);
+    setUpdatingField("assignee");
     startTransition(async () => {
       try {
         const res = await updateTicketDetailsAction({
           ticketId: ticket.id,
-          tenantId: tenant,
+          tenantSlug: tenant,
           assigneeId: val,
         });
         if (!res.success) {
           setAssigneeId(prev);
           toast.error(res.error || "Failed to assign ticket.");
+        } else {
+          const name = agents.find((a) => a.id === val)?.full_name;
+          toast.success(
+            name ? `Ticket assigned to ${name}.` : "Ticket assigned.",
+          );
         }
       } finally {
-        setIsUpdatingTicket(false);
+        setUpdatingField(null);
       }
     });
   };
@@ -487,10 +710,7 @@ export default function TicketDetailView({
                 </span>
               </>
             )}
-            <span className="text-slate-400">
-              {" "}
-              · last activity {lastActivityText}
-            </span>
+            <LastActivity at={activityAt} />
           </p>
 
           <TicketLifecycleBanner
@@ -504,95 +724,104 @@ export default function TicketDetailView({
         {/* min-h keeps a short laptop screen from squeezing the thread to
             nothing -- there the page scrolls instead. */}
         <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:min-h-112 lg:flex-1 lg:grid-cols-3">
-          <section className="flex h-[75dvh] min-h-112 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-2 lg:h-auto lg:min-h-0">
+          <section className="flex h-[75dvh] min-h-112 flex-col overflow-hidden rounded-xl bg-white shadow-sm lg:col-span-2 lg:h-auto lg:min-h-0">
             {/* The only part of the card that scrolls. */}
             <div
               ref={threadRef}
               className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5 sm:py-5"
             >
-              {messages.length === 0 && (
-                <p className="py-10 text-center text-xs text-slate-400">
-                  No messages on this ticket yet.
-                </p>
+              {threadMessages.length === 0 && (
+                <TicketThreadEmptyState
+                  closed={isClosed}
+                  onReply={() => startComposing("public")}
+                  onNote={() => startComposing("internal")}
+                />
               )}
-              {messages.map((msg) => {
+              {threadMessages.map((msg) => {
                 const isInternal = msg.visibility === "internal";
                 const isCustomer = msg.author_type === "customer";
+                const authorName =
+                  msg.author_name ||
+                  (isCustomer ? ticket.requester_name || "Customer" : "Agent");
 
+                // The portal's message, seen from the team's side: the
+                // team's messages on the right, the customer's on the left.
                 return (
-                  <div
+                  <article
                     key={msg.id}
                     className={cn(
-                      "flex min-w-0 items-start gap-3",
-                      !isCustomer && "flex-row-reverse",
+                      "flex min-w-0 flex-col gap-2",
+                      isCustomer ? "items-start" : "items-end",
                     )}
                   >
                     <div
-                      className={`w-8 h-8 rounded-full text-white flex items-center justify-center text-sm font-semibold shrink-0 ${
-                        isCustomer
-                          ? "bg-slate-600"
-                          : isInternal
-                            ? "bg-amber-600"
-                            : "bg-teal-700"
-                      }`}
+                      className={cn(
+                        "flex min-w-0 items-center gap-2.5",
+                        !isCustomer && "flex-row-reverse",
+                      )}
                     >
-                      {msg.author_initials ||
-                        (isCustomer
-                          ? ticket.requester_name
-                              .split(" ")
-                              .map((s) => s[0])
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase() || "CU"
-                          : "AG")}
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+                          isCustomer
+                            ? "bg-brand-accent text-brand-accent-foreground"
+                            : isInternal
+                              ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300 ring-inset"
+                              : // Ringed: the bubble below is the same tint.
+                                "bg-brand-accent/10 text-brand-accent ring-1 ring-brand-accent/25 ring-inset",
+                        )}
+                      >
+                        {msg.author_initials ||
+                          (isCustomer
+                            ? ticket.requester_name
+                              ? getInitials(ticket.requester_name, "")
+                              : "CU"
+                            : "AG")}
+                      </span>
+
+                      <div
+                        className={cn(
+                          "min-w-0",
+                          !isCustomer && "flex flex-col items-end text-right",
+                        )}
+                      >
+                        <p
+                          className={cn(
+                            "flex flex-wrap items-center gap-x-2 text-sm font-semibold wrap-break-word text-slate-900",
+                            !isCustomer && "flex-row-reverse",
+                          )}
+                        >
+                          {authorName}
+                          {isInternal && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                              Internal note
+                            </span>
+                          )}
+                        </p>
+                        {/* Server and browser time zones can differ. */}
+                        <p
+                          className="text-xs text-slate-500"
+                          suppressHydrationWarning
+                        >
+                          {formatMessageTime(msg.created_at)}
+                        </p>
+                      </div>
                     </div>
 
                     <div
                       className={cn(
-                        "flex min-w-0 max-w-[85%] flex-col gap-1 sm:max-w-[75%]",
-                        isCustomer ? "items-start" : "items-end",
+                        "min-w-0 max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-[1.6] whitespace-pre-line wrap-break-word text-slate-800 sm:max-w-[75%]",
+                        isCustomer
+                          ? "rounded-tl-sm bg-slate-100"
+                          : isInternal
+                            ? "rounded-tr-sm border border-amber-200 bg-amber-50"
+                            : "rounded-tr-sm bg-brand-accent/10",
                       )}
                     >
-                      <div
-                        className={cn(
-                          "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs",
-                          !isCustomer && "flex-row-reverse",
-                        )}
-                      >
-                        <span className="font-semibold text-slate-900">
-                          {msg.author_name ||
-                            (isCustomer
-                              ? ticket.requester_name || "Customer"
-                              : "Agent")}
-                        </span>
-                        {isInternal && (
-                          <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200 tracking-wider uppercase">
-                            Internal Note
-                          </span>
-                        )}
-                        <span className="text-slate-400 text-xs">
-                          {new Date(msg.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-
-                      <div
-                        className={`min-w-0 p-3.5 rounded-lg text-sm leading-relaxed border whitespace-pre-line wrap-break-word ${
-                          isCustomer ? "rounded-tl-sm" : "rounded-tr-sm"
-                        } ${
-                          isInternal
-                            ? "bg-amber-50 border-amber-200 text-slate-800"
-                            : isCustomer
-                              ? "bg-white border-slate-200 text-slate-800 shadow-sm"
-                              : "bg-emerald-50/50 border-emerald-200 text-slate-800"
-                        }`}
-                      >
-                        <MentionText text={msg.body} />
-                      </div>
+                      <MentionText text={msg.body} />
                     </div>
-                  </div>
+                  </article>
                 );
               })}
             </div>
@@ -610,12 +839,16 @@ export default function TicketDetailView({
                     : "bg-slate-50/60 border-slate-200"
                 }`}
               >
+                {supportClosed && (
+                  <SupportClosedNotice closed={supportClosed} />
+                )}
                 <div className="flex items-center space-x-2 px-3 sm:px-4 pt-3">
                   <Button
                     type="button"
                     variant="ghost"
                     aria-pressed={replyType === "public"}
                     onClick={() => setReplyType("public")}
+                    disabled={!!supportClosed}
                     className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
                       replyType === "public"
                         ? "border-teal-700 text-teal-700 bg-teal-700/10 shadow-sm  hover:bg-teal-700/10 hover:text-teal-700"
@@ -629,6 +862,7 @@ export default function TicketDetailView({
                     variant="ghost"
                     aria-pressed={replyType === "internal"}
                     onClick={() => setReplyType("internal")}
+                    disabled={!!supportClosed}
                     className={`h-9 px-2.5 sm:px-3 text-xs font-semibold rounded-lg border transition-all ${
                       replyType === "internal"
                         ? "border-amber-600 text-amber-800 bg-amber-100/50 shadow-sm  hover:bg-amber-100/50 hover:text-amber-800"
@@ -641,58 +875,62 @@ export default function TicketDetailView({
 
                 <div className="relative px-3 pt-2 sm:px-4">
                   <textarea
+                    ref={replyInputRef}
                     rows={2}
                     value={replyText}
                     onChange={handleReplyTextChange}
                     onKeyDown={handleMentionKeyDown}
+                    disabled={!!supportClosed}
                     placeholder={
-                      replyType === "internal"
-                        ? "Visible to your team only — context, root cause, next steps."
-                        : `Write a reply to ${ticket.requester_name || "John Doe"}...`
+                      supportClosed
+                        ? "Replies are disabled while support is closed."
+                        : replyType === "internal"
+                          ? "Visible to your team only — context, root cause, next steps."
+                          : `Write a reply to ${ticket.requester_name || "John Doe"}...`
                     }
-                    className="block max-h-40 min-h-16 w-full resize-none overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-0 focus-visible:ring-0 sm:text-sm"
+                    className="block max-h-40 min-h-16 w-full resize-none overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-0 focus-visible:ring-0 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
                   />
                   {/* Opens upward: the composer sits at the bottom of the card. */}
                   {mentionActive && mentionMatches.length > 0 && (
-                    <div
-                      ref={mentionRef}
-                      className="absolute bottom-full left-3 z-30 mb-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg sm:left-4"
-                    >
+                    <div className="absolute bottom-full left-3 z-30 mb-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg sm:left-4">
                       <p className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                         Mention someone
                       </p>
                       <div className="max-h-48 overflow-y-auto">
-                        {mentionMatches.map((member, idx) => (
-                          <Button
-                            key={member.id}
-                            type="button"
-                            variant="ghost"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setMentionIndex(idx);
-                              applyMention(member);
-                            }}
-                            onMouseEnter={() => setMentionIndex(idx)}
-                            className={cn(
-                              "h-auto w-full justify-start gap-2 rounded-none px-3 py-2 text-left",
-                              idx === mentionIndex
-                                ? "bg-slate-50"
-                                : "hover:bg-slate-50",
-                            )}
-                          >
-                            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
-                              {member.full_name
-                                .split(" ")
-                                .map((s) => s[0])
-                                .join("")
-                                .slice(0, 2)
-                                .toUpperCase()}
-                            </span>
-                            <span className="truncate text-xs font-medium text-slate-800">
-                              {member.full_name}
-                            </span>
-                          </Button>
-                        ))}
+                        {mentionMatches.map((member, idx) => {
+                          const item = mentionItemProps(idx);
+                          return (
+                            <Button
+                              key={member.id}
+                              type="button"
+                              variant="ghost"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setMentionIndex(idx);
+                                applyMention(member);
+                              }}
+                              {...item}
+                              className={cn(
+                                "h-auto w-full justify-start gap-2 rounded-none px-3 py-2 text-left",
+                                item.className,
+                              )}
+                            >
+                              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-600">
+                                {getInitials(member.full_name, member.email)}
+                              </span>
+                              <span
+                                className={cn(
+                                  "truncate text-xs font-medium",
+                                  idx === mentionIndex
+                                    ? "text-teal-900"
+                                    : "text-slate-800",
+                                )}
+                              >
+                                {member.full_name}
+                              </span>
+                            </Button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -741,6 +979,7 @@ export default function TicketDetailView({
                       size="sm"
                       className="h-10 px-3 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50"
                       onClick={() => fileInputRef.current?.click()}
+                      disabled={!!supportClosed}
                     >
                       <Paperclip className="size-4 mr-1.5 text-slate-600" />
                       Attach
@@ -757,6 +996,7 @@ export default function TicketDetailView({
                     onClick={handleSendReply}
                     disabled={
                       isReplying ||
+                      !!supportClosed ||
                       (!replyText.trim() && pendingFiles.length === 0)
                     }
                     className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold px-4 h-10 rounded-lg transition-colors shadow-sm"
@@ -786,11 +1026,8 @@ export default function TicketDetailView({
                 <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
                   <div className="w-9 h-9 rounded-full bg-slate-500 text-white flex items-center justify-center text-xs font-bold">
                     {ticket.requester_name
-                      .split(" ")
-                      .map((s) => s[0])
-                      .join("")
-                      .slice(0, 2)
-                      .toUpperCase() || "CU"}
+                      ? getInitials(ticket.requester_name, "")
+                      : "CU"}
                   </div>
                   <div>
                     <h4 className="font-bold text-slate-900">
@@ -807,9 +1044,10 @@ export default function TicketDetailView({
                 <div className="grid gap-2">
                   <Label
                     htmlFor="status"
-                    className="font-semibold text-slate-700"
+                    className="flex items-center justify-between font-semibold text-slate-700"
                   >
                     Status
+                    <SavingHint active={updatingField === "status"} />
                   </Label>
                   <Select
                     value={status}
@@ -862,9 +1100,10 @@ export default function TicketDetailView({
                 <div className="grid gap-2">
                   <Label
                     htmlFor="priority"
-                    className="font-semibold text-slate-700"
+                    className="flex items-center justify-between font-semibold text-slate-700"
                   >
                     Priority
+                    <SavingHint active={updatingField === "priority"} />
                   </Label>
                   <Select
                     value={priority}
@@ -902,9 +1141,10 @@ export default function TicketDetailView({
                 <div className="grid gap-2">
                   <Label
                     htmlFor="assignee"
-                    className="font-semibold text-slate-700"
+                    className="flex items-center justify-between font-semibold text-slate-700"
                   >
                     Assignee
+                    <SavingHint active={updatingField === "assignee"} />
                   </Label>
                   <Select
                     value={assigneeId}
@@ -923,20 +1163,47 @@ export default function TicketDetailView({
                       position="popper"
                       className="p-1"
                     >
-                      {currentUserId && (
-                        <SelectItem value="me" className="cursor-pointer p-2">
-                          Assign to me
-                        </SelectItem>
-                      )}
-                      {agents.map((agent) => (
-                        <SelectItem
-                          key={agent.id}
-                          value={agent.id}
-                          className="cursor-pointer p-2"
-                        >
-                          {agent.full_name}
-                        </SelectItem>
-                      ))}
+                      {currentUserId &&
+                        canAssignToSelf &&
+                        assigneeId !== currentUserId && (
+                          <SelectItem value="me" className="cursor-pointer p-2">
+                            Assign to me
+                          </SelectItem>
+                        )}
+                      {/* The current assignee, if no longer pickable (a
+                          tenant admin), so the select can still name them. */}
+                      {assigneeId !== "unassigned" &&
+                        !agents.some((a) => a.id === assigneeId) && (
+                          <SelectItem
+                            value={assigneeId}
+                            disabled
+                            className="cursor-pointer p-2"
+                          >
+                            {memberNameById[assigneeId] ?? "Team member"}
+                          </SelectItem>
+                        )}
+                      {/* "Assign to me" stands in for the viewer's own row;
+                          keep it only while they're the assignee so the
+                          select can still name them. */}
+                      {agents
+                        .filter(
+                          (agent) =>
+                            !(
+                              currentUserId &&
+                              canAssignToSelf &&
+                              agent.id === currentUserId &&
+                              assigneeId !== currentUserId
+                            ),
+                        )
+                        .map((agent) => (
+                          <SelectItem
+                            key={agent.id}
+                            value={agent.id}
+                            className="cursor-pointer p-2"
+                          >
+                            {agent.full_name}
+                          </SelectItem>
+                        ))}
                       <SelectItem
                         value="unassigned"
                         className="cursor-pointer p-2"
@@ -1029,6 +1296,14 @@ export default function TicketDetailView({
           </div>
         </div>
       </div>
+
+      <PriorityReasonDialog
+        open={lowerTo !== null}
+        to={lowerTo}
+        pending={isUpdatingTicket}
+        onCancel={() => setLowerTo(null)}
+        onConfirm={(reason) => lowerTo && savePriority(lowerTo, reason)}
+      />
     </div>
   );
 }

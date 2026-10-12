@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { useListNavigation } from "@/hooks/use-list-navigation";
 import { setTicketTagsAction } from "@/features/tickets/actions/tickets.actions";
 import { TAG_NAME_MAX, normalizeTagName } from "@/features/tickets/lib/tags";
 import { TicketTag } from "@/features/tickets/types/tickets.types";
@@ -29,7 +30,6 @@ export function TicketTagsField({
   const [known, setKnown] = useState<TicketTag[]>(suggestions);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(0);
   const [isSaving, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -46,11 +46,17 @@ export function TicketTagsField({
     ...matches.map((t) => t.name),
     ...(canCreate ? [query] : []),
   ];
+  const {
+    index: highlight,
+    setIndex: setHighlight,
+    move,
+    itemProps,
+  } = useListNavigation(choices.length);
 
   const save = (names: string[], previous: TicketTag[]) => {
     startTransition(async () => {
       const res = await setTicketTagsAction({
-        tenantId: tenant,
+        tenantSlug: tenant,
         ticketId,
         names,
       });
@@ -95,13 +101,9 @@ export function TicketTagsField({
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "ArrowDown" && choices.length > 0) {
+    if (move(e.key)) {
       e.preventDefault();
       setOpen(true);
-      setHighlight((i) => (i + 1) % choices.length);
-    } else if (e.key === "ArrowUp" && choices.length > 0) {
-      e.preventDefault();
-      setHighlight((i) => (i - 1 + choices.length) % choices.length);
     } else if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       const pick = open && choices[highlight] ? choices[highlight] : draft;
@@ -172,6 +174,7 @@ export function TicketTagsField({
             {choices.map((name, idx) => {
               const isNew =
                 canCreate && name === query && idx === choices.length - 1;
+              const item = itemProps(idx);
               return (
                 <Button
                   key={`${isNew ? "new" : "tag"}-${name}`}
@@ -181,10 +184,10 @@ export function TicketTagsField({
                     e.preventDefault();
                     add(name);
                   }}
-                  onMouseEnter={() => setHighlight(idx)}
+                  {...item}
                   className={cn(
                     "h-auto w-full justify-start gap-2 rounded-none px-3 py-2 text-left text-xs font-medium text-slate-700",
-                    idx === highlight ? "bg-slate-50" : "hover:bg-slate-50",
+                    item.className,
                   )}
                 >
                   {isNew ? (

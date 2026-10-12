@@ -26,14 +26,18 @@ export function IndeterminateProgress({
     <div
       role="progressbar"
       aria-label={label}
-      className={cn("h-0.75 w-full overflow-hidden", className)}
+      aria-busy={active}
+      data-state={active ? "loading" : "finishing"}
+      className={cn("progress-track h-0.75 w-full overflow-hidden", className)}
     >
+      {/* Loops while loading (a request has no known length), then fills
+          the track and fades out; progress-sweep in globals.css. */}
       <div
         data-state={active ? "loading" : "finishing"}
         onTransitionEnd={(event) => {
           if (!active && event.propertyName === "opacity") setVisible(false);
         }}
-        className="bg-primary progress-sweep h-full w-full origin-left rounded-full"
+        className="progress-sweep h-full rounded-full bg-brand-accent"
       />
     </div>
   );

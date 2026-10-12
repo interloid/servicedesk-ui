@@ -160,14 +160,6 @@ export function slaMsBetween(
   return total;
 }
 
-/** True when `at` falls inside a working window. */
-export function isWorkingTime(at: number, cal: SlaCalendar | null): boolean {
-  if (!cal) return true;
-  return dayWindows(cal, localDay(at, cal.tz)).some(
-    ([s, e]) => at >= s && at < e,
-  );
-}
-
 /**
  * The first working instant at or after `at`: `at` itself inside a window,
  * otherwise the start of the next one. Null without a calendar (24/7 never
@@ -188,4 +180,36 @@ export function nextWorkingStart(
     }
   }
   return null;
+}
+
+/** Why support is closed at `at`, or null while it's open (or 24/7). */
+export type ClosedReason =
+  "holiday" | "non_working_day" | "before_hours" | "after_hours";
+
+export function closedReason(
+  at: number,
+  cal: SlaCalendar | null,
+): ClosedReason | null {
+  if (!cal) return null;
+  const day = localDay(at, cal.tz);
+  const windows = dayWindows(cal, day);
+  if (windows.some(([s, e]) => at >= s && at < e)) return null;
+
+  const weekday = DAY_NAMES[new Date(`${day}T00:00:00Z`).getUTCDay()];
+  if (!cal.workingDays.includes(weekday)) return "non_working_day";
+  // A working weekday that's closed now: a holiday if one covers this moment.
+  const onHoliday = cal.holidays.some((h) => {
+    const hits =
+      h.date === day || (h.repeatsYearly && h.date.slice(5) === day.slice(5));
+    if (!hits) return false;
+    if (h.allDay) return true;
+    if (!h.startTime || !h.endTime) return false;
+    return (
+      at >= zonedInstant(day, h.startTime, cal.tz) &&
+      at < zonedInstant(day, h.endTime, cal.tz)
+    );
+  });
+  if (onHoliday) return "holiday";
+  if (windows.length === 0) return "non_working_day";
+  return at < windows[0][0] ? "before_hours" : "after_hours";
 }

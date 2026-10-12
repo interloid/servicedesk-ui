@@ -1,12 +1,15 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Clock, PauseCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { useNow } from "@/hooks/use-now";
+import { useMounted } from "@/hooks/use-mounted";
 import {
   SlaClockState,
   computeSlaClock,
+  formatOpening,
+  formatOpeningLong,
   formatSlaDuration,
   headlineSlaEvent,
 } from "@/features/tickets/lib/sla";
@@ -16,6 +19,11 @@ import {
   TicketSlaPolicy,
 } from "@/features/tickets/types/tickets.types";
 import { toDurationInput } from "@/features/sla-policies/duration";
+import {
+  SlaCalendar,
+  nextWorkingStart,
+  usableCalendar,
+} from "@/features/tickets/lib/sla-calendar";
 
 const LABELS: Record<SlaEvent["type"], string> = {
   first_response: "First response",
@@ -89,11 +97,40 @@ function formatTarget(
   return `${amount} ${working}${label}`;
 }
 
-/** Ticks every second only while a clock is actually running. */
-function useSlaNow(events: SlaEvent[]): number {
-  const running = events.some((e) => e.status === "pending" && !e.paused_at);
-  return useNow(1000, running);
+/**
+ * The time the clocks are drawn at. Ticks every second while a clock is
+ * counting. While every running clock is waiting for business hours nothing
+ * visibly changes, so it wakes at the opening instead (checking at least
+ * once a minute), not every second through a night or a weekend.
+ */
+function useSlaNow(
+  events: SlaEvent[],
+  calendar: SlaCalendar | null | undefined,
+): number {
+  const [now, setNow] = useState(() => Date.now());
+  const running = events.filter((e) => e.status === "pending" && !e.paused_at);
+  const cal = usableCalendar(calendar);
+  const opensAt = cal ? nextWorkingStart(now, cal) : null;
+  const waiting =
+    running.length > 0 &&
+    opensAt !== null &&
+    opensAt > now &&
+    running.every((e) => e.business_hours_id);
+  const delay = waiting
+    ? Math.max(1000, Math.min(60_000, opensAt - now))
+    : 1000;
+
+  useEffect(() => {
+    if (running.length === 0) return;
+    const id = setTimeout(() => setNow(Date.now()), delay);
+    return () => clearTimeout(id);
+  }, [now, running.length, delay]);
+
+  return now;
 }
+
+/** The badge for a clock waiting on business hours, worded one way. */
+const WAITING_TEXT = "Paused — Outside business hours";
 
 function ClockBadge({
   state,
@@ -105,8 +142,11 @@ function ClockBadge({
   className?: string;
 }) {
   const style = BADGE[state];
+  // The countdown and times are read from the clock and the local time zone,
+  // which differ between the server render and the browser.
   return (
     <span
+      suppressHydrationWarning
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap tabular-nums",
         style.badge,
@@ -133,7 +173,8 @@ export function SlaHeadlineBadge({
   events: SlaEvent[];
   policy?: TicketSlaPolicy | null;
 }) {
-  const now = useSlaNow(events);
+  const now = useSlaNow(events, policy?.calendar);
+  const mounted = useMounted();
   const ev = headlineSlaEvent(events);
   if (!ev) return null;
   const clock = computeSlaClock(
@@ -145,8 +186,15 @@ export function SlaHeadlineBadge({
   );
   return (
     <ClockBadge
-      state={clock.state}
-      text={`${LABELS[ev.type]} · ${clock.text}`}
+      state={clock.state === "waiting" ? "paused" : clock.state}
+      text={`${LABELS[ev.type]} · ${
+        clock.state === "waiting"
+          ? // The opening is in the viewer's time zone: browser only.
+            mounted && clock.startsAt !== null
+            ? `Paused — resumes ${formatOpening(clock.startsAt, now)}`
+            : WAITING_TEXT
+          : clock.text
+      }`}
       className="text-xs"
     />
   );
@@ -171,7 +219,8 @@ export function TicketSlaCard({
   updating,
   priority,
 }: TicketSlaCardProps) {
-  const now = useSlaNow(events);
+  const now = useSlaNow(events, policy?.calendar);
+  const mounted = useMounted();
 
   const paused = events.some((e) => e.status === "pending" && e.paused_at);
 
@@ -236,7 +285,7 @@ export function TicketSlaCard({
                   : clock.state === "paused"
                     ? `Paused ${formatClock(ev.paused_at!)}`
                     : clock.state === "waiting"
-                      ? `Outside business hours · ${formatSlaDuration(clock.remainingMs, policy?.calendar ? policy.day_mins : 1440)} left · due ${formatClock(ev.due_at)}`
+                      ? `${formatSlaDuration(clock.remainingMs, policy?.calendar ? policy.day_mins : 1440)} left · due ${formatClock(ev.due_at)}`
                       : `Due ${formatClock(ev.due_at)}`;
 
             return (
@@ -257,15 +306,35 @@ export function TicketSlaCard({
                       </span>
                     )}
                   </span>
-                  <ClockBadge state={clock.state} text={clock.text} />
+                  <ClockBadge
+                    state={clock.state === "waiting" ? "paused" : clock.state}
+                    text={clock.state === "waiting" ? WAITING_TEXT : clock.text}
+                  />
                 </div>
+                {mounted &&
+                  clock.state === "waiting" &&
+                  clock.startsAt !== null && (
+                    <p
+                      className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600"
+                      suppressHydrationWarning
+                    >
+                      <Clock className="size-3 shrink-0" aria-hidden />
+                      Resumes {formatOpeningLong(clock.startsAt, now)}
+                    </p>
+                  )}
                 <div className="w-full h-1.5 bg-slate-200/70 rounded-full overflow-hidden">
                   <div
                     className={cn("h-full transition-all", style.bar)}
                     style={{ width: `${clock.usedPct}%` }}
                   />
                 </div>
-                <p className="text-[11px] text-slate-400">{footnote}</p>
+                <p
+                  className="text-[11px] text-slate-400"
+                  suppressHydrationWarning
+                >
+                  {/* Dates are in the viewer's time zone: browser only. */}
+                  {mounted ? footnote : "\u00a0"}
+                </p>
               </div>
             );
           })

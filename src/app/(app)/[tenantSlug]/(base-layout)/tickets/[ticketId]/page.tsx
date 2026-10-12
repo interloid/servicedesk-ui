@@ -1,11 +1,12 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import TicketDetailView from "@/features/tickets/components/ticket-detail-view";
 import {
   fetchTicketAttachments,
-  fetchAssignableAgents,
-  fetchMentionableMembers,
+  ASSIGNEE_ROLES,
+  fetchTenantStaff,
+  fetchTicketById,
   fetchTicketSlaEvents,
   fetchTicketSlaPolicy,
   fetchTicketTags,
@@ -13,96 +14,72 @@ import {
   fetchAutoCloseDays,
   getCurrentUserIdentity,
   getTicketMessages,
-  withVisibleAssignee,
 } from "@/features/tickets/services/tickets.service";
 
 interface TicketDetailPageProps {
   params: Promise<{ tenantSlug: string; ticketId: string }>;
 }
 
+export async function generateMetadata({
+  params,
+}: TicketDetailPageProps): Promise<Metadata> {
+  const { tenantSlug, ticketId } = await params;
+  const ticket = await fetchTicketById(tenantSlug, ticketId);
+  return {
+    title: ticket ? `#${ticket.number} · ${ticket.subject}` : "Ticket",
+  };
+}
+
 export default async function TicketDetailPage({
   params,
 }: TicketDetailPageProps) {
   const { tenantSlug, ticketId } = await params;
-  const supabase = await createSupabaseServerClient();
   const tenantId = await getTenantIdBySlug(tenantSlug);
-  const { data: ticket, error } = await supabase
-    .from("tickets")
-    .select(
-      `
-        *,
-        customers:requester_customer_id (
-          full_name,
-          company,
-          email
-        ),
-        assignee:assignee_user_id (
-          full_name
-        )
-      `,
-    )
-    .eq("id", ticketId)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
+  const ticket = tenantId ? await fetchTicketById(tenantSlug, ticketId) : null;
 
-  if (error) {
-    console.error("Error fetching single ticket:", error.message);
-  }
-
-  if (!ticket) {
+  if (!tenantId || !ticket) {
     notFound();
   }
-
-  const cust = ticket.customers;
-  const [formattedTicket] = await withVisibleAssignee(
-    supabase,
-    [
-      {
-        ...ticket,
-        requester_name: cust
-          ? cust.full_name || cust.email
-          : "Unknown Customer",
-        requester_company: cust?.company || "N/A",
-      },
-    ],
-    tenantId!,
-  );
 
   const [
     messages,
     attachments,
     slaEvents,
-    agents,
-    mentionable,
+    staff,
     currentUser,
     slaPolicy,
     tags,
     tenantTags,
     autoCloseDays,
   ] = await Promise.all([
-    getTicketMessages(ticketId, tenantId!),
-    fetchTicketAttachments(ticketId, tenantId!),
-    fetchTicketSlaEvents(ticketId, tenantId!),
-    fetchAssignableAgents(tenantSlug),
-    fetchMentionableMembers(tenantSlug),
+    getTicketMessages(ticketId, tenantId),
+    fetchTicketAttachments(ticketId, tenantId),
+    fetchTicketSlaEvents(ticketId, tenantId),
+    fetchTenantStaff(tenantSlug),
     getCurrentUserIdentity(tenantSlug),
     fetchTicketSlaPolicy(ticket.sla_policy_id),
     fetchTicketTags(ticketId),
     fetchTenantTags(tenantSlug),
-    fetchAutoCloseDays(tenantId!),
+    fetchAutoCloseDays(tenantId),
   ]);
+
+  // Tickets go to agents and managers; tenant admins can still be @mentioned.
+  const agents = staff.filter((m) => ASSIGNEE_ROLES.includes(m.role));
+  const canTakeTickets =
+    !!currentUser?.role && ASSIGNEE_ROLES.includes(currentUser.role);
 
   return (
     <TicketDetailView
       key={ticket.id}
       messages={messages}
-      ticket={formattedTicket}
+      ticket={ticket}
       attachments={attachments}
       slaEvents={slaEvents}
       tenantslug={tenantSlug}
       agents={agents}
-      mentionableMembers={mentionable}
+      mentionableMembers={staff}
       currentUserId={currentUser?.id ?? null}
+      canAssignToSelf={canTakeTickets}
       slaPolicy={slaPolicy}
       tags={tags}
       tenantTags={tenantTags}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { createSupabaseClient } from "@/lib/supabase/client";
 import {
   TicketPriority,
@@ -26,6 +27,7 @@ export function useRealtimeTicket(
   ticketId: string,
   onUpdate: (row: LiveTicketRow) => void,
 ) {
+  const router = useRouter();
   const onUpdateRef = useRef(onUpdate);
   useEffect(() => {
     onUpdateRef.current = onUpdate;
@@ -35,6 +37,7 @@ export function useRealtimeTicket(
     if (typeof window === "undefined" || typeof WebSocket === "undefined")
       return;
     const supabase = createSupabaseClient();
+    let joined = false;
 
     const channel = supabase
       .channel(`realtime-ticket-${ticketId}`)
@@ -48,10 +51,18 @@ export function useRealtimeTicket(
         },
         (payload) => onUpdateRef.current(payload.new as LiveTicketRow),
       )
-      .subscribe();
+      // Realtime doesn't replay changes missed while the socket was down
+      // (a sleeping laptop, dropped wifi). When the channel joins again,
+      // re-read the page; the detail view and the message/SLA hooks merge
+      // the fresh server data in.
+      .subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        if (joined) router.refresh();
+        joined = true;
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [ticketId]);
+  }, [ticketId, router]);
 }

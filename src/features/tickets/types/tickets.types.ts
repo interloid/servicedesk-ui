@@ -5,6 +5,58 @@ export type TicketStatus =
   "new" | "open" | "pending" | "on_hold" | "resolved" | "closed";
 export type TicketPriority = "urgent" | "high" | "normal" | "low";
 export type SlaStatus = "warning" | "breached" | "normal";
+
+/** Every ticket_status enum value, for checking input before it reaches SQL. */
+export const TICKET_STATUSES: readonly TicketStatus[] = [
+  "new",
+  "open",
+  "pending",
+  "on_hold",
+  "resolved",
+  "closed",
+];
+export const TICKET_PRIORITIES: readonly TicketPriority[] = [
+  "urgent",
+  "high",
+  "normal",
+  "low",
+];
+
+export function isTicketStatus(v: unknown): v is TicketStatus {
+  return (TICKET_STATUSES as readonly unknown[]).includes(v);
+}
+
+export function isTicketPriority(v: unknown): v is TicketPriority {
+  return (TICKET_PRIORITIES as readonly unknown[]).includes(v);
+}
+
+/** Low to urgent, the same order as the ticket_priority enum. */
+const PRIORITY_RANK: Record<TicketPriority, number> = {
+  low: 0,
+  normal: 1,
+  high: 2,
+  urgent: 3,
+};
+
+/** Lowering a priority needs a reason (change_ticket_priority enforces it). */
+export function isPriorityLowered(
+  from: TicketPriority,
+  to: TicketPriority,
+): boolean {
+  return PRIORITY_RANK[to] < PRIORITY_RANK[from];
+}
+
+export const PRIORITY_REASON_MAX = 500;
+
+/** What change_ticket_priority did. */
+export interface PriorityChangeResult {
+  changed: boolean;
+  direction?: "raised" | "lowered";
+  /** Clocks that were due soon, so kept their original deadline. */
+  slaKept: SlaEvent["type"][];
+  /** Clocks already breached; the breach stays recorded. */
+  breached: SlaEvent["type"][];
+}
 export type MessageVisibility = "public" | "internal";
 export type AuthorType = "agent" | "customer" | "system";
 
@@ -71,6 +123,11 @@ export interface Ticket {
   /** Per-tenant ticket number, assigned by the set_tickets_number trigger. */
   number: number;
   subject: string;
+  /**
+   * The opening request: both the agent thread and the portal show it as the
+   * first post (it isn't a ticket_messages row).
+   */
+  description?: string | null;
   requester_name: string;
   requester_company: string;
   priority: TicketPriority;
@@ -102,11 +159,12 @@ export interface Ticket {
   resolved_at?: string | null;
   closed_at?: string | null;
   tags?: TicketTag[];
+  /** The requester, embedded; null when the customer row is gone. */
   customers: {
     email: string;
-    company: string;
+    company: string | null;
     full_name: string;
-  };
+  } | null;
 }
 
 export interface TicketMessage {
@@ -123,13 +181,6 @@ export interface TicketMessage {
   author_name?: string;
   author_initials?: string;
 }
-export interface TicketFilters {
-  status?: string;
-  priority?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}
 export interface FetchTicketsOptions {
   search?: string;
   priority?: string;
@@ -138,28 +189,6 @@ export interface FetchTicketsOptions {
   limit?: number;
   sort?: "subject" | "created_at";
   sortOrder?: "asc" | "desc";
-}
-export interface TicketComment {
-  id: string;
-  ticket_id: string;
-  author_name: string;
-  author_initials: string;
-  author_avatar_bg?: string;
-  is_internal: boolean;
-  content: string;
-  created_at: string;
-}
-
-export interface SingleTicketDetail extends Ticket {
-  comments?: TicketComment[];
-  requester_plan?: string;
-  sla_first_response?: string;
-  sla_resolution?: string;
-  attachments?: Array<{
-    name: string;
-    size: string;
-    type: string;
-  }>;
 }
 
 export interface TicketAttachment {

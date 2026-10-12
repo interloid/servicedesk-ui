@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef, useEffect } from "react";
 import {
   createTicketAction,
-  getCustomersAction,
+  searchTicketRequestersAction,
 } from "@/features/tickets/actions/tickets.actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,8 +25,42 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Paperclip, Loader2, X, FileIcon } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Paperclip,
+  Loader2,
+  X,
+  FileIcon,
+  ChevronDown,
+  Search,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Customer } from "../services/tickets.service";
+import { attachmentsTooLarge } from "../lib/attachments";
+import {
+  TEAM_MODAL_BUTTON,
+  TEAM_MODAL_BUTTON_PRIMARY,
+} from "@/features/team/components/modal-buttons";
+import { cn } from "@/lib/utils";
+
+/**
+ * Same field metrics as the SLA policy editor: 40px tall, 14px text. The
+ * select needs its height on the data-size variant, which otherwise wins
+ * over a plain h-* and pins it at 32px.
+ */
+const FIELD = "h-10 px-3 text-sm border-slate-200";
+const SELECT_TRIGGER = `${FIELD} w-full data-[size=default]:h-10 text-slate-800`;
+const SELECT_ITEM = "p-2 text-sm";
+/**
+ * The close cross as a glyph, not a filled ghost button, lined up with the
+ * header's title -- the SLA dialogs' cross (TEAM_DIALOG_CLOSE).
+ */
+const SHEET_CLOSE =
+  "[&>[data-slot=sheet-close]]:border-0 [&>[data-slot=sheet-close]]:shadow-none [&>[data-slot=sheet-close]]:top-4 [&>[data-slot=sheet-close]]:right-4 [&>[data-slot=sheet-close]]:text-muted-foreground [&>[data-slot=sheet-close]]:hover:bg-transparent [&>[data-slot=sheet-close]]:hover:text-foreground [&>[data-slot=sheet-close]]:dark:hover:bg-transparent";
 
 interface CreateTicketSheetProps {
   open: boolean;
@@ -42,14 +76,11 @@ export default function CreateTicketSheet({
   const [isPending, startTransition] = useTransition();
 
   const [subject, setSubject] = useState("");
-  const [requesterCustomerId, setRequesterCustomerId] = useState("");
+  const [requester, setRequester] = useState<Customer | null>(null);
+  const requesterCustomerId = requester?.id ?? "";
   const [priority, setPriority] = useState("normal");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loadingCustomers, setLoadingCustomers] = useState(false);
-  const [customerError, setCustomerError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const subjectInputRef = useRef<HTMLInputElement>(null);
@@ -61,60 +92,40 @@ export default function CreateTicketSheet({
     }
   }, [open]);
 
-  const autoDescriptionRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const trimmed = subject.trim();
-    const customer = customers.find(
-      (c) => String(c.id) === requesterCustomerId,
-    );
-    const company = customer?.company || "our team";
-    const template = `Hi — raising this from ${company}. ${trimmed}. Happy to send logs if that helps.`;
-    const usingAuto =
-      description === autoDescriptionRef.current ||
-      autoDescriptionRef.current === null;
-    if (usingAuto && trimmed) {
-      setDescription(template);
-      autoDescriptionRef.current = template;
-    }
-  }, [subject, requesterCustomerId, customers, description]);
+  // The description is posted as the customer's first message, so nothing
+  // is written for them -- not even a suggested wording in the placeholder,
+  // which read as the customer's own words. Same hint as the portal form.
+  const descriptionPlaceholder =
+    "Describe what happened, when the issue started, and any steps already tried.";
 
   const resetForm = () => {
     setSubject("");
-    setRequesterCustomerId("");
+    setRequester(null);
     setPriority("normal");
     setDescription("");
     setFiles([]);
-    autoDescriptionRef.current = null;
   };
 
   useEffect(() => {
-    if (open && tenant) {
-      queueMicrotask(() => {
-        setLoadingCustomers(true);
-        setCustomerError(null);
-      });
-      getCustomersAction(tenant)
-        .then((res) => {
-          if (res?.success && res.customers) {
-            setCustomers(res.customers);
-          } else {
-            setCustomerError(res?.error || "Failed to load customers");
-          }
-        })
-        .catch(() => {
-          setCustomerError("Failed to load customers");
-        })
-        .finally(() => setLoadingCustomers(false));
-    } else if (!open) {
-      queueMicrotask(resetForm);
+    if (!open) queueMicrotask(resetForm);
+  }, [open]);
+
+  // Picks and drops add to the list; the size limit is on the whole set.
+  const addFiles = (picked: File[]) => {
+    if (picked.length === 0) return;
+    const next = [...files, ...picked];
+    const tooLarge = attachmentsTooLarge(next);
+    if (tooLarge) {
+      toast.error(tooLarge);
+      return;
     }
-  }, [open, tenant]);
+    setFiles(next);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setFiles(Array.from(e.target.files));
-    }
+    if (e.target.files) addFiles(Array.from(e.target.files));
+    // Cleared so picking a file that was just removed fires again.
+    e.target.value = "";
   };
 
   const removeFile = (index: number) => {
@@ -135,22 +146,36 @@ export default function CreateTicketSheet({
     });
 
     startTransition(async () => {
-      const result = await createTicketAction(tenant, formData);
-      if (result?.success) {
-        resetForm();
-        onOpenChange(false);
+      try {
+        const result = await createTicketAction(tenant, formData);
+        if (result?.success) {
+          resetForm();
+          onOpenChange(false);
+        } else {
+          toast.error(result?.error || "Failed to create ticket.");
+        }
+      } catch {
+        toast.error("Couldn't create the ticket. Please try again.");
       }
     });
   };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-md w-full flex flex-col p-0 font-sans border-l border-slate-200">
+      <SheetContent
+        className={cn(
+          // Full width on phones; the sheet's own data-side defaults (3/4
+          // wide, max-w-sm) out-rank plain w-/max-w- classes, so these
+          // override them on the same variant.
+          "flex flex-col p-0 font-sans data-[side=right]:w-full data-[side=right]:sm:max-w-md",
+          SHEET_CLOSE,
+        )}
+      >
         <form
           onSubmit={handleSubmit}
           className="flex flex-col h-full overflow-hidden"
         >
-          <SheetHeader className="px-6 py-5 border-b border-slate-100 bg-slate-50/50">
+          <SheetHeader className="px-4 py-5 pr-12 sm:px-6 sm:pr-12 border-b border-slate-100 bg-slate-50/50">
             <SheetTitle className="text-lg font-bold text-slate-900">
               New ticket
             </SheetTitle>
@@ -159,7 +184,7 @@ export default function CreateTicketSheet({
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4 text-xs text-slate-700">
+          <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 space-y-4 text-xs text-slate-700">
             <div className="space-y-1.5">
               <Label
                 htmlFor="subject"
@@ -174,7 +199,7 @@ export default function CreateTicketSheet({
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 required
-                className="h-9 text-xs border-slate-200 placeholder:text-slate-400"
+                className={`${FIELD} placeholder:text-slate-400`}
               />
             </div>
 
@@ -185,45 +210,11 @@ export default function CreateTicketSheet({
               >
                 Requester <span className="text-red-500">*</span>
               </Label>
-              <Select
-                value={requesterCustomerId}
-                onValueChange={setRequesterCustomerId}
-                disabled={loadingCustomers}
-              >
-                <SelectTrigger
-                  id="requester"
-                  className="h-9 w-full text-xs border-slate-200 text-slate-800 focus:ring-teal-700"
-                >
-                  <SelectValue
-                    placeholder={
-                      loadingCustomers
-                        ? "Loading customers..."
-                        : "Select a customer"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent side="bottom" align="start" position="popper">
-                  {customers.length === 0 && !loadingCustomers ? (
-                    <div className="p-2 text-xs text-slate-400 text-center">
-                      No customers found
-                    </div>
-                  ) : (
-                    customers.map((customer) => (
-                      <SelectItem
-                        key={customer.id}
-                        value={String(customer.id)}
-                        className="text-xs"
-                      >
-                        {customer.full_name}{" "}
-                        {customer.company ? `(${customer.company})` : ""}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-              {customerError && (
-                <p className="text-xs text-red-500 mt-1">{customerError}</p>
-              )}
+              <RequesterCombobox
+                tenant={tenant}
+                value={requester}
+                onChange={setRequester}
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -234,23 +225,25 @@ export default function CreateTicketSheet({
                 Priority
               </Label>
               <Select value={priority} onValueChange={setPriority}>
-                <SelectTrigger
-                  id="priority"
-                  className="h-9 w-full text-xs border-slate-200 text-slate-800 focus:ring-teal-700"
-                >
+                <SelectTrigger id="priority" className={SELECT_TRIGGER}>
                   <SelectValue placeholder="Select priority" />
                 </SelectTrigger>
-                <SelectContent side="bottom" align="start" position="popper">
-                  <SelectItem value="urgent" className="text-xs">
+                <SelectContent
+                  side="bottom"
+                  align="start"
+                  position="popper"
+                  className="p-1"
+                >
+                  <SelectItem value="urgent" className={SELECT_ITEM}>
                     Urgent
                   </SelectItem>
-                  <SelectItem value="high" className="text-xs">
+                  <SelectItem value="high" className={SELECT_ITEM}>
                     High
                   </SelectItem>
-                  <SelectItem value="normal" className="text-xs">
+                  <SelectItem value="normal" className={SELECT_ITEM}>
                     Normal
                   </SelectItem>
-                  <SelectItem value="low" className="text-xs">
+                  <SelectItem value="low" className={SELECT_ITEM}>
                     Low
                   </SelectItem>
                 </SelectContent>
@@ -267,10 +260,10 @@ export default function CreateTicketSheet({
               <Textarea
                 id="description"
                 rows={4}
-                placeholder="What happened, what you expect, and anything you've already tried."
+                placeholder={descriptionPlaceholder}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="bg-white text-slate-900 placeholder:text-slate-400 text-xs border-slate-200 resize-none p-3 shadow-sm"
+                className="bg-white text-slate-900 placeholder:text-slate-400 text-sm border-slate-200 resize-none p-3 shadow-sm"
               />
             </div>
 
@@ -288,6 +281,13 @@ export default function CreateTicketSheet({
               />
               <div
                 onClick={() => fileInputRef.current?.click()}
+                // Without these the browser opens a dropped file itself,
+                // leaving the app and losing the form.
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  addFiles(Array.from(e.dataTransfer.files));
+                }}
                 className="border border-dashed border-slate-300 hover:border-teal-600 bg-slate-50/50 hover:bg-slate-50 rounded-lg p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors"
               >
                 <Paperclip className="w-4 h-4 text-slate-400 mb-1.5 rotate-45" />
@@ -296,7 +296,7 @@ export default function CreateTicketSheet({
                   <span className="text-teal-700 underline">browse</span>
                 </p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  PNG, JPG, PDF, LOG up to 20 MB
+                  PNG, JPG, PDF, LOG up to 20 MB in total
                 </p>
               </div>
 
@@ -325,12 +325,14 @@ export default function CreateTicketSheet({
             </div>
           </div>
 
-          <SheetFooter className="p-4 border-t border-slate-100 flex-row justify-end space-x-2 bg-slate-50/50 mt-auto">
+          {/* One column on phones with the primary action on top; a right-aligned
+              row from sm up. */}
+          <SheetFooter className="mt-auto flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-4 sm:flex-row sm:justify-end sm:px-6">
             <SheetClose asChild>
               <Button
                 type="button"
                 variant="outline"
-                className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-medium h-9 px-4"
+                className={cn(TEAM_MODAL_BUTTON, "bg-white")}
               >
                 Cancel
               </Button>
@@ -338,16 +340,189 @@ export default function CreateTicketSheet({
             <Button
               type="submit"
               disabled={isPending || !requesterCustomerId || !subject}
-              className="bg-teal-800 hover:bg-teal-900 text-white text-xs font-medium h-9 px-4 shadow-sm"
+              className={cn(TEAM_MODAL_BUTTON, TEAM_MODAL_BUTTON_PRIMARY)}
             >
-              {isPending && (
-                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-              )}
-              Create ticket
+              {isPending && <Loader2 className="size-4 animate-spin" />}
+              {isPending ? "Creating…" : "Create ticket"}
             </Button>
           </SheetFooter>
         </form>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * Searchable requester picker: the server returns up to 50 matches per query,
+ * so the sheet opens fast however many customers the tenant has.
+ */
+function RequesterCombobox({
+  tenant,
+  value,
+  onChange,
+}: {
+  tenant: string;
+  value: Customer | null;
+  onChange: (customer: Customer) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState(0);
+  const requestId = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const runSearch = (q: string, delay: number) => {
+    if (timer.current) clearTimeout(timer.current);
+    setLoading(true);
+    setError(null);
+    timer.current = setTimeout(() => {
+      // Only the latest query may land; slower earlier ones are dropped.
+      const id = ++requestId.current;
+      searchTicketRequestersAction(tenant, q)
+        .then((res) => {
+          if (id !== requestId.current) return;
+          if (res?.success) {
+            setResults(res.customers ?? []);
+            setHighlight(0);
+          } else {
+            setError(res?.error || "Failed to load customers");
+          }
+        })
+        .catch(() => {
+          if (id === requestId.current) setError("Failed to load customers");
+        })
+        .finally(() => {
+          if (id === requestId.current) setLoading(false);
+        });
+    }, delay);
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next) runSearch(query, 0);
+  };
+
+  const pick = (customer: Customer) => {
+    onChange(customer);
+    setOpen(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (results.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlight((i) => (i + 1) % results.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight((i) => (i - 1 + results.length) % results.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const customer = results[highlight];
+      if (customer) pick(customer);
+    }
+  };
+
+  return (
+    <div>
+      <Popover open={open} onOpenChange={handleOpenChange}>
+        <PopoverTrigger asChild>
+          <Button
+            id="requester"
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className={cn(
+              FIELD,
+              "w-full justify-between bg-white font-normal hover:bg-white",
+              value ? "text-slate-800" : "text-muted-foreground",
+            )}
+          >
+            <span className="truncate">
+              {value
+                ? `${value.full_name}${value.company ? ` (${value.company})` : ""}`
+                : "Select a customer"}
+            </span>
+            <ChevronDown className="size-4 shrink-0 opacity-50" aria-hidden />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-(--radix-popover-trigger-width) p-0"
+        >
+          <div className="relative border-b border-slate-100">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-slate-400"
+              aria-hidden
+            />
+            <Input
+              autoFocus
+              value={query}
+              placeholder="Search name, email or company"
+              onChange={(e) => {
+                setQuery(e.target.value);
+                runSearch(e.target.value, 250);
+              }}
+              onKeyDown={handleKeyDown}
+              aria-label="Search customers"
+              className="h-10 rounded-none border-0 pl-8 text-sm shadow-none focus-visible:ring-0"
+            />
+          </div>
+          <div role="listbox" className="max-h-60 overflow-y-auto p-1">
+            {error ? (
+              <p className="p-2 text-center text-sm text-red-500">{error}</p>
+            ) : loading && results.length === 0 ? (
+              <p className="flex items-center justify-center gap-2 p-2 text-sm text-slate-400">
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Loading customers...
+              </p>
+            ) : results.length === 0 ? (
+              <p className="p-2 text-center text-sm text-slate-400">
+                No customers found
+              </p>
+            ) : (
+              results.map((customer, idx) => (
+                <button
+                  key={customer.id}
+                  type="button"
+                  role="option"
+                  aria-selected={value?.id === customer.id}
+                  onClick={() => pick(customer)}
+                  onMouseEnter={() => setHighlight(idx)}
+                  ref={
+                    idx === highlight
+                      ? (el) => el?.scrollIntoView({ block: "nearest" })
+                      : undefined
+                  }
+                  className={cn(
+                    SELECT_ITEM,
+                    "flex w-full flex-col items-start rounded-sm text-left",
+                    idx === highlight && "bg-teal-50 text-teal-900",
+                  )}
+                >
+                  <span className="truncate">
+                    {customer.full_name}
+                    {customer.company ? ` (${customer.company})` : ""}
+                  </span>
+                  <span className="truncate text-xs text-slate-400">
+                    {customer.email}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }

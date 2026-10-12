@@ -1574,6 +1574,14 @@ export type Database = {
         };
         Returns: boolean;
       };
+      change_ticket_priority: {
+        Args: {
+          p_priority: Database["public"]["Enums"]["ticket_priority"];
+          p_reason?: string;
+          p_ticket_id: string;
+        };
+        Returns: Json;
+      };
       claim_email_jobs: {
         Args: { p_lease?: string; p_limit?: number };
         Returns: {

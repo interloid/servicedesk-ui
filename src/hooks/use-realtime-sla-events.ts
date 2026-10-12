@@ -20,6 +20,23 @@ export function useRealtimeSlaEvents(
 ) {
   const [events, setEvents] = useState<SlaEvent[]>(initial);
 
+  // Realtime doesn't replay what was missed while the socket was down, so a
+  // fresh server list (router.refresh, revalidatePath) is merged in: the
+  // server's rows, except where realtime already delivered a newer version.
+  const [seen, setSeen] = useState(initial);
+  if (initial !== seen && (initial.length > 0 || seen.length > 0)) {
+    setSeen(initial);
+    setEvents((prev) => {
+      const live = new Map(prev.map((e) => [e.id, e]));
+      return sortEvents(
+        initial.map((e) => {
+          const l = live.get(e.id);
+          return l && l.updated_at > e.updated_at ? l : e;
+        }),
+      );
+    });
+  }
+
   useEffect(() => {
     if (!ticketId) return;
     if (typeof window === "undefined" || typeof WebSocket === "undefined")

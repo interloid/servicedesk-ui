@@ -873,7 +873,7 @@ export default function TicketDetailView({
                       supportClosed
                         ? "Replies are disabled while support is closed."
                         : replyType === "internal"
-                          ? "Visible to your team only — context, root cause, next steps."
+                          ? "Visible to your team only - context, root cause, next steps."
                           : `Write a reply to ${ticket.requester_name || "John Doe"}...`
                     }
                     className="block max-h-40 min-h-16 w-full resize-none overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-0 focus-visible:ring-0 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"

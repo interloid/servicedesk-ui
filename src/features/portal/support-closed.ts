@@ -36,5 +36,5 @@ export function supportClosedCreatedMessage(
 
 /** On the form, before they submit. */
 export function supportClosedFormMessage(closed: PortalSupportClosed): string {
-  return `${closedLead(closed.reason)} You can still create a ticket — ${resumes(closed)}.`;
+  return `${closedLead(closed.reason)} You can still create a ticket - ${resumes(closed)}.`;
 }

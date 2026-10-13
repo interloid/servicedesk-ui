@@ -130,7 +130,7 @@ function useSlaNow(
 }
 
 /** The badge for a clock waiting on business hours, worded one way. */
-const WAITING_TEXT = "Paused — Outside business hours";
+const WAITING_TEXT = "Paused - Outside business hours";
 
 function ClockBadge({
   state,
@@ -191,7 +191,7 @@ export function SlaHeadlineBadge({
         clock.state === "waiting"
           ? // The opening is in the viewer's time zone: browser only.
             mounted && clock.startsAt !== null
-            ? `Paused — resumes ${formatOpening(clock.startsAt, now)}`
+            ? `Paused - resumes ${formatOpening(clock.startsAt, now)}`
             : WAITING_TEXT
           : clock.text
       }`}

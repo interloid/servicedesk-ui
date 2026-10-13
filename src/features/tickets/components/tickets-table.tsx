@@ -124,8 +124,8 @@ function SlaBadge({ ticket }: { ticket: Ticket }) {
   const now = useNow(30_000);
   const mounted = useMounted();
   const live = computeLiveSla(ticket, now);
-  if (live.text === "—" || !live.text) {
-    return <span className="text-slate-400">—</span>;
+  if (live.text === "-" || !live.text) {
+    return <span className="text-slate-400">-</span>;
   }
   const style = SLA_PILL[live.type] ?? SLA_PILL.normal;
   return (
@@ -1016,7 +1016,7 @@ export default function TicketsTable({
                                 ) : (
                                   <span className="inline-flex items-center gap-2 text-slate-500 font-medium whitespace-nowrap">
                                     <span className="w-5 h-5 shrink-0 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] text-slate-400">
-                                      —
+                                      -
                                     </span>
                                     Unassigned
                                   </span>

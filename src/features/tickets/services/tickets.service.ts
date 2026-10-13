@@ -2,6 +2,7 @@ import { cache } from "react";
 import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { statStoredObject } from "@/lib/supabase/storage-object";
 import type { Database } from "@/lib/supabase/database.types";
 import {
   CreateTicketPayload,
@@ -12,11 +13,14 @@ import {
   Ticket,
   TicketAttachment,
   TicketSlaPolicy,
+  TicketUploadedFile,
+  TicketUploadTarget,
   TicketTag,
   TicketMessage,
   TicketPriority,
   TicketStatus,
   TICKET_STATUSES,
+  NO_SLA_TEXT,
   isTicketPriority,
   isTicketStatus,
 } from "../types/tickets.types";
@@ -155,6 +159,42 @@ export const fetchTicketById = cache(
   },
 );
 
+/** The parts of a tickets query applyTicketFilters needs. */
+interface TicketFilterable<Q> {
+  eq(column: "status" | "priority", value: string): Q;
+  or(filters: string): Q;
+}
+
+/**
+ * The list's status, priority and search filters on `query`. One copy for
+ * the page and for its count, so a new filter can't apply to one and not
+ * the other.
+ */
+function applyTicketFilters<Q extends TicketFilterable<Q>>(
+  query: Q,
+  filters: Pick<FetchTicketsOptions, "search" | "priority" | "status">,
+): Q {
+  let filtered = query;
+
+  // Only real enum values reach the query: a hand-typed ?status=foo is "all",
+  // not a Postgres enum error.
+  const status = filters.status?.toLowerCase();
+  if (isTicketStatus(status)) filtered = filtered.eq("status", status);
+
+  const priority = filters.priority?.toLowerCase();
+  if (isTicketPriority(priority)) filtered = filtered.eq("priority", priority);
+
+  // Commas, parentheses and quotes are syntax in a PostgREST or-filter, so
+  // they are dropped and the pattern quoted: "login, password" is plain text.
+  const term = (filters.search ?? "").replace(/[,()"\\]/g, " ").trim();
+  if (term) {
+    filtered = filtered.or(
+      `subject.ilike."%${term}%",description.ilike."%${term}%"`,
+    );
+  }
+  return filtered;
+}
+
 export async function fetchTenantTickets(
   tenant: string,
   options: FetchTicketsOptions = {},
@@ -199,24 +239,8 @@ export async function fetchTenantTickets(
     )
     .eq("tenant_id", tenantid);
 
-  // Only real enum values reach the query: a hand-typed ?status=foo is "all",
-  // not a Postgres enum error.
-  const statusFilter = status?.toLowerCase();
-  if (isTicketStatus(statusFilter)) {
-    query = query.eq("status", statusFilter);
-  }
-
-  const priorityFilter = priority?.toLowerCase();
-  if (isTicketPriority(priorityFilter)) {
-    query = query.eq("priority", priorityFilter);
-  }
-
-  // Commas, parentheses and quotes are syntax in a PostgREST or-filter, so
-  // they are dropped and the pattern quoted: "login, password" is plain text.
-  const term = (search ?? "").replace(/[,()"\\]/g, " ").trim();
-  if (term) {
-    query = query.or(`subject.ilike."%${term}%",description.ilike."%${term}%"`);
-  }
+  const filters = { search, priority, status };
+  query = applyTicketFilters(query, filters);
 
   const sortColumn = sort === "subject" ? "subject" : "created_at";
   const sortAscending = sortOrder === "asc";
@@ -229,22 +253,14 @@ export async function fetchTenantTickets(
   // as an empty page with the real total, so the table's "past the last
   // page" redirect can take the agent back to the last one.
   if (error?.code === "PGRST103") {
-    let countQuery = supabase
+    const countQuery = supabase
       .from("tickets")
       .select("id", { count: "exact", head: true })
       .eq("tenant_id", tenantid);
-    if (isTicketStatus(statusFilter)) {
-      countQuery = countQuery.eq("status", statusFilter);
-    }
-    if (isTicketPriority(priorityFilter)) {
-      countQuery = countQuery.eq("priority", priorityFilter);
-    }
-    if (term) {
-      countQuery = countQuery.or(
-        `subject.ilike."%${term}%",description.ilike."%${term}%"`,
-      );
-    }
-    const { count: total, error: countError } = await countQuery;
+    const { count: total, error: countError } = await applyTicketFilters(
+      countQuery,
+      filters,
+    );
     if (countError) {
       fail("count tickets", countError, "Couldn't load tickets. Try again.");
     }
@@ -376,7 +392,7 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
         ...t,
         tags,
         sla_type: "normal" as const,
-        sla_text: "—",
+        sla_text: NO_SLA_TEXT,
         sla_due_at: null,
         sla_status: null,
         sla_completed_at: null,
@@ -1008,6 +1024,9 @@ export async function bulkUpdateTickets(
   return data?.length ?? 0;
 }
 
+/** The storage bucket every ticket attachment lives in. */
+const ATTACHMENT_BUCKET = "ticket-attachments";
+
 /** How long an attachment link signed for the detail page stays valid. */
 export const ATTACHMENT_LINK_TTL_SECS = 3600;
 
@@ -1038,7 +1057,7 @@ export async function fetchTicketAttachments(
     att.storage_path.replace(/^ticket-attachments\//, "").replace(/^\//, ""),
   );
   const { data: signed } = await supabase.storage
-    .from("ticket-attachments")
+    .from(ATTACHMENT_BUCKET)
     .createSignedUrls(paths, ATTACHMENT_LINK_TTL_SECS);
   const urlByPath = new Map(
     (signed || []).map((s) => [s.path, s.signedUrl] as const),
@@ -1072,7 +1091,7 @@ export async function discardStagedAttachments(
 ): Promise<void> {
   if (staged.files.length === 0) return;
   const { error } = await createSupabaseAdminClient()
-    .storage.from("ticket-attachments")
+    .storage.from(ATTACHMENT_BUCKET)
     .remove(staged.files.map((f) => f.path));
   if (error) {
     console.error("Could not remove staged attachments:", error.message);
@@ -1080,87 +1099,294 @@ export async function discardStagedAttachments(
 }
 
 /**
- * Step one of attaching files: check the caller may, and put the bytes in
- * storage. Nothing is visible yet -- no attachments row exists -- so a reply
- * can be saved only once every file is safely stored (recordStagedAttachments
- * then links them). If any upload fails, the ones before it are removed.
+ * Where a new ticket's files wait until the ticket exists: the portal's
+ * staging prefix, `<tenant>/staging/<batch>/<file>`, which the daily
+ * portal-staging-upload-sweep clears of anything never filed.
  */
-export async function stageTicketAttachments(params: {
-  tenant: string;
-  ticketId: string;
-  files: File[];
-}): Promise<StagedAttachments> {
-  const admin = createSupabaseAdminClient();
-  const { tenant, ticketId, files } = params;
+const STAGING_SEGMENT = "staging";
+
+/**
+ * The caller is active staff of `tenant` and, with a `ticketId`, the ticket is
+ * one of its. Every upload helper below writes with the admin client, which
+ * skips RLS, so this is the check RLS would have made.
+ */
+async function requireStaffUploader(
+  tenant: string,
+  ticketId: string | null,
+): Promise<{ tenantId: string; userId: string }> {
   const tenantId = await getTenantIdBySlug(tenant);
+  if (!tenantId) throw new Error("Tenant not found.");
 
-  if (!tenantId) {
-    throw new Error("Tenant not found.");
-  }
-
-  // The writes below use the admin client, which skips RLS, so check here what
-  // RLS would: the caller is staff of this tenant and the ticket is one of its.
   const identity = await getCurrentUserIdentity(tenant);
   if (
-    !identity?.role ||
+    !identity?.id ||
+    !identity.role ||
     !(ASSIGNABLE_ROLES as readonly string[]).includes(identity.role)
   ) {
     throw new Error("Unauthorized");
   }
-  const supabase = await createSupabaseServerClient();
-  const { data: ticket } = await supabase
-    .from("tickets")
-    .select("id")
-    .eq("id", ticketId)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-  if (!ticket) {
-    throw new Error("Ticket not found.");
+
+  if (ticketId) {
+    const supabase = await createSupabaseServerClient();
+    const { data: ticket } = await supabase
+      .from("tickets")
+      .select("id")
+      .eq("id", ticketId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (!ticket) throw new Error("Ticket not found.");
   }
 
+  return { tenantId, userId: identity.id };
+}
+
+/** The folder files for `ticketId` (or a new ticket's batch) are put in. */
+function uploadPrefix(tenantId: string, ticketId: string | null): string {
+  return ticketId
+    ? `${tenantId}/${ticketId}/`
+    : `${tenantId}/${STAGING_SEGMENT}/`;
+}
+
+/**
+ * The file name in `path` if it sits where this caller's uploads go --
+ * directly under the ticket, or one batch folder under staging -- else null.
+ */
+function uploadedFileName(
+  path: string,
+  tenantId: string,
+  ticketId: string | null,
+): string | null {
+  const prefix = uploadPrefix(tenantId, ticketId);
+  if (!path.startsWith(prefix) || path.includes("..")) return null;
+  const parts = path.slice(prefix.length).split("/");
+  const depth = ticketId ? 1 : 2;
+  if (parts.length !== depth || parts.some((p) => !p)) return null;
+  return parts[parts.length - 1];
+}
+
+/**
+ * Step one of attaching files: check the caller may, and hand the browser one
+ * signed upload URL per file. The bytes go straight to storage, not through a
+ * Server Action: the platform caps a request body at 4.5 MB, well under the
+ * 20 MB attachments limit.
+ *
+ * A reply's files go under the ticket. A new ticket has no id yet, so its
+ * files go under a random staging batch and are moved once it exists.
+ */
+export async function createTicketUploadTargets(params: {
+  tenant: string;
+  ticketId: string | null;
+  files: { name: string; size: number }[];
+}): Promise<TicketUploadTarget[]> {
+  const { tenant, ticketId, files } = params;
+  const { tenantId } = await requireStaffUploader(tenant, ticketId);
+
   // Count, total size and type: the pickers check these too, but this is the
-  // copy that holds against a hand-made request.
+  // copy that holds against a hand-made request. The sizes are the browser's
+  // claim; inspectTicketUploads re-checks them on the stored objects.
   const invalid = attachmentsError(files);
   if (invalid) throw new Error(invalid);
 
-  const staged: StagedAttachments = {
-    tenantId,
-    ticketId,
-    uploadedBy: identity.id,
-    files: [],
-  };
+  const folder = ticketId
+    ? `${tenantId}/${ticketId}`
+    : `${tenantId}/${STAGING_SEGMENT}/${crypto.randomUUID()}`;
+  const admin = createSupabaseAdminClient();
+  const targets: TicketUploadTarget[] = [];
 
   for (const file of files) {
     // Extension reduced to [a-z0-9] for the storage key; the stored content
     // type follows from it, never from the browser's file.type.
     const ext = attachmentExtension(file.name);
-    // A random name: Date.now() alone collided for two files of the same
-    // type in one millisecond, and upsert: false then failed the whole send.
-    const storedName = `${crypto.randomUUID()}${ext ? `.${ext}` : ""}`;
-    const path = `${tenantId}/${ticketId}/${storedName}`;
-    const mime = attachmentContentType(file.name) ?? "application/octet-stream";
-
-    const { error: uploadError } = await admin.storage
-      .from("ticket-attachments")
-      .upload(path, file, { contentType: mime, upsert: false });
-
-    if (uploadError) {
-      console.error("Upload failed:", uploadError.message);
-      await discardStagedAttachments(staged);
-      throw new Error(`Couldn't upload ${file.name}. Try again.`);
+    // A random name: two files of the same type must never share a key.
+    const path = `${folder}/${crypto.randomUUID()}${ext ? `.${ext}` : ""}`;
+    const { data, error } = await admin.storage
+      .from(ATTACHMENT_BUCKET)
+      .createSignedUploadUrl(path);
+    if (error || !data) {
+      fail(
+        "authorise upload",
+        error ?? { message: "no token returned" },
+        "Couldn't start the upload. Try again.",
+      );
     }
-
-    staged.files.push({
+    targets.push({
       path,
-      storedName,
-      original: file.name,
-      mime,
-      ext,
+      token: data.token,
+      name: file.name,
       size: file.size,
+      mime: attachmentContentType(file.name) ?? "application/octet-stream",
     });
   }
 
+  return targets;
+}
+
+/** A media type without parameters, lower-case: "text/plain;charset=x" -> "text/plain". */
+function bareMime(mime: string): string {
+  return mime.split(";")[0].trim().toLowerCase();
+}
+
+/**
+ * Check files the browser reports it uploaded, and describe them for
+ * recordStagedAttachments. Nothing the client sends is trusted: each path must
+ * be a fresh upload where this caller's go (and on no attachments row yet),
+ * and the size and type are read back off the stored object. A file stored
+ * under a type other than its extension's -- which the composer never does --
+ * is refused, so nothing can be served as active content from a signed link.
+ *
+ * With `ticketId` null the files are a new ticket's, still in staging; move
+ * them with moveStagedTicketUploads once the ticket exists. On a failed check
+ * the caller's uploads are removed.
+ */
+export async function inspectTicketUploads(params: {
+  tenant: string;
+  ticketId: string | null;
+  uploads: TicketUploadedFile[];
+}): Promise<StagedAttachments> {
+  const { tenant, ticketId, uploads } = params;
+  const { tenantId, userId } = await requireStaffUploader(tenant, ticketId);
+  const staged: StagedAttachments = {
+    tenantId,
+    ticketId: ticketId ?? "",
+    uploadedBy: userId,
+    files: [],
+  };
+  if (uploads.length === 0) return staged;
+
+  const refused = "Those files couldn't be attached. Try again.";
+  const paths = uploads.map((u) => u.path);
+  const names = paths.map((p) => uploadedFileName(p, tenantId, ticketId));
+  if (names.some((n) => !n) || new Set(paths).size !== paths.length) {
+    throw new Error(refused);
+  }
+
+  // A path already on an attachments row is somebody's filed file: refusing
+  // it here keeps the cleanup below from ever deleting one.
+  const admin = createSupabaseAdminClient();
+  const { data: taken, error: takenError } = await admin
+    .from("attachments")
+    .select("storage_path")
+    .in("storage_path", paths)
+    .limit(1);
+  if (takenError) {
+    fail("attachment path check", takenError, refused);
+  }
+  if (taken && taken.length > 0) throw new Error(refused);
+
+  const reject = async (message: string): Promise<never> => {
+    const { error } = await admin.storage.from(ATTACHMENT_BUCKET).remove(paths);
+    if (error) {
+      console.error("Could not remove refused uploads:", error.message);
+    }
+    throw new Error(message);
+  };
+
+  for (const [i, upload] of uploads.entries()) {
+    const storedName = names[i] as string;
+    const directory = upload.path.slice(0, -storedName.length - 1);
+    const stored = await statStoredObject(
+      admin,
+      ATTACHMENT_BUCKET,
+      directory,
+      storedName,
+    );
+    if (!stored) {
+      return reject(`Couldn't attach ${upload.name}. Try again.`);
+    }
+    // The type comes from the server-minted name, whose extension was taken
+    // from the original file name when the upload was authorised.
+    const ext = attachmentExtension(storedName);
+    const mime = attachmentContentType(storedName);
+    if (!mime || bareMime(stored.mime) !== mime) {
+      return reject(
+        `${upload.name} can't be attached: that file type isn't allowed.`,
+      );
+    }
+    staged.files.push({
+      path: upload.path,
+      storedName,
+      original: upload.name,
+      mime,
+      ext,
+      size: stored.size,
+    });
+  }
+
+  const invalid = attachmentsError(
+    staged.files.map((f) => ({ name: f.storedName, size: f.size })),
+  );
+  if (invalid) return reject(invalid);
+
   return staged;
+}
+
+/**
+ * Move a new ticket's inspected files from staging onto the ticket. If any
+ * move fails, the ones already moved are removed and the error is thrown,
+ * leaving the caller to withdraw the ticket.
+ */
+export async function moveStagedTicketUploads(
+  staged: StagedAttachments,
+  ticketId: string,
+): Promise<StagedAttachments> {
+  const admin = createSupabaseAdminClient();
+  const moved: StagedAttachments = { ...staged, ticketId, files: [] };
+
+  for (const file of staged.files) {
+    const path = `${staged.tenantId}/${ticketId}/${file.storedName}`;
+    const { error } = await admin.storage
+      .from(ATTACHMENT_BUCKET)
+      .move(file.path, path);
+    if (error) {
+      console.error("Could not move a staged upload:", error.message);
+      await discardStagedAttachments(moved);
+      throw new Error(`Couldn't upload ${file.original}. Try again.`);
+    }
+    moved.files.push({ ...file, path });
+  }
+
+  return moved;
+}
+
+/**
+ * Delete uploads the browser put in the bucket but never got to file: one
+ * upload of several failed, or the reply or ticket was then refused. Only
+ * paths that could be this caller's fresh uploads are touched (under the
+ * ticket, or under staging), and anything on an attachments row is skipped,
+ * so this can never remove a filed file. Best effort and silent: the staging
+ * sweep is the backstop.
+ */
+export async function discardTicketUploads(params: {
+  tenant: string;
+  ticketId: string | null;
+  paths: string[];
+}): Promise<void> {
+  const { tenant, ticketId, paths } = params;
+  if (paths.length === 0) return;
+  const { tenantId } = await requireStaffUploader(tenant, ticketId);
+
+  const candidates = paths.filter((p) =>
+    Boolean(uploadedFileName(p, tenantId, ticketId)),
+  );
+  if (candidates.length === 0) return;
+
+  const admin = createSupabaseAdminClient();
+  const { data: filed, error: filedError } = await admin
+    .from("attachments")
+    .select("storage_path")
+    .in("storage_path", candidates);
+  if (filedError) {
+    console.error("Discard check failed:", filedError.message);
+    return;
+  }
+  const keep = new Set((filed ?? []).map((r) => r.storage_path as string));
+  const orphans = candidates.filter((p) => !keep.has(p));
+  if (orphans.length === 0) return;
+
+  const { error } = await admin.storage.from(ATTACHMENT_BUCKET).remove(orphans);
+  if (error) {
+    console.error("Could not discard unfiled uploads:", error.message);
+  }
 }
 
 /**
@@ -1205,16 +1431,6 @@ export async function recordStagedAttachments(
   }
 
   return (data || []) as TicketAttachment[];
-}
-
-/** A new ticket's opening files: staged and recorded in one go. */
-export async function uploadTicketAttachments(params: {
-  tenant: string;
-  ticketId: string;
-  files: File[];
-}): Promise<TicketAttachment[]> {
-  const staged = await stageTicketAttachments(params);
-  return recordStagedAttachments(staged, null);
 }
 
 /** How many requesters the create-ticket picker shows per search. */

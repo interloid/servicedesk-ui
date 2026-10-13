@@ -44,7 +44,8 @@ import {
 } from "@/features/portal/avatar-url";
 import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { mentionsToNames, stripMentions } from "@/lib/mentions";
+import { statStoredObject } from "@/lib/supabase/storage-object";
+import { mentionsToNames, stripAllMentions } from "@/lib/mentions";
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { slaDayMins } from "@/features/sla-policies/duration";
@@ -1386,7 +1387,7 @@ export async function createPortalRequest({
     p_subject: subject,
     // Mention markup is the team's, not the customer's: typed by hand it would
     // render as a staff chip on the agent side, so it is flattened to "@Name".
-    p_description: stripMentions(description),
+    p_description: stripAllMentions(description),
     p_full_name: fullName ?? null,
     p_user_id: userId ?? null,
     // Never the customer's choice -- see PORTAL_REQUEST_PRIORITY.
@@ -1886,39 +1887,6 @@ export function assertPortalAttachments(
 const STAGING_SEGMENT = "staging";
 
 /**
- * What the bucket says about a stored object, or null if it is not there.
- * The stored object -- not the client -- is the source of truth for size and
- * type, so a caller that lies about a 4 KB file cannot make a 4 GB one appear
- * in the thread as something small.
- */
-async function statStoredObject(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  directory: string,
-  filename: string,
-): Promise<{ size: number; mime: string } | null> {
-  const { data, error } = await admin.storage
-    .from(ATTACHMENT_BUCKET)
-    .list(directory, { search: filename, limit: 1 });
-
-  const object = data?.find((entry) => entry.name === filename);
-
-  if (error || !object) {
-    if (error) {
-      console.error("[portal] could not stat an upload:", error.message);
-    }
-
-    return null;
-  }
-
-  return {
-    size: Number(object.metadata?.size ?? 0),
-    mime:
-      (object.metadata?.mimetype as string | undefined) ||
-      "application/octet-stream",
-  };
-}
-
-/**
  * Split a reported path into the directory and file the caller claims, refusing
  * anything that does not sit directly under `expectedPrefix`.
  */
@@ -2107,7 +2075,12 @@ export async function recordPortalAttachments(params: {
 
   for (const upload of uploads) {
     const filename = splitUploadPath(upload.path, `${directory}/`);
-    const stored = await statStoredObject(admin, directory, filename);
+    const stored = await statStoredObject(
+      admin,
+      ATTACHMENT_BUCKET,
+      directory,
+      filename,
+    );
 
     if (!stored) {
       throw new PortalError(
@@ -2360,6 +2333,7 @@ async function attachStagedUploads(params: {
     const [batch, stagedName] = relative.split("/");
     const stored = await statStoredObject(
       admin,
+      ATTACHMENT_BUCKET,
       `${tenantId}/${STAGING_SEGMENT}/${batch}`,
       stagedName,
     );
@@ -2835,7 +2809,7 @@ export async function postPortalReply(
       author_type: "customer",
       author_id: identity.customer.id,
       // Same as the opening post: a customer can't fake a mention chip.
-      body: stripMentions(body).trim(),
+      body: stripAllMentions(body).trim(),
       visibility: "public",
     })
     .select("id")

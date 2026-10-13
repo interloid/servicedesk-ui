@@ -449,8 +449,9 @@ async function loadPolicyTargets(
 }
 
 /**
- * Tickets per policy, counted in the database. Reading the rows instead hit
- * PostgREST's 1000-row cap, so busy tenants saw wrong numbers.
+ * Tickets per policy, counted in the database in one grouped query
+ * (sla_policy_ticket_counts). Reading the rows instead hit PostgREST's
+ * 1000-row cap, so busy tenants saw wrong numbers.
  *
  * Also what locks a policy: once it is applied to any ticket it can't be
  * changed, so the targets a ticket was given never change under it. Service
@@ -464,6 +465,28 @@ async function loadAppliedTicketCounts(
   if (policyIds.length === 0) return {};
 
   const admin = createSupabaseAdminClient();
+  const { data, error } = await admin.rpc("sla_policy_ticket_counts", {
+    p_tenant_id: tenantId,
+    p_policy_ids: policyIds,
+  });
+  if (!error) {
+    // A policy with no tickets has no row: it counts 0.
+    const counts: Record<string, number> = Object.fromEntries(
+      policyIds.map((id) => [id, 0]),
+    );
+    for (const row of (data ?? []) as {
+      policy_id: string;
+      ticket_count: number | string;
+    }[]) {
+      counts[row.policy_id] = Number(row.ticket_count);
+    }
+    return counts;
+  }
+  // PGRST202: migration 20261013120000 not applied yet; count per policy.
+  if (error.code !== "PGRST202") {
+    throw dbError(error, "Couldn't count SLA tickets.");
+  }
+
   const counts = await Promise.all(
     policyIds.map(async (id) => {
       const { count, error } = await admin
@@ -1059,7 +1082,8 @@ async function replacePolicyTargets(
  * Whether saving `next` would change the minutes a clock counts: a priority
  * added or removed, or a first response / resolution time that differs. The
  * unit is compared too where both sides have one, since it decides how a
- * calendar change rescales the target.
+ * calendar change rescales the target, and so are the business-hours flags,
+ * or a save changing only those would pass the lock and then be skipped.
  */
 function targetsChanged(
   next: SlaPolicyEditorTarget[],
@@ -1069,13 +1093,15 @@ function targetsChanged(
   return next.some((target) => {
     const row = stored.find((t) => t.priority_scope === target.priority);
     if (!row) return true;
-    const unitDiffers = (a: string | undefined, b: string | undefined) =>
+    const differs = <T>(a: T | undefined, b: T | undefined) =>
       a !== undefined && b !== undefined && a !== b;
     return (
       row.first_response_mins !== target.firstResponseMins ||
       row.resolution_mins !== target.resolutionMins ||
-      unitDiffers(row.first_response_unit, target.firstResponseUnit) ||
-      unitDiffers(row.resolution_unit, target.resolutionUnit)
+      differs(row.first_response_unit, target.firstResponseUnit) ||
+      differs(row.resolution_unit, target.resolutionUnit) ||
+      differs(row.first_response_business, target.firstResponseBusiness) ||
+      differs(row.resolution_business, target.resolutionBusiness)
     );
   });
 }

@@ -141,6 +141,11 @@ begin
         -- target so a clock kept on a tighter target by
         -- change_ticket_priority stays on it. Holidays / time zone only:
         -- the day length is unchanged and so is the target.
+        --
+        -- The unit is read from the ticket's current priority, which a kept
+        -- clock no longer matches (urgent 4 h lowered to a "days" Low while
+        -- due soon keeps 240 minutes). So only a whole number of old working
+        -- days is a "days" target: 240 on a 540-minute day stays 240.
         v_target_mins := v_event.target_mins;
         if v_old_day_mins <> v_new_day_mins then
             select case v_event.type
@@ -154,10 +159,10 @@ begin
              and t.priority_scope = tk.priority
             where tk.id = v_event.ticket_id;
 
-            if coalesce(v_days_unit, false) then
-                v_target_mins := greatest(
-                    round(v_event.target_mins::numeric / v_old_day_mins), 1
-                )::integer * v_new_day_mins;
+            if coalesce(v_days_unit, false)
+               and v_event.target_mins % v_old_day_mins = 0 then
+                v_target_mins :=
+                    (v_event.target_mins / v_old_day_mins) * v_new_day_mins;
             end if;
         end if;
 

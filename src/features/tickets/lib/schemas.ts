@@ -4,6 +4,7 @@ import {
   TICKET_PRIORITIES,
   TICKET_STATUSES,
 } from "../types/tickets.types";
+import { TICKET_ATTACHMENTS_MAX_FILES } from "./attachments";
 
 /**
  * Runtime checks for the ticket Server Actions. Actions are plain POST
@@ -116,6 +117,41 @@ export const setTicketTagsSchema = z.object({
 export const searchRequestersSchema = z.object({
   tenantSlug: tenantSlugField,
   query: z.string().max(SEARCH_QUERY_MAX),
+});
+
+/** A storage key minted by createTicketUploadTargets; the service re-checks its shape. */
+const uploadPathField = z.string().min(1).max(512);
+const uploadNameField = z
+  .string()
+  .trim()
+  .min(1, "A file has no name.")
+  .max(255, "A file name is too long.");
+const tooManyFiles = `Attach up to ${TICKET_ATTACHMENTS_MAX_FILES} files at a time.`;
+
+/** Files the browser reports it uploaded, by path. */
+export const ticketUploadsSchema = z
+  .array(z.object({ path: uploadPathField, name: uploadNameField }))
+  .max(TICKET_ATTACHMENTS_MAX_FILES, tooManyFiles);
+
+/** A reply's files (with `ticketId`) or a new ticket's (without). */
+export const prepareTicketUploadsSchema = z.object({
+  tenantSlug: tenantSlugField,
+  ticketId: idField.optional(),
+  files: z
+    .array(
+      z.object({
+        name: uploadNameField,
+        size: z.number().int().nonnegative(),
+      }),
+    )
+    .min(1, "No files selected.")
+    .max(TICKET_ATTACHMENTS_MAX_FILES, tooManyFiles),
+});
+
+export const discardTicketUploadsSchema = z.object({
+  tenantSlug: tenantSlugField,
+  ticketId: idField.optional(),
+  paths: z.array(uploadPathField).max(TICKET_ATTACHMENTS_MAX_FILES),
 });
 
 /** The first issue's message, for an action's `{ error }`. */

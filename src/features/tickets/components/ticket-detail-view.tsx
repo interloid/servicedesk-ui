@@ -23,6 +23,7 @@ import { Paperclip, Loader2, X } from "lucide-react";
 import {
   Ticket,
   TicketMessage,
+  TicketUploadedFile,
   TicketPriority,
   TicketStatus,
   MessageVisibility,
@@ -77,6 +78,10 @@ import {
   TICKET_ATTACHMENT_ACCEPT,
   attachmentsError,
 } from "@/features/tickets/lib/attachments";
+import {
+  discardTicketFiles,
+  uploadTicketFiles,
+} from "@/features/tickets/lib/upload";
 
 /**
  * Attachment links are signed for an hour (ATTACHMENT_LINK_TTL_SECS); refetch
@@ -365,10 +370,11 @@ export default function TicketDetailView({
       (a, b) => b.length - a.length,
     );
     if (names.length === 0) return body;
-    // Not followed by a letter or digit, so "@Samantha" isn't a mention of
-    // "Sam" with "antha" left over.
+    // At the start or after whitespace, as the picker opens, so the "@sam"
+    // in "ops@sam.dev" isn't a mention; and not followed by a letter or
+    // digit, so "@Samantha" isn't a mention of "Sam" with "antha" left over.
     const re = new RegExp(
-      `@(${names.map((n) => escapeRegExp(n)).join("|")})(?![\\p{L}\\p{N}_])`,
+      `(?<=^|\\s)@(${names.map((n) => escapeRegExp(n)).join("|")})(?![\\p{L}\\p{N}_])`,
       "giu",
     );
     return body.replace(re, (match, name: string) => {
@@ -435,12 +441,29 @@ export default function TicketDetailView({
     fd.append("tenantSlug", tenant);
     fd.append("body", body);
     fd.append("visibility", replyType);
-    pendingFiles.forEach((f) => fd.append("files", f));
 
     setIsReplying(true);
     startTransition(async () => {
+      // Files go to storage straight from the browser first; the action
+      // gets only their paths.
+      let uploads: TicketUploadedFile[] = [];
       try {
-        const res = await sendTicketMessageAction(fd);
+        uploads = await uploadTicketFiles({
+          tenantSlug: tenant,
+          ticketId: ticket.id,
+          files: pendingFiles,
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Couldn't upload the files. Please try again.",
+        );
+        setIsReplying(false);
+        return;
+      }
+      try {
+        const res = await sendTicketMessageAction(fd, uploads);
         if (res.success) {
           if (res.message && "id" in res.message) {
             // The saved row has no author name; the realtime copy that would
@@ -467,11 +490,13 @@ export default function TicketDetailView({
           setMentionIndex(0);
           mentionStartRef.current = null;
         } else {
+          await discardTicketFiles(tenant, ticket.id, uploads);
           toast.error(res.error || "Failed to send reply.");
         }
       } catch {
-        // The request itself failed (network, or a body over the limit):
-        // keep the typed reply and say so instead of the error page.
+        // The request itself failed (network): keep the typed reply and say
+        // so instead of the error page. Files already filed are kept.
+        await discardTicketFiles(tenant, ticket.id, uploads);
         toast.error("Couldn't send the reply. Please try again.");
       } finally {
         setIsReplying(false);

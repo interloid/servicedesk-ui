@@ -7,8 +7,10 @@ import {
   bulkUpdateTickets,
   changeTicketPriority,
   createMessage,
-  uploadTicketAttachments,
-  stageTicketAttachments,
+  createTicketUploadTargets,
+  inspectTicketUploads,
+  moveStagedTicketUploads,
+  discardTicketUploads,
   recordStagedAttachments,
   discardStagedAttachments,
   fetchTicketSlaPolicy,
@@ -23,22 +25,25 @@ import {
 import {
   MessageVisibility,
   PriorityChangeResult,
+  TicketUploadedFile,
   TICKET_PRIORITIES,
   TICKET_STATUSES,
   TicketPriority,
   TicketStatus,
 } from "../types/tickets.types";
 import { closedReason } from "../lib/sla-calendar";
-import { attachmentsError } from "../lib/attachments";
 import {
   bulkSetPrioritySchema,
   bulkTicketsSchema,
   createTicketSchema,
+  discardTicketUploadsSchema,
   firstIssue,
+  prepareTicketUploadsSchema,
   searchRequestersSchema,
   sendTicketMessageSchema,
   setTicketTagsSchema,
   ticketRefSchema,
+  ticketUploadsSchema,
   updateTicketDetailsSchema,
 } from "../lib/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -57,6 +62,9 @@ function errorMessage(error: unknown): string {
 const PRIORITIES = TICKET_PRIORITIES;
 const STATUSES = TICKET_STATUSES;
 
+const SUPPORT_CLOSED_ERROR =
+  "Support is closed right now. Replies open again at the next business opening.";
+
 /** Most people one message can notify by @mention. */
 const MENTION_NOTIFY_MAX = 50;
 
@@ -70,9 +78,90 @@ function pick<T extends string>(
   return (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
 }
 
+/**
+ * Authorise attachments and hand the browser one upload URL each. The bytes
+ * go straight to storage: a Server Action body is capped at 1 MB by default
+ * and 4.5 MB by the platform, well under the 20 MB attachments limit. The
+ * browser then sends only the paths to sendTicketMessageAction (with
+ * `ticketId`) or createTicketAction (without).
+ */
+export async function prepareTicketUploadsAction(input: {
+  tenantSlug: string;
+  ticketId?: string;
+  files: { name: string; size: number }[];
+}) {
+  try {
+    const parsed = prepareTicketUploadsSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false as const, error: firstIssue(parsed.error) };
+    }
+    const { tenantSlug, ticketId, files } = parsed.data;
+
+    if (ticketId) {
+      // Refused up front, so files aren't uploaded for a reply that can't
+      // be sent; sendTicketMessageAction checks again.
+      const tenantId = await getTenantIdBySlug(tenantSlug);
+      if (!tenantId) {
+        return { success: false as const, error: "Tenant not found." };
+      }
+      const supabase = await createSupabaseServerClient();
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("sla_policy_id")
+        .eq("id", ticketId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      if (!ticket) {
+        return { success: false as const, error: "Ticket not found." };
+      }
+      const policy = await fetchTicketSlaPolicy(ticket.sla_policy_id);
+      if (closedReason(Date.now(), policy?.calendar ?? null)) {
+        return { success: false as const, error: SUPPORT_CLOSED_ERROR };
+      }
+    }
+
+    const targets = await createTicketUploadTargets({
+      tenant: tenantSlug,
+      ticketId: ticketId ?? null,
+      files,
+    });
+    return { success: true as const, targets };
+  } catch (error) {
+    return { success: false as const, error: errorMessage(error) };
+  }
+}
+
+/**
+ * Remove uploads the browser made for a reply or ticket that then failed.
+ * Never touches a filed attachment; see discardTicketUploads.
+ */
+export async function discardTicketUploadsAction(input: {
+  tenantSlug: string;
+  ticketId?: string;
+  paths: string[];
+}) {
+  const parsed = discardTicketUploadsSchema.safeParse(input);
+  if (!parsed.success) return;
+  try {
+    await discardTicketUploads({
+      tenant: parsed.data.tenantSlug,
+      ticketId: parsed.data.ticketId ?? null,
+      paths: parsed.data.paths,
+    });
+  } catch (error) {
+    console.error("[discardTicketUploadsAction]", errorMessage(error));
+  }
+}
+
+/**
+ * `uploads` are files the browser already put in staging with targets from
+ * prepareTicketUploadsAction; they are checked before the ticket is created
+ * and moved onto it after.
+ */
 export async function createTicketAction(
   tenantSlug: string,
   formData: FormData,
+  uploads: TicketUploadedFile[] = [],
 ) {
   try {
     const parsed = createTicketSchema.safeParse({
@@ -90,13 +179,10 @@ export async function createTicketAction(
       return { error: "Subject and Requester Customer ID are required." };
     }
 
-    // Files are checked before the ticket exists, so a rejected upload
-    // doesn't create (and then have to withdraw) a ticket.
-    const files = formData
-      .getAll("files")
-      .filter((f): f is File => f instanceof File && f.size > 0);
-    const filesInvalid = attachmentsError(files);
-    if (filesInvalid) return { error: filesInvalid };
+    const parsedUploads = ticketUploadsSchema.safeParse(uploads);
+    if (!parsedUploads.success) {
+      return { error: firstIssue(parsedUploads.error) };
+    }
 
     // The tickets FK only checks the customer exists somewhere, and the seed
     // message below is written with the admin client: confirm the requester
@@ -112,6 +198,14 @@ export async function createTicketAction(
       .maybeSingle();
     if (!requester) return { error: "Customer not found." };
 
+    // Files are checked before the ticket exists, so a rejected upload
+    // doesn't create (and then have to withdraw) a ticket.
+    const staged = await inspectTicketUploads({
+      tenant: tenantSlug,
+      ticketId: null,
+      uploads: parsedUploads.data,
+    });
+
     const newTicket = await createTenantTicket(tenantSlug, {
       subject,
       description,
@@ -123,13 +217,11 @@ export async function createTicketAction(
     // No seeded customer message: the description is the opening post, as
     // for a portal request, and both threads render it from the ticket.
 
-    if (files.length > 0) {
+    if (staged.files.length > 0) {
       try {
-        await uploadTicketAttachments({
-          tenant: tenantSlug,
-          ticketId: newTicket.id,
-          files,
-        });
+        const moved = await moveStagedTicketUploads(staged, newTicket.id);
+        // No message: these are the ticket's opening files.
+        await recordStagedAttachments(moved, null);
       } catch (uploadError) {
         // Withdraw the ticket (its messages and clocks cascade), so "Create
         // ticket" again doesn't file a duplicate -- as createPortalRequest.
@@ -187,7 +279,14 @@ export async function createTicketAction(
   }
 }
 
-export async function sendTicketMessageAction(formData: FormData) {
+/**
+ * `uploads` are files the browser already put under the ticket with targets
+ * from prepareTicketUploadsAction; only their paths come through here.
+ */
+export async function sendTicketMessageAction(
+  formData: FormData,
+  uploads: TicketUploadedFile[] = [],
+) {
   try {
     const parsed = sendTicketMessageSchema.safeParse({
       ticketId: String(formData.get("ticketId") ?? ""),
@@ -200,15 +299,15 @@ export async function sendTicketMessageAction(formData: FormData) {
     const { ticketId, tenantSlug, body } = parsed.data;
     const visibility: MessageVisibility =
       formData.get("visibility") === "internal" ? "internal" : "public";
-    const files = formData
-      .getAll("files")
-      .filter((f): f is File => f instanceof File && f.size > 0);
+    const parsedUploads = ticketUploadsSchema.safeParse(uploads);
+    if (!parsedUploads.success) {
+      return { success: false, error: firstIssue(parsedUploads.error) };
+    }
+    const files = parsedUploads.data;
 
     if (!ticketId || !tenantSlug || (!body.trim() && files.length === 0)) {
       return { success: false, error: "Missing message content." };
     }
-    const filesInvalid = attachmentsError(files);
-    if (filesInvalid) return { success: false, error: filesInvalid };
 
     const supabase = await createSupabaseServerClient();
     const {
@@ -239,19 +338,20 @@ export async function sendTicketMessageAction(formData: FormData) {
     // minute) or a direct call can't get round it.
     const policy = await fetchTicketSlaPolicy(ticket.sla_policy_id);
     if (closedReason(Date.now(), policy?.calendar ?? null)) {
-      return {
-        success: false,
-        error:
-          "Support is closed right now. Replies open again at the next business opening.",
-      };
+      return { success: false, error: SUPPORT_CLOSED_ERROR };
     }
 
-    // Files go to storage first, the message second and the attachments rows
-    // last: if an upload fails nothing was sent, so sending again can't post
-    // the reply twice (it also started the first-response clock's finish).
+    // Files are in storage already (the browser put them there), are checked
+    // second, the message saved third and the attachments rows last: if a
+    // file is refused nothing was sent, so sending again can't post the
+    // reply twice (it also started the first-response clock's finish).
     const staged =
       files.length > 0
-        ? await stageTicketAttachments({ tenant: tenantSlug, ticketId, files })
+        ? await inspectTicketUploads({
+            tenant: tenantSlug,
+            ticketId,
+            uploads: files,
+          })
         : null;
 
     // Every file belongs to a message, even with no text: a message-less file

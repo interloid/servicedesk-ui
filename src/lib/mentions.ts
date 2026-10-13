@@ -97,3 +97,19 @@ export function mentionsToNames(body: string): string {
     (_, name: string) => unescapeMentionName(name),
   );
 }
+
+/**
+ * stripMentions until nothing changes, for text a customer wrote. One pass
+ * leaves nested markup behind: "@[@[x](user:id)](user:id)" becomes
+ * "@[@x](user:id)", a valid mention chip. Every pass that changes the text
+ * shortens it, so this ends.
+ */
+export function stripAllMentions(body: string): string {
+  let prev: string;
+  let text = body;
+  do {
+    prev = text;
+    text = stripMentions(text);
+  } while (text !== prev);
+  return text;
+}

@@ -41,6 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 import CreateTicketSheet from "./create-ticket-sheet";
 import {
+  NO_SLA_TEXT,
   TICKET_PRIORITIES,
   TICKET_PRIORITY_LABELS,
   TICKET_STATUSES,
@@ -124,8 +125,8 @@ function SlaBadge({ ticket }: { ticket: Ticket }) {
   const now = useNow(30_000);
   const mounted = useMounted();
   const live = computeLiveSla(ticket, now);
-  if (live.text === "-" || !live.text) {
-    return <span className="text-slate-400">-</span>;
+  if (live.text === NO_SLA_TEXT || !live.text) {
+    return <span className="text-slate-400">{NO_SLA_TEXT}</span>;
   }
   const style = SLA_PILL[live.type] ?? SLA_PILL.normal;
   return (

@@ -223,3 +223,25 @@ export interface TicketAttachment {
   created_at: string;
   signed_url?: string;
 }
+
+/**
+ * Where the browser may put one attachment: a server-minted path and a
+ * single-use token from createSignedUploadUrl. `mime` is the type the file
+ * must be uploaded as (from the allow-list, not the browser).
+ */
+/** `sla_text` for a ticket with no SLA clock; the queue shows a muted dash. */
+export const NO_SLA_TEXT = "-";
+
+export interface TicketUploadTarget {
+  path: string;
+  token: string;
+  name: string;
+  size: number;
+  mime: string;
+}
+
+/** A file the browser has put in the bucket, reported back by path. */
+export interface TicketUploadedFile {
+  path: string;
+  name: string;
+}

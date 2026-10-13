@@ -1150,6 +1150,45 @@ where t.sla_policy_id is null
 
 alter table public.tickets enable trigger set_tickets_updated_at;
 
+-- Clocks the September triggers started have no calendar (the column is new
+-- above), so they count wall-clock time; and since 20261009120000 stores a day
+-- as working minutes, their spans are short too ("8 days" on 09:00-18:00 is
+-- 4320 minutes, three calendar days). Re-lay each running one on its ticket's
+-- policy calendar, from the policy's target for the ticket's priority (the
+-- September triggers had no kept deadlines to preserve), before the pause and
+-- breach passes below read due_at. Code review 2026-10-13 RISK-005.
+with relaid as (
+    select
+        e.id,
+        p.business_hours_id as calendar,
+        coalesce(
+            case e.type
+                when 'first_response' then pt.first_response_mins
+                else pt.resolution_mins
+            end,
+            e.target_mins
+        ) as mins
+    from public.sla_events e
+    join public.tickets t on t.id = e.ticket_id
+    join public.sla_policies p on p.id = t.sla_policy_id
+    left join public.sla_policy_targets pt
+        on pt.policy_id = p.id
+       and pt.priority_scope = t.priority
+    where e.status = 'pending'
+      and e.paused_at is null
+      and e.business_hours_id is null
+      and p.business_hours_id is not null
+      and t.status not in ('resolved', 'closed')
+)
+update public.sla_events e
+set business_hours_id = r.calendar,
+    target_mins = r.mins,
+    due_at = public.sla_add_seconds(e.started_at, r.mins::bigint * 60, r.calendar),
+    warned_at = null
+from relaid r
+where e.id = r.id
+  and r.mins is not null;
+
 do $$
 declare
     v_ticket public.tickets;

@@ -75,10 +75,13 @@ export function TicketTagsField({
   const have = new Set(tags.map((t) => t.name));
   // Every tenant tag, applied ones first (ticked, so they can be unticked
   // here too); the list scrolls past a handful.
+  // An exact match leads, so Enter (cmdk highlights the first item) picks
+  // the tag typed, not a longer one containing it.
   const matches = known.filter((t) => !query || t.name.includes(query));
   const ordered = [
-    ...matches.filter((t) => have.has(t.name)),
-    ...matches.filter((t) => !have.has(t.name)),
+    ...matches.filter((t) => t.name === query),
+    ...matches.filter((t) => t.name !== query && have.has(t.name)),
+    ...matches.filter((t) => t.name !== query && !have.has(t.name)),
   ];
   const canCreate =
     query.length > 0 &&
@@ -185,24 +188,29 @@ export function TicketTagsField({
                 value={draft}
                 maxLength={TAG_NAME_MAX}
                 onValueChange={setDraft}
-                onKeyDown={(e) => {
-                  // Nothing to pick, so Enter creates the typed tag.
-                  if (e.key === "Enter" && ordered.length === 0 && canCreate) {
-                    e.preventDefault();
-                    add(query);
-                  }
-                }}
                 placeholder="Search or create tag…"
                 className="h-10 text-xs"
               />
               <CommandList className="max-h-60">
                 <CommandEmpty className="px-3 py-5 text-center text-xs text-slate-500">
-                  {known.length === 0
-                    ? "No tags yet. Type to create one."
-                    : canCreate
-                      ? "No tags match."
-                      : "No other tags match."}
+                  {/* Typed text always lists a match or "Create", so this
+                      shows only for an empty search with no tags yet. */}
+                  No tags yet. Type to create one.
                 </CommandEmpty>
+                {/* First when there's no exact match, so typing "bug" with
+                    "bugfix" listed and pressing Enter creates "bug". */}
+                {canCreate && (
+                  <CommandGroup>
+                    <CommandItem
+                      value={`create:${query}`}
+                      onSelect={() => add(query)}
+                      className="gap-1.5 text-xs font-semibold text-brand-accent"
+                    >
+                      <Plus className="size-3 shrink-0" aria-hidden />
+                      <span className="truncate">Create “{query}”</span>
+                    </CommandItem>
+                  </CommandGroup>
+                )}
                 {ordered.length > 0 && (
                   <CommandGroup>
                     {ordered.map((tag) => {
@@ -227,24 +235,6 @@ export function TicketTagsField({
                   </CommandGroup>
                 )}
               </CommandList>
-
-              {canCreate && (
-                <div className="flex items-center justify-between gap-2 border-t border-slate-100 p-2">
-                  <span className="truncate text-xs text-slate-500">
-                    Create “{query}”
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => add(query)}
-                    className="h-7 shrink-0 gap-1 px-2 text-xs font-semibold text-brand-accent hover:text-brand-accent"
-                  >
-                    <Plus className="size-3" aria-hidden />
-                    Create
-                  </Button>
-                </div>
-              )}
             </Command>
           </PopoverContent>
         </Popover>

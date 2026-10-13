@@ -40,7 +40,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Customer } from "../services/tickets.service";
-import { attachmentsError } from "../lib/attachments";
+import {
+  TICKET_ATTACHMENT_ACCEPT,
+  TICKET_ATTACHMENT_HINT,
+  attachmentsError,
+} from "../lib/attachments";
+import { discardTicketFiles, uploadTicketFiles } from "../lib/upload";
+import type { TicketUploadedFile } from "../types/tickets.types";
 import {
   TEAM_MODAL_BUTTON,
   TEAM_MODAL_BUTTON_PRIMARY,
@@ -141,20 +147,31 @@ export default function CreateTicketSheet({
     formData.append("priority", priority);
     formData.append("description", description);
 
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
-
     startTransition(async () => {
+      // The files go to storage first, straight from the browser; the
+      // action gets their paths and files them once the ticket exists.
+      let uploads: TicketUploadedFile[] = [];
       try {
-        const result = await createTicketAction(tenant, formData);
+        uploads = await uploadTicketFiles({ tenantSlug: tenant, files });
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Couldn't upload the files. Please try again.",
+        );
+        return;
+      }
+      try {
+        const result = await createTicketAction(tenant, formData, uploads);
         if (result?.success) {
           resetForm();
           onOpenChange(false);
         } else {
+          await discardTicketFiles(tenant, undefined, uploads);
           toast.error(result?.error || "Failed to create ticket.");
         }
       } catch {
+        await discardTicketFiles(tenant, undefined, uploads);
         toast.error("Couldn't create the ticket. Please try again.");
       }
     });
@@ -276,7 +293,7 @@ export default function CreateTicketSheet({
                 type="file"
                 multiple
                 className="hidden"
-                accept=".png,.jpg,.jpeg,.pdf,.log"
+                accept={TICKET_ATTACHMENT_ACCEPT}
                 onChange={handleFileChange}
               />
               <div
@@ -305,7 +322,7 @@ export default function CreateTicketSheet({
                   <span className="text-teal-700 underline">browse</span>
                 </p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  PNG, JPG, PDF, LOG up to 20 MB in total
+                  {TICKET_ATTACHMENT_HINT}
                 </p>
               </div>
 

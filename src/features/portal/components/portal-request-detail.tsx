@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   CircleAlert,
   Download,
@@ -64,8 +63,6 @@ export function PortalRequestDetailView({
   tenantName: string;
   request: PortalRequestDetail;
 }) {
-  const router = useRouter();
-
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | undefined>();
@@ -142,16 +139,16 @@ export function PortalRequestDetailView({
 
       setBody("");
       setFiles([]);
-      // The thread is server-rendered, so refresh rather than appending
+      // The thread is server-rendered, and postReplyAction's revalidatePath
+      // sends the fresh page back with its result, rather than appending
       // locally: the reply may also have moved the request out of
       // "Waiting on you", and the header has to agree with the thread.
       //
       // The toast earns its place here: clearing the box is the only local sign
-      // the reply was sent, and the new bubble arrives with the refresh.
+      // the reply was sent, and the new bubble arrives with the re-render.
       // Says where the answer will arrive, since the alternative reading of a
       // portal is "check your email".
       portalToastSuccess("Reply sent - the answer comes back to this thread.");
-      router.refresh();
     } catch (uploadFailure) {
       const message =
         uploadFailure instanceof Error
@@ -173,23 +170,33 @@ export function PortalRequestDetailView({
     setError(undefined);
     setIsReopening(true);
 
-    const result = await reopenRequestAction(tenantSlug, request.id);
+    try {
+      // revalidatePath in the action re-renders the page with its result.
+      const result = await reopenRequestAction(tenantSlug, request.id);
 
-    setIsReopening(false);
+      if (result.success) {
+        // The badge changes with the re-render, but a status change is small
+        // enough to miss, and the reply box reappearing is not an obvious
+        // "it's open". Says the one thing they cannot see: reopening puts it
+        // back in the queue.
+        portalToastSuccess("Reopened and back in the queue.");
+        return;
+      }
 
-    if (result.success) {
-      // The badge changes with the refresh, but a status change is small enough
-      // to miss, and the reply box reappearing is not an obvious "it's open".
-      // Says the one thing they cannot see: reopening puts it back in the queue.
-      portalToastSuccess("Reopened and back in the queue.");
-      router.refresh();
-      return;
+      setError(result.message);
+    } catch {
+      // A network failure: say so, and give the composer back.
+      setError("We couldn't reopen that request. Try again.");
+    } finally {
+      setIsReopening(false);
     }
-
-    setError(result.message);
   }
 
-  const { created, updated } = describeHeader(request);
+  // "today, 14:05" and "5 min ago" are in the viewer's time zone and clock,
+  // which the server can't know: shown once mounted, as the thread's times.
+  const { created, updated } = mounted
+    ? describeHeader(request)
+    : { created: "\u00a0", updated: "\u00a0" };
 
   return (
     // Laid out like a chat window: one card the height of the screen, with the
@@ -237,21 +244,15 @@ export function PortalRequestDetailView({
                 {PORTAL_STATE_LABEL[request.state]}
               </span>
 
-              <span
-                suppressHydrationWarning
-                className="text-xs text-muted-foreground md:hidden"
-              >
+              <span className="text-xs text-muted-foreground md:hidden">
                 {updated}
               </span>
             </div>
           </div>
 
-          <div
-            suppressHydrationWarning
-            className="hidden shrink-0 flex-col items-end gap-0.5 pt-0.5 text-xs text-muted-foreground md:flex"
-          >
-            <span suppressHydrationWarning>{created}</span>
-            <span suppressHydrationWarning>{updated}</span>
+          <div className="hidden shrink-0 flex-col items-end gap-0.5 pt-0.5 text-xs text-muted-foreground md:flex">
+            <span>{created}</span>
+            <span>{updated}</span>
           </div>
         </header>
 

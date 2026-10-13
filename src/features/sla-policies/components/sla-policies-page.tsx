@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-import { CalendarDays, Clock } from "lucide-react";
+import { CalendarDays, Clock, Lock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import {
   Table,
@@ -10,6 +10,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { BADGE_TONES, StatusBadge } from "./status-badge";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -22,6 +28,7 @@ import {
 } from "../format";
 import { formatDurationShort, slaDayMins } from "../duration";
 import {
+  POLICY_IN_USE_MESSAGE,
   SlaPolicy,
   SlaPolicyQuota,
   describePolicyLimit,
@@ -184,6 +191,22 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
             >
               Default
             </Badge>
+          )}
+
+          {policy.inUse && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge className="inline-flex h-5 shrink-0 items-center gap-1 border-none bg-amber-50 px-2 text-[10px] font-semibold leading-none tracking-wide text-amber-700 uppercase">
+                    <Lock className="size-3" aria-hidden />
+                    In use
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  {POLICY_IN_USE_MESSAGE}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
 

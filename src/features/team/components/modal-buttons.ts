@@ -25,7 +25,7 @@ export const TEAM_DIALOG_CONTENT = `p-5 ${TEAM_DIALOG_CLOSE}`;
 export const TEAM_DIALOG_TITLE = "text-lg font-semibold tracking-tight";
 
 /** Inputs and selects share one height so fields line up across dialogs. */
-export const TEAM_MODAL_CONTROL = "h-10";
+export const TEAM_MODAL_CONTROL = "min-h-10";
 
 /**
  * Full-bleed footer: the negative margins cancel TEAM_DIALOG_CONTENT so the

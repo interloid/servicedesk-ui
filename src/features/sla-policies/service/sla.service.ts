@@ -12,6 +12,7 @@ import {
   EscalationRole,
   FREE_SLA_POLICY_LIMIT,
   PRIORITY_SCOPES,
+  POLICY_IN_USE_MESSAGE,
   PolicyStatus,
   PriorityScope,
   SLA_CUSTOMER_PICKER_LIMIT,
@@ -22,6 +23,7 @@ import {
   SlaPolicyEditorValue,
   SlaPolicyQuota,
   SlaPolicyTarget,
+  SlaTimezoneOption,
   UpdateSlaPolicyDto,
   describePolicyLimit,
   emptyEditorTarget,
@@ -447,20 +449,50 @@ async function loadPolicyTargets(
 }
 
 /**
- * Tickets per policy, counted in the database. Reading the rows instead hit
- * PostgREST's 1000-row cap, so busy tenants saw wrong numbers.
+ * Tickets per policy, counted in the database in one grouped query
+ * (sla_policy_ticket_counts). Reading the rows instead hit PostgREST's
+ * 1000-row cap, so busy tenants saw wrong numbers.
+ *
+ * Also what locks a policy: once it is applied to any ticket it can't be
+ * changed, so the targets a ticket was given never change under it. Service
+ * role, scoped to the tenant: tickets RLS would otherwise hide some tickets
+ * from some roles, undercount, and unlock the policy.
  */
 async function loadAppliedTicketCounts(
+  tenantId: string,
   policyIds: string[],
 ): Promise<Record<string, number>> {
   if (policyIds.length === 0) return {};
 
-  const supabase = await createSupabaseServerClient();
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin.rpc("sla_policy_ticket_counts", {
+    p_tenant_id: tenantId,
+    p_policy_ids: policyIds,
+  });
+  if (!error) {
+    // A policy with no tickets has no row: it counts 0.
+    const counts: Record<string, number> = Object.fromEntries(
+      policyIds.map((id) => [id, 0]),
+    );
+    for (const row of (data ?? []) as {
+      policy_id: string;
+      ticket_count: number | string;
+    }[]) {
+      counts[row.policy_id] = Number(row.ticket_count);
+    }
+    return counts;
+  }
+  // PGRST202: migration 20261013120000 not applied yet; count per policy.
+  if (error.code !== "PGRST202") {
+    throw dbError(error, "Couldn't count SLA tickets.");
+  }
+
   const counts = await Promise.all(
     policyIds.map(async (id) => {
-      const { count, error } = await supabase
+      const { count, error } = await admin
         .from("tickets")
         .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
         .eq("sla_policy_id", id);
       if (error) throw dbError(error, "Couldn't count SLA tickets.");
       return [id, count ?? 0] as const;
@@ -485,13 +517,16 @@ function describeTargets(targets: SlaPolicyTarget[], dayMins: number): string {
   )}`;
 }
 
-const BUSINESS_HOURS_COLUMNS = "id, name, schedule_json, holidays_json";
+const BUSINESS_HOURS_COLUMNS =
+  "id, name, schedule_json, holidays_json, timezone_id, timezones(code)";
 
 type BusinessHoursRow = {
   id: string;
   name: string;
   schedule_json: unknown;
   holidays_json: unknown;
+  timezone_id: string | null;
+  timezones: { code: string } | { code: string }[] | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -546,7 +581,28 @@ export function toBusinessHoursOption(
     holidays: parseHolidays(row.holidays_json).sort((a, b) =>
       a.date.localeCompare(b.date),
     ),
+    timezoneId: row.timezone_id,
+    timezone:
+      (Array.isArray(row.timezones) ? row.timezones[0] : row.timezones)?.code ??
+      null,
   };
+}
+
+/** Every zone a calendar can count in, for the business hours picker. */
+async function fetchTimezones(
+  supabase: SupabaseClient,
+): Promise<SlaTimezoneOption[]> {
+  const { data, error } = await supabase
+    .from("timezones")
+    .select("id, code, display_name")
+    .order("display_name", { ascending: true });
+
+  if (error) throw dbError(error, "Couldn't load time zones.");
+  return (data || []).map((z) => ({
+    id: z.id,
+    code: z.code,
+    name: z.display_name,
+  }));
 }
 
 function holidayToJson(h: SlaHoliday) {
@@ -577,7 +633,7 @@ export async function fetchTenantBusinessHours(
 
   if (error) throw dbError(error, "Couldn't load business hours.");
 
-  return (data || []).map(toBusinessHoursOption);
+  return (data || []).map((row) => toBusinessHoursOption(row));
 }
 
 async function loadBusinessHoursRow(
@@ -587,7 +643,7 @@ async function loadBusinessHoursRow(
 ) {
   const { data, error } = await supabase
     .from("business_hours")
-    .select("id, name, schedule_json, holidays_json, updated_at")
+    .select(`${BUSINESS_HOURS_COLUMNS}, updated_at`)
     .eq("id", id)
     .eq("tenant_id", tenantId)
     .maybeSingle();
@@ -641,7 +697,19 @@ export async function updateBusinessHoursSchedule(
   const tenantId = await getTenantIdBySlug(tenant);
   if (!tenantId) throw new Error("Tenant not found.");
 
+  // No lock once the calendar has timed tickets: the
+  // business_hours_retime_sla_events trigger re-lays running clocks on the
+  // new hours / time zone (migration 20261010120000).
   const row = await loadBusinessHoursRow(supabase, tenantId, id);
+
+  if (!UUID.test(schedule.timezoneId)) throw new Error("Pick a time zone.");
+  const { data: zone, error: zoneError } = await supabase
+    .from("timezones")
+    .select("id")
+    .eq("id", schedule.timezoneId)
+    .maybeSingle();
+  if (zoneError) throw dbError(zoneError, "Couldn't check the time zone.");
+  if (!zone) throw new Error("Pick a time zone.");
 
   // Merge so keys this screen does not edit survive the write.
   const nextSchedule: Record<string, unknown> = {
@@ -655,6 +723,7 @@ export async function updateBusinessHoursSchedule(
 
   return writeBusinessHoursRow(supabase, tenantId, row, {
     schedule_json: nextSchedule,
+    timezone_id: schedule.timezoneId,
   });
 }
 
@@ -669,6 +738,7 @@ export async function updateBusinessHoursHolidays(
   const tenantId = await getTenantIdBySlug(tenant);
   if (!tenantId) throw new Error("Tenant not found.");
 
+  // Running clocks are re-timed by the retime trigger, as for the hours.
   const row = await loadBusinessHoursRow(supabase, tenantId, id);
   const next = change(parseHolidays(row.holidays_json)).map(holidayToJson);
 
@@ -720,18 +790,31 @@ export async function getSlaEditorData(
   otherPolicies: PolicyScope[];
   /** False for roles that may only look (agents). */
   canManage: boolean;
+  /** For the business hours dialog's time zone picker. */
+  timezones: SlaTimezoneOption[];
+  /** Tickets this policy is applied to; above 0 the policy is locked. */
+  appliedTicketCount: number;
 }> {
   const supabase = await createSupabaseServerClient();
   const tenantId = await getTenantIdBySlug(tenant);
 
-  const [businessHours, customers, scopes, canManage] = await Promise.all([
-    fetchTenantBusinessHours(tenant),
-    tenantId ? fetchTenantCustomers(supabase, tenantId) : [],
-    tenantId ? loadPolicyScopes(supabase, tenantId) : [],
-    canManageSla(),
-  ]);
+  const [businessHours, customers, scopes, canManage, timezones] =
+    await Promise.all([
+      fetchTenantBusinessHours(tenant),
+      tenantId ? fetchTenantCustomers(supabase, tenantId) : [],
+      tenantId ? loadPolicyScopes(supabase, tenantId) : [],
+      canManageSla(),
+      fetchTimezones(supabase),
+    ]);
   const otherPolicies = scopes.filter((p) => p.id !== policyId);
-  const base = { businessHours, customers, otherPolicies, canManage };
+  const base = {
+    businessHours,
+    customers,
+    otherPolicies,
+    canManage,
+    timezones,
+    appliedTicketCount: 0,
+  };
 
   if (!policyId) {
     return { ...base, value: emptyEditorValue(businessHours, otherPolicies) };
@@ -749,9 +832,10 @@ export async function getSlaEditorData(
   if (error) throw dbError(error, "Couldn't load the SLA policy.");
   if (!policy) return { ...base, value: null };
 
-  const [targets, customerIdsByPolicy] = await Promise.all([
+  const [targets, customerIdsByPolicy, ticketCounts] = await Promise.all([
     loadPolicyTargets([policyId]),
     loadPolicyCustomerIds(supabase, [policyId]),
+    loadAppliedTicketCounts(tenantId, [policyId]),
   ]);
   const appliesTo = toAppliesTo(policy.applies_to);
   const existingByScope = new Map(
@@ -779,6 +863,7 @@ export async function getSlaEditorData(
 
   return {
     ...base,
+    appliedTicketCount: ticketCounts[policyId] ?? 0,
     value: {
       id: policyId,
       isDefault: policy.is_default,
@@ -883,7 +968,7 @@ export async function fetchTenantSlaPolicies(
   ];
   const [targets, counts, editorNames, customerIds] = await Promise.all([
     loadPolicyTargets(policyIds),
-    loadAppliedTicketCounts(policyIds),
+    loadAppliedTicketCounts(tenantId, policyIds),
     loadEditorNames(supabase, editorIds),
     loadPolicyCustomerIds(supabase, policyIds),
   ]);
@@ -899,6 +984,7 @@ export async function fetchTenantSlaPolicies(
       description:
         p.description || describeTargets(policyTargets, slaDayMins(calendar)),
       appliedTickets: counts[p.id] || 0,
+      inUse: (counts[p.id] ?? 0) > 0,
       updated_at: p.updated_at,
       // Null when the editor is gone or users RLS hides them; the list then
       // shows the date alone.
@@ -990,6 +1076,34 @@ async function replacePolicyTargets(
       if (error) throw dbError(error);
     }
   }
+}
+
+/**
+ * Whether saving `next` would change the minutes a clock counts: a priority
+ * added or removed, or a first response / resolution time that differs. The
+ * unit is compared too where both sides have one, since it decides how a
+ * calendar change rescales the target, and so are the business-hours flags,
+ * or a save changing only those would pass the lock and then be skipped.
+ */
+function targetsChanged(
+  next: SlaPolicyEditorTarget[],
+  stored: SlaPolicyTarget[],
+): boolean {
+  if (next.length !== stored.length) return true;
+  return next.some((target) => {
+    const row = stored.find((t) => t.priority_scope === target.priority);
+    if (!row) return true;
+    const differs = <T>(a: T | undefined, b: T | undefined) =>
+      a !== undefined && b !== undefined && a !== b;
+    return (
+      row.first_response_mins !== target.firstResponseMins ||
+      row.resolution_mins !== target.resolutionMins ||
+      differs(row.first_response_unit, target.firstResponseUnit) ||
+      differs(row.resolution_unit, target.resolutionUnit) ||
+      differs(row.first_response_business, target.firstResponseBusiness) ||
+      differs(row.resolution_business, target.resolutionBusiness)
+    );
+  });
 }
 
 function toEditorTargets(rows: SlaPolicyTarget[]): SlaPolicyEditorTarget[] {
@@ -1159,6 +1273,9 @@ export async function updateSlaPolicy(
   if (readError) throw dbError(readError, "Couldn't load the SLA policy.");
   if (!current) throw new Error("Policy not found.");
 
+  const ticketCounts = await loadAppliedTicketCounts(tenantId, [policyId]);
+  const inUse = (ticketCounts[policyId] ?? 0) > 0;
+
   const status = dto.status ?? (current.status as PolicyStatus);
   const appliesTo = dto.applies_to ?? "All customers";
   const willBeDefault = dto.is_default ?? current.is_default;
@@ -1184,6 +1301,20 @@ export async function updateSlaPolicy(
     loadPolicyTargets([policyId]),
     loadPolicyCustomerIds(supabase, [policyId]),
   ]);
+
+  // A policy applied to tickets keeps what its deadlines are worked out
+  // from -- the targets and the calendar -- so no running clock moves.
+  // Everything else (name, status, scope, customers, notifications, default)
+  // stays editable: deactivating a used policy only stops new tickets from
+  // getting it.
+  if (inUse) {
+    const calendarChanged =
+      dto.business_hours_id !== undefined &&
+      (dto.business_hours_id ?? null) !== (current.business_hours_id ?? null);
+    if (calendarChanged || targetsChanged(dto.targets, previousTargets)) {
+      throw new Error(POLICY_IN_USE_MESSAGE);
+    }
+  }
 
   const updates: Record<string, unknown> = {
     ...definedOnly(policyColumns(dto)),
@@ -1213,19 +1344,22 @@ export async function updateSlaPolicy(
   if (error) throw dbError(error);
 
   try {
-    await replacePolicyTargets(
-      supabase,
-      tenantId,
-      policyId,
-      dto.targets,
-      previousTargets,
-      () =>
-        loadPolicyDayMins(
-          supabase,
-          tenantId,
-          policy?.business_hours_id ?? current.business_hours_id,
-        ),
-    );
+    // Unchanged on a used policy (checked above): nothing to write.
+    if (!inUse) {
+      await replacePolicyTargets(
+        supabase,
+        tenantId,
+        policyId,
+        dto.targets,
+        previousTargets,
+        () =>
+          loadPolicyDayMins(
+            supabase,
+            tenantId,
+            policy?.business_hours_id ?? current.business_hours_id,
+          ),
+      );
+    }
     await replacePolicyCustomers(
       supabase,
       tenantId,

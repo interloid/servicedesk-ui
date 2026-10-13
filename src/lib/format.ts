@@ -59,3 +59,32 @@ export function getInitials(name: string, email: string): string {
 
   return email.charAt(0).toUpperCase() || "?";
 }
+
+/**
+ * A chat message's time, "1:22 PM" -- the day is shown by the divider above
+ * it. Viewer-local: render only after mount (useMounted).
+ */
+export function formatChatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** Chat day divider (viewer-local, render after mount): "Today", "Yesterday", "Tuesday" this week, else "Oct 3". */
+export function formatChatDay(iso: string): string {
+  const at = new Date(iso);
+  const startOf = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(at)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days > 1 && days < 7)
+    return at.toLocaleDateString([], { weekday: "long" });
+  return at.toLocaleDateString(
+    [],
+    at.getFullYear() === new Date().getFullYear()
+      ? { month: "short", day: "numeric" }
+      : { month: "short", day: "numeric", year: "numeric" },
+  );
+}

@@ -1,16 +1,27 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
+import { CircleAlert, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+
+import { ModalNotice } from "@/components/shared/modal-notice";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertTriangle } from "lucide-react";
-import { SavedView } from "../services/saved-views.service";
+import {
+  TEAM_DIALOG_CONTENT,
+  TEAM_DIALOG_FOOTER,
+  TEAM_DIALOG_TITLE,
+  TEAM_MODAL_BUTTON,
+  TEAM_MODAL_BUTTON_DANGER,
+} from "@/features/team/components/modal-buttons";
+import type { SavedView } from "../services/saved-views.service";
 import { deleteSavedViewAction } from "../actions/saved-views.actions";
 
 interface DeleteSavedViewDialogProps {
@@ -27,59 +38,84 @@ export default function DeleteSavedViewDialog({
   view,
 }: DeleteSavedViewDialogProps) {
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | undefined>();
 
-  if (!view) return null;
+  // Keep the last view so the dialog still shows its name while animating out.
+  const [shown, setShown] = useState<SavedView | null>(view);
+  if (view && view !== shown) {
+    setShown(view);
+    setError(undefined);
+  }
 
   const handleDelete = () => {
+    if (!shown) return;
+    setError(undefined);
+
     startTransition(async () => {
-      const res = await deleteSavedViewAction(tenant, view.id);
+      const res = await deleteSavedViewAction(tenant, shown.id);
       if (res.success) {
+        toast.success(`Deleted "${shown.name}"`);
         onOpenChange(false);
+        return;
       }
+      setError(res.error);
     });
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-100 p-6 font-sans rounded-2xl bg-white border border-slate-100 shadow-xl [&>button]:hidden">
-        <DialogHeader className="space-y-2">
-          <div className="flex items-center space-x-2 text-red-600">
-            <AlertTriangle className="w-5 h-5" />
-            <DialogTitle className="text-base font-bold text-slate-900">
-              Delete view
-            </DialogTitle>
-          </div>
-          <DialogDescription className="text-xs text-slate-500 pt-1">
-            Are you sure you want to delete{" "}
-            <span className="font-semibold text-slate-900">
-              &quot;{view.name}&quot;
-            </span>
-            ? This action cannot be undone.
+    <Dialog
+      open={open && shown !== null}
+      onOpenChange={(next) => !isPending && onOpenChange(next)}
+    >
+      <DialogContent className={`gap-3 sm:max-w-115 ${TEAM_DIALOG_CONTENT}`}>
+        <DialogHeader className="pr-6">
+          <DialogTitle className={TEAM_DIALOG_TITLE}>Delete view</DialogTitle>
+          <DialogDescription>
+            Delete{" "}
+            <span className="font-semibold">&ldquo;{shown?.name}&rdquo;</span>?
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center justify-end space-x-2 pt-4">
+        <ModalNotice icon={CircleAlert} tone="danger" title="What happens next">
+          <ul className="flex list-disc flex-col gap-1 pl-4 text-xs leading-[1.5]">
+            <li>
+              The view is removed for you
+              {shown?.is_shared ? " and everyone it was shared with" : ""}.
+            </li>
+            <li>No tickets are changed or deleted.</li>
+            <li>This can&apos;t be undone.</li>
+          </ul>
+        </ModalNotice>
+
+        {error ? (
+          <p role="alert" className="text-xs font-semibold text-destructive">
+            {error}
+          </p>
+        ) : null}
+
+        <DialogFooter className={TEAM_DIALOG_FOOTER}>
           <Button
             type="button"
             variant="outline"
+            size="sm"
             disabled={isPending}
             onClick={() => onOpenChange(false)}
-            className="h-9 px-4 text-xs font-semibold text-slate-700 border-slate-200 hover:bg-slate-50 rounded-lg shadow-none"
+            className={TEAM_MODAL_BUTTON}
           >
             Cancel
           </Button>
           <Button
             type="button"
+            variant="ghost"
+            size="sm"
             disabled={isPending}
             onClick={handleDelete}
-            className="h-9 px-4 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-none"
+            className={`${TEAM_MODAL_BUTTON} ${TEAM_MODAL_BUTTON_DANGER}`}
           >
-            {isPending && (
-              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-            )}
-            Delete view
+            {isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+            {isPending ? "Deleting…" : "Delete view"}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

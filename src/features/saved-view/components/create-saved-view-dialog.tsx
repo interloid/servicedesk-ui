@@ -1,9 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
+import { CopyX, Loader2, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -11,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -19,45 +25,164 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { X, Loader2 } from "lucide-react";
-import { SavedView } from "../services/saved-views.service";
 import {
-  ASSIGNEE_FILTERS,
-  ASSIGNEE_LABEL,
+  TEAM_DIALOG_CONTENT,
+  TEAM_DIALOG_FOOTER,
+  TEAM_DIALOG_TITLE,
+  TEAM_MODAL_BUTTON,
+  TEAM_MODAL_BUTTON_PRIMARY,
+  TEAM_MODAL_CONTROL,
+} from "@/features/team/components/modal-buttons";
+import { ModalNotice } from "@/components/shared/modal-notice";
+import { cn } from "@/lib/utils";
+import type { SavedView } from "../services/saved-views.service";
+import {
+  canMatchAnything,
+  conditionCount,
+  DEFAULT_VIEW_ROLES,
   describeFilter,
-  EMPTY_FILTER,
+  fieldValues,
+  FILTER_FIELD_LABEL,
+  FILTER_FIELDS,
+  filterKey,
+  findSameFilterView,
+  findSameNameView,
   normalizeFilter,
-  PRIORITY_LABEL,
-  STATUS_LABEL,
-  TICKET_PRIORITIES,
-  TICKET_STATUSES,
+  repeatedRuleIndexes,
+  ruleValueLabel,
+  SEARCH_MAX,
+  searchTerm,
   toFilterJson,
-  type AssigneeFilter,
+  VIEW_CONDITIONS_MAX,
+  VIEW_CONDITIONS_MIN,
+  VIEW_CONDITIONS_RECOMMENDED,
+  VIEW_NAME_MAX,
+  VIEW_ROLE_LABEL,
+  VIEW_ROLES,
+  viewNameKey,
+  type FilterField,
+  type FilterJoin,
+  type FilterRule,
   type ViewFilter,
+  type ViewRole,
 } from "../filters";
 import {
   createSavedViewAction,
   updateSavedViewAction,
 } from "../actions/saved-views.actions";
-import type {
-  TicketPriority,
-  TicketStatus,
-} from "@/features/tickets/types/tickets.types";
 
 interface SavedViewFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   tenant: string;
   view?: SavedView | null;
+  /** The views on the page, to catch a filter that already has one. */
+  views?: SavedView[];
 }
 
-const FIELD_CLASS =
-  "h-10 text-sm border-slate-200 text-slate-800 placeholder:text-slate-400 rounded-lg focus-visible:ring-1 focus-visible:ring-[#0d7a6a]";
+const FIELD_CLASS = `${TEAM_MODAL_CONTROL} text-sm`;
 
-function toggle<T>(list: T[], value: T): T[] {
-  return list.includes(value)
-    ? list.filter((item) => item !== value)
-    : [...list, value];
+/** One condition in the popup: a FilterRule plus a key for React. */
+type FilterRow = FilterRule & { id: number };
+
+/** Choices for each field; null means a free-text box. */
+function optionsFor(
+  field: FilterField,
+): { value: string; label: string }[] | null {
+  return (
+    fieldValues(field)?.map((value) => ({
+      value,
+      label: ruleValueLabel({ field, value }),
+    })) ?? null
+  );
+}
+
+// Ids come from the rows themselves, not a module counter: Fast Refresh
+// re-runs the module and reset the counter, handing out ids already in use.
+function nextRowId(rows: FilterRow[]): number {
+  return rows.reduce((max, r) => Math.max(max, r.id), 0) + 1;
+}
+
+function filterFromRows(rows: FilterRow[]): ViewFilter {
+  // An empty text box is not a condition yet.
+  return {
+    rules: rows
+      .filter((r) => r.value.trim())
+      .map(({ field, value, join }) => ({ field, value: value.trim(), join })),
+  };
+}
+
+/**
+ * A fresh condition on `field`, on a value no other row has picked. Another
+ * value of the field just above reads as OR (Pending or Open); a new field as
+ * AND.
+ */
+function newRow(
+  field: FilterField,
+  rows: FilterRow[],
+  join?: FilterJoin,
+): FilterRow {
+  const options = optionsFor(field);
+  const taken = new Set(
+    rows.filter((r) => r.field === field).map((r) => r.value),
+  );
+  const value = options
+    ? (options.find((o) => !taken.has(o.value)) ?? options[0]).value
+    : "";
+  return {
+    field,
+    value,
+    join: join ?? (rows.at(-1)?.field === field ? "or" : "and"),
+    id: nextRowId(rows),
+  };
+}
+
+/** The field a new row starts on: the last one, while it has values left. */
+function nextField(rows: FilterRow[]): FilterField {
+  const last = rows.at(-1)?.field ?? "status";
+  const options = optionsFor(last);
+  const used = rows.filter((r) => r.field === last).length;
+  if (!options || used < options.length) return last;
+  return FILTER_FIELDS.find((f) => f !== last) ?? "status";
+}
+
+/** The AND / OR picker between two rows. */
+function JoinPicker({
+  value,
+  onChange,
+}: {
+  value: FilterJoin;
+  onChange: (join: FilterJoin) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 py-0.5" role="group">
+      <span aria-hidden className="h-px w-3 bg-border" />
+      <div
+        className="inline-flex rounded-md border border-border bg-muted/40 p-0.5"
+        aria-label="Join with the conditions above"
+      >
+        {(["and", "or"] as const).map((join) => (
+          <button
+            key={join}
+            type="button"
+            aria-pressed={value === join}
+            onClick={() => onChange(join)}
+            className={cn(
+              "h-6 min-w-11 rounded px-2 text-[11px] font-bold tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent",
+              value === join
+                ? join === "and"
+                  ? "bg-brand-accent text-brand-accent-foreground shadow-sm"
+                  : "bg-blue-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {join.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <span aria-hidden className="h-px flex-1 bg-border" />
+    </div>
+  );
 }
 
 export default function SavedViewFormDialog({
@@ -65,13 +190,15 @@ export default function SavedViewFormDialog({
   onOpenChange,
   tenant,
   view = null,
+  views = [],
 }: SavedViewFormDialogProps) {
   const isEdit = Boolean(view);
   const [isPending, startTransition] = useTransition();
 
   const [name, setName] = useState("");
-  const [filter, setFilter] = useState<ViewFilter>(EMPTY_FILTER);
+  const [rows, setRows] = useState<FilterRow[]>([]);
   const [isShared, setIsShared] = useState(false);
+  const [roles, setRoles] = useState<ViewRole[]>(DEFAULT_VIEW_ROLES);
   const [error, setError] = useState<string | undefined>();
 
   // Re-seed whenever the dialog opens on a different view. Without this,
@@ -87,245 +214,480 @@ export default function SavedViewFormDialog({
   if (seedKey !== seededFor) {
     setSeededFor(seedKey);
     setName(view?.name ?? "");
-    setFilter(view ? normalizeFilter(view.filter_json) : EMPTY_FILTER);
+    // A new view starts with one condition: it needs at least one.
+    setRows(
+      view
+        ? normalizeFilter(view.filter_json).rules.map((rule, i) => ({
+            ...rule,
+            id: i + 1,
+          }))
+        : [newRow("status", [])],
+    );
     setIsShared(view?.is_shared ?? false);
+    setRoles(view?.visibilityRoles ?? DEFAULT_VIEW_ROLES);
     setError(undefined);
   }
+
+  const filter = filterFromRows(rows);
+  const canAddRow = rows.length < VIEW_CONDITIONS_MAX;
+  // Counted on the filter, so an empty text box is not a condition.
+  const conditions = conditionCount(filter);
+  const conditionsOk =
+    conditions >= VIEW_CONDITIONS_MIN && conditions <= VIEW_CONDITIONS_MAX;
+
+  // The same field and value twice adds nothing; flag the later copy.
+  const repeatedIndexes = new Set(
+    repeatedRuleIndexes(
+      rows.map((r) => ({ ...r, value: r.value.trim() })),
+    ).filter((i) => rows[i].value.trim()),
+  );
+  const repeatedRowIds = new Set(
+    rows.filter((_, i) => repeatedIndexes.has(i)).map((r) => r.id),
+  );
+  const takenValues = (field: FilterField, exceptId: number) =>
+    new Set(
+      rows
+        .filter((other) => other.field === field && other.id !== exceptId)
+        .map((other) => other.value),
+    );
+
+  // Only punctuation is no text to search for: it would match every ticket.
+  const blankSearchRowIds = new Set(
+    rows
+      .filter(
+        (r) => r.field === "search" && r.value.trim() && !searchTerm(r.value),
+      )
+      .map((r) => r.id),
+  );
+
+  // "Status is Pending AND Status is Open" can never match: say so.
+  const impossible = conditionsOk && !canMatchAnything(filter);
+
+  const updateRow = (id: number, next: FilterRow) =>
+    setRows((current) => current.map((r) => (r.id === id ? next : r)));
+
+  // On an edit, the name and the filter are checked only when they changed:
+  // a teammate sharing a view with the same name or filter later must not
+  // lock the owner out of editing the rest of theirs. The action does the same.
+  const filterChanged =
+    !view || filterKey(normalizeFilter(view.filter_json)) !== filterKey(filter);
+
+  // Same tickets under another name is no new view. The action checks again.
+  const duplicate =
+    conditionsOk && filterChanged
+      ? findSameFilterView(views, filter, view?.id)
+      : undefined;
+
+  const trimmed = name.trim();
+  const nameChanged = !view || viewNameKey(view.name) !== viewNameKey(trimmed);
+  // Two views with one name can't be told apart in the list.
+  const sameName = nameChanged
+    ? findSameNameView(views, trimmed, view?.id)
+    : undefined;
+  const canSubmit =
+    !isPending &&
+    trimmed.length > 0 &&
+    trimmed.length <= VIEW_NAME_MAX &&
+    conditionsOk &&
+    repeatedRowIds.size === 0 &&
+    blankSearchRowIds.size === 0 &&
+    !impossible &&
+    !duplicate &&
+    !sameName &&
+    (!isShared || roles.length > 0);
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!name.trim()) return;
+    if (!canSubmit) return;
 
     setError(undefined);
 
-    const filterJson = toFilterJson(filter);
+    const input = {
+      name: trimmed,
+      filterJson: toFilterJson(filter),
+      isShared,
+      visibilityRoles: roles,
+    };
 
     startTransition(async () => {
       const res = isEdit
-        ? await updateSavedViewAction(tenant, view!.id, {
-            name: name.trim(),
-            filter_json: filterJson,
-            is_shared: isShared,
-          })
-        : await createSavedViewAction(
-            tenant,
-            name.trim(),
-            filterJson,
-            isShared,
-          );
+        ? await updateSavedViewAction(tenant, view!.id, input)
+        : await createSavedViewAction(tenant, input);
 
-      if (res?.success) {
+      if (res.success) {
+        toast.success(isEdit ? "View updated" : "View created");
         onOpenChange(false);
         return;
       }
 
-      setError(res?.error ?? "Couldn't save that view. Try again.");
+      setError(res.error || "Couldn't save that view. Try again.");
     });
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-125 p-6 font-sans rounded-2xl bg-white border-0 shadow-2xl [&>button]:hidden max-h-[90dvh] overflow-y-auto">
-        <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <DialogTitle className="text-lg font-extrabold text-slate-900 tracking-tight">
-            {isEdit ? "Edit view" : "New view"}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => !isPending && onOpenChange(next)}
+    >
+      <DialogContent
+        className={`gap-4 sm:max-w-140 max-h-[90dvh] overflow-y-auto ${TEAM_DIALOG_CONTENT}`}
+      >
+        <DialogHeader className="-mx-5 border-b border-border px-5 pb-4 pr-11">
+          <DialogTitle className={TEAM_DIALOG_TITLE}>
+            {isEdit ? "Edit saved view" : "Create saved view"}
           </DialogTitle>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="rounded-full p-1 text-slate-400 hover:text-slate-600 transition-colors focus:outline-none"
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </button>
+          <DialogDescription className="sr-only">
+            Save a filter over the ticket queue to open it in one click.
+          </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <div className="space-y-1.5">
-            <Label
-              htmlFor="view-name"
-              className="text-xs font-semibold text-slate-900"
-            >
-              View name
+            <Label htmlFor="view-name" className="text-sm font-semibold">
+              View name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="view-name"
-              placeholder="e.g. Waiting on engineering"
+              placeholder="e.g. My pending tickets"
               value={name}
+              maxLength={VIEW_NAME_MAX}
               onChange={(e) => setName(e.target.value)}
               required
+              autoFocus
+              aria-invalid={sameName ? true : undefined}
+              aria-describedby={sameName ? "view-name-error" : undefined}
               className={FIELD_CLASS}
             />
-          </div>
-
-          <fieldset className="space-y-2">
-            <legend className="text-xs font-semibold text-slate-900">
-              Status
-            </legend>
-            <p className="text-[11px] text-slate-500">
-              Leave all unticked to include every status.
-            </p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-0.5">
-              {TICKET_STATUSES.map((status) => (
-                <label
-                  key={status}
-                  className="flex items-center gap-2 text-sm text-slate-800"
-                >
-                  <Checkbox
-                    checked={filter.statuses.includes(status)}
-                    onCheckedChange={() =>
-                      setFilter((current) => ({
-                        ...current,
-                        statuses: toggle<TicketStatus>(
-                          current.statuses,
-                          status,
-                        ),
-                      }))
-                    }
-                  />
-                  {STATUS_LABEL[status]}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          <fieldset className="space-y-2">
-            <legend className="text-xs font-semibold text-slate-900">
-              Priority
-            </legend>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-0.5">
-              {TICKET_PRIORITIES.map((priority) => (
-                <label
-                  key={priority}
-                  className="flex items-center gap-2 text-sm text-slate-800"
-                >
-                  <Checkbox
-                    checked={filter.priorities.includes(priority)}
-                    onCheckedChange={() =>
-                      setFilter((current) => ({
-                        ...current,
-                        priorities: toggle<TicketPriority>(
-                          current.priorities,
-                          priority,
-                        ),
-                      }))
-                    }
-                  />
-                  {PRIORITY_LABEL[priority]}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="view-assignee"
-              className="text-xs font-semibold text-slate-900"
-            >
-              Assignee
-            </Label>
-            <Select
-              value={filter.assignee}
-              onValueChange={(value) =>
-                setFilter((current) => ({
-                  ...current,
-                  assignee: value as AssigneeFilter,
-                }))
-              }
-            >
-              <SelectTrigger
-                id="view-assignee"
-                className="h-10 w-full text-sm border-slate-200 text-slate-800 rounded-lg focus:ring-1 focus:ring-[#0d7a6a]"
+            {sameName ? (
+              <p
+                id="view-name-error"
+                role="alert"
+                className="text-xs text-destructive"
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-white border border-slate-200 rounded-lg shadow-md">
-                {ASSIGNEE_FILTERS.map((option) => (
-                  <SelectItem
-                    key={option}
-                    value={option}
-                    className="text-sm text-slate-800"
-                  >
-                    {ASSIGNEE_LABEL[option]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {filter.assignee === "me" ? (
-              <p className="text-[11px] text-slate-500">
-                Resolved against whoever opens the view, so this still works
-                when shared.
+                A view called &ldquo;{sameName.name}&rdquo; already exists.
+                Choose a different name.
               </p>
             ) : null}
           </div>
 
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="view-search"
-              className="text-xs font-semibold text-slate-900"
-            >
-              Contains text{" "}
-              <span className="font-normal text-slate-400">(optional)</span>
-            </Label>
-            <Input
-              id="view-search"
-              placeholder="Matches subject or description"
-              value={filter.search}
-              onChange={(e) =>
-                setFilter((current) => ({ ...current, search: e.target.value }))
-              }
-              className={FIELD_CLASS}
-            />
-          </div>
+          <fieldset className="space-y-2">
+            <legend className="mb-2 text-sm font-semibold">Filters</legend>
+            <p className="-mt-1 text-xs text-muted-foreground">
+              Add {VIEW_CONDITIONS_MIN} to {VIEW_CONDITIONS_MAX} conditions (
+              {VIEW_CONDITIONS_MIN}–{VIEW_CONDITIONS_RECOMMENDED} reads best).
+              Read top to bottom: <strong className="font-semibold">AND</strong>{" "}
+              needs both, <strong className="font-semibold">OR</strong> needs
+              either, each joining a row to everything above it.
+            </p>
 
-          <div className="flex items-start justify-between gap-4 rounded-lg border border-slate-200 px-3.5 py-3">
-            <div>
-              <p className="text-xs font-semibold text-slate-900">
-                Share with the team
+            <ol className="space-y-1.5">
+              {rows.map((r, index) => {
+                const options = optionsFor(r.field);
+                const invalid =
+                  repeatedRowIds.has(r.id) ||
+                  blankSearchRowIds.has(r.id) ||
+                  undefined;
+                return (
+                  <li key={r.id} className="space-y-1.5">
+                    {index > 0 ? (
+                      <JoinPicker
+                        value={r.join}
+                        onChange={(join) => updateRow(r.id, { ...r, join })}
+                      />
+                    ) : null}
+
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[8.5rem_5.5rem_minmax(0,1fr)_auto]">
+                      <Select
+                        value={r.field}
+                        onValueChange={(field) =>
+                          updateRow(r.id, {
+                            ...newRow(
+                              field as FilterField,
+                              rows.filter((other) => other.id !== r.id),
+                              r.join,
+                            ),
+                            id: r.id,
+                          })
+                        }
+                      >
+                        <SelectTrigger
+                          aria-label={`Condition ${index + 1} field`}
+                          className={`w-full ${FIELD_CLASS}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent
+                          position="popper"
+                          side="bottom"
+                          align="start"
+                          className="p-1"
+                        >
+                          {FILTER_FIELDS.map((field) => (
+                            <SelectItem
+                              key={field}
+                              value={field}
+                              className="p-2 cursor-pointer"
+                            >
+                              {FILTER_FIELD_LABEL[field]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Remove condition ${index + 1}`}
+                        // The last condition stays: a view needs one.
+                        disabled={rows.length <= VIEW_CONDITIONS_MIN}
+                        onClick={() =>
+                          setRows((current) =>
+                            current.filter((other) => other.id !== r.id),
+                          )
+                        }
+                        className="size-10 text-muted-foreground hover:text-destructive sm:order-last"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+
+                      {/* One operator per field, so this reads rather than picks. */}
+                      <div
+                        className={cn(
+                          FIELD_CLASS,
+                          "hidden items-center rounded-md border border-input px-3 text-muted-foreground sm:flex",
+                        )}
+                      >
+                        {options ? "is" : "contains"}
+                      </div>
+
+                      <div className="col-span-2 sm:col-span-1">
+                        {options ? (
+                          <Select
+                            value={r.value}
+                            onValueChange={(value) =>
+                              updateRow(r.id, { ...r, value })
+                            }
+                          >
+                            <SelectTrigger
+                              aria-label={`Condition ${index + 1} value`}
+                              aria-invalid={invalid}
+                              className={`w-full ${FIELD_CLASS}`}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent
+                              position="popper"
+                              side="bottom"
+                              align="start"
+                              className="p-1"
+                            >
+                              {options.map((option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                  className="p-2 cursor-pointer"
+                                  disabled={takenValues(r.field, r.id).has(
+                                    option.value,
+                                  )}
+                                >
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            aria-label={`Condition ${index + 1} text`}
+                            aria-invalid={invalid}
+                            placeholder="Subject or description"
+                            value={r.value}
+                            maxLength={SEARCH_MAX}
+                            onChange={(e) =>
+                              updateRow(r.id, { ...r, value: e.target.value })
+                            }
+                            className={FIELD_CLASS}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+
+            {canAddRow ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setRows((current) => [
+                    ...current,
+                    newRow(nextField(current), current),
+                  ])
+                }
+                className="mt-1 h-10 gap-1.5 rounded-lg px-4 text-sm font-semibold text-brand-accent hover:text-brand-accent"
+              >
+                <Plus className="size-4" />
+                Add filter
+              </Button>
+            ) : null}
+
+            {conditions > VIEW_CONDITIONS_MAX ? (
+              <p className="text-xs font-medium text-destructive">
+                A view can have at most {VIEW_CONDITIONS_MAX} conditions. Remove{" "}
+                {conditions - VIEW_CONDITIONS_MAX} to save it.
               </p>
-              <p className="mt-0.5 text-[11px] text-slate-500">
-                Everyone can open it. Only you can edit or delete it.
+            ) : conditions < VIEW_CONDITIONS_MIN ? (
+              <p className="text-xs font-medium text-destructive">
+                Add at least one condition.
               </p>
+            ) : repeatedRowIds.size ? (
+              <p className="text-xs font-medium text-destructive">
+                The same condition is in the list twice. Change or remove the
+                highlighted row.
+              </p>
+            ) : blankSearchRowIds.size ? (
+              <p className="text-xs font-medium text-destructive">
+                Text conditions need letters or numbers, not only punctuation.
+              </p>
+            ) : impossible ? (
+              <p className="text-xs font-medium text-destructive">
+                These conditions can never match a ticket: a ticket has one
+                status, one priority and one assignee. Try OR instead of AND.
+              </p>
+            ) : null}
+
+            {/* The whole rule in words, brackets and all. */}
+            {conditions > 0 ? (
+              <p className="rounded-lg bg-muted/50 px-3.5 py-2.5 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">Shows:</span>{" "}
+                {describeFilter(filter)}
+              </p>
+            ) : null}
+          </fieldset>
+
+          {duplicate ? (
+            <div role="alert">
+              <ModalNotice
+                icon={CopyX}
+                tone="amber"
+                title="This filter already exists"
+              >
+                <p>
+                  A saved view with these filter conditions already exists:{" "}
+                  <span className="font-semibold text-amber-900 dark:text-amber-200">
+                    &ldquo;{duplicate.name}&rdquo;
+                  </span>
+                  . Choose a different filter combination or open the existing
+                  view.
+                </p>
+                <Link
+                  href={`/${tenant}/tickets?view=${duplicate.id}`}
+                  onClick={() => onOpenChange(false)}
+                  className="mt-2 inline-block font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-950 dark:text-amber-200"
+                >
+                  Open &ldquo;{duplicate.name}&rdquo;
+                </Link>
+              </ModalNotice>
             </div>
-            <Switch
-              checked={isShared}
-              onCheckedChange={setIsShared}
-              aria-label="Share with the team"
-            />
-          </div>
-
-          {/* The filter reads back in the same words the view card uses, so
-              there is no guessing what was just built. */}
-          <p className="rounded-lg bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600">
-            <span className="font-semibold text-slate-900">Shows:</span>{" "}
-            {describeFilter(filter)}
-          </p>
-
-          {error ? (
-            <p className="text-xs font-semibold text-red-600">{error}</p>
           ) : null}
 
-          <div className="flex items-center justify-end space-x-2 pt-1">
+          <fieldset className="space-y-2">
+            <legend className="mb-2 text-sm font-semibold">
+              Share with team
+            </legend>
+            <RadioGroup
+              value={isShared ? "team" : "private"}
+              onValueChange={(value) => setIsShared(value === "team")}
+              className="gap-3"
+            >
+              <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+                <RadioGroupItem value="private" />
+                Only me (Personal view)
+              </label>
+              <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+                <RadioGroupItem value="team" className="mt-0.5" />
+                <span>
+                  Share with team
+                  <span className="block text-xs text-muted-foreground">
+                    Visible to selected roles. Only you can edit or delete it.
+                  </span>
+                </span>
+              </label>
+            </RadioGroup>
+          </fieldset>
+
+          <fieldset className="space-y-2" disabled={!isShared}>
+            <legend className="mb-2 text-sm font-semibold">
+              Visible to roles
+            </legend>
+            <div
+              className={cn(
+                "flex flex-wrap gap-x-6 gap-y-2",
+                !isShared && "opacity-50",
+              )}
+            >
+              {VIEW_ROLES.map((role) => (
+                <label
+                  key={role}
+                  className={cn(
+                    "flex min-h-8 items-center gap-2 text-sm",
+                    isShared ? "cursor-pointer" : "cursor-not-allowed",
+                  )}
+                >
+                  <Checkbox
+                    checked={isShared && roles.includes(role)}
+                    disabled={!isShared}
+                    onCheckedChange={() =>
+                      setRoles((current) =>
+                        VIEW_ROLES.filter((r) =>
+                          r === role
+                            ? !current.includes(r)
+                            : current.includes(r),
+                        ),
+                      )
+                    }
+                  />
+                  {VIEW_ROLE_LABEL[role]}
+                </label>
+              ))}
+            </div>
+            {isShared && roles.length === 0 ? (
+              <p className="text-xs font-medium text-destructive">
+                Pick at least one role to share with.
+              </p>
+            ) : null}
+          </fieldset>
+
+          {error ? (
+            <p role="alert" className="text-xs font-semibold text-destructive">
+              {error}
+            </p>
+          ) : null}
+
+          <DialogFooter className={TEAM_DIALOG_FOOTER}>
             <Button
               type="button"
               variant="outline"
+              size="sm"
+              disabled={isPending}
               onClick={() => onOpenChange(false)}
-              className="h-9 px-4 text-xs font-bold text-[#0d7a6a] border-slate-200 hover:bg-slate-50 rounded-lg shadow-none"
+              className={TEAM_MODAL_BUTTON}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={isPending || !name.trim()}
-              className="h-9 px-4 text-xs font-bold bg-[#0d7a6a] hover:bg-[#095b4f] text-white rounded-lg shadow-none"
+              size="sm"
+              disabled={!canSubmit}
+              className={`${TEAM_MODAL_BUTTON} ${TEAM_MODAL_BUTTON_PRIMARY}`}
             >
-              {isPending && (
-                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-              )}
-              {isEdit ? "Save changes" : "Save view"}
+              {isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+              {isEdit ? "Save changes" : "Create view"}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

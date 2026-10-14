@@ -761,36 +761,100 @@ export type Database = {
         };
         Relationships: [];
       };
+      saved_view_user_preferences: {
+        Row: {
+          created_at: string;
+          id: string;
+          is_pinned: boolean;
+          order_position: number;
+          saved_view_id: string;
+          tenant_id: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          is_pinned?: boolean;
+          order_position?: number;
+          saved_view_id: string;
+          tenant_id: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          is_pinned?: boolean;
+          order_position?: number;
+          saved_view_id?: string;
+          tenant_id?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "saved_view_user_preferences_view_fk";
+            columns: ["saved_view_id", "tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "saved_views";
+            referencedColumns: ["id", "tenant_id"];
+          },
+          {
+            foreignKeyName: "saved_view_user_preferences_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "saved_view_user_preferences_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       saved_views: {
         Row: {
-          created_at: string | null;
+          created_at: string;
           filter_json: Json;
           id: string;
           is_shared: boolean;
+          is_system: boolean;
           name: string;
-          owner_user_id: string;
+          owner_user_id: string | null;
+          system_key: string | null;
           tenant_id: string;
-          updated_at: string | null;
+          updated_at: string;
+          visibility_roles: string[];
         };
         Insert: {
-          created_at?: string | null;
+          created_at?: string;
           filter_json?: Json;
           id?: string;
           is_shared?: boolean;
+          is_system?: boolean;
           name: string;
-          owner_user_id: string;
+          owner_user_id?: string | null;
+          system_key?: string | null;
           tenant_id: string;
-          updated_at?: string | null;
+          updated_at?: string;
+          visibility_roles?: string[];
         };
         Update: {
-          created_at?: string | null;
+          created_at?: string;
           filter_json?: Json;
           id?: string;
           is_shared?: boolean;
+          is_system?: boolean;
           name?: string;
-          owner_user_id?: string;
+          owner_user_id?: string | null;
+          system_key?: string | null;
           tenant_id?: string;
-          updated_at?: string | null;
+          updated_at?: string;
+          visibility_roles?: string[];
         };
         Relationships: [
           {

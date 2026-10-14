@@ -1,6 +1,9 @@
 import SavedViewsList from "@/features/saved-view/components/saved-views-list";
-import { fetchTenantSavedViews } from "@/features/saved-view/services/saved-views.service";
-import { getTenantEntitlements } from "@/features/saved-view/services/entitlements.service";
+import { SavedViewsUpsell } from "@/features/saved-view/components/saved-views-upsell";
+import {
+  fetchTenantSavedViews,
+  getTenantEntitlements,
+} from "@/features/saved-view/services/saved-views.service";
 import { serverNow } from "@/features/team/services/team.service";
 
 import type { Metadata } from "next";
@@ -16,21 +19,19 @@ interface ViewsPageProps {
 export default async function ViewsPage({ params }: ViewsPageProps) {
   const { tenantSlug } = await params;
 
-  // Every plan gets the page: the four built-in views are free. Pro only
-  // unlocks custom views, and the actions enforce that on their own — this
-  // flag is presentation, not the boundary.
-  const [entitlements, views, now] = await Promise.all([
-    getTenantEntitlements(tenantSlug),
+  const entitlements = await getTenantEntitlements(tenantSlug);
+
+  // Not a 404: the page is the only place that explains the feature, so a free
+  // tenant gets the pitch rather than a dead end. The actions are gated
+  // separately — this branch is presentation, not the boundary.
+  if (!entitlements.savedViews) {
+    return <SavedViewsUpsell tenantSlug={tenantSlug} />;
+  }
+
+  const [views, now] = await Promise.all([
     fetchTenantSavedViews(tenantSlug),
     serverNow(),
   ]);
 
-  return (
-    <SavedViewsList
-      initialViews={views}
-      tenant={tenantSlug}
-      now={now}
-      isPro={entitlements.savedViews}
-    />
-  );
+  return <SavedViewsList initialViews={views} tenant={tenantSlug} now={now} />;
 }

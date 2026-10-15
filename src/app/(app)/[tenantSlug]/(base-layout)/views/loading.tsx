@@ -1,4 +1,4 @@
-import { PageLoader } from "@/components/shared/page-loader";
+import { SavedViewsSkeleton } from "@/features/saved-view/components/saved-views-skeleton";
 
 /**
  * Without this file Next.js has no fallback for the async page beside it, so a
@@ -6,5 +6,5 @@ import { PageLoader } from "@/components/shared/page-loader";
  * reads as a dead link and gets clicked again.
  */
 export default function Loading() {
-  return <PageLoader />;
+  return <SavedViewsSkeleton />;
 }

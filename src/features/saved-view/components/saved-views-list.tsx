@@ -44,6 +44,7 @@ import type { SavedView } from "../services/saved-views.service";
 import { reorderSavedViewsAction } from "../actions/saved-views.actions";
 import CreateSavedViewDialog from "./create-saved-view-dialog";
 import DeleteSavedViewDialog from "./delete-saved-view-dialog";
+import { ROW_GRID } from "./row-grid";
 
 interface SavedViewsListProps {
   initialViews: SavedView[];
@@ -55,10 +56,6 @@ interface SavedViewsListProps {
 }
 
 type Section = "system" | "custom";
-
-/** Shared by the header and every row so the columns line up. */
-const ROW_GRID =
-  "grid grid-cols-[2.25rem_1.25rem_minmax(0,1fr)_auto] items-center gap-x-3 md:grid-cols-[2rem_3rem_2rem_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_8.5rem] md:gap-x-4";
 
 const SAVE_DELAY_MS = 400;
 

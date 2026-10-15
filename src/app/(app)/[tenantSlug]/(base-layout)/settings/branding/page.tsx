@@ -1,16 +1,35 @@
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/shared/coming-soon";
+
+import { requestOrigin } from "@/features/auth/services/auth.service";
+import { BrandingEditor } from "@/features/branding/components/branding-editor";
+import {
+  canEditBranding,
+  getBranding,
+} from "@/features/branding/services/branding.service";
 
 export const metadata: Metadata = {
   title: "Branding",
-  description: "Customize your customer experience",
+  alternates: {
+    canonical: "/settings/branding",
+  },
 };
 
-export default function BrandingPage() {
+export default async function BrandingPage() {
+  const [branding, canEdit, origin] = await Promise.all([
+    getBranding(),
+    canEditBranding(),
+    requestOrigin(),
+  ]);
+
+  if (!branding) {
+    return null;
+  }
+
   return (
-    <ComingSoon
-      title="Branding"
-      description="Apply your logo, colors, and domain so every customer touchpoint feels like you. Coming soon."
+    <BrandingEditor
+      branding={branding}
+      canEdit={canEdit}
+      portalOrigin={origin}
     />
   );
 }

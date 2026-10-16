@@ -1,0 +1,416 @@
+"use client";
+
+import React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  CalendarDays,
+  ChartColumn,
+  ChevronDown,
+  Clock,
+  Crown,
+  Download,
+  FilePlus2,
+  ListChecks,
+  Star,
+  type LucideIcon,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+import {
+  DEFAULT_REPORT_RANGE,
+  REPORT_RANGES,
+  ReportRange,
+  ReportsData,
+} from "../types/types";
+import { AgentPerformanceTable } from "./agent-performance-table";
+import { ReportsSkeletonBody } from "./reports-skeleton";
+import { REPORT_CARD } from "./styles";
+import { TicketPerformanceCard } from "./ticket-performance-card";
+
+interface ReportsDashboardProps {
+  data: ReportsData;
+}
+
+const PRIORITY_STYLE: Record<string, { badge: string; bar: string }> = {
+  Urgent: {
+    badge: "bg-destructive-soft text-destructive-strong",
+    bar: "bg-destructive",
+  },
+  High: { badge: "bg-warning-soft text-warning-strong", bar: "bg-warning" },
+  Normal: {
+    badge: "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
+    bar: "bg-sky-500",
+  },
+  Low: { badge: "bg-muted text-muted-foreground", bar: "bg-success" },
+};
+
+const plural = (count: number, word: string) =>
+  `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/**
+ * A spreadsheet runs any cell starting with = + - @ (or a tab / CR) as a
+ * formula, and agent names are typed by the agents themselves. A leading
+ * apostrophe makes Excel and Sheets show the text as text.
+ */
+const csvCell = (value: string | number) => {
+  const text = String(value);
+  const safe =
+    typeof value === "string" && /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
+};
+
+const exportCsv = (data: ReportsData) => {
+  const rangeLabel = REPORT_RANGES[data.range].label;
+  const rows: (string | number)[][] = [
+    ["Period", rangeLabel],
+    [],
+    ["Metric", "Value"],
+    ["SLA Attainment", data.summary.slaAttainment ?? "N/A"],
+    ["SLA Met", `${data.summary.slaMetCount} / ${data.summary.slaEligible}`],
+    ["Median First Response", data.summary.medianFirstResponse ?? "N/A"],
+    ["Tickets Solved", data.summary.ticketsSolved],
+    ["Tickets Created", data.summary.ticketsCreated],
+    ["Open Tickets (now)", data.summary.openBacklog],
+    ["CSAT Average", data.summary.csatAverage ?? "N/A"],
+    [
+      "CSAT Positive Rate",
+      data.summary.csatPositiveRate === null
+        ? "N/A"
+        : `${data.summary.csatPositiveRate}%`,
+    ],
+    ["CSAT Responses", data.summary.csatResponses],
+    [],
+    [
+      "Agent",
+      "Email",
+      "Open",
+      "Solved",
+      "Median 1st Reply",
+      "SLA Met",
+      "CSAT",
+      "Ratings",
+    ],
+    ...data.agents.map((a) => [
+      a.name,
+      a.email,
+      a.open,
+      a.solved,
+      a.medianFirstReply ?? "N/A",
+      a.slaMet === null
+        ? "N/A"
+        : `${a.slaMet}% (${a.slaMetCount}/${a.slaEligible})`,
+      a.csatAverage ?? "N/A",
+      a.csatResponses,
+    ]),
+  ];
+
+  const csv = rows.map((r) => r.map(csvCell).join(",")).join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `reports-${data.range}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+interface StatCardProps {
+  icon: LucideIcon;
+  iconClassName: string;
+  title: string;
+  value: React.ReactNode;
+  caption: string;
+}
+
+function StatCard({
+  icon: Icon,
+  iconClassName,
+  title,
+  value,
+  caption,
+}: StatCardProps) {
+  return (
+    <Card className={cn(REPORT_CARD, "min-w-0")}>
+      <div className="flex items-center gap-3">
+        <span
+          aria-hidden
+          className={cn(
+            "flex size-10 shrink-0 items-center justify-center rounded-lg",
+            iconClassName,
+          )}
+        >
+          <Icon className="size-5" />
+        </span>
+        <p className="min-w-0 text-sm font-semibold leading-tight text-foreground">
+          {title}
+        </p>
+      </div>
+      <p className="mt-3 text-2xl font-bold tracking-tight tabular-nums text-foreground sm:mt-4 sm:text-3xl">
+        {value}
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">{caption}</p>
+    </Card>
+  );
+}
+
+function RangePicker({
+  range,
+  onChange,
+}: {
+  range: ReportRange;
+  onChange: (range: ReportRange) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" className="h-9 gap-2 bg-card px-3 text-sm">
+          <CalendarDays className="size-4 text-muted-foreground" />
+          {REPORT_RANGES[range].label}
+          <ChevronDown className="size-4 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44 p-1">
+        <DropdownMenuRadioGroup
+          value={range}
+          onValueChange={(value) => onChange(value as ReportRange)}
+        >
+          {(Object.keys(REPORT_RANGES) as ReportRange[]).map((key) => (
+            <DropdownMenuRadioItem
+              key={key}
+              value={key}
+              className="capitalize cursor-pointer"
+            >
+              {REPORT_RANGES[key].label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export default function ReportsDashboard({ data }: ReportsDashboardProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = React.useTransition();
+
+  const { summary } = data;
+  const rangeLabel = REPORT_RANGES[data.range].label;
+  const hasData =
+    summary.ticketsCreated + summary.ticketsSolved + summary.openBacklog > 0;
+
+  const changeRange = (next: ReportRange) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === DEFAULT_REPORT_RANGE) params.delete("range");
+    else params.set("range", next);
+    const query = params.toString();
+    startTransition(() => {
+      router.push(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    });
+  };
+
+  return (
+    <div className="h-full overflow-x-hidden overflow-y-auto p-4 text-foreground sm:p-6 lg:p-8">
+      <div className="mx-auto space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Reports
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Analyze your support performance and team productivity.
+            </p>
+          </div>
+          {/* The picker stays even when the period is empty: hiding it left a
+              quiet "Last 7 days" with no way back short of editing the URL. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {hasData && (
+              <Button
+                variant="outline"
+                onClick={() => exportCsv(data)}
+                className="h-9 gap-2 bg-card px-3 text-sm"
+              >
+                <Download className="size-4" />
+                Export
+              </Button>
+            )}
+            <RangePicker range={data.range} onChange={changeRange} />
+          </div>
+        </div>
+
+        <div aria-busy={isPending} className="space-y-6">
+          {/* A new period swaps the body for its skeleton, so the old numbers
+              never sit under the new period's label. The heading and picker
+              stay put. */}
+          {isPending ? (
+            <ReportsSkeletonBody />
+          ) : !hasData ? (
+            <Card className="flex min-h-80 flex-col items-center justify-center gap-0 rounded-xl  bg-card px-6 py-16 text-center shadow-sm ring-1">
+              <span
+                aria-hidden
+                className="flex size-16 items-center justify-center rounded-full bg-primary/10 ring-8 ring-primary/5"
+              >
+                <ChartColumn className="size-6 text-primary" />
+              </span>
+              <h2 className="mt-6 text-lg font-semibold text-foreground">
+                No ticket activity yet
+              </h2>
+              <p className="mt-2 max-w-lg text-sm text-muted-foreground">
+                We couldn&rsquo;t find any ticket data yet.{" "}
+                <span className="sm:block">
+                  Check back once tickets come in.
+                </span>
+              </p>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+                <StatCard
+                  icon={Crown}
+                  iconClassName="bg-success-soft text-success-strong"
+                  title="SLA Attainment"
+                  value={
+                    summary.slaAttainment === null
+                      ? "—"
+                      : `${summary.slaAttainment}%`
+                  }
+                  caption={
+                    summary.slaEligible === 0
+                      ? "No tickets to judge yet"
+                      : `${summary.slaMetCount} of ${plural(summary.slaEligible, "ticket")} met SLA`
+                  }
+                />
+                <StatCard
+                  icon={Clock}
+                  iconClassName="bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300"
+                  title="Median First Response"
+                  value={summary.medianFirstResponse ?? "—"}
+                  caption={
+                    summary.firstResponseCount === 0
+                      ? "No replies yet"
+                      : `Across ${plural(summary.firstResponseCount, "ticket")}`
+                  }
+                />
+                <StatCard
+                  icon={ListChecks}
+                  iconClassName="bg-info-soft text-info-strong"
+                  title="Tickets Solved"
+                  value={summary.ticketsSolved}
+                  caption={rangeLabel}
+                />
+                <StatCard
+                  icon={FilePlus2}
+                  iconClassName="bg-warning-soft text-warning-strong"
+                  title="Tickets Created"
+                  value={summary.ticketsCreated}
+                  caption={rangeLabel}
+                />
+                <StatCard
+                  icon={Star}
+                  iconClassName="bg-destructive-soft text-destructive-strong"
+                  title="CSAT"
+                  value={
+                    summary.csatAverage === null ? (
+                      "—"
+                    ) : (
+                      <>
+                        {summary.csatAverage}
+                        <span className="text-xl font-semibold text-muted-foreground">
+                          /5
+                        </span>
+                      </>
+                    )
+                  }
+                  caption={
+                    summary.csatResponses === 0
+                      ? "No ratings yet"
+                      : `${plural(summary.csatResponses, "rating")} · ${summary.csatPositiveRate}% positive`
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                <TicketPerformanceCard data={data} />
+
+                <Card className={REPORT_CARD}>
+                  <h2 className="text-base font-semibold text-foreground">
+                    SLA Attainment by Priority
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    First responses within each ticket&apos;s SLA target
+                  </p>
+
+                  <div className="mt-6 flex flex-1 flex-col justify-around gap-5">
+                    {data.prioritySla.map((item) => {
+                      const style =
+                        PRIORITY_STYLE[item.level] ?? PRIORITY_STYLE.Low;
+                      const pct = item.metPercentage;
+                      return (
+                        <div
+                          key={item.level}
+                          className="flex items-center gap-4"
+                        >
+                          <span
+                            className={cn(
+                              "w-20 shrink-0 rounded-md px-2 py-1.5 text-center text-sm font-medium",
+                              style.badge,
+                            )}
+                          >
+                            {item.level}
+                          </span>
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div className="flex items-baseline justify-between gap-2 text-sm">
+                              <span className="tabular-nums">
+                                {pct === null ? (
+                                  <span className="text-muted-foreground">
+                                    No data
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span className="font-semibold text-foreground">
+                                      {pct}%
+                                    </span>{" "}
+                                    <span className="text-muted-foreground">
+                                      ({item.met} / {item.eligible})
+                                    </span>
+                                  </>
+                                )}
+                              </span>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {plural(item.ticketsCount, "ticket")}
+                              </span>
+                            </div>
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                              <div
+                                className={cn("h-full rounded-full", style.bar)}
+                                style={{ width: `${pct ?? 0}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              </div>
+
+              <AgentPerformanceTable agents={data.agents} />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

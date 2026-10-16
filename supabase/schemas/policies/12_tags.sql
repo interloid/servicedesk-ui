@@ -36,7 +36,9 @@ USING (
 -- =====================================================
 -- INSERT
 --
--- Only Tenant Admin and Manager can create tags.
+-- Tenant Admin / Manager / Agent can create tags, so
+-- tagging a ticket with something new doesn't need a
+-- manager.
 -- =====================================================
 
 CREATE POLICY "tags_insert"
@@ -47,7 +49,8 @@ WITH CHECK (
     tenant_id = public.current_tenant_id()
     AND public.current_tenant_role() IN (
         'tenant_admin',
-        'manager'
+        'manager',
+        'agent'
     )
 );
 

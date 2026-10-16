@@ -3,8 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useMounted } from "@/hooks/use-mounted";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CheckCircle2, CircleAlert, Clock3, Loader2 } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleAlert,
+  Clock3,
+  Loader2,
+  MoonStar,
+} from "lucide-react";
 import { useForm } from "react-hook-form";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -31,6 +38,11 @@ import { PortalAttachmentPicker } from "@/features/portal/components/portal-atta
 import { PortalCentered } from "@/features/portal/components/portal-shell";
 import { applyFieldErrors } from "@/features/portal/form-errors";
 import { portalToastSuccess } from "@/features/portal/portal-toast";
+import {
+  supportClosedCreatedMessage,
+  supportClosedFormMessage,
+  type PortalSupportClosed,
+} from "@/features/portal/support-closed";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
 import { prepareAndUpload } from "@/features/portal/upload";
 import { cn } from "@/lib/utils";
@@ -58,18 +70,24 @@ export function PortalNewRequestForm({
   isSignedIn,
   firstResponseTarget,
   initialSubject = "",
+  supportClosed = null,
 }: {
   tenantSlug: string;
   isSignedIn: boolean;
   firstResponseTarget: string;
+  /** Support is closed right now; the form says when it reopens. */
+  supportClosed?: PortalSupportClosed | null;
   /** Pre-filled from the help centre. */
   initialSubject?: string;
 }) {
   const router = useRouter();
+  const mounted = useMounted();
 
   const [banner, setBanner] = useState<string | undefined>();
   const [files, setFiles] = useState<File[]>([]);
-  const [submittedTo, setSubmittedTo] = useState<string | undefined>();
+  const [submitted, setSubmitted] = useState<
+    { email: string; closed: PortalSupportClosed | null } | undefined
+  >();
 
   const form = useForm<PortalGuestRequestValues>({
     defaultValues: {
@@ -123,14 +141,28 @@ export function PortalNewRequestForm({
           //
           // Carries the plan's response promise rather than "request submitted",
           // because that is the thing they cannot see once they leave the form.
-          portalToastSuccess(
-            `Ticket created. Expect a reply within ${firstResponseTarget}.`,
-          );
+          // Outside business hours the promise would read as broken, so
+          // they're told when the team is back instead.
+          if (result.data.closed) {
+            portalToastSuccess(
+              supportClosedCreatedMessage(result.data.closed),
+              {
+                duration: 10_000,
+              },
+            );
+          } else {
+            portalToastSuccess(
+              `Ticket created. Expect a reply within ${firstResponseTarget}.`,
+            );
+          }
           router.replace(result.data.redirectTo);
           return;
         }
 
-        setSubmittedTo(result.data.email);
+        setSubmitted({
+          email: result.data.email,
+          closed: result.data.closed,
+        });
         form.reset();
         setFiles([]);
 
@@ -154,8 +186,14 @@ export function PortalNewRequestForm({
     }
   }
 
-  if (submittedTo) {
-    return <GuestConfirmation tenantSlug={tenantSlug} email={submittedTo} />;
+  if (submitted) {
+    return (
+      <GuestConfirmation
+        tenantSlug={tenantSlug}
+        email={submitted.email}
+        closed={submitted.closed}
+      />
+    );
   }
 
   const isSubmitting = form.formState.isSubmitting;
@@ -186,6 +224,22 @@ export function PortalNewRequestForm({
       </div>
 
       <div className="min-w-0">
+        {supportClosed ? (
+          <div
+            role="status"
+            className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900"
+          >
+            <MoonStar className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <p className="text-sm leading-5">
+              {/* The opening is in the visitor's time zone, which the server
+                  can't know: the full sentence waits for the browser. */}
+              {mounted
+                ? supportClosedFormMessage(supportClosed)
+                : "Support is currently closed. You can still create a ticket."}
+            </p>
+          </div>
+        ) : null}
+
         {banner ? (
           <Alert
             variant="destructive"
@@ -411,9 +465,11 @@ function RequiredMark() {
 function GuestConfirmation({
   tenantSlug,
   email,
+  closed,
 }: {
   tenantSlug: string;
   email: string;
+  closed: PortalSupportClosed | null;
 }) {
   return (
     <PortalCentered width="max-w-120">
@@ -434,6 +490,13 @@ function GuestConfirmation({
           <strong className="font-bold text-foreground">{email}</strong>. Sign
           in with that address any time to follow it here.
         </p>
+
+        {closed ? (
+          <p className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm leading-5 text-amber-900">
+            <MoonStar className="mt-0.5 size-4 shrink-0" aria-hidden />
+            {supportClosedCreatedMessage(closed)}
+          </p>
+        ) : null}
 
         <Button asChild size="lg" className="mt-6 h-11 px-6 font-semibold">
           <Link href={portalPath(tenantSlug, PORTAL_ROUTES.LOGIN)}>

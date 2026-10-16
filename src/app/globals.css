@@ -233,6 +233,50 @@
   animation: sdp-skeleton 1.3s ease-in-out infinite;
 }
 
+/*
+ * IndeterminateProgress: a segment sweeps across the track for as long as the
+ * request runs, then fills the track and fades out when it finishes.
+ */
+@keyframes progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+.progress-track {
+  background-color: color-mix(in oklab, var(--brand-accent) 15%, transparent);
+  transition: background-color 0.3s ease-out;
+}
+
+.progress-track[data-state="finishing"] {
+  background-color: transparent;
+}
+
+.progress-sweep {
+  width: 40%;
+  animation: progress-sweep 1.1s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+.progress-sweep[data-state="finishing"] {
+  width: 100%;
+  animation: none;
+  transform: translateX(0);
+  opacity: 0;
+  transition:
+    width 0.25s ease-out,
+    opacity 0.3s ease-out 0.15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-sweep {
+    width: 100%;
+    animation: sdp-skeleton 1.3s ease-in-out infinite;
+  }
+}
+
 * {
   @apply border-border outline-ring/50;
   scrollbar-width: thin;

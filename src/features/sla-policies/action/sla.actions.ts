@@ -278,6 +278,7 @@ export async function updateBusinessHoursScheduleAction(
         dayEnd: schedule.dayEnd,
         breakStart: null,
         breakEnd: null,
+        timezoneId: schedule.timezoneId,
       },
     );
     revalidatePath(`/${tenant}/sla`, "layout");

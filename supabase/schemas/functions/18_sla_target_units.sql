@@ -233,26 +233,16 @@ execute function public.sla_policies_rescale_targets();
 -- 5. The ticket SLA engine takes the stored minutes as written
 ------------------------------------------------------------
 
--- The engine (20261008120000_ticket_sla_engine.sql, feature/tickets) turned
--- whole multiples of 1440 into working days at clock start, because days used
--- to be stored as days * 1440. They are now stored as working minutes, so
--- converting again would shrink them (8 days of 9 hours = 4320 = 3 * 1440,
--- which would count as 3 working days). Same signature, so the engine's
--- callers pick this up; harmless where the engine isn't installed yet.
-create or replace function public.sla_target_mins(
-    p_mins integer,
-    p_business_hours_id uuid
-)
-returns integer
-language sql
-immutable
-set search_path = public
-as $$
-    select p_mins;
-$$;
+-- Stored minutes are already working minutes, so the engine's
+-- sla_target_mins() is a pass-through. It is defined once, in
+-- 17_sla_engine.sql (migrations: 20261009120000_sla_target_units.sql section 5
+-- and 20261009140000_ticket_sla_engine.sql, which define it the same way).
 
 -- Internal helpers: only the triggers call these.
 revoke execute on function public.sla_rescale_day_targets(uuid[], integer, integer) from public, anon, authenticated;
 revoke execute on function public.sla_policy_targets_fill_units() from public, anon, authenticated;
 revoke execute on function public.business_hours_rescale_sla_targets() from public, anon, authenticated;
 revoke execute on function public.sla_policies_rescale_targets() from public, anon, authenticated;
+revoke execute on function public.sla_schedule_day_mins(jsonb) from public, anon, authenticated;
+revoke execute on function public.sla_business_hours_day_mins(uuid) from public, anon, authenticated;
+revoke execute on function public.sla_unit_for_mins(integer) from public, anon, authenticated;

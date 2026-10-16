@@ -1,5 +1,6 @@
 "use server";
 
+import * as Sentry from "@sentry/nextjs";
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 
@@ -13,6 +14,7 @@ import {
   type PortalUploadedFile,
   type PortalUploadTarget,
 } from "@/features/portal/portal";
+import type { PortalSupportClosed } from "@/features/portal/support-closed";
 import {
   portalEmailSchema,
   portalGuestRequestSchema,
@@ -41,6 +43,7 @@ import {
 import {
   completePortalOnboarding,
   createPortalRequest,
+  getTicketSupportClosed,
   createPortalStagingTargets,
   createPortalUploadTargets,
   discardPortalUploads,
@@ -475,11 +478,33 @@ export async function discardUploadsAction(
   }
 }
 
+/**
+ * The "support is closed" note for a just-filed ticket, or null. The ticket is
+ * already saved, so a failed lookup only drops the note -- but it is logged and
+ * reported, so a broken lookup shows up instead of vanishing.
+ */
+async function supportClosedOrNull(
+  ticketId: string,
+): Promise<PortalSupportClosed | null> {
+  try {
+    return await getTicketSupportClosed(ticketId);
+  } catch (error) {
+    console.error("[portal] support-closed lookup failed:", error);
+    Sentry.captureException(error);
+    return null;
+  }
+}
 export async function submitRequestAction(
   slug: string,
   values: PortalRequestValues,
   uploads: PortalUploadedFile[] = [],
-): Promise<PortalResult<{ redirectTo: string; number: number | null }>> {
+): Promise<
+  PortalResult<{
+    redirectTo: string;
+    number: number | null;
+    closed: PortalSupportClosed | null;
+  }>
+> {
   const parsed = portalRequestSchema.safeParse(values);
 
   if (!parsed.success) {
@@ -520,6 +545,9 @@ export async function submitRequestAction(
       data: {
         redirectTo: portalPath(slug, PORTAL_ROUTES.REQUESTS),
         number: ticket.number,
+        // The ticket is already saved: a failed lookup only drops the
+        // "support is closed" note, it must not report the request as failed.
+        closed: await supportClosedOrNull(ticket.id),
       },
     };
   } catch (error) {
@@ -536,7 +564,13 @@ export async function submitGuestRequestAction(
   slug: string,
   values: PortalGuestRequestValues,
   uploads: PortalUploadedFile[] = [],
-): Promise<PortalResult<{ email: string; number: number | null }>> {
+): Promise<
+  PortalResult<{
+    email: string;
+    number: number | null;
+    closed: PortalSupportClosed | null;
+  }>
+> {
   const parsed = portalGuestRequestSchema.safeParse(values);
 
   if (!parsed.success) {
@@ -570,7 +604,13 @@ export async function submitGuestRequestAction(
 
     return {
       success: true,
-      data: { email: parsed.data.email, number: ticket.number },
+      data: {
+        email: parsed.data.email,
+        number: ticket.number,
+        // The ticket is already saved: a failed lookup only drops the
+        // "support is closed" note, it must not report the request as failed.
+        closed: await supportClosedOrNull(ticket.id),
+      },
     };
   } catch (error) {
     return failure(error, "We couldn't submit your request. Try again.");

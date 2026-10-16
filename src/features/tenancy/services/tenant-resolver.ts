@@ -147,7 +147,9 @@ export async function getTenantSlugById(
   return data?.slug ?? null;
 }
 
-export async function getTenantIdBySlug(
+// Cached per request: one ticket action or page resolves the same slug from
+// several services, and each would otherwise be its own round-trip.
+export const getTenantIdBySlug = cache(async function getTenantIdBySlug(
   tenantSlug: string,
 ): Promise<string | null> {
   const supabase = createSupabaseAdminClient();
@@ -167,7 +169,7 @@ export async function getTenantIdBySlug(
   }
 
   return data?.id ?? null;
-}
+});
 
 function mapTenantContext(row: TenantLookupRow): TenantContext {
   const baseDomain = PORTAL_BASE_DOMAIN || "";

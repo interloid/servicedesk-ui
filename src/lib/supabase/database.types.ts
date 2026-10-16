@@ -812,39 +812,60 @@ export type Database = {
       sla_events: {
         Row: {
           breached_at: string | null;
+          breach_notified_at: string | null;
+          business_hours_id: string | null;
           completed_at: string | null;
           created_at: string;
           due_at: string;
           id: string;
+          paused_at: string | null;
+          remaining_secs: number | null;
+          started_at: string;
           status: Database["public"]["Enums"]["sla_event_status"];
+          target_mins: number | null;
           tenant_id: string;
           ticket_id: string;
           type: Database["public"]["Enums"]["sla_event_type"];
           updated_at: string;
+          warned_at: string | null;
         };
         Insert: {
           breached_at?: string | null;
+          breach_notified_at?: string | null;
+          business_hours_id?: string | null;
           completed_at?: string | null;
           created_at?: string;
           due_at: string;
           id?: string;
+          paused_at?: string | null;
+          remaining_secs?: number | null;
+          started_at?: string;
           status?: Database["public"]["Enums"]["sla_event_status"];
+          target_mins?: number | null;
           tenant_id: string;
           ticket_id: string;
           type: Database["public"]["Enums"]["sla_event_type"];
           updated_at?: string;
+          warned_at?: string | null;
         };
         Update: {
           breached_at?: string | null;
+          breach_notified_at?: string | null;
+          business_hours_id?: string | null;
           completed_at?: string | null;
           created_at?: string;
           due_at?: string;
           id?: string;
+          paused_at?: string | null;
+          remaining_secs?: number | null;
+          started_at?: string;
           status?: Database["public"]["Enums"]["sla_event_status"];
+          target_mins?: number | null;
           tenant_id?: string;
           ticket_id?: string;
           type?: Database["public"]["Enums"]["sla_event_type"];
           updated_at?: string;
+          warned_at?: string | null;
         };
         Relationships: [
           {
@@ -1238,6 +1259,7 @@ export type Database = {
       };
       tenants: {
         Row: {
+          auto_close_after_days: number;
           branding_json: Json;
           created_at: string;
           id: string;
@@ -1248,6 +1270,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          auto_close_after_days?: number;
           branding_json?: Json;
           created_at?: string;
           id?: string;
@@ -1258,6 +1281,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          auto_close_after_days?: number;
           branding_json?: Json;
           created_at?: string;
           id?: string;
@@ -1550,6 +1574,14 @@ export type Database = {
         };
         Returns: boolean;
       };
+      change_ticket_priority: {
+        Args: {
+          p_priority: Database["public"]["Enums"]["ticket_priority"];
+          p_reason?: string;
+          p_ticket_id: string;
+        };
+        Returns: Json;
+      };
       claim_email_jobs: {
         Args: { p_lease?: string; p_limit?: number };
         Returns: {
@@ -1685,7 +1717,8 @@ export type Database = {
         | "mention"
         | "billing"
         | "system"
-        | "sla_breach";
+        | "sla_breach"
+        | "sla_warning";
       sla_event_status: "pending" | "completed" | "breached";
       sla_event_type: "first_response" | "resolution";
       sla_policy_status: "active" | "paused" | "draft";
@@ -1853,6 +1886,7 @@ export const Constants = {
         "billing",
         "system",
         "sla_breach",
+        "sla_warning",
       ],
       sla_event_status: ["pending", "completed", "breached"],
       sla_event_type: ["first_response", "resolution"],

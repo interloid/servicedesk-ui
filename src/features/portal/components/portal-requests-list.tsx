@@ -36,7 +36,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { rememberThreadHint } from "@/features/portal/thread-hint";
+import { capitalizeFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useMounted } from "@/hooks/use-mounted";
 
 const STATE_FILTERS: Array<{ value: string; label: string }> = [
   { value: "all", label: "All statuses" },
@@ -454,7 +456,14 @@ function RequestRow({
   tenantSlug: string;
   request: PortalRequestSummary;
 }) {
-  const timestamp = useMemo(() => describeTimestamps(request), [request]);
+  // "today, 14:05" and "5 min ago" are in the viewer's time zone and clock,
+  // which the server can't know (a UTC server is 5.5 hours off for India,
+  // and "today" can be the wrong day): shown once mounted.
+  const mounted = useMounted();
+  const timestamp = useMemo(
+    () => (mounted ? describeTimestamps(request) : "\u00a0"),
+    [mounted, request],
+  );
 
   return (
     <Link
@@ -512,22 +521,16 @@ function RequestRow({
         </p>
 
         <h2 className="mt-1 truncate text-base font-bold text-foreground">
-          {request.subject}
+          {capitalizeFirst(request.subject)}
         </h2>
 
         {request.preview ? (
           <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
-            {request.preview}
+            {capitalizeFirst(request.preview)}
           </p>
         ) : null}
 
-        {/* Relative times are computed from Date.now(), so the server's
-            render and the client's can differ by a minute. The text is
-            cosmetic; suppressing beats shipping a mount-gated placeholder. */}
-        <p
-          suppressHydrationWarning
-          className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground"
-        >
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Clock3 aria-hidden className="size-3.5 shrink-0" />
           {timestamp}
         </p>

@@ -32,7 +32,7 @@ export default async function NewSlaPolicyPage({
     redirect(`/${tenantSlug}/sla`);
   }
 
-  const { value, businessHours, customers, otherPolicies } =
+  const { value, businessHours, customers, otherPolicies, timezones } =
     await getSlaEditorData(tenantSlug);
   // Never null without a policy id; this only narrows the type.
   if (!value) notFound();
@@ -47,6 +47,7 @@ export default async function NewSlaPolicyPage({
           businessHours={businessHours}
           customers={customers}
           otherPolicies={otherPolicies}
+          timezones={timezones}
           readOnly={false}
         />
       </div>

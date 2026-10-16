@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from "react";
 import {
   CircleAlert,
   Download,
@@ -21,9 +28,15 @@ import {
   prepareReplyUploadsAction,
   reopenRequestAction,
 } from "@/features/portal/actions/portal.actions";
-import { PortalAttachmentPicker } from "@/features/portal/components/portal-attachment-picker";
+import {
+  mergeAttachments,
+  PortalAttachmentPicker,
+} from "@/features/portal/components/portal-attachment-picker";
 import { PortalCsatCard } from "@/features/portal/components/portal-csat-card";
-import { portalToastSuccess } from "@/features/portal/portal-toast";
+import {
+  portalToastError,
+  portalToastSuccess,
+} from "@/features/portal/portal-toast";
 import {
   canReopen,
   formatBytes,
@@ -38,7 +51,9 @@ import {
 } from "@/features/portal/portal";
 import { prepareAndUpload } from "@/features/portal/upload";
 import { useMounted } from "@/hooks/use-mounted";
-import { formatChatDay, formatChatTime } from "@/lib/format";
+import { useRealtimePortalRequest } from "@/hooks/use-realtime-portal-request";
+import { isComposerSendKey, pastedFiles } from "@/lib/composer-keys";
+import { capitalizeFirst, formatChatDay, formatChatTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -70,6 +85,9 @@ export function PortalRequestDetailView({
   const [isReopening, setIsReopening] = useState(false);
 
   const busy = isSending || isReopening;
+
+  // The team's replies and status changes arrive live, without a reload.
+  useRealtimePortalRequest(request.id);
 
   const threadRef = useRef<HTMLDivElement>(null);
   const lastMessageId = request.messages.at(-1)?.id;
@@ -162,6 +180,36 @@ export function PortalRequestDetailView({
     }
   }
 
+  /** Enter sends, Shift+Enter is a new line (see isComposerSendKey). */
+  function onReplyKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (!isComposerSendKey(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    void sendReply();
+  }
+
+  /** A pasted screenshot or file joins the attachments, under their limits. */
+  function onReplyPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const pasted = pastedFiles(event);
+
+    if (pasted.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    setError(undefined);
+
+    const { files: next, problems } = mergeAttachments(files, pasted);
+    setFiles(next);
+
+    if (problems.length > 0) {
+      setError(problems.at(-1));
+      portalToastError(problems[0]);
+    }
+  }
+
   async function reopen() {
     if (busy) {
       return;
@@ -224,7 +272,7 @@ export function PortalRequestDetailView({
               title={request.subject}
               className="truncate text-base font-bold tracking-tight text-foreground sm:text-lg"
             >
-              {request.subject}
+              {capitalizeFirst(request.subject)}
             </h1>
 
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -327,6 +375,8 @@ export function PortalRequestDetailView({
             id="portal-reply"
             value={body}
             onChange={(event) => setBody(event.target.value)}
+            onKeyDown={onReplyKeyDown}
+            onPaste={onReplyPaste}
             disabled={busy}
             rows={2}
             placeholder="Write your reply…"
@@ -391,6 +441,9 @@ export function PortalRequestDetailView({
           <p className="mt-2.5 hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
             <Lock aria-hidden className="size-3.5 shrink-0" />
             Only you and the {tenantName} team can see this
+            <span aria-hidden className="ml-auto">
+              Enter to send · Shift+Enter for a new line
+            </span>
           </p>
         </footer>
       </section>

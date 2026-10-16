@@ -47,6 +47,7 @@ import {
 } from "@/features/tickets/actions/tickets.actions";
 import { MentionText } from "@/components/shared/mention-text";
 import { serializeMention } from "@/lib/mentions";
+import { isComposerSendKey, pastedFiles } from "@/lib/composer-keys";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useRealtimeSlaEvents } from "@/hooks/use-realtime-sla-events";
@@ -400,6 +401,28 @@ export default function TicketDetailView({
       setMentionIndex(0);
       mentionStartRef.current = null;
     }
+  };
+
+  // Enter sends, Shift+Enter is a new line (see isComposerSendKey); the
+  // mention picker gets the key first, so Enter there picks a name.
+  const handleReplyKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    handleMentionKeyDown(e);
+    if (e.defaultPrevented || !isComposerSendKey(e)) return;
+    e.preventDefault();
+    if (!isReplying) handleSendReply();
+  };
+
+  // A pasted screenshot or file joins the attachments, under their limits.
+  const handleReplyPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = pastedFiles(e);
+    if (!pasted.length) return;
+    e.preventDefault();
+    const tooLarge = attachmentsError([...pendingFiles, ...pasted]);
+    if (tooLarge) {
+      toast.error(tooLarge);
+      return;
+    }
+    setPendingFiles((prev) => [...prev, ...pasted]);
   };
 
   const handleReplyTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -868,7 +891,7 @@ export default function TicketDetailView({
                         : "border-transparent text-slate-500 hover:text-slate-800"
                     }`}
                   >
-                    Public reply
+                    Reply to customer
                   </Button>
                   <Button
                     type="button"
@@ -892,7 +915,8 @@ export default function TicketDetailView({
                     rows={2}
                     value={replyText}
                     onChange={handleReplyTextChange}
-                    onKeyDown={handleMentionKeyDown}
+                    onKeyDown={handleReplyKeyDown}
+                    onPaste={handleReplyPaste}
                     disabled={!!supportClosed}
                     placeholder={
                       supportClosed
@@ -1007,6 +1031,9 @@ export default function TicketDetailView({
                         ? "Not sent to the customer."
                         : "Shows on the portal."}
                     </span>
+                    <span className="text-[10px] sm:text-xs text-slate-400 hidden lg:inline">
+                      Enter to send · Shift+Enter for a new line
+                    </span>
                   </div>
 
                   <Button
@@ -1024,7 +1051,7 @@ export default function TicketDetailView({
                     )}
                     {replyType === "internal"
                       ? "Add internal note"
-                      : "Send public reply"}
+                      : "Send to customer"}
                   </Button>
                 </div>
               </div>

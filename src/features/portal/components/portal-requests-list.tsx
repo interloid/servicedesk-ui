@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { rememberThreadHint } from "@/features/portal/thread-hint";
+import { capitalizeFirst } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useMounted } from "@/hooks/use-mounted";
 
@@ -520,12 +521,12 @@ function RequestRow({
         </p>
 
         <h2 className="mt-1 truncate text-base font-bold text-foreground">
-          {request.subject}
+          {capitalizeFirst(request.subject)}
         </h2>
 
         {request.preview ? (
           <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
-            {request.preview}
+            {capitalizeFirst(request.preview)}
           </p>
         ) : null}
 

@@ -46,6 +46,11 @@ export function formatRelativeTime(
   return "just now";
 }
 
+/** The text with its first letter upper-cased; the rest is left as typed. */
+export function capitalizeFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Up to two initials from the name, else the email's first letter, else "?". */
 export function getInitials(name: string, email: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

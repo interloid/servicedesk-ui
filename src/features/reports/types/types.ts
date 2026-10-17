@@ -13,12 +13,14 @@ export type ReportRange = keyof typeof REPORT_RANGES;
 export const DEFAULT_REPORT_RANGE: ReportRange = "30d";
 
 export function parseReportRange(value: string | undefined): ReportRange {
-  return value && value in REPORT_RANGES
+  // Own keys only: `in` also matches inherited ones (toString, __proto__),
+  // whose missing `buckets` turned the date maths into an Invalid Date.
+  return value && Object.hasOwn(REPORT_RANGES, value)
     ? (value as ReportRange)
     : DEFAULT_REPORT_RANGE;
 }
 
-export type TrendGranularity = "day" | "week" | "month";
+export type TrendGranularity = "day" | "month";
 
 /**
  * Bucket size per range. Daily bars across a year are unreadable, and a single
@@ -34,7 +36,7 @@ export const RANGE_GRANULARITY: Record<ReportRange, TrendGranularity> = {
 export interface TrendPoint {
   /** Short axis label, e.g. "Oct 3" or "Oct". */
   label: string;
-  /** Longer label for the tooltip, e.g. "Week of Oct 3, 2026". */
+  /** Longer label for the tooltip, e.g. "Oct 3, 2026". */
   title: string;
   opened: number;
   resolved: number;
@@ -65,6 +67,8 @@ export interface AgentLoadMetric {
   /** Mean CSAT score out of 5, or null when nobody has rated their work. */
   csatAverage: number | null;
   csatResponses: number;
+  /** No longer an active member: disabled or removed after doing the work. */
+  inactive: boolean;
 }
 
 export interface ReportsSummary {
@@ -95,4 +99,19 @@ export interface ReportsData {
   trend: TrendPoint[];
   prioritySla: PrioritySlaMetric[];
   agents: AgentLoadMetric[];
+  /**
+   * A list hit the row cap, so every figure is built from a partial set. The
+   * dashboard says so rather than printing confident numbers from it.
+   */
+  truncated: boolean;
+}
+
+/**
+ * Reports are a paid feature: the Free plan's features_json has no reporting
+ * entry, and the plans page sells reporting from Pro up. Matched on the plan
+ * name because that is the one field the sidebar's identity and the page's
+ * server gate both have.
+ */
+export function planIncludesReports(planName: string | null | undefined) {
+  return (planName ?? "Free").trim().toLowerCase() !== "free";
 }

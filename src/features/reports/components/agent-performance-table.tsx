@@ -33,7 +33,7 @@ const COLUMNS: { key: SortKey; label: string }[] = [
 ];
 
 /** Rows shown before the table scrolls; the rest are a scroll away. */
-const VISIBLE_ROWS = 5;
+const VISIBLE_ROWS = 10;
 const ROW_HEIGHT = 60;
 const HEADER_HEIGHT = 40;
 
@@ -83,8 +83,10 @@ function slaBarColor(pct: number): string {
 
 export function AgentPerformanceTable({
   agents,
+  className,
 }: {
   agents: AgentLoadMetric[];
+  className?: string;
 }) {
   const [term, setTerm] = React.useState("");
   const [sort, setSort] = React.useState<{ key: SortKey; dir: "asc" | "desc" }>(
@@ -121,7 +123,12 @@ export function AgentPerformanceTable({
     );
 
   return (
-    <Card className="min-w-0 gap-0 overflow-hidden rounded-xl bg-card p-0 shadow-sm ring-1">
+    <Card
+      className={cn(
+        "min-w-0 gap-0 overflow-hidden rounded-xl bg-card p-0 shadow-sm ring-1",
+        className,
+      )}
+    >
       {/* Same header as Billing history: icon tile, title, a count. */}
       <header className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex items-center gap-3">
@@ -157,15 +164,20 @@ export function AgentPerformanceTable({
         </div>
       </header>
 
-      {/* One scroll box for both axes: five rows show, the rest scroll
-          under a pinned header, and narrow screens scroll sideways instead of
-          crushing the columns. A plain <table> rather than <Table>, whose own
+      {/* One scroll box for both axes: up to ten rows show (beside the charts
+          on xl, the card keeps the column's height), the rest scroll inside
+          the card under a pinned header, and narrow screens scroll sideways
+          instead of crushing the columns. A plain <table> rather than <Table>, whose own
           overflow wrapper would become the sticky header's scroll parent. */}
       <div
-        className="overflow-auto"
-        style={{ maxHeight: HEADER_HEIGHT + (ROW_HEIGHT + 1) * VISIBLE_ROWS }}
+        className="max-h-(--rows-max-h) min-h-0 flex-1 overflow-auto xl:max-h-none"
+        style={
+          {
+            "--rows-max-h": `${HEADER_HEIGHT + (ROW_HEIGHT + 1) * VISIBLE_ROWS}px`,
+          } as React.CSSProperties
+        }
       >
-        <table className="w-full min-w-[680px] caption-bottom text-sm">
+        <table className="w-full min-w-170 caption-bottom text-sm">
           <TableHeader className="sticky top-0 z-10 [&_tr]:border-b">
             <TableRow
               className="border-slate-100 bg-slate-50 hover:bg-slate-50 dark:border-border dark:bg-muted dark:hover:bg-muted"
@@ -234,7 +246,7 @@ export function AgentPerformanceTable({
               rows.map((agent) => (
                 <TableRow
                   key={agent.id}
-                  className="border-slate-100 hover:bg-slate-50/60 dark:border-border dark:hover:bg-muted/30"
+                  className="border-b border-slate-200 hover:bg-slate-50/60 dark:border-border dark:hover:bg-muted/30"
                   style={{ height: ROW_HEIGHT }}
                 >
                   <TableCell className={cn(CELL, "py-0")}>
@@ -251,6 +263,11 @@ export function AgentPerformanceTable({
                       <div className="min-w-0">
                         <p className="truncate font-medium text-foreground">
                           {agent.name}
+                          {agent.inactive && (
+                            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                              (inactive)
+                            </span>
+                          )}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
                           {agent.email}
@@ -266,12 +283,12 @@ export function AgentPerformanceTable({
                   </TableCell>
                   <TableCell className={cn(CELL, "tabular-nums")}>
                     {agent.medianFirstReply ?? (
-                      <span className="text-muted-foreground">—</span>
+                      <span className="text-muted-foreground">N/A</span>
                     )}
                   </TableCell>
                   <TableCell className={cn(CELL, "min-w-44")}>
                     {agent.slaMet === null ? (
-                      <span className="text-muted-foreground">—</span>
+                      <span className="text-muted-foreground">N/A</span>
                     ) : (
                       <div className="space-y-1.5">
                         <p className="text-sm tabular-nums">
@@ -296,7 +313,9 @@ export function AgentPerformanceTable({
                   </TableCell>
                   <TableCell className={CELL}>
                     {agent.csatAverage === null ? (
-                      <span className="text-muted-foreground">—</span>
+                      <span className="text-muted-foreground font-bold">
+                        N/A
+                      </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 tabular-nums">
                         <Star

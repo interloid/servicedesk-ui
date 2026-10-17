@@ -1,6 +1,6 @@
 import { toBusinessHoursOption } from "@/features/sla-policies/service/sla.service";
-import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
-import type { Tables } from "@/lib/supabase/database.types";
+import { getTenantPlanRecord } from "@/features/team/services/team.service";
+import type { Enums, Tables } from "@/lib/supabase/database.types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   AgentLoadMetric,
@@ -9,6 +9,7 @@ import {
   REPORT_RANGES,
   ReportRange,
   ReportsData,
+  planIncludesReports,
   TrendGranularity,
   TrendPoint,
 } from "../types/types";
@@ -20,8 +21,11 @@ import {
   zonedInstant,
 } from "./business-time";
 
-const RESOLVED_STATUSES = ["resolved", "closed"];
-const OPEN_STATUSES = ["new", "open", "pending", "on_hold"];
+// Typed from the enum, so a misspelt status fails the build instead of quietly
+// dropping tickets from a set.
+type TicketStatus = Enums<"ticket_status">;
+const RESOLVED_STATUSES: TicketStatus[] = ["resolved", "closed"];
+const OPEN_STATUSES: TicketStatus[] = ["new", "open", "pending", "on_hold"];
 
 const PRIORITY_LEVELS = ["Urgent", "High", "Normal", "Low"] as const;
 const PRIORITY_KEYS = ["urgent", "high", "normal", "low"] as const;
@@ -37,12 +41,14 @@ type TicketRow = Pick<
   | "sla_policy_id"
   | "created_at"
   | "resolved_at"
-  | "first_response_at"
 >;
 
 type CsatRow = Pick<Tables<"csat_ratings">, "score" | "agent_user_id">;
 
-/** A public, non-blank agent reply; the query filters out everything else. */
+/**
+ * An agent's first public, non-blank reply on a ticket: one row per (ticket,
+ * agent), from the report_first_replies function.
+ */
 type MessageRow = Pick<
   Tables<"ticket_messages">,
   "ticket_id" | "author_id" | "created_at"
@@ -75,82 +81,113 @@ type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
  * .limit() asks for, and says nothing when it cuts. Any tenant past that got a
  * partial set and a dashboard that still printed confident medians and
  * percentages from it. So every list is read page by page; this ceiling only
- * bounds a runaway tenant, and reaching it is logged.
+ * bounds a runaway tenant, and reaching it is reported to the page.
  */
 const REPORT_ROW_CAP = 20_000;
 const PAGE_SIZE = 1000;
 
 type PageResult<T> = PromiseLike<{
   data: T[] | null;
-  error: { message: string } | null;
+  error: { message: string; code?: string } | null;
 }>;
 
+/** A failed list read, carrying PostgREST's code so a caller can react to it. */
+class ReportsQueryError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | undefined,
+  ) {
+    super(message);
+  }
+}
+
+interface FetchedRows<T> {
+  rows: T[];
+  /** More rows exist past the cap: everything built from `rows` is partial. */
+  truncated: boolean;
+}
+
 /**
- * Reads every row `page` can return, one .range() at a time. It stops on an
- * empty page rather than a short one, so a server whose max_rows is below
- * PAGE_SIZE still gets read to the end. `page` must apply a stable order.
+ * Reads every row `page` can return, one .range() at a time, and stops on a
+ * short page. That is safe because PAGE_SIZE equals PostgREST's max_rows
+ * (supabase/config.toml); raising one means raising the other. `page` must
+ * apply a stable order.
  */
 async function fetchAll<T>(
   label: string,
   page: (from: number, to: number) => PageResult<T>,
-): Promise<T[]> {
-  const rows: T[] = [];
-  while (rows.length < REPORT_ROW_CAP) {
-    const { data, error } = await page(
-      rows.length,
-      rows.length + PAGE_SIZE - 1,
-    );
+): Promise<FetchedRows<T>> {
+  const read = async (from: number, to: number) => {
+    const { data, error } = await page(from, to);
     // Thrown, not logged: an empty result here would render as a quiet week.
     if (error) {
-      throw new Error(`[reports] ${label} lookup failed: ${error.message}`);
+      throw new ReportsQueryError(
+        `[reports] ${label} lookup failed: ${error.message}`,
+        error.code,
+      );
     }
-    if (!data || data.length === 0) return rows;
+    return data ?? [];
+  };
+
+  const rows: T[] = [];
+  while (rows.length < REPORT_ROW_CAP) {
+    const data = await read(rows.length, rows.length + PAGE_SIZE - 1);
     rows.push(...data);
+    if (data.length < PAGE_SIZE) return { rows, truncated: false };
   }
-  console.warn(
-    `[reports] ${label} hit the ${REPORT_ROW_CAP}-row cap; figures are partial.`,
-  );
-  return rows;
+
+  // Exactly at the cap is not truncation: only flag it when one more exists.
+  const truncated = (await read(rows.length, rows.length)).length > 0;
+  if (truncated) {
+    console.warn(
+      `[reports] ${label} hit the ${REPORT_ROW_CAP}-row cap; figures are partial.`,
+    );
+  }
+  return { rows, truncated };
 }
 
-export async function fetchReportsData(
-  tenant: string,
-  range: ReportRange,
-): Promise<ReportsData> {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
+/**
+ * Whether the tenant's plan includes Reports. Read through getTenantPlanRecord
+ * (service role, cached per request) for the same reason getSlaPolicyQuota is:
+ * RLS on `subscriptions` hides the row from a manager, who would otherwise be
+ * locked out on a paid workspace. No readable plan counts as Free.
+ */
+export async function hasReportsAccess(tenantId: string): Promise<boolean> {
+  const plan = await getTenantPlanRecord(tenantId);
+  return planIncludesReports(plan?.planName);
+}
 
-  if (!tenantId) return emptyReportsData(range);
-
-  const now = new Date();
-  // First, because the range starts on a bucket boundary in the tenant's
-  // timezone, and that timezone comes from the SLA calendars.
-  const slaSetup = await loadSlaSetup(supabase, tenantId);
-  const sinceDate = rangeStart(range, now, slaSetup.timeZone);
-  const since = sinceDate.toISOString();
-
-  // Independent queries, so they go together rather than one after another.
-  const [allTickets, messageRows, ratingRows] = await Promise.all([
-    // Three overlapping sets in one read: raised in the range (volume, SLA,
-    // first response), resolved in the range (throughput, even when raised
-    // before it) and open right now (backlog, however old).
-    fetchAll<TicketRow>("tickets", (from, to) =>
+/**
+ * Each agent's first response on each ticket since `since`. Only what counts
+ * as a response: a public reply from an agent with some text in it. An
+ * internal note is not one — the customer never sees it.
+ *
+ * Read through report_first_replies, which returns one row per (ticket,
+ * agent) rather than one per reply, so a busy team stays far below the row
+ * cap. Until that migration is on a database, PostgREST answers PGRST202 and
+ * the old per-reply read is used instead, so the page keeps working.
+ */
+async function fetchFirstReplies(
+  supabase: SupabaseClient,
+  tenantId: string,
+  since: string,
+): Promise<FetchedRows<MessageRow>> {
+  try {
+    return await fetchAll<MessageRow>("first replies", (from, to) =>
       supabase
-        .from("tickets")
-        .select(
-          "id, status, priority, assignee_user_id, sla_policy_id, created_at, resolved_at, first_response_at",
-        )
-        .eq("tenant_id", tenantId)
-        .or(
-          `created_at.gte."${since}",resolved_at.gte."${since}",status.in.(${OPEN_STATUSES.join(",")})`,
-        )
-        .order("id", { ascending: true })
+        .rpc("report_first_replies", { p_tenant_id: tenantId, p_since: since })
+        .order("ticket_id", { ascending: true })
+        .order("author_id", { ascending: true })
         .range(from, to),
-    ),
-    // Only what counts as a response: a public reply from an agent with some
-    // text in it. An internal note is not a response — the customer never
-    // sees it. The body itself is never needed, so it is not fetched.
-    fetchAll<MessageRow>("messages", (from, to) =>
+    );
+  } catch (error) {
+    if (!(error instanceof ReportsQueryError) || error.code !== "PGRST202") {
+      throw error;
+    }
+    console.warn(
+      "[reports] report_first_replies is missing; apply migration 20261017120000. Reading every reply instead.",
+    );
+    return fetchAll<MessageRow>("messages", (from, to) =>
       supabase
         .from("ticket_messages")
         .select("ticket_id, author_id, created_at")
@@ -162,7 +199,51 @@ export async function fetchReportsData(
         .order("created_at", { ascending: true })
         .order("id", { ascending: true })
         .range(from, to),
+    );
+  }
+}
+
+/**
+ * `tenantId` is the caller's, from the same actor the page's role gate read, so
+ * the gate and the data always name one tenant and a failed slug lookup can't
+ * render as an empty period.
+ */
+export async function fetchReportsData(
+  tenantId: string,
+  range: ReportRange,
+): Promise<ReportsData> {
+  const supabase = await createSupabaseServerClient();
+
+  const now = new Date();
+  // First, because the range starts on a bucket boundary in the tenant's
+  // timezone, and that timezone comes from the SLA calendars.
+  const slaSetup = await loadSlaSetup(supabase, tenantId);
+  const sinceDate = rangeStart(range, now, slaSetup.timeZone);
+  const since = sinceDate.toISOString();
+
+  // Independent queries, so they go together rather than one after another.
+  const [ticketsRes, messagesRes, ratingsRes] = await Promise.all([
+    // Three overlapping sets in one read: raised in the range (volume, SLA,
+    // first response), resolved in the range (throughput, even when raised
+    // before it) and open right now (backlog, however old).
+    fetchAll<TicketRow>("tickets", (from, to) =>
+      supabase
+        .from("tickets")
+        .select(
+          "id, status, priority, assignee_user_id, sla_policy_id, created_at, resolved_at",
+        )
+        .eq("tenant_id", tenantId)
+        .or(
+          `created_at.gte."${since}",resolved_at.gte."${since}",status.in.(${OPEN_STATUSES.join(",")})`,
+        )
+        // Oldest first, so a ticket raised while the pages load lands at the
+        // end instead of shifting every later row by one (read twice or
+        // skipped). Duplicates are still dropped below.
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
     ),
+    fetchFirstReplies(supabase, tenantId, since),
     // Tolerates the table not existing yet: the reports page must still render
     // for anyone who has not pushed the csat migration.
     fetchAll<CsatRow>("csat", (from, to) =>
@@ -173,11 +254,19 @@ export async function fetchReportsData(
         .gte("created_at", since)
         .order("id", { ascending: true })
         .range(from, to),
-    ).catch((error: Error) => {
+    ).catch((error: Error): FetchedRows<CsatRow> => {
       console.error(error.message);
-      return [] as CsatRow[];
+      return { rows: [], truncated: false };
     }),
   ]);
+
+  const allTickets = [
+    ...new Map(ticketsRes.rows.map((t) => [t.id, t])).values(),
+  ];
+  const messageRows = messagesRes.rows;
+  const ratingRows = ratingsRes.rows;
+  const truncated =
+    ticketsRes.truncated || messagesRes.truncated || ratingsRes.truncated;
 
   const csat = summariseCsat(ratingRows);
 
@@ -203,16 +292,18 @@ export async function fetchReportsData(
   const firstResponseMinutes = created
     .map((t) => {
       const frt = getFirstResponseAt(t, firstResponseByTicket);
-      return frt === null ? null : minutesBetween(t.created_at, frt);
+      // Same clock as the SLA card and the agent table, so the headline and
+      // the per-agent medians agree on the same tickets.
+      return frt === null ? null : responseMinutes(t, frt, slaSetup);
     })
     .filter((v): v is number => v !== null)
     .sort((a, b) => a - b);
 
-  const sla = tallySla(created, firstResponseByTicket, slaSetup);
+  const sla = tallySla(created, firstResponseByTicket, slaSetup, now);
 
   const prioritySla: PrioritySlaMetric[] = PRIORITY_KEYS.map((key, index) => {
     const rows = created.filter((t) => t.priority === key);
-    const tally = tallySla(rows, firstResponseByTicket, slaSetup);
+    const tally = tallySla(rows, firstResponseByTicket, slaSetup, now);
     return {
       level: PRIORITY_LEVELS[index],
       metPercentage: tally.percentage,
@@ -239,6 +330,7 @@ export async function fetchReportsData(
     firstResponseByTicket,
     ratings: ratingRows,
     slaSetup,
+    now,
   });
 
   return {
@@ -262,29 +354,15 @@ export async function fetchReportsData(
     trend,
     prioritySla,
     agents,
+    truncated,
   };
 }
 
-function emptyReportsData(range: ReportRange): ReportsData {
-  return {
-    range,
-    summary: {
-      slaAttainment: null,
-      slaMetCount: 0,
-      slaEligible: 0,
-      medianFirstResponse: null,
-      firstResponseCount: 0,
-      ticketsSolved: 0,
-      ticketsCreated: 0,
-      openBacklog: 0,
-      csatAverage: null,
-      csatPositiveRate: null,
-      csatResponses: 0,
-    },
-    trend: [],
-    prioritySla: [],
-    agents: [],
-  };
+/** Mean to one decimal place, or null for no values. */
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return Math.round((total / values.length) * 10) / 10;
 }
 
 function summariseCsat(rows: CsatRow[]): {
@@ -296,11 +374,10 @@ function summariseCsat(rows: CsatRow[]): {
     return { average: null, positiveRate: null, responses: 0 };
   }
 
-  const total = rows.reduce((sum, row) => sum + row.score, 0);
   const positive = rows.filter((row) => row.score >= 4).length;
 
   return {
-    average: Math.round((total / rows.length) * 10) / 10,
+    average: average(rows.map((row) => row.score)),
     positiveRate: Math.round((positive / rows.length) * 1000) / 10,
     responses: rows.length,
   };
@@ -337,13 +414,7 @@ function floorToBucket(
   timeZone: string,
 ): Date {
   const d = zonedDay(date.getTime(), timeZone);
-  if (granularity === "week") {
-    // Weeks start on Monday.
-    const offset = (d.getUTCDay() + 6) % 7;
-    d.setUTCDate(d.getUTCDate() - offset);
-  } else if (granularity === "month") {
-    d.setUTCDate(1);
-  }
+  if (granularity === "month") d.setUTCDate(1);
   return d;
 }
 
@@ -355,7 +426,6 @@ function shiftBucket(
 ): Date {
   const d = new Date(date);
   if (granularity === "day") d.setUTCDate(d.getUTCDate() + steps);
-  else if (granularity === "week") d.setUTCDate(d.getUTCDate() + 7 * steps);
   else d.setUTCMonth(d.getUTCMonth() + steps);
   return d;
 }
@@ -377,12 +447,10 @@ function bucketLabels(
     };
   }
 
-  const dayLabel = fmt({ month: "short", day: "numeric" });
-  const fullDay = fmt({ month: "short", day: "numeric", year: "numeric" });
-
-  return granularity === "week"
-    ? { label: dayLabel, title: `Week of ${fullDay}` }
-    : { label: dayLabel, title: fullDay };
+  return {
+    label: fmt({ month: "short", day: "numeric" }),
+    title: fmt({ month: "short", day: "numeric", year: "numeric" }),
+  };
 }
 
 function buildTrend(
@@ -434,16 +502,19 @@ function minutesBetween(a: string, b: string): number {
   return Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 60000);
 }
 
+/**
+ * The first public, non-blank agent reply, read from the messages only.
+ * tickets.first_response_at is deliberately not used: the SLA engine on
+ * feature/tickets will write it, and until its rule is agreed to be the same
+ * one, preferring it would let internal notes count again with no change here.
+ * Times are parsed, not compared as strings ("+00:00" vs "Z").
+ */
 function getFirstResponseAt(
   t: TicketRow,
   map: Map<string, string>,
 ): string | null {
-  if (t.first_response_at && t.created_at < t.first_response_at) {
-    return t.first_response_at;
-  }
-  const fromMessages = map.get(t.id);
-  if (fromMessages && t.created_at < fromMessages) return fromMessages;
-  return null;
+  const reply = map.get(t.id);
+  return reply && Date.parse(reply) > Date.parse(t.created_at) ? reply : null;
 }
 
 function buildFirstResponseByTicket(
@@ -453,9 +524,8 @@ function buildFirstResponseByTicket(
   const map = new Map<string, string>();
   const ticketIds = new Set(tickets.map((t) => t.id));
   for (const m of messages) {
-    if (ticketIds.has(m.ticket_id) && !map.has(m.ticket_id)) {
-      map.set(m.ticket_id, m.created_at);
-    }
+    if (ticketIds.has(m.ticket_id))
+      keepEarliest(map, m.ticket_id, m.created_at);
   }
   return map;
 }
@@ -465,10 +535,21 @@ function buildFirstReplyByAgentAndTicket(
 ): Map<string, string> {
   const map = new Map<string, string>();
   for (const m of messages) {
-    const key = `${m.author_id}:${m.ticket_id}`;
-    if (!map.has(key)) map.set(key, m.created_at);
+    keepEarliest(map, `${m.author_id}:${m.ticket_id}`, m.created_at);
   }
   return map;
+}
+
+/**
+ * Rows come one per (ticket, agent), ordered by id rather than time, so the
+ * first one seen is not necessarily the earliest. Parsed, not compared as
+ * strings ("+00:00" vs "Z").
+ */
+function keepEarliest(map: Map<string, string>, key: string, at: string) {
+  const current = map.get(key);
+  if (current === undefined || Date.parse(at) < Date.parse(current)) {
+    map.set(key, at);
+  }
 }
 
 function median(values: number[]): number {
@@ -480,21 +561,25 @@ function median(values: number[]): number {
 }
 
 /**
- * A ticket counts once it can be judged: it has been answered, or it was
- * closed without an answer (a miss). A still-open, unanswered ticket may yet
- * make its target, so it is left out rather than counted against the team.
+ * A ticket counts once it can be judged: it has been answered, it was closed
+ * without an answer, or it is still open, unanswered and already past its
+ * target (both misses). Only an open ticket that can still make its target is
+ * left out, so ignoring tickets can never raise the figure.
  */
 function tallySla(
   tickets: TicketRow[],
   firstResponseByTicket: Map<string, string>,
   slaSetup: SlaSetup,
+  now: Date,
 ): SlaTally {
-  const eligible = tickets.filter(
-    (t) =>
-      slaSetup.targetFor(t) !== null &&
-      (!OPEN_STATUSES.includes(t.status) ||
-        getFirstResponseAt(t, firstResponseByTicket) !== null),
-  );
+  const nowIso = now.toISOString();
+  const eligible = tickets.filter((t) => {
+    const target = slaSetup.targetFor(t);
+    if (!target) return false;
+    if (getFirstResponseAt(t, firstResponseByTicket) !== null) return true;
+    if (!OPEN_STATUSES.includes(t.status)) return true;
+    return responseMinutes(t, nowIso, slaSetup) > target.mins;
+  });
   const met = eligible.filter((t) =>
     ticketMetFirstResponse(t, firstResponseByTicket, slaSetup),
   ).length;
@@ -579,6 +664,16 @@ async function loadSlaSetup(
     const option = toBusinessHoursOption(row);
     if (!code || !isValidTimeZone(code)) continue;
     if (!option.dayStart || !option.dayEnd) continue;
+    // A calendar with no working window counts 0 minutes for every gap, so
+    // every answered ticket would read as met. The settings form blocks this,
+    // but provisioning and direct edits do not. Skipped, its targets fall back
+    // to wall-clock time. (HH:MM is zero-padded, so string order is time order.)
+    if (option.workingDays.length === 0 || option.dayEnd <= option.dayStart) {
+      console.warn(
+        `[reports] business hours ${row.id} has no working window; using 24/7`,
+      );
+      continue;
+    }
     calendars.set(row.id, {
       timeZone: code,
       workingDays: option.workingDays,
@@ -639,6 +734,7 @@ async function computeAgentLoad(
     firstResponseByTicket: Map<string, string>;
     ratings: CsatRow[];
     slaSetup: SlaSetup;
+    now: Date;
   },
 ): Promise<AgentLoadMetric[]> {
   const { data: memberships, error: membershipsError } = await supabase
@@ -654,7 +750,17 @@ async function computeAgentLoad(
     );
   }
 
-  const agentIds: string[] = (memberships || []).map((m) => m.user_id);
+  // Active staff, plus anyone who did work in the range and has since been
+  // disabled or removed: dropping them made the per-agent Solved column stop
+  // adding up to Tickets Solved, and lost a leaver's record for the period.
+  const activeIds = new Set((memberships || []).map((m) => m.user_id));
+  const workedIds = [
+    ...[...sets.created, ...sets.resolved, ...sets.backlog].map(
+      (t) => t.assignee_user_id,
+    ),
+    ...sets.ratings.map((r) => r.agent_user_id),
+  ].filter((id): id is string => !!id);
+  const agentIds = [...new Set([...activeIds, ...workedIds])];
   if (agentIds.length === 0) return [];
 
   const { data: users, error: usersError } = await supabase
@@ -687,7 +793,12 @@ async function computeAgentLoad(
     const solved = sets.resolved.filter(
       (t) => t.assignee_user_id === id,
     ).length;
-    const sla = tallySla(assigned, sets.firstResponseByTicket, sets.slaSetup);
+    const sla = tallySla(
+      assigned,
+      sets.firstResponseByTicket,
+      sets.slaSetup,
+      sets.now,
+    );
 
     const replyMinutes = assigned
       .map((t) => {
@@ -705,7 +816,8 @@ async function computeAgentLoad(
 
     return {
       id,
-      name: user?.full_name || "Unnamed",
+      // A removed member's profile is hidden by RLS, so there is no name.
+      name: user?.full_name || (user ? "Unnamed" : "Former member"),
       email: user?.email || "",
       initials: initials(user?.full_name || "?"),
       open,
@@ -716,14 +828,9 @@ async function computeAgentLoad(
       slaMet: sla.percentage,
       slaMetCount: sla.met,
       slaEligible: sla.eligible,
-      csatAverage:
-        scores.length === 0
-          ? null
-          : Math.round(
-              (scores.reduce((sum, value) => sum + value, 0) / scores.length) *
-                10,
-            ) / 10,
+      csatAverage: average(scores),
       csatResponses: scores.length,
+      inactive: !activeIds.has(id),
     };
   });
 

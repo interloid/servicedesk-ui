@@ -31,6 +31,7 @@ import {
   ReportsData,
 } from "../types/types";
 import { AgentPerformanceTable } from "./agent-performance-table";
+import { PrioritySlaCard } from "./priority-sla-card";
 import { ReportsSkeletonBody } from "./reports-skeleton";
 import { REPORT_CARD } from "./styles";
 import { TicketPerformanceCard } from "./ticket-performance-card";
@@ -38,19 +39,6 @@ import { TicketPerformanceCard } from "./ticket-performance-card";
 interface ReportsDashboardProps {
   data: ReportsData;
 }
-
-const PRIORITY_STYLE: Record<string, { badge: string; bar: string }> = {
-  Urgent: {
-    badge: "bg-destructive-soft text-destructive-strong",
-    bar: "bg-destructive",
-  },
-  High: { badge: "bg-warning-soft text-warning-strong", bar: "bg-warning" },
-  Normal: {
-    badge: "bg-sky-50 text-sky-700 dark:bg-sky-950 dark:text-sky-300",
-    bar: "bg-sky-500",
-  },
-  Low: { badge: "bg-muted text-muted-foreground", bar: "bg-success" },
-};
 
 const plural = (count: number, word: string) =>
   `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -99,7 +87,7 @@ const exportCsv = (data: ReportsData) => {
       "Ratings",
     ],
     ...data.agents.map((a) => [
-      a.name,
+      a.inactive ? `${a.name} (inactive)` : a.name,
       a.email,
       a.open,
       a.solved,
@@ -114,13 +102,19 @@ const exportCsv = (data: ReportsData) => {
 
   const csv = rows.map((r) => r.map(csvCell).join(",")).join("\n");
 
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  // The BOM makes Excel read the file as UTF-8; without it, non-ASCII names
+  // come out garbled as Windows-1252.
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = `reports-${data.range}.csv`;
+  // In the document, and revoked a tick later: some browsers cancel a
+  // download whose link is detached or whose URL is already gone.
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 
 interface StatCardProps {
@@ -276,20 +270,31 @@ export default function ReportsDashboard({ data }: ReportsDashboardProps) {
             </Card>
           ) : (
             <>
+              {data.truncated && (
+                <p
+                  role="status"
+                  className="rounded-lg bg-warning-soft px-4 py-3 text-sm text-warning-strong"
+                >
+                  This period has too much activity to report on fully, so the
+                  figures below are partial. Pick a shorter range.
+                </p>
+              )}
               <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                 <StatCard
                   icon={Crown}
                   iconClassName="bg-success-soft text-success-strong"
                   title="SLA Attainment"
                   value={
-                    summary.slaAttainment === null
+                    summary.slaAttainment === null || data.truncated
                       ? "—"
                       : `${summary.slaAttainment}%`
                   }
                   caption={
-                    summary.slaEligible === 0
-                      ? "No tickets to judge yet"
-                      : `${summary.slaMetCount} of ${plural(summary.slaEligible, "ticket")} met SLA`
+                    data.truncated
+                      ? "Partial data — pick a shorter range"
+                      : summary.slaEligible === 0
+                        ? "No tickets to judge yet"
+                        : `${summary.slaMetCount} of ${plural(summary.slaEligible, "ticket")} met SLA`
                   }
                 />
                 <StatCard
@@ -341,72 +346,22 @@ export default function ReportsDashboard({ data }: ReportsDashboardProps) {
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                <TicketPerformanceCard data={data} />
+              {/* Charts stacked on the left; on xl the agent table sits
+                  beside them and is pinned to their height, so its rows
+                  scroll inside instead of stretching the row. */}
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-6">
+                  <TicketPerformanceCard data={data} />
+                  <PrioritySlaCard items={data.prioritySla} />
+                </div>
 
-                <Card className={REPORT_CARD}>
-                  <h2 className="text-base font-semibold text-foreground">
-                    SLA Attainment by Priority
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    First responses within each ticket&apos;s SLA target
-                  </p>
-
-                  <div className="mt-6 flex flex-1 flex-col justify-around gap-5">
-                    {data.prioritySla.map((item) => {
-                      const style =
-                        PRIORITY_STYLE[item.level] ?? PRIORITY_STYLE.Low;
-                      const pct = item.metPercentage;
-                      return (
-                        <div
-                          key={item.level}
-                          className="flex items-center gap-4"
-                        >
-                          <span
-                            className={cn(
-                              "w-20 shrink-0 rounded-md px-2 py-1.5 text-center text-sm font-medium",
-                              style.badge,
-                            )}
-                          >
-                            {item.level}
-                          </span>
-                          <div className="min-w-0 flex-1 space-y-2">
-                            <div className="flex items-baseline justify-between gap-2 text-sm">
-                              <span className="tabular-nums">
-                                {pct === null ? (
-                                  <span className="text-muted-foreground">
-                                    No data
-                                  </span>
-                                ) : (
-                                  <>
-                                    <span className="font-semibold text-foreground">
-                                      {pct}%
-                                    </span>{" "}
-                                    <span className="text-muted-foreground">
-                                      ({item.met} / {item.eligible})
-                                    </span>
-                                  </>
-                                )}
-                              </span>
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {plural(item.ticketsCount, "ticket")}
-                              </span>
-                            </div>
-                            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                              <div
-                                className={cn("h-full rounded-full", style.bar)}
-                                style={{ width: `${pct ?? 0}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
+                <div className="min-w-0 xl:relative">
+                  <AgentPerformanceTable
+                    agents={data.agents}
+                    className="xl:absolute xl:inset-0"
+                  />
+                </div>
               </div>
-
-              <AgentPerformanceTable agents={data.agents} />
             </>
           )}
         </div>

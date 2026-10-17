@@ -24,6 +24,7 @@ import {
   PanelLeft,
   User,
   BadgeDollarSign,
+  Lock,
 } from "lucide-react";
 
 import {
@@ -53,12 +54,15 @@ import {
 } from "@/components/ui/tooltip";
 import { isMembershipRole, MembershipRole } from "@/types/team-members";
 import { ShellIdentity } from "@/types/shell-identity";
+import { planIncludesReports } from "@/features/reports/types/types";
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ElementType;
   roles: MembershipRole[];
+  /** Not on the tenant's plan: still listed, with a lock, so it can be discovered. */
+  locked?: boolean;
 }
 
 interface NavSection {
@@ -146,6 +150,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           href: "/reports",
           icon: BarChart2,
           roles: ["tenant_admin", "manager"],
+          locked: !planIncludesReports(identity?.org.planName),
         },
       ],
     },
@@ -452,6 +457,13 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
                           <span className="truncate group-data-[collapsible=icon]:hidden">
                             {item.label}
                           </span>
+
+                          {item.locked && (
+                            <Lock
+                              aria-label="Upgrade to unlock"
+                              className="ml-auto size-3.5 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden"
+                            />
+                          )}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

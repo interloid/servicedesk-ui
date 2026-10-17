@@ -1,3 +1,4 @@
+import React from "react";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -58,30 +59,32 @@ function TicketPerformanceSkeleton() {
       <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
         <div>
           <Skeleton className="h-6 w-52 max-w-full" />
-          <Skeleton className="mt-0.5 h-5 w-64 max-w-full" />
+          <Skeleton className="h-5 w-64 max-w-full" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* legend, bar/line switch, grouping menu */}
-          <Skeleton className="h-8 w-40 rounded-lg" />
-          <Skeleton className="h-8 w-17.5 rounded-lg" />
-          <Skeleton className="h-8 w-28 rounded-lg" />
+          {/* legend, bar/area switch */}
+          <Skeleton className="h-10 w-47 rounded-lg" />
+          <Skeleton className="h-10 w-21 rounded-lg" />
         </div>
       </div>
 
       <div className="mt-5 flex flex-col gap-5 md:flex-row md:items-stretch">
         <div className="flex shrink-0 gap-4 border-b pb-4 md:w-40 md:flex-col md:justify-center md:border-r md:border-b-0 md:pb-0 md:pr-5">
           {[0, 1].map((i) => (
-            <div key={i} className="flex-1 md:flex-none">
-              <Skeleton className="size-5 rounded" />
-              <Skeleton className="mt-2 h-5 w-24" />
-              <Skeleton className="mt-0.5 h-8 w-12" />
-              <Skeleton className="mt-1 h-4 w-20" />
-            </div>
+            <React.Fragment key={i}>
+              {i > 0 && <div className="hidden border-t md:block" />}
+              <div className="flex-1 md:flex-none">
+                <Skeleton className="size-5 rounded" />
+                <Skeleton className="mt-2 h-5 w-24" />
+                <Skeleton className="h-9 w-12" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+            </React.Fragment>
           ))}
         </div>
 
         {/* Same height ramp as the real chart box. */}
-        <div className="flex h-56 w-full min-w-0 gap-3 sm:h-64 md:w-auto md:flex-1">
+        <div className="flex h-56 w-full min-w-0 gap-3 sm:h-96 md:w-auto md:flex-1">
           <div className="flex flex-col justify-between pb-7">
             {[0, 1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-3 w-5" />
@@ -128,17 +131,18 @@ function PrioritySkeleton() {
   return (
     <Card className={REPORT_CARD}>
       <Skeleton className="h-6 w-52 max-w-full" />
-      <Skeleton className="mt-0.5 h-5 w-64 max-w-full" />
-      <div className="mt-6 flex flex-1 flex-col justify-around gap-5">
+      <Skeleton className="h-5 w-64 max-w-full" />
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="flex items-center gap-4">
-            <Skeleton className="h-8 w-20 shrink-0 rounded-md" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <Skeleton className="h-5 w-24" />
-                <Skeleton className="h-4 w-14" />
-              </div>
-              <Skeleton className="h-2 w-full rounded-full" />
+          <div key={i} className="flex flex-col rounded-xl border p-3 sm:p-4">
+            <div className="flex items-center gap-2">
+              <Skeleton className="size-7 shrink-0 rounded-lg" />
+              <Skeleton className="h-5 w-14" />
+            </div>
+            <Skeleton className="mt-3 h-8 w-14" />
+            <Skeleton className="h-4 w-20 max-w-full" />
+            <div className="mt-auto pt-3">
+              <Skeleton className="h-2.5 w-full rounded-full" />
             </div>
           </div>
         ))}
@@ -147,15 +151,20 @@ function PrioritySkeleton() {
   );
 }
 
-function AgentTableSkeleton() {
+function AgentTableSkeleton({ className }: { className?: string }) {
   return (
-    <Card className="min-w-0 gap-0 overflow-hidden rounded-xl bg-card p-0 shadow-sm ring-1">
+    <Card
+      className={cn(
+        "min-w-0 gap-0 overflow-hidden rounded-xl bg-card p-0 shadow-sm ring-1",
+        className,
+      )}
+    >
       <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex items-center gap-3">
           <Skeleton className="size-10 shrink-0 rounded-lg" />
           <div>
             <Skeleton className="h-6 w-40" />
-            <Skeleton className="mt-0.5 h-4 w-16" />
+            <Skeleton className="h-4 w-16" />
           </div>
         </div>
         <Skeleton className="h-9 w-full rounded-md sm:w-64" />
@@ -177,7 +186,7 @@ function AgentTableSkeleton() {
           {[0, 1, 2, 3, 4].map((row) => (
             <div
               key={row}
-              className="flex h-15 items-center border-b border-slate-100 last:border-0 dark:border-border"
+              className="box-content flex h-15 items-center border-b border-slate-100 last:border-0 dark:border-border"
             >
               {AGENT_COLUMNS.map((column, i) => (
                 <div
@@ -223,12 +232,16 @@ export function ReportsSkeletonBody() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <TicketPerformanceSkeleton />
-        <PrioritySkeleton />
-      </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-6">
+          <TicketPerformanceSkeleton />
+          <PrioritySkeleton />
+        </div>
 
-      <AgentTableSkeleton />
+        <div className="min-w-0 xl:relative">
+          <AgentTableSkeleton className="xl:absolute xl:inset-0" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -244,7 +257,7 @@ export function ReportsSkeleton() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <Skeleton className="h-8 w-28" />
-            <Skeleton className="mt-0.5 h-5 w-80 max-w-full" />
+            <Skeleton className="h-5 w-80 max-w-full" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Skeleton className="h-9 w-24 rounded-md" />

@@ -3,16 +3,16 @@
 import React from "react";
 import {
   BarChart3,
-  LineChart as LineIcon,
+  AreaChart as AreaIcon,
   Inbox,
   CheckCheck,
 } from "lucide-react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
-  Line,
-  LineChart,
   Rectangle,
   ResponsiveContainer,
   Tooltip,
@@ -73,22 +73,24 @@ function TrendTooltip({ active, payload }: TrendTooltipProps) {
   if (!active || !point) return null;
 
   return (
-    <div className="min-w-40 rounded-lg border bg-popover px-3 py-2.5 text-xs text-popover-foreground shadow-md">
-      <p className="mb-1.5 font-medium text-muted-foreground">{point.title}</p>
+    <div className="min-w-56 rounded-xl border bg-popover px-4 py-3 text-sm text-popover-foreground shadow-lg">
+      <p className="mb-2 border-b pb-2 font-bold text-foreground">
+        {point.title}
+      </p>
       {SERIES.map((series) => (
         <div
           key={series.key}
-          className="flex items-center justify-between gap-6 py-0.5"
+          className="flex items-center justify-between gap-8 py-1"
         >
           <span className="flex items-center gap-2 text-muted-foreground">
             <span
               aria-hidden
-              className="size-2 rounded-full"
+              className="size-2.5 rounded-full"
               style={{ background: series.color }}
             />
             {series.label}
           </span>
-          <span className="font-semibold tabular-nums text-foreground">
+          <span className="text-base font-bold tabular-nums text-foreground">
             {point[series.key]}
           </span>
         </div>
@@ -102,8 +104,10 @@ interface TicketPerformanceCardProps {
 }
 
 export function TicketPerformanceCard({ data }: TicketPerformanceCardProps) {
-  const [kind, setKind] = React.useState<"bar" | "line">("bar");
+  const [kind, setKind] = React.useState<"bar" | "area">("bar");
   const points = data.trend;
+  // useId can contain characters that break url(#…) references.
+  const gradientId = React.useId().replace(/[^a-zA-Z0-9_-]/g, "");
 
   return (
     <Card className={REPORT_CARD}>
@@ -118,7 +122,7 @@ export function TicketPerformanceCard({ data }: TicketPerformanceCardProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex h-8 items-center gap-3 rounded-lg border px-3 text-xs text-muted-foreground">
+          <div className="flex h-10 items-center gap-4 rounded-lg border px-4 text-sm text-muted-foreground">
             {SERIES.map((series) => (
               <span key={series.key} className="flex items-center gap-1.5">
                 <span
@@ -134,12 +138,12 @@ export function TicketPerformanceCard({ data }: TicketPerformanceCardProps) {
           <div
             role="group"
             aria-label="Chart type"
-            className="flex h-8 items-center rounded-lg border p-0.5"
+            className="flex h-10 items-center gap-0.5 rounded-lg border p-1"
           >
             {(
               [
                 { value: "bar", label: "Bar chart", Icon: BarChart3 },
-                { value: "line", label: "Line chart", Icon: LineIcon },
+                { value: "area", label: "Area chart", Icon: AreaIcon },
               ] as const
             ).map(({ value, label, Icon }) => (
               <button
@@ -149,7 +153,7 @@ export function TicketPerformanceCard({ data }: TicketPerformanceCardProps) {
                 aria-pressed={kind === value}
                 onClick={() => setKind(value)}
                 className={cn(
-                  "flex h-full w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground",
+                  "flex h-full w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground",
                   kind === value && "bg-muted text-foreground",
                 )}
               >
@@ -185,13 +189,14 @@ export function TicketPerformanceCard({ data }: TicketPerformanceCardProps) {
 
         {/* Only grows sideways from md up. In the stacked (column) layout a
             flex-1 here becomes a 0px height basis and the chart vanishes. */}
-        <div className="h-56 w-full min-w-0 sm:h-64 md:w-auto md:flex-1">
+        <div className="h-56 w-full min-w-0 sm:h-96 md:w-auto md:flex-1">
           <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             {kind === "bar" ? (
               <BarChart
                 data={points}
                 margin={{ top: 8, right: 4, left: -20, bottom: 0 }}
                 barGap={BAR_GAP}
+                barCategoryGap="20%"
               >
                 <CartesianGrid vertical={false} stroke="var(--border)" />
                 <XAxis
@@ -218,16 +223,39 @@ export function TicketPerformanceCard({ data }: TicketPerformanceCardProps) {
                     name={series.label}
                     fill={series.color}
                     radius={[4, 4, 0, 0]}
-                    maxBarSize={18}
+                    maxBarSize={40}
                     shape={BAR_SHAPES[index]}
                   />
                 ))}
               </BarChart>
             ) : (
-              <LineChart
+              <AreaChart
                 data={points}
                 margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
               >
+                <defs>
+                  {SERIES.map((series) => (
+                    <linearGradient
+                      key={series.key}
+                      id={`${gradientId}-${series.key}`}
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor={series.color}
+                        stopOpacity={0.35}
+                      />
+                      <stop
+                        offset="100%"
+                        stopColor={series.color}
+                        stopOpacity={0.02}
+                      />
+                    </linearGradient>
+                  ))}
+                </defs>
                 <CartesianGrid vertical={false} stroke="var(--border)" />
                 <XAxis
                   dataKey="label"
@@ -247,13 +275,14 @@ export function TicketPerformanceCard({ data }: TicketPerformanceCardProps) {
                   content={(props) => <TrendTooltip {...props} />}
                 />
                 {SERIES.map((series) => (
-                  <Line
+                  <Area
                     key={series.key}
                     type="monotone"
                     dataKey={series.key}
                     name={series.label}
                     stroke={series.color}
                     strokeWidth={2}
+                    fill={`url(#${gradientId}-${series.key})`}
                     dot={false}
                     activeDot={{
                       r: 4,
@@ -262,7 +291,7 @@ export function TicketPerformanceCard({ data }: TicketPerformanceCardProps) {
                     }}
                   />
                 ))}
-              </LineChart>
+              </AreaChart>
             )}
           </ResponsiveContainer>
         </div>

@@ -5,11 +5,12 @@ import { revalidatePath } from "next/cache";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 
 import { updateBrandingSchema } from "@/features/branding/schemas/branding";
-import type { TenantBranding } from "@/features/branding/branding";
 import type {
   BrandingActionResult,
+  BrandingField,
   LogoUploadTarget,
   SlugAvailability,
+  TenantBranding,
 } from "@/features/branding/branding";
 import {
   BrandingError,
@@ -24,7 +25,12 @@ function toFailure<T>(
   context: string,
 ): BrandingActionResult<T> {
   if (error instanceof BrandingError) {
-    return { ok: false, failureCode: error.code, message: error.message };
+    return {
+      ok: false,
+      failureCode: error.code,
+      message: error.message,
+      field: error.field,
+    };
   }
 
   console.error(`[branding] ${context} failed`, error);
@@ -37,6 +43,18 @@ function toFailure<T>(
  * branding can change the slug itself -- the page to refresh is the one at the
  * new address. The bare "/settings/branding" this replaces matched no route.
  */
+/** Schema keys whose editor field goes by another name. */
+const FIELD_BY_KEY: Record<string, BrandingField> = {
+  name: "name",
+  slug: "slug",
+  primaryColor: "color",
+  secondaryColor: "secondaryColor",
+  textColor: "textColor",
+  backgroundColor: "backgroundColor",
+  supportEmail: "email",
+  logoUrl: "logoUrl",
+};
+
 function revalidateBranding(slug: string) {
   revalidatePath(tenantPath(slug, TENANT_ROUTES.SETTINGS.BRANDING));
   revalidatePath(tenantPath(slug, "/"), "layout");
@@ -48,10 +66,15 @@ export async function updateBrandingAction(
   const parsed = updateBrandingSchema.safeParse(values);
 
   if (!parsed.success) {
+    // The editor checks most of this first, but not identically (the email
+    // rule is looser), so say which field failed instead of pointing at
+    // highlights that are not there.
+    const issue = parsed.error.issues[0];
     return {
       ok: false,
       failureCode: "validation",
-      message: "Check the highlighted fields and try again.",
+      message: issue?.message ?? "Check your branding and try again.",
+      field: FIELD_BY_KEY[String(issue?.path[0])],
     };
   }
 

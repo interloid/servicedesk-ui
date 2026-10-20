@@ -1,12 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { env } from "@/config/env";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isValidTenantSlug } from "@/lib/tenancy";
 
 import type { UpdateBrandingValues } from "@/features/branding/schemas/branding";
+import { trustedTenantLogoUrl } from "@/features/portal/avatar-url";
+
 import type {
   BrandingFailureCode,
+  BrandingField,
   BrandingJson,
   LogoUploadTarget,
   SlugAvailability,
@@ -23,15 +27,25 @@ import {
 export class BrandingError extends Error {
   readonly status: number;
   readonly code: BrandingFailureCode;
+  readonly field?: BrandingField;
 
   constructor(
     message: string,
-    { status = 400, code = "unknown" as BrandingFailureCode } = {},
+    {
+      status = 400,
+      code = "unknown",
+      field,
+    }: {
+      status?: number;
+      code?: BrandingFailureCode;
+      field?: BrandingField;
+    } = {},
   ) {
     super(message);
     this.name = "BrandingError";
     this.status = status;
     this.code = code;
+    this.field = field;
   }
 }
 
@@ -115,22 +129,55 @@ async function requireActor(supabase: SupabaseClient): Promise<BrandingActor> {
 type TenantRow = {
   name: string;
   slug: string;
-  branding_json: BrandingJson | null;
+  branding_json: unknown;
 };
 
+function text(value: unknown): string | null {
+  return typeof value === "string" ? value.trim() || null : null;
+}
+
+/**
+ * branding_json is free-form jsonb, so each field is checked rather than cast:
+ * one stray non-string would otherwise throw on `.trim()` and take the whole
+ * settings page down with it. Anything of the wrong type reads as unset.
+ */
+function readBrandingJson(value: unknown): BrandingJson {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const json = value as Record<string, unknown>;
+
+  return {
+    ...json,
+    logo_url: text(json.logo_url),
+    primary_color: text(json.primary_color),
+    secondary_color: text(json.secondary_color),
+    text_color: text(json.text_color),
+    background_color: text(json.background_color),
+    support_email: text(json.support_email),
+    show_logo_on_portal:
+      typeof json.show_logo_on_portal === "boolean"
+        ? json.show_logo_on_portal
+        : undefined,
+  };
+}
+
 function toBranding(row: TenantRow): TenantBranding {
-  const json = row.branding_json ?? {};
+  const json = readBrandingJson(row.branding_json);
 
   return {
     name: row.name,
     slug: row.slug,
     portalUrl: `${row.slug}.${PORTAL_DOMAIN}`,
-    logoUrl: json.logo_url?.trim() || null,
-    primaryColor: json.primary_color?.trim() || null,
-    secondaryColor: json.secondary_color?.trim() || null,
-    textColor: json.text_color?.trim() || null,
-    backgroundColor: json.background_color?.trim() || null,
-    supportEmail: json.support_email?.trim() || null,
+    // Filtered the way the portal filters it, so the preview never shows a
+    // logo that customers would not see.
+    logoUrl: trustedTenantLogoUrl(json.logo_url ?? null),
+    primaryColor: json.primary_color ?? null,
+    secondaryColor: json.secondary_color ?? null,
+    textColor: json.text_color ?? null,
+    backgroundColor: json.background_color ?? null,
+    supportEmail: json.support_email ?? null,
     showLogoOnPortal: json.show_logo_on_portal ?? DEFAULT_SHOW_LOGO_ON_PORTAL,
   };
 }
@@ -152,7 +199,7 @@ export async function getBranding(): Promise<TenantBranding | null> {
     throw fail("Couldn't load your branding.", rowError);
   }
 
-  return row ? toBranding(row as unknown as TenantRow) : null;
+  return row ? toBranding(row as TenantRow) : null;
 }
 
 export async function canEditBranding(): Promise<boolean> {
@@ -173,14 +220,7 @@ export async function updateBranding(
   values: UpdateBrandingValues,
 ): Promise<TenantBranding> {
   const supabase = await createSupabaseServerClient();
-  const actor = await requireActor(supabase);
-
-  if (actor.role !== "tenant_admin") {
-    throw new BrandingError("Only a Tenant Admin can change branding.", {
-      status: 403,
-      code: "action-not-allowed",
-    });
-  }
+  const actor = await requireAdmin(supabase);
 
   const { data: row, error: rowError } = await supabase
     .from("tenants")
@@ -191,7 +231,7 @@ export async function updateBranding(
     throw fail("Couldn't load your branding.", rowError);
   }
 
-  const tenant = row as unknown as (TenantRow & { id: string }) | null;
+  const tenant = row as (TenantRow & { id: string }) | null;
 
   if (!tenant) {
     throw new BrandingError("Your workspace wasn't found.", {
@@ -202,27 +242,37 @@ export async function updateBranding(
 
   const slugChanged = tenant.slug !== values.slug;
 
-  if (slugChanged) {
-    const { data: clash, error: clashError } = await supabase
-      .from("tenants")
-      .select("id")
-      .eq("slug", values.slug)
-      .neq("id", tenant.id)
-      .maybeSingle();
-
-    if (clashError) {
-      throw fail("Couldn't check that portal address.", clashError);
-    }
-
-    if (clash) {
-      throw new BrandingError(
-        `That portal address is taken. Try ${values.slug}-support.`,
-        { status: 409, code: "slug-taken" },
-      );
-    }
+  // Only a new address is checked: a workspace created before the reserved
+  // list (tenants_slug_not_reserved is NOT VALID) keeps its slug and can
+  // still save the rest of its branding.
+  if (slugChanged && !isValidTenantSlug(values.slug)) {
+    throw new BrandingError("That address is reserved. Try another.", {
+      code: "validation",
+      field: "slug",
+    });
   }
 
-  const current = tenant.branding_json ?? {};
+  // A plain select on tenants only ever sees this tenant's row (RLS), so it
+  // could never find a clash; the RPC can.
+  if (
+    slugChanged &&
+    (await lookupSlug(supabase, values.slug, actor.tenantId)) === "taken"
+  ) {
+    throw slugTakenError(values.slug);
+  }
+
+  const logoUrl = values.logoUrl?.trim() || null;
+
+  // Logos come from the upload flow, which only writes under this folder. A
+  // URL from anywhere else would be loaded by every admin who opens this page.
+  if (logoUrl && !logoUrl.startsWith(ownLogoPrefix(actor.tenantId))) {
+    throw new BrandingError("Upload the logo instead of linking to it.", {
+      code: "validation",
+      field: "logoUrl",
+    });
+  }
+
+  const current = readBrandingJson(tenant.branding_json);
 
   // show_logo_on_email was this toggle's old key, from when it was meant for
   // email. Nothing reads it now, so it is dropped rather than left to mislead.
@@ -231,7 +281,7 @@ export async function updateBranding(
 
   const nextJson: BrandingJson = {
     ...kept,
-    logo_url: values.logoUrl?.trim() || null,
+    logo_url: logoUrl,
     primary_color: values.primaryColor,
     // Empty string means "clear it" — stored as null so brandCssVars omits the
     // token entirely and the app default applies again.
@@ -265,6 +315,11 @@ export async function updateBranding(
     .maybeSingle();
 
   if (updateError) {
+    // Another workspace took the address between the check and the save.
+    if (updateError.code === "23505") {
+      throw slugTakenError(values.slug);
+    }
+
     throw fail("We couldn't save your branding.", updateError);
   }
 
@@ -275,7 +330,83 @@ export async function updateBranding(
     });
   }
 
-  return toBranding(updated as unknown as TenantRow);
+  if (slugChanged) {
+    // The token's tenant_slug is still the old address, and the proxy sends
+    // every request back to it -- where no workspace exists any more. A
+    // refresh runs the access token hook again, which reads the new slug.
+    const { error: refreshError } = await supabase.auth.refreshSession();
+
+    if (refreshError) {
+      console.error(
+        "[branding] session refresh after a slug change failed:",
+        refreshError.message,
+      );
+    }
+  }
+
+  await removeUnusedLogos(actor.tenantId, logoUrl);
+
+  return toBranding(updated as TenantRow);
+}
+
+function slugTakenError(slug: string) {
+  return new BrandingError(
+    `That portal address is taken. Try ${slug}-support.`,
+    { status: 409, code: "slug-taken", field: "slug" },
+  );
+}
+
+function logoFolder(tenantId: string): string {
+  return `${tenantId}/branding`;
+}
+
+function ownLogoPrefix(tenantId: string): string {
+  const base = env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/, "");
+  return `${base}/storage/v1/object/public/${LOGO_BUCKET}/${logoFolder(tenantId)}/`;
+}
+
+/**
+ * Every upload writes a new file, so replaced, removed and abandoned logos pile
+ * up in a public bucket -- and a "removed" logo stays reachable at its URL.
+ * After a save, older files in the folder other than the logo in use go.
+ * Best effort: a failed sweep is logged and retried on the next save.
+ */
+async function removeUnusedLogos(tenantId: string, keepUrl: string | null) {
+  const admin = createSupabaseAdminClient();
+  const folder = logoFolder(tenantId);
+  const keep = keepUrl?.slice(ownLogoPrefix(tenantId).length) ?? null;
+
+  const { data: files, error } = await admin.storage
+    .from(LOGO_BUCKET)
+    .list(folder, { limit: 100 });
+
+  if (error) {
+    console.error("[branding] listing old logos failed:", error.message);
+    return;
+  }
+
+  // Files from the last day are left alone: another admin may have just
+  // uploaded one and not saved yet.
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const stale = (files ?? [])
+    .filter(
+      (file) =>
+        file.id &&
+        file.name !== keep &&
+        file.created_at !== null &&
+        new Date(file.created_at).getTime() < cutoff,
+    )
+    .map((file) => `${folder}/${file.name}`);
+
+  if (stale.length === 0) return;
+
+  const { error: removeError } = await admin.storage
+    .from(LOGO_BUCKET)
+    .remove(stale);
+
+  if (removeError) {
+    console.error("[branding] removing old logos failed:", removeError.message);
+  }
 }
 
 async function requireAdmin(supabase: SupabaseClient): Promise<BrandingActor> {
@@ -359,8 +490,16 @@ export async function checkSlugAvailability(
   const supabase = await createSupabaseServerClient();
   const actor = await requireAdmin(supabase);
 
+  return lookupSlug(supabase, value, actor.tenantId);
+}
+
+async function lookupSlug(
+  supabase: SupabaseClient,
+  slug: string,
+  tenantId: string,
+): Promise<Exclude<SlugAvailability, "invalid">> {
   const { data, error } = await supabase.rpc("get_tenant_by_slug", {
-    p_slug: value,
+    p_slug: slug,
   });
 
   if (error) {
@@ -370,5 +509,5 @@ export async function checkSlugAvailability(
   const match = data as { id?: string } | null;
 
   if (!match?.id) return "available";
-  return match.id === actor.tenantId ? "current" : "taken";
+  return match.id === tenantId ? "current" : "taken";
 }

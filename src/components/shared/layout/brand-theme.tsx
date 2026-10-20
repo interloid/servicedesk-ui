@@ -1,3 +1,5 @@
+import { brandPalette, isHexColor } from "@/features/branding/branding";
+
 /**
  * Re-points the --brand-* custom properties (see globals.css) at a tenant's
  * own colours, so everything built on them -- bg-brand-accent, text-primary,
@@ -8,40 +10,15 @@
  * shows through.
  */
 
-const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
-
+/** Stored colours are #rrggbb; older rows may hold #rgb, so expand those. */
 function safeHex(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
 
-  return trimmed && HEX_COLOR.test(trimmed) ? trimmed : null;
-}
+  if (trimmed && /^#[0-9a-f]{3}$/i.test(trimmed)) {
+    return `#${[...trimmed.slice(1)].map((digit) => digit + digit).join("")}`;
+  }
 
-function toRgb(hex: string): [number, number, number] {
-  const digits =
-    hex.length === 4
-      ? hex
-          .slice(1)
-          .split("")
-          .map((digit) => digit + digit)
-          .join("")
-      : hex.slice(1);
-
-  return [0, 2, 4].map((offset) =>
-    parseInt(digits.slice(offset, offset + 2), 16),
-  ) as [number, number, number];
-}
-
-/** WCAG relative luminance: pick whichever of black or white reads better. */
-function readableOn(hex: string): string {
-  const [r, g, b] = toRgb(hex).map((channel) => {
-    const c = channel / 255;
-
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-  return luminance > 0.179 ? "#0f172a" : "#ffffff";
+  return trimmed && isHexColor(trimmed) ? trimmed.toLowerCase() : null;
 }
 
 export function BrandTheme({
@@ -56,9 +33,20 @@ export function BrandTheme({
   background?: string | null;
 }) {
   const brand = safeHex(primary);
-  const accent = safeHex(secondary) ?? brand;
+  const secondaryColor = safeHex(secondary);
   const foreground = safeHex(text);
   const page = safeHex(background);
+
+  // The same palette the branding preview paints with, so what an admin
+  // previews is what customers get. Secondary is the quiet colour (secondary
+  // buttons, muted surfaces) -- it used to take over --brand-accent, which
+  // painted the portal header in it while the preview showed the brand.
+  const p = brandPalette({
+    primary: brand,
+    secondary: secondaryColor,
+    text: foreground,
+    background: page,
+  });
 
   // Three blocks, because a brand colour does not mean the same thing in both
   // themes:
@@ -75,38 +63,47 @@ export function BrandTheme({
 
   if (brand) {
     shared.push(
-      `--brand-base: ${brand}`,
-      `--primary: ${brand}`,
-      `--primary-foreground: ${readableOn(brand)}`,
-      `--ring: ${brand}`,
+      `--brand-base: ${p.base}`,
+      `--brand-accent: ${p.base}`,
+      `--brand-accent-foreground: ${p.onBrand}`,
+      `--primary: ${p.base}`,
+      `--primary-foreground: ${p.onBrand}`,
+      `--ring: ${p.base}`,
     );
     light.push(
-      `--brand-hover: color-mix(in srgb, ${brand} 85%, black)`,
-      `--brand-pressed: color-mix(in srgb, ${brand} 70%, black)`,
-      `--brand-badge: color-mix(in srgb, ${brand} 14%, white)`,
-      `--brand-badge-foreground: color-mix(in srgb, ${brand} 80%, black)`,
+      `--brand-hover: ${p.hover}`,
+      `--brand-pressed: ${p.pressed}`,
+      `--brand-badge: ${p.soft}`,
+      `--brand-badge-foreground: ${p.badgeForeground}`,
+      `--brand-soft: ${p.soft}`,
+      `--brand-ink: ${p.base}`,
     );
     // The dark theme's own badge tokens already sit on --accent, which reads on
     // a dark page; only the interaction shades need the brand.
     dark.push(
-      `--brand-hover: color-mix(in srgb, ${brand} 85%, white)`,
-      `--brand-pressed: ${brand}`,
+      `--brand-hover: color-mix(in srgb, ${p.base} 85%, white)`,
+      `--brand-pressed: ${p.base}`,
     );
   }
 
-  if (accent) {
-    shared.push(
-      `--brand-accent: ${accent}`,
-      `--brand-accent-foreground: ${readableOn(accent)}`,
+  if (secondaryColor) {
+    light.push(
+      `--secondary: ${p.secondary}`,
+      `--secondary-foreground: ${p.onSecondary}`,
     );
   }
 
   if (foreground) {
-    light.push(`--foreground: ${foreground}`);
+    light.push(
+      `--foreground: ${p.text}`,
+      `--card-foreground: ${p.text}`,
+      `--popover-foreground: ${p.text}`,
+      `--muted-foreground: ${p.mutedText}`,
+    );
   }
 
   if (page) {
-    light.push(`--background: ${page}`);
+    light.push(`--background: ${p.background}`);
   }
 
   const rule = (selector: string, declarations: string[]) =>

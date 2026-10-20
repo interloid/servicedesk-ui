@@ -79,7 +79,8 @@ VALUES (
     '{image/png,image/jpeg,image/gif,image/webp}'
 )
 ON CONFLICT (id) DO UPDATE
-SET allowed_mime_types = EXCLUDED.allowed_mime_types;
+SET allowed_mime_types = EXCLUDED.allowed_mime_types,
+    file_size_limit = EXCLUDED.file_size_limit;
 
 
 -- =====================================================

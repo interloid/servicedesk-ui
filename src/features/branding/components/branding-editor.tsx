@@ -1,21 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
+  ArrowLeft,
+  AtSign,
   Check,
   ChevronDown,
   CircleAlert,
   Clock3,
   Eye,
+  EyeOff,
   FileText,
   Loader2,
-  Menu,
-  Monitor,
+  LockKeyhole,
+  Mail,
+  MessageSquare,
+  MonitorSmartphone,
+  Paperclip,
   Plus,
+  RotateCw,
   Search,
-  Smartphone,
-  Tablet,
+  SendHorizontal,
+  Star,
   Upload,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,9 +47,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { createSupabaseClient } from "@/lib/supabase/client";
+import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
 
 import type {
+  BrandingField,
   BrandPalette,
   SlugAvailability,
   TenantBranding,
@@ -52,6 +63,7 @@ import {
   DEFAULT_BRAND_COLOR,
   DEFAULT_SECONDARY_COLOR,
   DEFAULT_TEXT_COLOR,
+  HEX_COLOR,
   isHexColor,
   LOGO_BUCKET,
   LOGO_MIME_TYPES,
@@ -59,13 +71,24 @@ import {
   MAX_NAME_LENGTH,
   MAX_SLUG_LENGTH,
   MIN_READABLE_CONTRAST,
+  SLUG_PATTERN,
 } from "@/features/branding/branding";
 import {
   checkSlugAvailabilityAction,
   prepareLogoUploadAction,
   updateBrandingAction,
 } from "@/features/branding/branding-actions";
-import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
+import {
+  CopyButton,
+  CopyScope,
+  CopyTrigger,
+} from "@/features/customers/components/copy-button";
+import {
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  PORTAL_ROUTES,
+  portalPath,
+} from "@/features/portal/portal";
 import {
   TEAM_DIALOG_CONTENT,
   TEAM_DIALOG_FOOTER,
@@ -78,12 +101,9 @@ const FIELD_CLASS = "h-11 rounded-sm text-sm md:h-10.5";
 
 // Page-level actions, the same metrics as the SLA policy editor's header.
 const PAGE_BUTTON =
-  "h-10 gap-2 rounded-lg px-4 text-sm font-semibold shadow-none";
+  "h-9 gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-none";
 const PAGE_BUTTON_PRIMARY = `${PAGE_BUTTON} bg-brand-accent text-brand-accent-foreground hover:bg-brand-accent/90`;
 const PAGE_BUTTON_OUTLINE = `${PAGE_BUTTON} bg-white`;
-
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** Quick picks for the brand colour; anything else goes through "+" or hex. */
 const PRESET_COLORS = [
@@ -96,18 +116,7 @@ const PRESET_COLORS = [
   "#94a3b8",
 ];
 
-type FieldErrors = {
-  name?: string;
-  slug?: string;
-  color?: string;
-  secondaryColor?: string;
-  textColor?: string;
-  backgroundColor?: string;
-  email?: string;
-  logoUrl?: string;
-};
-
-type PreviewDevice = "desktop" | "tablet" | "mobile";
+type FieldErrors = Partial<Record<BrandingField, string>>;
 
 type SlugCheck = { slug: string; status: SlugAvailability | "error" };
 
@@ -147,13 +156,13 @@ export function BrandingEditor({
   /** Where this app is served, e.g. https://servicedesk-ui.vercel.app. */
   portalOrigin: string;
 }) {
+  const router = useRouter();
   const [draft, setDraft] = useState<TenantBranding>(branding);
   const [saved, setSaved] = useState<TenantBranding>(branding);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [pending, startTransition] = useTransition();
   const [uploading, setUploading] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [device, setDevice] = useState<PreviewDevice>("desktop");
+  const [moreOpen, setMoreOpen] = useState(true);
   const [slugCheck, setSlugCheck] = useState<SlugCheck | null>(null);
   const [confirm, setConfirm] = useState<"discard" | "remove-logo" | null>(
     null,
@@ -236,6 +245,8 @@ export function BrandingEditor({
       next.slug = "That portal address is taken. Try another.";
     } else if (slugStatus === "invalid") {
       next.slug = "That address is reserved. Try another.";
+    } else if (slugStatus === "checking") {
+      next.slug = "Still checking this address. Try again in a moment.";
     }
 
     if (!HEX_COLOR.test(color)) {
@@ -262,17 +273,10 @@ export function BrandingEditor({
       next.email = "Enter a valid support email.";
     }
 
-    if (
-      draft.logoUrl?.trim() &&
-      !/^https?:\/\/\S+$/.test(draft.logoUrl.trim())
-    ) {
-      next.logoUrl = "Use a full URL starting with http(s).";
-    }
-
     setErrors(next);
 
-    // The extra settings are collapsed by default; open them so the message
-    // is actually visible.
+    // The extra settings can be collapsed; reopen them so the message is
+    // actually visible.
     if (
       next.secondaryColor ||
       next.textColor ||
@@ -302,7 +306,22 @@ export function BrandingEditor({
       });
 
       if (!result.ok) {
-        toast.error(result.message ?? "We couldn't save your branding.");
+        const message = result.message ?? "We couldn't save your branding.";
+        const field = result.field;
+
+        if (field) {
+          setErrors((prev) => ({ ...prev, [field]: message }));
+          if (
+            field === "secondaryColor" ||
+            field === "textColor" ||
+            field === "backgroundColor" ||
+            field === "email"
+          ) {
+            setMoreOpen(true);
+          }
+        }
+
+        toast.error(message);
         return;
       }
 
@@ -312,6 +331,14 @@ export function BrandingEditor({
       }
 
       toast.success("Branding saved.");
+
+      // This page lives under the old address; the server has already moved
+      // the session to the new one.
+      if (result.data && result.data.slug !== saved.slug) {
+        router.replace(
+          tenantPath(result.data.slug, TENANT_ROUTES.SETTINGS.BRANDING),
+        );
+      }
     });
   };
 
@@ -368,8 +395,8 @@ export function BrandingEditor({
   const initials = initialsOf(draft.name);
 
   return (
-    <div className="h-full overflow-y-auto p-4 font-sans text-slate-900 sm:p-6 lg:p-8">
-      <div className="mx-auto flex w-full flex-col gap-6">
+    <div className="h-full overflow-y-auto p-4 font-sans text-slate-900 sm:p-6 lg:p-8 xl:overflow-hidden">
+      <div className="mx-auto flex w-full flex-col gap-6 xl:h-full">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
             <h1 className="text-2xl font-bold tracking-tight">Branding</h1>
@@ -399,11 +426,8 @@ export function BrandingEditor({
           )}
         </div>
 
-        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-          {/* ---------------------------------------------------------------- */}
-          {/* Settings                                                         */}
-          {/* ---------------------------------------------------------------- */}
-          <div className="@container flex min-w-0 flex-col rounded-[14px] border border-border bg-card p-4 sm:p-5">
+        <div className="grid grid-cols-1 items-start gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.75fr)] xl:grid-rows-[minmax(0,1fr)] xl:items-stretch">
+          <div className="@container flex min-w-0 flex-col rounded-[14px] border border-border bg-card p-4 sm:p-5 xl:overflow-y-auto">
             {!canEdit && (
               <p className="mb-4 rounded-sm bg-muted px-3 py-2.5 text-sm text-muted-foreground">
                 Only a Tenant Admin can change branding.
@@ -415,14 +439,14 @@ export function BrandingEditor({
               description="This logo will appear in the portal header and on customer pages."
             >
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
-                <div className="flex items-center gap-3 rounded-[12px] border border-border p-3.5">
+                <div className="relative flex items-center gap-3 rounded-[12px] border border-border p-3.5">
                   <BrandMark
                     logoUrl={logoUrl}
                     initials={initials}
                     palette={palette}
                     className="size-14 rounded-[10px] text-xl"
                   />
-                  <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="flex min-w-0 flex-1 flex-col pr-24">
                     <span className="text-xs text-muted-foreground">
                       Current logo
                     </span>
@@ -434,13 +458,28 @@ export function BrandingEditor({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className={`h-8 rounded-lg px-3 text-xs font-semibold shadow-none ${TEAM_MODAL_BUTTON_DANGER}`}
+                      className={`h-8 self-end rounded-lg px-3 text-xs font-semibold shadow-none ${TEAM_MODAL_BUTTON_DANGER}`}
                       onClick={() => setConfirm("remove-logo")}
                       disabled={pending || uploading}
                     >
                       Remove
                     </Button>
                   )}
+
+                  <div className="absolute top-3 right-3.5 flex items-center gap-2">
+                    <Label
+                      htmlFor="branding-logo-on-portal"
+                      className="text-xs font-semibold text-foreground"
+                    >
+                      Show logo
+                    </Label>
+                    <Switch
+                      id="branding-logo-on-portal"
+                      checked={draft.showLogoOnPortal}
+                      onCheckedChange={(v) => set({ showLogoOnPortal: v })}
+                      disabled={!canEdit}
+                    />
+                  </div>
                 </div>
 
                 <LogoDropzone
@@ -454,26 +493,6 @@ export function BrandingEditor({
                   {errors.logoUrl}
                 </p>
               )}
-
-              <div className="flex items-center justify-between gap-4 rounded-[12px] border border-border px-3.5 py-3">
-                <div className="flex flex-col gap-0.5">
-                  <Label
-                    htmlFor="branding-logo-on-portal"
-                    className="font-semibold text-foreground"
-                  >
-                    Show logo on customer portal
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    When off, the portal header shows only your name.
-                  </p>
-                </div>
-                <Switch
-                  id="branding-logo-on-portal"
-                  checked={draft.showLogoOnPortal}
-                  onCheckedChange={(v) => set({ showLogoOnPortal: v })}
-                  disabled={!canEdit}
-                />
-              </div>
             </Section>
 
             <Section
@@ -513,8 +532,10 @@ export function BrandingEditor({
                   !canEdit && "opacity-50",
                 )}
               >
+                {/* On a narrow card the host and /portal crowd the slug out,
+                    so they hide there; the full link is spelled out below. */}
                 <span
-                  className="flex max-w-[45%] min-w-0 flex-none items-center border-r border-input bg-muted px-3 text-muted-foreground"
+                  className="hidden max-w-[45%] min-w-0 flex-none items-center border-r border-input bg-muted px-3 text-muted-foreground @sm:flex"
                   title={`${portalOrigin}/`}
                 >
                   <span className="truncate">
@@ -541,28 +562,26 @@ export function BrandingEditor({
                   autoComplete="off"
                   spellCheck={false}
                 />
-                <span className="flex flex-none items-center border-l border-input bg-muted px-3 text-muted-foreground">
+                <span className="pointer-events-none flex flex-none items-center pr-3 text-xs text-muted-foreground tabular-nums">
+                  {draft.slug.length}/{MAX_SLUG_LENGTH}
+                </span>
+                <span className="hidden flex-none items-center border-l border-input bg-muted px-3 text-muted-foreground @sm:flex">
                   {PORTAL_ROUTES.ROOT}
                 </span>
               </div>
 
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 flex-col gap-1">
-                  {errors.slug ? (
-                    <p className="text-sm text-destructive-strong">
-                      {errors.slug}
-                    </p>
-                  ) : (
-                    <SlugStatus status={slugStatus} url={portalLoginUrl} />
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    Use lowercase letters, numbers or hyphens.
-                  </p>
-                </div>
-                <span className="flex-none pt-0.5 text-xs text-muted-foreground tabular-nums">
-                  {draft.slug.length}/{MAX_SLUG_LENGTH}
-                </span>
-              </div>
+              {errors.slug ? (
+                <p className="text-sm text-destructive-strong">{errors.slug}</p>
+              ) : (
+                <SlugStatus status={slugStatus} url={portalLoginUrl} />
+              )}
+
+              {canEdit && slug && slug !== saved.slug && (
+                <Notice tone="warn">
+                  Saving moves your workspace and portal to this address. Links
+                  and bookmarks to the old address stop working.
+                </Notice>
+              )}
             </Section>
 
             <Section
@@ -754,48 +773,18 @@ export function BrandingEditor({
             </Collapsible>
           </div>
 
-          {/* ---------------------------------------------------------------- */}
-          {/* Live preview                                                     */}
-          {/* ---------------------------------------------------------------- */}
-          <div className="flex min-w-0 flex-col gap-4 rounded-[14px] border border-border bg-card p-4 sm:p-5 xl:sticky xl:top-0">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <span className="flex size-11 flex-none items-center justify-center rounded-[10px] bg-brand-soft text-brand-ink">
-                  <Eye className="size-5" />
-                </span>
-                <div className="flex flex-col gap-0.5">
-                  <h2 className="text-lg font-semibold tracking-tight">
-                    Live portal preview
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    See how your branding will look to your customers.
-                  </p>
-                </div>
-              </div>
-
-              <div
-                className="flex w-full items-center gap-1 rounded-[10px] border border-border p-1 *:flex-1 sm:w-auto sm:*:flex-none"
-                role="tablist"
-                aria-label="Preview size"
-              >
-                <DeviceTab
-                  active={device === "desktop"}
-                  onClick={() => setDevice("desktop")}
-                  icon={<Monitor className="size-4" />}
-                  label="Desktop"
-                />
-                <DeviceTab
-                  active={device === "tablet"}
-                  onClick={() => setDevice("tablet")}
-                  icon={<Tablet className="size-4" />}
-                  label="Tablet"
-                />
-                <DeviceTab
-                  active={device === "mobile"}
-                  onClick={() => setDevice("mobile")}
-                  icon={<Smartphone className="size-4" />}
-                  label="Mobile"
-                />
+          <div className="flex min-w-0 flex-col gap-4 rounded-[14px] border border-border bg-card p-4 sm:p-5 xl:overflow-hidden">
+            <div className="flex items-start gap-3">
+              <span className="flex size-11 flex-none items-center justify-center rounded-[10px] bg-brand-soft text-brand-ink">
+                <Eye className="size-5" />
+              </span>
+              <div className="flex flex-col gap-0.5">
+                <h2 className="text-lg font-semibold tracking-tight">
+                  Live portal preview
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  See how your branding looks across the customer portal.
+                </p>
               </div>
             </div>
 
@@ -805,7 +794,6 @@ export function BrandingEditor({
               showLogo={draft.showLogoOnPortal}
               logoUrl={logoUrl}
               initials={initials}
-              device={device}
             />
           </div>
         </div>
@@ -975,16 +963,33 @@ function SlugStatus({
     );
   }
 
-  if (status === "available" || status === "current") {
+  // Only the saved address is live, so only it is offered for copying.
+  if (status === "current") {
+    return (
+      <CopyScope value={url} label="Portal link">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-success-strong">
+          <span className="flex size-3.5 flex-none items-center justify-center rounded-full bg-success text-white">
+            <Check className="size-2" strokeWidth={3} />
+          </span>
+
+          <span className="min-w-0 flex-1">
+            <CopyTrigger className="inline">{url}</CopyTrigger> is your current
+            address
+          </span>
+
+          <CopyButton value={url} label="Portal link" />
+        </div>
+      </CopyScope>
+    );
+  }
+
+  if (status === "available") {
     return (
       <p className="flex items-start gap-2 text-sm font-medium text-success-strong">
-        <span className="mt-px flex size-5 flex-none items-center justify-center rounded-full bg-success text-white">
-          <Check className="size-3" strokeWidth={3} />
+        <span className="mt-0.5 flex size-4 flex-none items-center justify-center rounded-full bg-success text-white">
+          <Check className="size-2.5" strokeWidth={3} />
         </span>
-        <span className="min-w-0">
-          {link}{" "}
-          {status === "current" ? "is your current address" : "is available"}
-        </span>
+        <span className="min-w-0">{link} is available</span>
       </p>
     );
   }
@@ -1183,9 +1188,9 @@ function Field({
       </Label>
       {control}
       {error ? (
-        <p className="text-sm text-destructive-strong">{error}</p>
+        <p className="text-xs text-destructive-strong">{error}</p>
       ) : hint ? (
-        <p className="text-sm text-muted-foreground">{hint}</p>
+        <p className="text-xs text-muted-foreground">{hint}</p>
       ) : null}
     </div>
   );
@@ -1195,37 +1200,7 @@ function Field({
 // Preview
 // ---------------------------------------------------------------------------
 
-function DeviceTab({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        "flex items-center justify-center gap-1.5 rounded-[8px] px-2 py-1.5 text-sm font-medium whitespace-nowrap transition-colors sm:gap-2 sm:px-3",
-        active
-          ? "bg-brand-soft text-brand-ink"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-      )}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-type SampleState = "open" | "waiting_on_you" | "resolved";
+type SampleState = "open" | "waiting_on_you";
 
 // Labels and colours copied from the portal's requests list (STATE_BADGE).
 const SAMPLE_BADGE: Record<SampleState, { label: string; className: string }> =
@@ -1234,10 +1209,6 @@ const SAMPLE_BADGE: Record<SampleState, { label: string; className: string }> =
     waiting_on_you: {
       label: "Waiting on you",
       className: "bg-amber-50 text-amber-700",
-    },
-    resolved: {
-      label: "Resolved",
-      className: "bg-emerald-50 text-emerald-700",
     },
   };
 
@@ -1251,40 +1222,47 @@ const SAMPLE_REQUESTS: {
   {
     number: 1234,
     subject: "Login not working",
-    preview:
-      "I'm unable to login to my account. Please help me with this issue.",
+    preview: "I'm unable to login to my account.",
     timestamp: "Opened today, 11:22 · Updated 9 min ago",
     state: "open",
   },
   {
     number: 1233,
     subject: "Unable to upload files",
-    preview: "File upload shows an error. Need assistance.",
+    preview: "File upload shows an error.",
     timestamp: "Opened today, 10:15 · Updated 1 hour ago",
     state: "waiting_on_you",
   },
-  {
-    number: 1232,
-    subject: "Feature request",
-    preview: "Can you add dark mode to the portal?",
-    timestamp: "Opened 12 Oct 2026 · Resolved 2 hours ago",
-    state: "resolved",
-  },
 ];
 
+const SAMPLE_RATINGS = ["Poor", "Not great", "Okay", "Good", "Excellent"];
+
+const SAMPLE_LIMITS = `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} files · ${Math.round(
+  MAX_ATTACHMENT_BYTES / (1024 * 1024),
+)} MB per file`;
+
+const PREVIEW_BORDER = "rgba(15, 23, 42, 0.1)";
+
+/** `currentColor` at a given strength — washes that follow the text colour. */
+function tint(percent: number) {
+  return `color-mix(in srgb, currentColor ${percent}%, transparent)`;
+}
+
+/** The brand colour at a given strength over transparent. */
+function brandTint(palette: BrandPalette, percent: number) {
+  return `color-mix(in srgb, ${palette.base} ${percent}%, transparent)`;
+}
+
 /**
- * A static copy of the customer portal's requests page (PortalShell header +
- * PortalRequestsList), painted with inline colours from the palette rather than
- * BrandTheme: BrandTheme rewrites the page-wide custom properties, which would
- * rebrand this settings screen too.
+ * The portal's main screens side by side, each a scaled-down static copy of the
+ * real one (sign-in, check inbox, requests, ticket thread, CSAT, new request),
+ * under one full-size portal header. Everything is painted with inline colours
+ * from the palette rather than BrandTheme: BrandTheme rewrites the page-wide
+ * custom properties, which would rebrand this settings screen too.
  *
- * The portal's own `sm`/`md` breakpoints never fire in here — the preview is a
- * box inside a wide page — so the same switches are made on the preview's own
- * width with one container query, `@lg` (512px): at a real tablet width
- * (768px) the portal already shows Help centre, the account name, side-by-side
- * filters and card icons, so Tablet and Desktop share that layout. Mobile forces
- * the phone layout whatever the width; on a phone the other two fall back to it
- * on their own because the box is narrow.
+ * The page's own breakpoints never fire in here — the preview is a box inside a
+ * wide page — so the gallery switches on the preview's own width with container
+ * queries: one column, two from `@xl`, and the 3 + 4 desktop rows from `@4xl`.
  */
 function PortalPreview({
   palette,
@@ -1292,7 +1270,6 @@ function PortalPreview({
   showLogo,
   logoUrl,
   initials,
-  device,
 }: {
   palette: BrandPalette;
   name: string;
@@ -1300,219 +1277,697 @@ function PortalPreview({
   showLogo: boolean;
   logoUrl: string | null;
   initials: string;
-  device: PreviewDevice;
 }) {
-  const wide = device !== "mobile";
-  const border = "rgba(15, 23, 42, 0.1)";
-  const tint = (percent: number) =>
-    `color-mix(in srgb, currentColor ${percent}%, transparent)`;
   // Same casing rule the portal header applies to the tenant name.
   const headerName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
-  const muted = { color: palette.mutedText };
+  const brand = { palette, headerName, showLogo, logoUrl, initials };
+  const top = "@4xl:col-span-4";
+  const bottom = "@4xl:col-span-3";
 
   return (
     <div
-      className={cn(
-        "@container mx-auto w-full min-w-0 overflow-hidden border transition-[max-width] duration-300",
-        device === "mobile" &&
-          "max-w-90 rounded-[28px] border-[6px] border-slate-900 shadow-lg",
-        device === "tablet" &&
-          "max-w-3xl rounded-[22px] border-8 border-slate-900 shadow-lg",
-        device === "desktop" && "max-w-full rounded-[12px] border-border",
-      )}
+      className="@container flex w-full min-w-0 flex-col overflow-hidden rounded-[12px] border border-border xl:min-h-0 xl:flex-1"
       aria-hidden
     >
-      {device === "desktop" && (
-        <div className="flex items-center gap-1.5 border-b border-border bg-muted px-3 py-2.5">
-          <span className="size-2.5 rounded-full bg-slate-300" />
-          <span className="size-2.5 rounded-full bg-slate-300" />
-          <span className="size-2.5 rounded-full bg-slate-300" />
-        </div>
-      )}
-
-      {/* Header */}
-      <div
-        className={cn(
-          "flex h-15 items-center justify-between gap-3 border-b px-4",
-          wide && "@lg:h-16 @lg:px-6",
-        )}
-        style={{
-          backgroundColor: palette.base,
-          color: palette.onBrand,
-          borderColor: tint(15),
-        }}
-      >
-        <div className="flex min-w-0 items-center gap-2.5">
-          {!showLogo ? null : logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={logoUrl}
-              alt=""
-              className="size-8 shrink-0 rounded-md object-cover"
-            />
-          ) : (
-            <span
-              className="flex size-8 shrink-0 items-center justify-center rounded-md text-sm font-extrabold"
-              style={{ backgroundColor: tint(15) }}
-            >
-              {initials}
-            </span>
-          )}
-          <span className="min-w-0 truncate text-base font-bold tracking-tight">
-            {headerName}
-            <span className="font-semibold opacity-80"> Support</span>
-          </span>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-3">
-          <span className={cn("flex rounded-lg p-2", wide && "@lg:hidden")}>
-            <Menu className="size-5" />
-          </span>
-          {wide && (
-            <>
-              <span
-                className="hidden rounded-lg px-3.5 py-2 text-sm font-semibold @lg:inline-flex"
-                style={{ backgroundColor: tint(12) }}
-              >
-                Help centre
-              </span>
-              <span className="hidden items-center gap-2 px-1.5 py-1 text-sm font-semibold @lg:flex">
-                <span className="flex size-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-                  J
-                </span>
-                Jordan Customer
-                <ChevronDown className="size-4 opacity-80" />
-              </span>
-            </>
-          )}
-        </div>
+      <div className="flex items-center gap-1.5 border-b border-border bg-muted px-3 py-2.5">
+        <span className="size-2.5 rounded-full bg-red-300" />
+        <span className="size-2.5 rounded-full bg-amber-300" />
+        <span className="size-2.5 rounded-full bg-emerald-300" />
       </div>
 
-      {/* Requests page */}
+      <div className="grid max-h-[70vh] grid-cols-1 gap-3 overflow-y-auto bg-white p-3 @xl:grid-cols-2 @4xl:grid-cols-12 xl:max-h-none xl:min-h-0 xl:flex-1">
+        <ScreenCard icon={<FileText />} title="Requests list" className={top}>
+          <RequestsScreen {...brand} />
+        </ScreenCard>
+        <ScreenCard
+          icon={<Mail />}
+          title="Sign in (magic link)"
+          className={top}
+        >
+          <MagicLinkScreen palette={palette} />
+        </ScreenCard>
+        <ScreenCard icon={<Mail />} title="Check inbox" className={top}>
+          <CheckInboxScreen palette={palette} />
+        </ScreenCard>
+        <ScreenCard
+          icon={<LockKeyhole />}
+          title="Password sign in"
+          className={bottom}
+        >
+          <PasswordScreen palette={palette} />
+        </ScreenCard>
+        <ScreenCard
+          icon={<MessageSquare />}
+          title="Ticket details"
+          className={bottom}
+        >
+          <TicketScreen palette={palette} />
+        </ScreenCard>
+        <ScreenCard
+          icon={<Star />}
+          title="Customer feedback"
+          className={bottom}
+        >
+          <FeedbackScreen palette={palette} />
+        </ScreenCard>
+        <ScreenCard icon={<Plus />} title="Create ticket" className={bottom}>
+          <CreateTicketScreen palette={palette} />
+        </ScreenCard>
+      </div>
+    </div>
+  );
+}
+
+type PreviewBrand = {
+  palette: BrandPalette;
+  headerName: string;
+  showLogo: boolean;
+  logoUrl: string | null;
+  initials: string;
+};
+
+/** The portal's mark: the logo, the initial tile, or nothing when hidden. */
+function PreviewMark({
+  showLogo,
+  logoUrl,
+  initials,
+  className,
+}: Omit<PreviewBrand, "palette" | "headerName"> & { className: string }) {
+  if (!showLogo) return null;
+  if (logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={logoUrl}
+        alt=""
+        className={cn("shrink-0 rounded-md object-cover", className)}
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-md font-extrabold",
+        className,
+      )}
+      style={{ backgroundColor: tint(15) }}
+    >
+      {initials}
+    </span>
+  );
+}
+
+/** One labelled screen in the gallery; the label is settings UI, not portal. */
+function ScreenCard({
+  icon,
+  title,
+  className,
+  children,
+}: {
+  icon: React.ReactElement<{ className?: string }>;
+  title: string;
+  className?: string | false;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-slate-100 p-2.5",
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2.5 px-0.5">
+        <span className="flex size-7 flex-none items-center justify-center rounded-lg bg-white text-muted-foreground [&>svg]:size-3.5">
+          {icon}
+        </span>
+        <span className="truncate text-sm font-semibold">{title}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** The portal page behind a screen: white, with the brand text colour. */
+function MiniPage({
+  palette,
+  className,
+  children,
+}: {
+  palette: BrandPalette;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-1 flex-col overflow-hidden rounded-lg border text-[11px] leading-snug",
+        className,
+      )}
+      style={{
+        backgroundColor: "#ffffff",
+        color: palette.text,
+        borderColor: PREVIEW_BORDER,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** A white card on the portal page, like the sign-in and form panels. */
+function MiniPanel({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn("rounded-lg border bg-white p-3 shadow-xs", className)}
+      style={{ borderColor: PREVIEW_BORDER }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function MiniIcon({
+  palette,
+  children,
+}: {
+  palette: BrandPalette;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className="flex size-7 items-center justify-center rounded-md [&>svg]:size-3.5"
+      style={{ backgroundColor: brandTint(palette, 10), color: palette.base }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function MiniLabel({
+  children,
+  required,
+}: {
+  children: React.ReactNode;
+  required?: boolean;
+}) {
+  return (
+    <p className="mt-2.5 mb-1 text-[10px] font-semibold">
+      {children}
+      {required && <span className="text-red-600"> *</span>}
+    </p>
+  );
+}
+
+function MiniInput({
+  palette,
+  className,
+  children,
+}: {
+  palette: BrandPalette;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-7 items-center gap-2 rounded-md border bg-white px-2 text-[10px]",
+        className,
+      )}
+      style={{ borderColor: PREVIEW_BORDER, color: palette.mutedText }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function MiniButton({
+  palette,
+  variant = "solid",
+  className,
+  children,
+}: {
+  palette: BrandPalette;
+  variant?: "solid" | "outline";
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      className={cn(
+        "flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-[10px] font-semibold whitespace-nowrap [&>svg]:size-3",
+        variant === "outline" && "border bg-white",
+        className,
+      )}
+      style={
+        variant === "solid"
+          ? { backgroundColor: palette.base, color: palette.onBrand }
+          : { borderColor: PREVIEW_BORDER, color: palette.text }
+      }
+    >
+      {children}
+    </span>
+  );
+}
+
+function MiniLink({
+  palette,
+  children,
+}: {
+  palette: BrandPalette;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="font-semibold" style={{ color: palette.base }}>
+      {children}
+    </span>
+  );
+}
+
+function MiniDivider({ palette }: { palette: BrandPalette }) {
+  return (
+    <div
+      className="my-2 flex items-center gap-2 text-[9px]"
+      style={{ color: palette.mutedText }}
+    >
+      <span
+        className="h-px flex-1"
+        style={{ backgroundColor: PREVIEW_BORDER }}
+      />
+      or
+      <span
+        className="h-px flex-1"
+        style={{ backgroundColor: PREVIEW_BORDER }}
+      />
+    </div>
+  );
+}
+
+function RequestsScreen({ palette, headerName, ...mark }: PreviewBrand) {
+  const muted = { color: palette.mutedText };
+
+  return (
+    <MiniPage palette={palette}>
       <div
-        className={cn("px-4 py-8", wide && "@lg:px-8")}
-        style={{ backgroundColor: palette.background, color: palette.text }}
+        className="flex h-8 items-center justify-between gap-2 px-2.5 text-[10px] font-semibold"
+        style={{ backgroundColor: palette.base, color: palette.onBrand }}
       >
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <h3 className="text-2xl font-bold tracking-tight">Your requests</h3>
-            <p className="max-w-md text-sm leading-[1.6]" style={muted}>
-              Track and manage everything you&apos;ve raised with{" "}
-              {name.toLowerCase()}, and reply without leaving this page.
-            </p>
-          </div>
-
+        <span className="flex min-w-0 items-center gap-1.5">
+          <PreviewMark {...mark} className="size-4.5 text-[9px]" />
+          <span className="truncate">{headerName} Support</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5">
           <span
-            className="inline-flex h-11 items-center gap-2 rounded-md px-5 text-sm font-semibold"
-            style={{ backgroundColor: palette.base, color: palette.onBrand }}
+            className="rounded px-1.5 py-0.5"
+            style={{ backgroundColor: tint(12) }}
           >
-            <Plus className="size-4" />
+            Help centre
+          </span>
+          <span className="flex size-4.5 items-center justify-center rounded-full bg-slate-900 text-[8px] text-white">
+            J
+          </span>
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-2 p-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-bold">Your requests</span>
+          <MiniButton palette={palette}>
+            <Plus />
             New request
-          </span>
+          </MiniButton>
         </div>
 
-        <div className={cn("mt-6 flex flex-col gap-3", wide && "@lg:flex-row")}>
-          <span
-            // flex-1 only in the row layout: stacked, its 0 basis collapses the
-            // box to its text height instead of the 48px the portal uses.
-            className={cn(
-              "flex h-12 min-w-0 shrink-0 items-center gap-3 rounded-xl border bg-white px-3.5 text-sm shadow-xs",
-              wide && "@lg:flex-1",
-            )}
-            style={{ borderColor: border, color: palette.mutedText }}
-          >
-            <Search className="size-4.5 shrink-0" />
+        <div className="flex gap-1.5">
+          <MiniInput palette={palette} className="min-w-0 flex-1">
+            <Search className="size-3 shrink-0" />
             <span className="truncate">Search your requests…</span>
-          </span>
-          <span
-            className={cn(
-              "flex h-12 w-full shrink-0 items-center justify-between gap-2 rounded-xl border bg-white px-4 text-sm shadow-xs",
-              wide && "@lg:w-52",
-            )}
-            style={{ borderColor: border }}
-          >
-            All statuses
-            <ChevronDown className="size-4 opacity-50" />
-          </span>
+          </MiniInput>
+          <MiniInput palette={palette} className="shrink-0 justify-between">
+            <span style={{ color: palette.text }}>All statuses</span>
+            <ChevronDown className="size-3" />
+          </MiniInput>
         </div>
 
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <span className="text-sm font-medium" style={muted}>
-            {SAMPLE_REQUESTS.length} requests
-          </span>
-          <span
-            className="flex items-center gap-1.5 px-2 text-xs whitespace-nowrap"
-            style={muted}
-          >
-            <span>
-              Sort by:{" "}
-              <span className="font-semibold" style={{ color: palette.text }}>
-                Last updated
-              </span>
-            </span>
-            <ChevronDown className="size-4 opacity-50" />
-          </span>
-        </div>
+        {SAMPLE_REQUESTS.map((request) => {
+          const badge = SAMPLE_BADGE[request.state];
 
-        <div className="mt-3 flex flex-col gap-3">
-          {SAMPLE_REQUESTS.map((request) => {
-            const badge = SAMPLE_BADGE[request.state];
-
-            return (
-              <div
-                key={request.number}
-                className={cn(
-                  "relative flex items-start gap-4 rounded-2xl border bg-white p-4 shadow-xs",
-                  wide && "@lg:p-5",
-                )}
-                style={{ borderColor: border }}
-              >
-                {wide && (
-                  <span
-                    className="hidden size-12 shrink-0 items-center justify-center rounded-xl @lg:flex"
-                    style={{
-                      backgroundColor: `color-mix(in srgb, ${palette.base} 10%, transparent)`,
-                      color: palette.base,
-                    }}
-                  >
-                    <FileText className="size-5" />
+          return (
+            <div
+              key={request.number}
+              className="flex items-start gap-2 rounded-lg border bg-white p-2"
+              style={{ borderColor: PREVIEW_BORDER }}
+            >
+              <MiniIcon palette={palette}>
+                <FileText />
+              </MiniIcon>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[9px] font-medium" style={muted}>
+                    #{request.number}
                   </span>
-                )}
-
-                <div className="min-w-0 flex-1">
                   <span
                     className={cn(
-                      "absolute top-5 right-5 shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold",
+                      "rounded-full px-1.5 py-px text-[9px] font-semibold whitespace-nowrap",
                       badge.className,
                     )}
                   >
                     {badge.label}
                   </span>
-                  <p
-                    className="block h-6 truncate pe-28 text-xs leading-6 font-medium"
-                    style={muted}
-                  >
-                    #{request.number}
-                  </p>
-                  <p className="mt-1 truncate text-base font-bold">
-                    {request.subject}
-                  </p>
-                  <p className="mt-1 line-clamp-1 text-sm" style={muted}>
-                    {request.preview}
-                  </p>
-                  <p
-                    className="mt-2 flex items-start gap-1.5 text-xs"
-                    style={muted}
-                  >
-                    <Clock3 className="mt-px size-3.5 shrink-0" />
-                    {request.timestamp}
-                  </p>
                 </div>
+                <p className="truncate font-bold">{request.subject}</p>
+                <p className="truncate text-[10px]" style={muted}>
+                  {request.preview}
+                </p>
+                <p
+                  className="mt-0.5 flex items-center gap-1 truncate text-[9px]"
+                  style={muted}
+                >
+                  <Clock3 className="size-2.5 shrink-0" />
+                  <span className="truncate">{request.timestamp}</span>
+                </p>
               </div>
+            </div>
+          );
+        })}
+      </div>
+    </MiniPage>
+  );
+}
+
+function MagicLinkScreen({ palette }: { palette: BrandPalette }) {
+  const muted = { color: palette.mutedText };
+
+  return (
+    <MiniPage palette={palette} className="justify-center p-2.5">
+      <MiniPanel>
+        <MiniIcon palette={palette}>
+          <Mail />
+        </MiniIcon>
+        <p className="mt-2 text-xs font-bold">Track your requests</p>
+        <p className="mt-0.5 text-[10px]" style={muted}>
+          Use the email you contact us from. We&apos;ll send a sign-in link - no
+          password needed.
+        </p>
+        <MiniLabel>Email address</MiniLabel>
+        <MiniInput palette={palette}>you@company.com</MiniInput>
+        <MiniButton palette={palette} className="mt-2">
+          Email me a sign-in link
+        </MiniButton>
+        <MiniDivider palette={palette} />
+        <p className="text-center text-[10px]">
+          <MiniLink palette={palette}>Sign in with a password instead</MiniLink>
+        </p>
+      </MiniPanel>
+
+      <div
+        className="mt-2 rounded-lg border p-2.5 text-[10px]"
+        style={{ borderColor: PREVIEW_BORDER, backgroundColor: tint(3) }}
+      >
+        <p className="flex items-center gap-1.5 font-semibold">
+          <UserPlus className="size-3" style={{ color: palette.base }} />
+          First time here?
+        </p>
+        <p className="mt-1" style={muted}>
+          You don&apos;t need an account to reach us.{" "}
+          <MiniLink palette={palette}>Submit a request</MiniLink> and we&apos;ll
+          set one up from your email.
+        </p>
+      </div>
+    </MiniPage>
+  );
+}
+
+function CheckInboxScreen({ palette }: { palette: BrandPalette }) {
+  const muted = { color: palette.mutedText };
+
+  return (
+    <MiniPage palette={palette} className="justify-center p-2.5">
+      <MiniPanel>
+        <MiniIcon palette={palette}>
+          <Mail />
+        </MiniIcon>
+        <p className="mt-2 text-xs font-bold">Check your inbox</p>
+        <p className="mt-0.5 text-[10px]" style={muted}>
+          We sent a sign-in link to
+        </p>
+        <MiniInput palette={palette} className="mt-1.5">
+          <span className="truncate" style={{ color: palette.text }}>
+            jordan@company.com
+          </span>
+        </MiniInput>
+        <p className="mt-2 flex gap-1.5 text-[10px]" style={muted}>
+          <MonitorSmartphone
+            className="mt-px size-3 shrink-0"
+            style={{ color: palette.base }}
+          />
+          <span>
+            <span className="font-semibold" style={{ color: palette.text }}>
+              Open it on any device.
+            </span>{" "}
+            The link signs you in wherever you open it, and works once.
+          </span>
+        </p>
+        <MiniButton palette={palette} className="mt-2.5">
+          <RotateCw />
+          Resend link
+        </MiniButton>
+        <MiniButton palette={palette} variant="outline" className="mt-1.5">
+          <AtSign />
+          Use a different email
+        </MiniButton>
+      </MiniPanel>
+    </MiniPage>
+  );
+}
+
+function PasswordScreen({ palette }: { palette: BrandPalette }) {
+  return (
+    <MiniPage palette={palette} className="justify-center p-2.5">
+      <MiniPanel>
+        <p className="text-xs font-bold">Sign in to your account</p>
+        <p className="mt-0.5 text-[10px]" style={{ color: palette.mutedText }}>
+          Use the email you contact us from, and the password you set here.
+        </p>
+        <MiniLabel>Email address</MiniLabel>
+        <MiniInput palette={palette}>you@company.com</MiniInput>
+        <MiniLabel>Password</MiniLabel>
+        <MiniInput palette={palette} className="justify-between">
+          <span style={{ color: palette.text }}>••••••••••</span>
+          <EyeOff className="size-3" />
+        </MiniInput>
+        <MiniButton palette={palette} className="mt-2.5">
+          Sign in
+        </MiniButton>
+        <MiniDivider palette={palette} />
+        <p className="text-center text-[10px]">
+          <MiniLink palette={palette}>Use a sign-in link instead</MiniLink>
+        </p>
+      </MiniPanel>
+    </MiniPage>
+  );
+}
+
+function TicketScreen({ palette }: { palette: BrandPalette }) {
+  const muted = { color: palette.mutedText };
+
+  return (
+    <MiniPage palette={palette} className="p-2.5">
+      <span
+        className="flex items-center gap-1 text-[10px] font-semibold"
+        style={{ color: palette.base }}
+      >
+        <ArrowLeft className="size-3" />
+        Your requests
+      </span>
+      <p className="mt-1.5 text-xs font-bold">Product delivery issue</p>
+      <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px]">
+        <span
+          className="rounded-full border bg-white px-1.5 py-px font-semibold"
+          style={{ borderColor: PREVIEW_BORDER }}
+        >
+          #7
+        </span>
+        <span className="rounded-full bg-sky-50 px-1.5 py-px font-semibold text-sky-700">
+          Open
+        </span>
+        <span style={muted}>· Updated 1 day ago</span>
+      </div>
+
+      <div className="mt-2.5 flex flex-1 flex-col gap-2">
+        <span
+          className="self-center rounded-full px-2 py-px text-[9px] font-medium"
+          style={{ backgroundColor: tint(6), ...muted }}
+        >
+          Thursday
+        </span>
+        <div className="flex flex-col items-end gap-0.5">
+          <span
+            className="max-w-[85%] rounded-lg rounded-br-sm px-2 py-1.5 text-[10px]"
+            style={{
+              backgroundColor: brandTint(palette, 12),
+              color: palette.text,
+            }}
+          >
+            Payment isn&apos;t going through on the website.
+          </span>
+          <span className="text-[9px]" style={muted}>
+            5:23 PM
+          </span>
+        </div>
+        <div className="flex items-start gap-1.5">
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[8px] font-semibold text-white">
+            KT
+          </span>
+          <div className="min-w-0">
+            <p className="text-[9px]" style={muted}>
+              <span className="font-semibold" style={{ color: palette.text }}>
+                Karthick
+              </span>{" "}
+              · Support team · 11:12 AM
+            </p>
+            <span
+              className="mt-0.5 inline-block rounded-lg rounded-tl-sm border bg-white px-2 py-1.5 text-[10px]"
+              style={{ borderColor: PREVIEW_BORDER }}
+            >
+              Thanks, I&apos;m looking into it now.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <MiniInput palette={palette} className="mt-2.5">
+        Write your reply…
+      </MiniInput>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <span
+          className="flex min-w-0 items-center gap-1 text-[9px]"
+          style={muted}
+        >
+          <Paperclip
+            className="size-3 shrink-0"
+            style={{ color: palette.base }}
+          />
+          <span className="truncate">Attach files</span>
+        </span>
+        <MiniButton palette={palette}>
+          <SendHorizontal />
+          Send
+        </MiniButton>
+      </div>
+    </MiniPage>
+  );
+}
+
+function FeedbackScreen({ palette }: { palette: BrandPalette }) {
+  return (
+    <MiniPage palette={palette} className="justify-center p-2.5">
+      <MiniPanel className="text-center">
+        <p className="text-xs font-bold">How did we do?</p>
+        <p className="mt-0.5 text-[10px]" style={{ color: palette.mutedText }}>
+          Pick a rating, then submit. It goes straight to the engineer who
+          handled this.
+        </p>
+        <div className="mt-2.5 grid grid-cols-5 gap-1">
+          {SAMPLE_RATINGS.map((label, index) => {
+            const on = index < 4;
+            return (
+              <span
+                key={label}
+                className="flex min-w-0 flex-col items-center gap-1"
+              >
+                <span
+                  className="flex aspect-square w-full max-w-8 items-center justify-center rounded-md border"
+                  style={{
+                    borderColor: on ? palette.base : PREVIEW_BORDER,
+                    backgroundColor: on ? brandTint(palette, 10) : "white",
+                  }}
+                >
+                  <Star
+                    className="size-3.5"
+                    style={{
+                      color: on ? palette.base : palette.mutedText,
+                      fill: on ? palette.base : "transparent",
+                    }}
+                  />
+                </span>
+                <span
+                  className="w-full truncate text-[8px]"
+                  style={{ color: palette.mutedText }}
+                >
+                  {label}
+                </span>
+              </span>
             );
           })}
         </div>
-      </div>
-    </div>
+        <MiniInput
+          palette={palette}
+          className="mt-2.5 h-10 items-start py-1.5 text-left"
+        >
+          Anything you&apos;d like to add? (optional)
+        </MiniInput>
+        <MiniButton palette={palette} className="mx-auto mt-2.5 w-fit">
+          <SendHorizontal />
+          Submit rating
+        </MiniButton>
+      </MiniPanel>
+    </MiniPage>
+  );
+}
+
+function CreateTicketScreen({ palette }: { palette: BrandPalette }) {
+  const muted = { color: palette.mutedText };
+
+  return (
+    <MiniPage palette={palette} className="justify-center p-2.5">
+      <MiniPanel>
+        <p className="text-xs font-bold">Create a ticket</p>
+        <p className="mt-0.5 text-[10px]" style={muted}>
+          Tell us what you need help with and our support team will get back to
+          you.
+        </p>
+        <MiniLabel required>Subject</MiniLabel>
+        <MiniInput palette={palette}>
+          <span className="truncate">
+            e.g. Can&apos;t log in after SSO switch
+          </span>
+        </MiniInput>
+        <MiniLabel required>Description</MiniLabel>
+        <MiniInput palette={palette} className="h-10 items-start py-1.5">
+          <span className="line-clamp-2">
+            Describe what happened, when the issue started, and any steps
+            you&apos;ve already tried.
+          </span>
+        </MiniInput>
+        <MiniLabel>Attachments</MiniLabel>
+        <div
+          className="flex items-center gap-2 rounded-md border border-dashed p-1.5 text-[9px]"
+          style={{ borderColor: PREVIEW_BORDER, ...muted }}
+        >
+          <Upload
+            className="size-3.5 shrink-0"
+            style={{ color: palette.base }}
+          />
+          <span className="min-w-0">
+            <span className="block truncate">
+              Drop files or <MiniLink palette={palette}>browse</MiniLink>
+            </span>
+            <span className="block truncate">{SAMPLE_LIMITS}</span>
+          </span>
+        </div>
+        <div className="mt-2.5 flex justify-end gap-1.5">
+          <MiniButton palette={palette} variant="outline">
+            Cancel
+          </MiniButton>
+          <MiniButton palette={palette}>Create ticket</MiniButton>
+        </div>
+      </MiniPanel>
+    </MiniPage>
   );
 }

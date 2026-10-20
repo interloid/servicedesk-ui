@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { BrandingEditor } from "@/features/branding/components/branding-editor";
@@ -9,9 +10,6 @@ import {
 
 export const metadata: Metadata = {
   title: "Branding",
-  alternates: {
-    canonical: "/settings/branding",
-  },
 };
 
 export default async function BrandingPage() {
@@ -22,7 +20,7 @@ export default async function BrandingPage() {
   ]);
 
   if (!branding) {
-    return null;
+    notFound();
   }
 
   return (

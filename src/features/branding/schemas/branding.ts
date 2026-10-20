@@ -3,24 +3,27 @@ import { z } from "zod";
 import {
   DEFAULT_BRAND_COLOR,
   DEFAULT_SHOW_LOGO_ON_PORTAL,
+  HEX_COLOR,
+  MAX_NAME_LENGTH,
+  MAX_SLUG_LENGTH,
+  SLUG_PATTERN,
 } from "@/features/branding/branding";
-
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-
-const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const name = z
   .string()
   .trim()
   .min(1, "Give your workspace a name.")
-  .max(120, "Keep the name under 120 characters.");
+  .max(MAX_NAME_LENGTH, `Keep the name under ${MAX_NAME_LENGTH} characters.`);
 
 const slug = z
   .string()
   .trim()
   .toLowerCase()
   .min(1, "Enter a portal address.")
-  .max(63, "Keep the address to 63 characters or fewer.")
+  .max(
+    MAX_SLUG_LENGTH,
+    `Keep the address to ${MAX_SLUG_LENGTH} characters or fewer.`,
+  )
   .regex(SLUG_PATTERN, "Use lowercase letters, numbers and hyphens only.");
 
 const primaryColor = z

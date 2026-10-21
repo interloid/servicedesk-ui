@@ -641,7 +641,9 @@ async function loadSlaSetup(
       .eq("tenant_id", tenantId),
     supabase
       .from("business_hours")
-      .select("id, name, schedule_json, holidays_json, timezones(code)")
+      .select(
+        "id, name, schedule_json, holidays_json, timezone_id, timezones(code)",
+      )
       .eq("tenant_id", tenantId)
       .order("created_at", { ascending: true }),
   ]);

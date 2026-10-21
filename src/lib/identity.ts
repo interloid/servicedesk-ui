@@ -187,6 +187,7 @@ export async function getShellIdentity(
       name: tenantData.name,
       initial: tenantData.name.charAt(0).toUpperCase(),
       planSummary,
+      planName,
     },
 
     user: {

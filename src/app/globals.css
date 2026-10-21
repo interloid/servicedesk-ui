@@ -83,6 +83,8 @@
   --color-note-foreground: var(--note-foreground);
   --color-chart-muted: var(--chart-muted);
   --color-chart-axis: var(--chart-axis);
+  --color-chart-opened: var(--chart-opened);
+  --color-chart-resolved: var(--chart-resolved);
   --color-brand-soft: var(--brand-soft);
   --color-brand-ink: var(--brand-ink);
   --color-brand-accent: var(--brand-accent);
@@ -142,6 +144,10 @@
   --chart-5: #d97706;
   --chart-muted: #cbd5e1;
   --chart-axis: #94a3b8;
+  /* Reports: opened vs resolved. Two hues rather than two shades of one, so
+     the pair stays apart under colour-blindness (validated, light + dark). */
+  --chart-opened: #4f46e5;
+  --chart-resolved: #0ea5e9;
   --sidebar: #ffffff;
   --sidebar-foreground: #334155;
   --sidebar-primary: var(--brand-base);
@@ -199,6 +205,9 @@
 
   --border: oklch(1 0 0 / 8%);
   --input: oklch(1 0 0 / 16%);
+
+  /* #4f46e5 is 2.6:1 on the dark card; one step lighter clears 3:1. */
+  --chart-opened: #6366f1;
 
   --sidebar: var(--color-slate-900);
   --sidebar-foreground: var(--color-slate-300);

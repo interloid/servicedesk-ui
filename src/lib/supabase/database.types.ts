@@ -1740,6 +1740,14 @@ export type Database = {
           tenant_slug: string;
         }[];
       };
+      report_first_replies: {
+        Args: { p_since: string; p_tenant_id: string };
+        Returns: {
+          author_id: string;
+          created_at: string;
+          ticket_id: string;
+        }[];
+      };
       reports_overview: {
         Args: { p_days?: number; p_weeks?: number };
         Returns: Json;

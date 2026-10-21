@@ -4,6 +4,8 @@ export type ShellIdentity = {
     name: string;
     initial: string;
     planSummary: string;
+    /** The plan's display name, e.g. "Free" or "Pro". */
+    planName: string;
   };
 
   user: {

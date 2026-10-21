@@ -14,8 +14,15 @@ export default async function EditSlaPolicyPage({
   params,
 }: EditSlaPolicyPageProps) {
   const { tenantSlug, policyId } = await params;
-  const { value, businessHours, customers, otherPolicies, canManage } =
-    await getSlaEditorData(tenantSlug, policyId);
+  const {
+    value,
+    businessHours,
+    customers,
+    otherPolicies,
+    canManage,
+    timezones,
+    appliedTicketCount,
+  } = await getSlaEditorData(tenantSlug, policyId);
 
   if (!value) {
     notFound();
@@ -35,7 +42,9 @@ export default async function EditSlaPolicyPage({
           businessHours={businessHours}
           customers={customers}
           otherPolicies={otherPolicies}
+          timezones={timezones}
           readOnly={!canManage}
+          inUse={appliedTicketCount > 0}
         />
       </div>
     </div>

@@ -18,6 +18,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -43,6 +50,7 @@ import {
   BusinessHoursOption,
   HOLIDAY_DESCRIPTION_MAX,
   SlaHoliday,
+  SlaTimezoneOption,
   WEEK_DAYS,
 } from "../types/types";
 import { DUPLICATE_HOLIDAY_MESSAGE, findHolidayOnDate } from "../holiday-rules";
@@ -348,12 +356,14 @@ export function HolidayDialog({
 export function EditBusinessHoursDialog({
   tenant,
   businessHours,
+  timezones,
   open,
   onOpenChange,
   onSaved,
 }: {
   tenant: string;
   businessHours: BusinessHoursOption;
+  timezones: SlaTimezoneOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (next: BusinessHoursOption) => void;
@@ -362,6 +372,7 @@ export function EditBusinessHoursDialog({
     workingDays: businessHours.workingDays,
     dayStart: businessHours.dayStart ?? "09:00",
     dayEnd: businessHours.dayEnd ?? "18:00",
+    timezoneId: businessHours.timezoneId ?? "",
   };
   const [form, setForm] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -396,6 +407,9 @@ export function EditBusinessHoursDialog({
     if (form.dayEnd <= form.dayStart) {
       return setError("The day has to end after it starts.");
     }
+    if (!form.timezoneId) {
+      return setError("Pick a time zone.");
+    }
 
     setError(null);
     startTransition(async () => {
@@ -408,6 +422,7 @@ export function EditBusinessHoursDialog({
           dayEnd: form.dayEnd,
           breakStart: null,
           breakEnd: null,
+          timezoneId: form.timezoneId,
         },
       );
       if (!result.success) {
@@ -482,6 +497,44 @@ export function EditBusinessHoursDialog({
                 onChange={(dayEnd) => setForm((f) => ({ ...f, dayEnd }))}
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="bh-timezone" className="text-sm font-semibold">
+              Time zone
+            </Label>
+            <Select
+              value={form.timezoneId}
+              onValueChange={(timezoneId) =>
+                setForm((f) => ({ ...f, timezoneId }))
+              }
+            >
+              <SelectTrigger
+                id="bh-timezone"
+                className={cn(TEAM_MODAL_CONTROL, "w-full")}
+              >
+                <SelectValue placeholder="Select a time zone" />
+              </SelectTrigger>
+              <SelectContent
+                side="bottom"
+                align="start"
+                position="popper"
+                className="max-h-[50vh] w-(--radix-select-trigger-width) p-1"
+              >
+                {timezones.map((tz) => (
+                  <SelectItem
+                    key={tz.id}
+                    value={tz.id}
+                    className="p-1 cursor-pointer"
+                  >
+                    {tz.name} ({tz.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Working hours and holidays are read in this zone.
+            </p>
           </div>
 
           {error && <p className="text-xs text-destructive">{error}</p>}

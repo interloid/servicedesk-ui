@@ -31,8 +31,11 @@ import { toast } from "sonner";
  */
 
 /** Success, for a surface that closed or a redirect that happened. */
-export function portalToastSuccess(message: string): void {
-  toast.success(message);
+export function portalToastSuccess(
+  message: string,
+  options?: { duration?: number },
+): void {
+  toast.success(message, options);
 }
 
 /** A failure with no form to attach it to. */

@@ -57,6 +57,9 @@ export function PortalSignInForm({
 }) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [banner, setBanner] = useState<string | undefined>(initialError);
+  // Shared by both modes, so switching between a link and a password keeps
+  // the email already typed rather than asking for it again.
+  const [email, setEmail] = useState("");
 
   function switchTo(next: Mode) {
     setBanner(undefined);
@@ -101,12 +104,16 @@ export function PortalSignInForm({
       {isLink ? (
         <MagicLinkForm
           tenantSlug={tenantSlug}
+          email={email}
+          onEmailChange={setEmail}
           onError={setBanner}
           onSwitch={() => switchTo("password")}
         />
       ) : (
         <PasswordForm
           tenantSlug={tenantSlug}
+          email={email}
+          onEmailChange={setEmail}
           onError={setBanner}
           onSwitch={() => switchTo("link")}
         />
@@ -122,17 +129,21 @@ export function PortalSignInForm({
 
 function MagicLinkForm({
   tenantSlug,
+  email,
+  onEmailChange,
   onError,
   onSwitch,
 }: {
   tenantSlug: string;
+  email: string;
+  onEmailChange: (email: string) => void;
   onError: (message?: string) => void;
   onSwitch: () => void;
 }) {
   const router = useRouter();
 
   const form = useForm<PortalEmailValues>({
-    defaultValues: { email: "" },
+    defaultValues: { email },
     resolver: zodResolver(portalEmailSchema),
   });
 
@@ -176,6 +187,10 @@ function MagicLinkForm({
               <FormControl>
                 <Input
                   {...field}
+                  onChange={(event) => {
+                    field.onChange(event);
+                    onEmailChange(event.target.value);
+                  }}
                   type="email"
                   autoComplete="email"
                   autoFocus
@@ -216,17 +231,21 @@ function MagicLinkForm({
 
 function PasswordForm({
   tenantSlug,
+  email,
+  onEmailChange,
   onError,
   onSwitch,
 }: {
   tenantSlug: string;
+  email: string;
+  onEmailChange: (email: string) => void;
   onError: (message?: string) => void;
   onSwitch: () => void;
 }) {
   const router = useRouter();
 
   const form = useForm<PortalPasswordLoginValues>({
-    defaultValues: { email: "", password: "" },
+    defaultValues: { email, password: "" },
     resolver: zodResolver(portalPasswordLoginSchema),
   });
 
@@ -264,9 +283,13 @@ function PasswordForm({
               <FormControl>
                 <Input
                   {...field}
+                  onChange={(event) => {
+                    field.onChange(event);
+                    onEmailChange(event.target.value);
+                  }}
                   type="email"
                   autoComplete="email"
-                  autoFocus
+                  autoFocus={!email}
                   placeholder="you@company.com"
                   className={FIELD_CLASS}
                 />
@@ -289,6 +312,9 @@ function PasswordForm({
                 <PasswordInput
                   {...field}
                   autoComplete="current-password"
+                  // The email came across from the link form: start on the
+                  // one field still empty.
+                  autoFocus={!!email}
                   placeholder="••••••••••"
                   className={FIELD_CLASS}
                 />

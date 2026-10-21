@@ -76,39 +76,17 @@ export function PortalAttachmentPicker({
 
     onError(undefined);
 
-    const next = [...files];
+    const { files: next, problems } = mergeAttachments(
+      files,
+      Array.from(picked),
+    );
     // A drag can refuse several files at once, so the first reason is toasted
-    // once at the end rather than one per file -- otherwise dropping five bad
+    // once below rather than one per file -- otherwise dropping five bad
     // files stacks five toasts over the form.
-    let firstProblem: string | undefined;
+    const firstProblem = problems[0];
 
-    for (const file of Array.from(picked)) {
-      if (next.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
-        firstProblem ??= `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files at a time.`;
-        onError(firstProblem);
-        break;
-      }
-
-      const problem = attachmentError(file);
-
-      if (problem) {
-        firstProblem ??= problem;
-        onError(problem);
-        continue;
-      }
-
-      // Same name AND size AND timestamp: the browser lets you pick one file
-      // twice, and a duplicate here becomes a duplicate in the thread.
-      const already = next.some(
-        (existing) =>
-          existing.name === file.name &&
-          existing.size === file.size &&
-          existing.lastModified === file.lastModified,
-      );
-
-      if (!already) {
-        next.push(file);
-      }
+    if (problems.length > 0) {
+      onError(problems.at(-1));
     }
 
     onChange(next);
@@ -304,4 +282,49 @@ export function PortalAttachmentPicker({
       ) : null}
     </div>
   );
+}
+
+/**
+ * `picked` added to `files` under the per-message limits: refused files are
+ * left out, with the reasons in `problems` (in order), and a file already in
+ * the list is not added twice. Shared by the picker and by pasting into the
+ * reply box.
+ */
+export function mergeAttachments(
+  files: File[],
+  picked: File[],
+): { files: File[]; problems: string[] } {
+  const next = [...files];
+  const problems: string[] = [];
+
+  for (const file of picked) {
+    if (next.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+      problems.push(
+        `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files at a time.`,
+      );
+      break;
+    }
+
+    const problem = attachmentError(file);
+
+    if (problem) {
+      problems.push(problem);
+      continue;
+    }
+
+    // Same name AND size AND timestamp: the browser lets you pick one file
+    // twice, and a duplicate here becomes a duplicate in the thread.
+    const already = next.some(
+      (existing) =>
+        existing.name === file.name &&
+        existing.size === file.size &&
+        existing.lastModified === file.lastModified,
+    );
+
+    if (!already) {
+      next.push(file);
+    }
+  }
+
+  return { files: next, problems };
 }

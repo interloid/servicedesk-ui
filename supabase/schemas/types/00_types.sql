@@ -117,7 +117,9 @@ CREATE TYPE public.notification_type AS ENUM (
     'ticket_closed',
     'mention',
     'billing',
-    'system'
+    'system',
+    'sla_breach',
+    'sla_warning'
 );
 
 

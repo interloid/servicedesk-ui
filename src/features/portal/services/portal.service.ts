@@ -44,9 +44,22 @@ import {
 } from "@/features/portal/avatar-url";
 import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { statStoredObject } from "@/lib/supabase/storage-object";
+import { mentionsToNames, stripAllMentions } from "@/lib/mentions";
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { slaDayMins } from "@/features/sla-policies/duration";
+import {
+  CALENDAR_SELECT,
+  CalendarJoin,
+  one,
+  toSlaCalendar,
+} from "@/features/tickets/lib/sla-calendar-row";
+import {
+  closedReason,
+  nextWorkingStart,
+} from "@/features/tickets/lib/sla-calendar";
+import type { PortalSupportClosed } from "@/features/portal/support-closed";
 
 /**
  * The `type` a portal sign-in link may legitimately carry. Anything else is
@@ -1329,7 +1342,7 @@ export async function listPortalRequests(
         resolvedAt: row.resolved_at,
         // Trimmed here so a 10,000-character description is not shipped to
         // the browser to show one line of it.
-        preview: (row.description ?? "")
+        preview: mentionsToNames(row.description ?? "")
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, PREVIEW_LENGTH),
@@ -1372,7 +1385,9 @@ export async function createPortalRequest({
     p_tenant_slug: slug,
     p_email: email,
     p_subject: subject,
-    p_description: description,
+    // Mention markup is the team's, not the customer's: typed by hand it would
+    // render as a staff chip on the agent side, so it is flattened to "@Name".
+    p_description: stripAllMentions(description),
     p_full_name: fullName ?? null,
     p_user_id: userId ?? null,
     // Never the customer's choice -- see PORTAL_REQUEST_PRIORITY.
@@ -1500,7 +1515,9 @@ type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 async function getDefaultPolicy(admin: AdminClient, tenantId: string) {
   const { data, error } = await admin
     .from("sla_policies")
-    .select("id, business_hours_id")
+    // The calendar too, for the "support is closed" note: one query picks
+    // the default for every portal promise, so they can't disagree.
+    .select(`id, business_hours_id, ${CALENDAR_SELECT}`)
     .eq("tenant_id", tenantId)
     .eq("status", "active")
     .order("is_default", { ascending: false })
@@ -1551,6 +1568,107 @@ async function getPolicyFirstResponse(
     target.first_response_unit,
     dayMins,
   );
+}
+
+function supportClosedAt(
+  join: CalendarJoin,
+  at: number,
+): PortalSupportClosed | null {
+  const { calendar } = toSlaCalendar(join);
+  const reason = closedReason(at, calendar);
+  if (!reason) return null;
+  const opensAt = nextWorkingStart(at, calendar);
+  return {
+    reason,
+    opensAt: opensAt === null ? null : new Date(opensAt).toISOString(),
+  };
+}
+
+/**
+ * The calendar of the policy a new ticket from this customer would get --
+ * the same choice as public.sla_resolve_policy (17_sla_engine.sql), which the
+ * tickets_assign_sla_policy trigger runs: the customer's active "Selected
+ * customers" policy (oldest first), else the oldest active non-"Selected
+ * customers" policy with is_default first. Kept in step with that function so
+ * the note on the form names the same opening as the toast after submitting.
+ */
+async function getNewTicketPolicyCalendar(
+  admin: AdminClient,
+  tenantId: string,
+  customerId: string | null,
+): Promise<CalendarJoin | undefined> {
+  if (customerId) {
+    const { data, error } = await admin
+      .from("sla_policies")
+      .select(
+        `created_at, sla_policy_customers!inner(customer_id), ${CALENDAR_SELECT}`,
+      )
+      .eq("tenant_id", tenantId)
+      .eq("status", "active")
+      .eq("applies_to", "Selected customers")
+      .eq("sla_policy_customers.customer_id", customerId)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) return data.business_hours;
+  }
+
+  const { data, error } = await admin
+    .from("sla_policies")
+    .select(CALENDAR_SELECT)
+    .eq("tenant_id", tenantId)
+    .eq("status", "active")
+    .neq("applies_to", "Selected customers")
+    .order("is_default", { ascending: false })
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+
+  return error || !data ? undefined : data.business_hours;
+}
+
+/**
+ * Whether support is closed right now under the policy a new request from
+ * this customer would be held to (their own policy when signed in, else the
+ * tenant's default), for the note on the form. Null while open, on a 24/7
+ * policy, or if it can't be read. Admin client for the same reason as
+ * getFirstResponseTarget; only the outcome leaves here.
+ */
+export async function getPortalSupportClosed(
+  tenantId: string,
+  customerId: string | null = null,
+): Promise<PortalSupportClosed | null> {
+  const calendar = await getNewTicketPolicyCalendar(
+    createSupabaseAdminClient(),
+    tenantId,
+    customerId,
+  );
+  if (calendar === undefined) return null;
+  return supportClosedAt(calendar, Date.now());
+}
+
+/**
+ * Whether support is closed under the policy the database attached to a
+ * just-created ticket (the customer's own, else the default), so the message
+ * names the same opening its SLA clocks start at -- sla_start_event always
+ * counts on the policy's calendar (17_sla_engine.sql), never per target.
+ * Null while open, on a 24/7 policy, or if it can't be read -- the ticket is
+ * saved either way.
+ */
+export async function getTicketSupportClosed(
+  ticketId: string,
+): Promise<PortalSupportClosed | null> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("tickets")
+    .select(`sla_policies(${CALENDAR_SELECT})`)
+    .eq("id", ticketId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const policy = one(data.sla_policies);
+  if (!policy) return null;
+  return supportClosedAt(policy.business_hours, Date.now());
 }
 
 /**
@@ -1630,6 +1748,9 @@ export const getPortalSupportHours = cache(async function getPortalSupportHours(
 // ---------------------------------------------------------------------------
 // One request
 // ---------------------------------------------------------------------------
+
+/** How close to the ticket's creation a seeded opening copy is written. */
+const SEEDED_COPY_WINDOW_MS = 10_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1764,39 +1885,6 @@ export function assertPortalAttachments(
  * Nothing reads from this prefix; it is server-managed and write-once.
  */
 const STAGING_SEGMENT = "staging";
-
-/**
- * What the bucket says about a stored object, or null if it is not there.
- * The stored object -- not the client -- is the source of truth for size and
- * type, so a caller that lies about a 4 KB file cannot make a 4 GB one appear
- * in the thread as something small.
- */
-async function statStoredObject(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  directory: string,
-  filename: string,
-): Promise<{ size: number; mime: string } | null> {
-  const { data, error } = await admin.storage
-    .from(ATTACHMENT_BUCKET)
-    .list(directory, { search: filename, limit: 1 });
-
-  const object = data?.find((entry) => entry.name === filename);
-
-  if (error || !object) {
-    if (error) {
-      console.error("[portal] could not stat an upload:", error.message);
-    }
-
-    return null;
-  }
-
-  return {
-    size: Number(object.metadata?.size ?? 0),
-    mime:
-      (object.metadata?.mimetype as string | undefined) ||
-      "application/octet-stream",
-  };
-}
 
 /**
  * Split a reported path into the directory and file the caller claims, refusing
@@ -1987,7 +2075,12 @@ export async function recordPortalAttachments(params: {
 
   for (const upload of uploads) {
     const filename = splitUploadPath(upload.path, `${directory}/`);
-    const stored = await statStoredObject(admin, directory, filename);
+    const stored = await statStoredObject(
+      admin,
+      ATTACHMENT_BUCKET,
+      directory,
+      filename,
+    );
 
     if (!stored) {
       throw new PortalError(
@@ -2240,6 +2333,7 @@ async function attachStagedUploads(params: {
     const [batch, stagedName] = relative.split("/");
     const stored = await statStoredObject(
       admin,
+      ATTACHMENT_BUCKET,
       `${tenantId}/${STAGING_SEGMENT}/${batch}`,
       stagedName,
     );
@@ -2481,7 +2575,9 @@ export const getPortalRequest = cache(async function getPortalRequest(
     authorType: "customer",
     authorName: identity.customer.fullName,
     initials: identity.customer.initials,
-    body: ticket.description,
+    // An agent-created ticket's description can carry @mention markup; the
+    // customer sees only the name, never the user id.
+    body: ticket.description && mentionsToNames(ticket.description),
     createdAt: ticket.created_at,
     isMine: true,
     // Files sent with the request itself: stored against the ticket with no
@@ -2489,27 +2585,53 @@ export const getPortalRequest = cache(async function getPortalRequest(
     attachments: attachments.get("") ?? [],
   };
 
-  const messages: PortalMessage[] = [
-    opening,
-    ...messageRows.map((row) => {
-      const authorName =
-        row.author_type === "system"
-          ? "System"
-          : (names.get(row.author_id) ?? "Support");
-
-      return {
-        id: row.id,
-        authorType: row.author_type,
-        authorName,
-        initials: initialsFrom(authorName, ""),
-        body: row.body,
-        createdAt: row.created_at,
-        isMine:
+  // Older agent-created tickets also carry the description as a seeded
+  // customer message; drop that copy so the request shows once. Only a copy
+  // written alongside the ticket (within a few seconds of it) and carrying no
+  // files counts: a later follow-up that happens to repeat the description,
+  // or one with attachments, is a real message and stays.
+  const openingText = (ticket.description ?? "").trim();
+  const createdMs = Date.parse(ticket.created_at);
+  const seededCopy = openingText
+    ? messageRows.find(
+        (row) =>
           row.author_type === "customer" &&
-          row.author_id === identity.customer.id,
-        attachments: attachments.get(row.id) ?? [],
-      };
-    }),
+          row.body.trim() === openingText &&
+          Math.abs(Date.parse(row.created_at) - createdMs) <=
+            SEEDED_COPY_WINDOW_MS &&
+          (attachments.get(row.id)?.length ?? 0) === 0,
+      )
+    : undefined;
+
+  // A request sent with no text and no files has nothing to show: leave it
+  // out rather than draw an empty bubble, as the agent side does.
+  const hasOpening = openingText !== "" || opening.attachments.length > 0;
+
+  const messages: PortalMessage[] = [
+    ...(hasOpening ? [opening] : []),
+    ...messageRows
+      .filter((row) => row !== seededCopy)
+      .map((row) => {
+        const authorName =
+          row.author_type === "system"
+            ? "System"
+            : (names.get(row.author_id) ?? "Support");
+
+        return {
+          id: row.id,
+          authorType: row.author_type,
+          authorName,
+          initials: initialsFrom(authorName, ""),
+          // An agent's @mention is stored as @[Name](user:id); the customer
+          // sees just the name.
+          body: mentionsToNames(row.body),
+          createdAt: row.created_at,
+          isMine:
+            row.author_type === "customer" &&
+            row.author_id === identity.customer.id,
+          attachments: attachments.get(row.id) ?? [],
+        };
+      }),
   ];
 
   const status = ticket.status as PortalTicketStatus;
@@ -2518,7 +2640,7 @@ export const getPortalRequest = cache(async function getPortalRequest(
     id: ticket.id,
     number: ticket.number,
     subject: ticket.subject,
-    description: ticket.description,
+    description: ticket.description && mentionsToNames(ticket.description),
     status,
     priority: ticket.priority as PortalPriority,
     state: toPortalState(status),
@@ -2686,7 +2808,8 @@ export async function postPortalReply(
       ticket_id: requestId,
       author_type: "customer",
       author_id: identity.customer.id,
-      body: body.trim(),
+      // Same as the opening post: a customer can't fake a mention chip.
+      body: stripAllMentions(body).trim(),
       visibility: "public",
     })
     .select("id")

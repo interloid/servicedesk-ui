@@ -20,7 +20,6 @@ import {
   Bell,
   FileText,
   CreditCard,
-  ChevronDown,
   PanelLeft,
   User,
   BadgeDollarSign,
@@ -334,16 +333,6 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
               </Tooltip>
             </div>
           </TooltipProvider>
-
-          <ChevronDown
-            aria-hidden
-            className="
-              size-4
-              shrink-0
-              text-muted-foreground
-              group-data-[collapsible=icon]:hidden
-            "
-          />
 
           <SidebarTrigger
             icon={<PanelLeft />}

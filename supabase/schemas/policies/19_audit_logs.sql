@@ -11,6 +11,9 @@ USING (
         'tenant_admin',
         'manager'
     )
+    -- Audit logs are a Business feature (plans.features_json.audit_logs).
+    -- Rows are written on every plan; only reading is gated.
+    AND public.current_tenant_has_feature('audit_logs')
 );
 
 CREATE POLICY "audit_logs_insert"

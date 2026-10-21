@@ -152,5 +152,8 @@ CREATE TYPE public.audit_action AS ENUM (
     'login',
     'logout',
     'invite',
-    'assign'
+    'assign',
+    'role_change',
+    'export',
+    'login_failed'
 );

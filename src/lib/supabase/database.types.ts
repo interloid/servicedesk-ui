@@ -104,7 +104,10 @@ export type Database = {
           id: string;
           ip: unknown;
           meta_json: Json | null;
+          module: string;
+          result: string;
           tenant_id: string;
+          user_agent: string | null;
         };
         Insert: {
           action: Database["public"]["Enums"]["audit_action"];
@@ -115,7 +118,10 @@ export type Database = {
           id?: string;
           ip?: unknown;
           meta_json?: Json | null;
+          module?: string;
+          result?: string;
           tenant_id: string;
+          user_agent?: string | null;
         };
         Update: {
           action?: Database["public"]["Enums"]["audit_action"];
@@ -126,7 +132,10 @@ export type Database = {
           id?: string;
           ip?: unknown;
           meta_json?: Json | null;
+          module?: string;
+          result?: string;
           tenant_id?: string;
+          user_agent?: string | null;
         };
         Relationships: [
           {
@@ -1533,6 +1542,14 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      audit_log_summary: {
+        Args: { p_from: string; p_to: string };
+        Returns: Json;
+      };
+      current_tenant_has_feature: {
+        Args: { p_feature: string };
+        Returns: boolean;
+      };
       apply_subscription_plan: {
         Args: {
           p_clear_next?: boolean;
@@ -1664,7 +1681,10 @@ export type Database = {
         | "login"
         | "logout"
         | "invite"
-        | "assign";
+        | "assign"
+        | "role_change"
+        | "export"
+        | "login_failed";
       author_type: "agent" | "customer" | "system";
       customer_status: "active" | "blocked";
       invoice_status: "pending" | "paid" | "failed" | "refunded";
@@ -1830,6 +1850,9 @@ export const Constants = {
         "logout",
         "invite",
         "assign",
+        "role_change",
+        "export",
+        "login_failed",
       ],
       author_type: ["agent", "customer", "system"],
       customer_status: ["active", "blocked"],

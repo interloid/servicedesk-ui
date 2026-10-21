@@ -82,6 +82,10 @@ export async function login({
   });
 
   if (error || !data.user) {
+    if (error?.code === "invalid_credentials") {
+      await recordFailedLogin(email);
+    }
+
     throw new AuthError(error?.message ?? "Invalid login credentials", {
       status: error?.status ?? 400,
       code: toFailureCode(error?.code),
@@ -643,6 +647,75 @@ async function recordAuthEvent(
 
   if (error) {
     warn(`${action} audit not written: ${error.message}`);
+  }
+}
+
+/**
+ * A wrong password for a real team member, written to the workspace the
+ * sign-in was for (the host's, else the member's first active one) so the
+ * audit log's Security tab shows it.
+ *
+ * Only for an account that exists and is an active member there: an unknown
+ * address writes nothing, so the log cannot be filled by guessing emails, and
+ * no tenant ever sees attempts against somebody else's address. Customers sign
+ * in through the portal and are not recorded here. Best effort -- a failure is
+ * logged and the sign-in error is still returned as normal.
+ */
+async function recordFailedLogin(email: string) {
+  try {
+    const admin = createSupabaseAdminClient();
+
+    const { data: user } = await admin
+      .from("users")
+      .select("id")
+      .eq("email", email.trim().toLowerCase())
+      .maybeSingle<{ id: string }>();
+
+    if (!user) {
+      return;
+    }
+
+    const host = await getTenantContext();
+    let membershipQuery = admin
+      .from("memberships")
+      .select("tenant_id, role")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .neq("role", "customer");
+
+    if (host) {
+      membershipQuery = membershipQuery.eq("tenant_id", host.id);
+    }
+
+    const { data: membership } = await membershipQuery
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle<{ tenant_id: string; role: string }>();
+
+    if (!membership) {
+      return;
+    }
+
+    const requestHeaders = await headers();
+    const { error } = await admin.from("audit_logs").insert({
+      tenant_id: membership.tenant_id,
+      actor_id: user.id,
+      action: "login_failed",
+      entity: "user",
+      entity_id: user.id,
+      meta_json: {
+        email,
+        summary: "Failed login attempt (invalid password)",
+        user_agent: requestHeaders.get("user-agent")?.slice(0, 512) ?? null,
+      },
+      ip: await clientIp(),
+    });
+
+    if (error) {
+      warn(`failed-login audit not written: ${error.message}`);
+    }
+  } catch (err) {
+    warn(`failed-login audit not written: ${String(err)}`);
   }
 }
 

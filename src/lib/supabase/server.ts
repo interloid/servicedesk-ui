@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { env } from "@/config/env";
 import { AUTH_COOKIE_DOMAIN } from "@/lib/tenancy";
+import { auditForwardHeaders } from "@/lib/request-context";
 
 function getSupabaseCredentials() {
   const url = env.NEXT_PUBLIC_SUPABASE_URL;
@@ -40,6 +41,7 @@ export async function createSupabaseServerClient(
   const REMEMBER_ME_MAX_AGE = 60 * 60 * 24 * 30;
 
   return createServerClient(url, key, {
+    global: { headers: await auditForwardHeaders() },
     cookies: {
       getAll() {
         return cookieStore.getAll();

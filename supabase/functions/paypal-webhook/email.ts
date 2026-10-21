@@ -1,5 +1,4 @@
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
-const FROM_EMAIL = Deno.env.get("FROM_EMAIL")!;
+import { sendEmail } from "../_shared/gmail.ts";
 
 // Every value interpolated into the HTML body is escaped. customerName comes
 // from users.full_name, which the user edits freely, so it must not be able to
@@ -33,20 +32,15 @@ export async function sendInvoiceEmail({
   const safeCurrency = escapeHtml(currency);
   const safeUrl = escapeHtml(signedUrl);
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: FROM_EMAIL,
+  const amountPaid = `${currency} ${Number(amount).toFixed(2)}`;
 
-      to: [customerEmail],
-
-      subject: `Invoice ${invoiceNumber}`,
-
-      html: `
+  // Sent through Gmail (see _shared/gmail.ts). A failure throws, which
+  // emailInvoiceOnce in handlers.ts counts against this recipient.
+  await sendEmail({
+    to: customerEmail,
+    subject: `Invoice ${invoiceNumber}`,
+    text: `Hi ${customerName},\n\nThank you for your payment. Your invoice has been generated successfully.\n\nInvoice: ${invoiceNumber}\nAmount paid: ${amountPaid}\nPayment status: Paid\n\nView invoice: ${signedUrl}\n\nIf the link does not work, you can access your invoice from your ServiceDesk billing account.\n\nThank you for choosing ServiceDesk.`,
+    html: `
         <div style="max-width:600px;margin:auto;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;font-family:Arial,sans-serif;background:white">
           <div style="padding:28px 32px;border-bottom:1px solid #e5e7eb">
             <strong style="font-size:20px;color:#111827">ServiceDesk</strong>
@@ -86,14 +80,5 @@ export async function sendInvoiceEmail({
           </div>
         </div>
         `,
-    }),
   });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(JSON.stringify(data));
-  }
-
-  return data;
 }

@@ -1,16 +1,32 @@
 import type { Metadata } from "next";
-import { ComingSoon } from "@/components/shared/coming-soon";
+
+import {
+  getNotificationPrefs,
+  listNotificationPrefsHistory,
+  listNotifications,
+} from "@/features/notifications/services/notifications.service";
+import NotificationsView from "@/features/notifications/components/notifications-view";
+import type { NotificationsData } from "@/features/notifications/types/notifications";
 
 export const metadata: Metadata = {
-  title: "Notification Center",
-  description: "Manage what you hear about",
+  title: "Notifications | ServiceDesk Pro",
+  description: "Manage notification preferences and view workspace activity.",
 };
 
-export default function NotificationsPage() {
+export default async function NotificationsPage() {
+  const [prefs, notifications, history] = await Promise.all([
+    getNotificationPrefs(),
+    listNotifications(),
+    // Only the history tab depends on it, so a failure there shouldn't take
+    // the whole page down.
+    listNotificationPrefsHistory().catch(() => []),
+  ]);
+
+  const data: NotificationsData = { prefs, notifications, history };
+
   return (
-    <ComingSoon
-      title="Notification center"
-      description="Choose what updates you and your team receive - right in the app, by email, or elsewhere. Coming soon."
-    />
+    <main className="w-full">
+      <NotificationsView data={data} />
+    </main>
   );
 }

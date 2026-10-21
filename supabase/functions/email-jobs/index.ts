@@ -1,11 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+import { PermanentEmailError, sendEmail } from "../_shared/gmail.ts";
+
 import { invitationEmailHtml, roleWithArticle } from "./invitation-template.ts";
 import { portalSignInEmailHtml } from "./portal-sign-in-template.ts";
 
 // Sends the mail queued in public.email_jobs: team invitations and password
 // resets (through Supabase Auth), and our own invitation and customer-portal
-// sign-in emails (through Resend).
+// sign-in emails (through the Gmail API, as the Google account that granted
+// GOOGLE_REFRESH_TOKEN).
 //
 // One caller:
 //   1. pg_cron every minute while a job is due -- the sender and retry path
@@ -20,8 +23,6 @@ import { portalSignInEmailHtml } from "./portal-sign-in-template.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")?.trim();
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")?.trim();
-const FROM_EMAIL = Deno.env.get("FROM_EMAIL")?.trim();
 
 if (!SUPABASE_URL) {
   throw new Error("SUPABASE_URL is missing");
@@ -69,9 +70,6 @@ type PortalSignInPayload = {
   invited?: boolean;
 };
 
-/** Retrying won't fix it (mail not configured, unknown kind): fail at once. */
-class PermanentEmailError extends Error {}
-
 /** 30s, 2m, 8m, 32m… capped at an hour. */
 function retryDelayMs(attempts: number): number {
   return Math.min(30_000 * 4 ** Math.max(0, attempts - 1), 60 * 60 * 1000);
@@ -99,39 +97,6 @@ function isServiceRole(req: Request): boolean {
   }
 }
 
-async function sendResend(message: {
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-}): Promise<void> {
-  if (!RESEND_API_KEY || !FROM_EMAIL) {
-    throw new PermanentEmailError(
-      "Email sending is not configured. Set RESEND_API_KEY and FROM_EMAIL.",
-    );
-  }
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: FROM_EMAIL,
-      to: [message.to],
-      subject: message.subject,
-      html: message.html,
-      text: message.text,
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Resend rejected the email (${response.status}): ${body}`);
-  }
-}
-
 /**
  * True once the person has signed in and set a password. An invited account
  * stays unconfirmed until then, and Supabase will still re-send an invite to
@@ -151,7 +116,7 @@ async function isRegistered(userId: string): Promise<boolean> {
  * Always the "You've been invited" email, never a sign-in email. Supabase's
  * invite only works for an address that has never confirmed an account;
  * anyone who has gets a magic link generated WITHOUT sending, carried in our
- * own invitation email through Resend.
+ * own invitation email through Gmail.
  */
 async function sendTeamInvitation({
   userId,
@@ -197,7 +162,7 @@ async function sendTeamInvitation({
 
   const workspace = (tenant?.name as string | undefined) ?? "your team";
 
-  await sendResend({
+  await sendEmail({
     to: email,
     subject: `You've been invited to ${workspace}`,
     html: invitationEmailHtml({ workspace, role, link: actionLink }),
@@ -272,7 +237,7 @@ async function sendPortalSignIn({
 
   const signInLink = url.toString();
 
-  await sendResend({
+  await sendEmail({
     to: email,
     subject: invited
       ? `You're invited to ${tenantName} Support`

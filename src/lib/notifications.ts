@@ -1,6 +1,4 @@
-import { Notification, NotificationTone } from "@/types/notification";
-
-export const NOTIFICATIONS: Notification[] = [];
+import { NotificationTone } from "@/types/notification";
 
 export const TONE_TILE: Record<NotificationTone, string> = {
   brand: "bg-accent text-accent-foreground",

@@ -3,6 +3,7 @@ import { AppHeader } from "@/components/shared/layout/app-header";
 import { AppSidebar } from "@/components/shared/layout/app-sidebar";
 import { RoleRouteGuard } from "@/components/shared/layout/role-route-guard";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { NotificationsProvider } from "@/features/notifications/components/notifications-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getShellIdentity } from "@/lib/identity";
 import { APP_ROUTES } from "@/lib/routes";
@@ -48,20 +49,22 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider className="w-full">
       <TooltipProvider delayDuration={0}>
-        <RoleRouteGuard role={identity.user.role} />
-        <div className="flex h-screen w-full overflow-hidden bg-background text-xs text-slate-800 font-sans antialiased">
-          <AppSidebar identity={identity} />
+        <NotificationsProvider userId={identity.user.id}>
+          <RoleRouteGuard role={identity.user.role} />
+          <div className="flex h-screen w-full overflow-hidden bg-background text-xs text-slate-800 font-sans antialiased">
+            <AppSidebar identity={identity} />
 
-          <div className="flex flex-1 flex-col min-w-0 h-full w-full">
-            <AppHeader identity={identity} />
+            <div className="flex flex-1 flex-col min-w-0 h-full w-full">
+              <AppHeader identity={identity} />
 
-            <main className="flex-1 overflow-y-auto w-full  p-0 ">
-              {children}
-            </main>
+              <main className="flex-1 overflow-y-auto w-full  p-0 ">
+                {children}
+              </main>
 
-            <AppFooter identity={identity} />
+              <AppFooter identity={identity} />
+            </div>
           </div>
-        </div>
+        </NotificationsProvider>
       </TooltipProvider>
     </SidebarProvider>
   );

@@ -33,6 +33,7 @@ import { normalizeTagName } from "../lib/tags";
 import { CALENDAR_SELECT, one, toSlaCalendar } from "../lib/sla-calendar-row";
 import { DurationUnit, isDurationUnit } from "@/features/sla-policies/duration";
 import { getInitials } from "@/lib/format";
+import { filterToPostgrest } from "@/features/saved-view/filters";
 import {
   attachmentContentType,
   attachmentExtension,
@@ -161,8 +162,25 @@ export const fetchTicketById = cache(
 
 /** The parts of a tickets query applyTicketFilters needs. */
 interface TicketFilterable<Q> {
-  eq(column: "status" | "priority", value: string): Q;
+  in(column: "status" | "priority", values: string[]): Q;
+  eq(column: "assignee_user_id", value: string): Q;
+  is(column: "assignee_user_id", value: null): Q;
   or(filters: string): Q;
+}
+
+/** The known values in a comma-joined ?status= or ?priority=. */
+function listParam<T extends string>(
+  value: string | undefined,
+  isKnown: (v: string | undefined) => v is T,
+): T[] {
+  return [
+    ...new Set(
+      (value ?? "")
+        .split(",")
+        .map((part) => part.trim().toLowerCase())
+        .filter(isKnown),
+    ),
+  ];
 }
 
 /**
@@ -172,26 +190,42 @@ interface TicketFilterable<Q> {
  */
 function applyTicketFilters<Q extends TicketFilterable<Q>>(
   query: Q,
-  filters: Pick<FetchTicketsOptions, "search" | "priority" | "status">,
+  filters: Pick<FetchTicketsOptions, "search" | "priority" | "status"> & {
+    /** null for unassigned; left out for anyone. */
+    assigneeUserId?: string | null;
+    /** A saved view's rules as a PostgREST logic tree (filterToPostgrest). */
+    viewLogic?: string | null;
+  },
 ): Q {
   let filtered = query;
 
   // Only real enum values reach the query: a hand-typed ?status=foo is "all",
   // not a Postgres enum error.
-  const status = filters.status?.toLowerCase();
-  if (isTicketStatus(status)) filtered = filtered.eq("status", status);
+  const statuses = listParam(filters.status, isTicketStatus);
+  if (statuses.length) filtered = filtered.in("status", statuses);
 
-  const priority = filters.priority?.toLowerCase();
-  if (isTicketPriority(priority)) filtered = filtered.eq("priority", priority);
+  const priorities = listParam(filters.priority, isTicketPriority);
+  if (priorities.length) filtered = filtered.in("priority", priorities);
+
+  if (filters.assigneeUserId === null) {
+    filtered = filtered.is("assignee_user_id", null);
+  } else if (filters.assigneeUserId) {
+    filtered = filtered.eq("assignee_user_id", filters.assigneeUserId);
+  }
 
   // Commas, parentheses and quotes are syntax in a PostgREST or-filter, so
   // they are dropped and the pattern quoted: "login, password" is plain text.
   const term = (filters.search ?? "").replace(/[,()"\\]/g, " ").trim();
-  if (term) {
-    filtered = filtered.or(
-      `subject.ilike."%${term}%",description.ilike."%${term}%"`,
-    );
-  }
+  const searchLogic = term
+    ? `or(subject.ilike."%${term}%",description.ilike."%${term}%")`
+    : null;
+
+  // One or= parameter holding both trees, ANDed, rather than two that
+  // PostgREST may not combine.
+  const logic = [filters.viewLogic, searchLogic].filter(Boolean);
+  if (logic.length === 1) filtered = filtered.or(logic[0]!);
+  else if (logic.length > 1) filtered = filtered.or(`and(${logic.join(",")})`);
+
   return filtered;
 }
 
@@ -210,6 +244,8 @@ export async function fetchTenantTickets(
     search,
     priority,
     status,
+    assignee,
+    viewFilter,
     page = 1,
     limit = 8,
     sort,
@@ -239,7 +275,30 @@ export async function fetchTenantTickets(
     )
     .eq("tenant_id", tenantid);
 
-  const filters = { search, priority, status };
+  // "me" is the viewer. Signed out it matches no one rather than everyone.
+  const needsViewer =
+    assignee === "me" ||
+    !!viewFilter?.rules.some(
+      (rule) => rule.field === "assignee" && rule.value === "me",
+    );
+  let viewerId = "00000000-0000-0000-0000-000000000000";
+  if (needsViewer) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) viewerId = user.id;
+  }
+
+  let assigneeUserId: string | null | undefined;
+  if (assignee === "unassigned") {
+    assigneeUserId = null;
+  } else if (assignee === "me") {
+    assigneeUserId = viewerId;
+  }
+
+  const viewLogic = viewFilter ? filterToPostgrest(viewFilter, viewerId) : null;
+
+  const filters = { search, priority, status, assigneeUserId, viewLogic };
   query = applyTicketFilters(query, filters);
 
   const sortColumn = sort === "subject" ? "subject" : "created_at";

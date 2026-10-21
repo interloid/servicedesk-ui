@@ -1,3 +1,4 @@
+import type { ViewFilter } from "@/features/saved-view/filters";
 import type { SlaCalendar } from "@/features/tickets/lib/sla-calendar";
 import type { DurationUnit } from "@/features/sla-policies/duration";
 
@@ -199,8 +200,14 @@ export interface TicketMessage {
 }
 export interface FetchTicketsOptions {
   search?: string;
+  /** One value or a comma-joined list, as a saved view's link carries. */
   priority?: string;
+  /** One value or a comma-joined list, as a saved view's link carries. */
   status?: string;
+  /** "me" is whoever is looking, as in a saved view. */
+  assignee?: "unassigned" | "me";
+  /** An open saved view's AND / OR rules, applied on top of the above. */
+  viewFilter?: ViewFilter | null;
   page?: number;
   limit?: number;
   sort?: "subject" | "created_at";

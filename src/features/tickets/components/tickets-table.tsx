@@ -63,6 +63,7 @@ import { TicketsEmptyState } from "./ticket-empty";
 import { useRealtimeTicketsRefresh } from "@/hooks/use-realtime-tickets-refresh";
 import { LiveSla, computeLiveSla } from "../lib/sla";
 import { TICKET_PAGE_SIZES } from "../lib/list";
+import type { SavedViewTab } from "@/features/saved-view/filters";
 import { useNow } from "@/hooks/use-now";
 import { useMounted } from "@/hooks/use-mounted";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
@@ -71,6 +72,11 @@ interface TicketsTableProps {
   initialTickets: Ticket[];
   totalCount: number;
   statusCounts?: Partial<Record<TicketStatus, number>>;
+  /**
+   * The viewer's saved views, in their Views page order. Empty when they
+   * couldn't be loaded: the status tabs show instead.
+   */
+  viewTabs?: SavedViewTab[];
   tenant: string;
   /** False for tenant admins: tickets go to agents and managers. */
   canAssignToSelf?: boolean;
@@ -167,6 +173,7 @@ export default function TicketsTable({
   initialTickets,
   totalCount,
   statusCounts = {},
+  viewTabs = [],
   tenant,
   canAssignToSelf = true,
   page,
@@ -391,6 +398,17 @@ export default function TicketsTable({
     });
   };
 
+  // "All tickets" is the queue with no view, so it is active when ?view= is
+  // missing; every other tab when ?view= is its id.
+  const activeViewId = searchParams.get("view");
+  const isTabActive = (tab: SavedViewTab) =>
+    activeViewId ? tab.id === activeViewId : tab.isAll;
+
+  // The tab replaces the view only; search, priority and status stay and
+  // narrow it further, as "Search this view" says.
+  const openViewTab = (tab: SavedViewTab) =>
+    updateQueryParam("view", tab.isAll ? "all" : tab.id);
+
   // Same defaults as the page: subject A→Z.
   const currentSort = searchParams.get("sort") || "subject";
   const currentSortOrder =
@@ -550,68 +568,29 @@ export default function TicketsTable({
           </div>
         </div>
 
-        <div className="flex items-center space-x-1 border-b border-slate-200 pb-3 text-xs font-medium overflow-x-auto scrollbar-none">
-          <TabButton
-            active={!searchParams?.get("status")}
-            onClick={() => updateQueryParam("status", "all")}
-          >
-            {/* Every status: the tab clears the status filter. */}
-            All
-            <Badge
-              className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
-                !searchParams?.get("status")
-                  ? "bg-primary-foreground/20 text-primary-foreground border-0"
-                  : "bg-brand-accent text-brand-accent-foreground border-0"
-              }`}
-            >
-              {allCount}
-            </Badge>
-          </TabButton>
-          <TabButton
-            active={searchParams?.get("status") === "new"}
-            onClick={() => updateQueryParam("status", "new")}
-          >
-            New
-            <Badge
-              className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
-                searchParams?.get("status") === "new"
-                  ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-brand-accent text-brand-accent-foreground border-0"
-              }`}
-            >
-              {statusCounts.new ?? 0}
-            </Badge>
-          </TabButton>
-          <TabButton
-            active={searchParams?.get("status") === "open"}
-            onClick={() => updateQueryParam("status", "open")}
-          >
-            Open
-            <Badge
-              className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
-                searchParams?.get("status") === "open"
-                  ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-brand-accent text-brand-accent-foreground border-0"
-              }`}
-            >
-              {statusCounts.open ?? 0}
-            </Badge>
-          </TabButton>
-          <TabButton
-            active={searchParams?.get("status") === "resolved"}
-            onClick={() => updateQueryParam("status", "resolved")}
-          >
-            Resolved
-            <Badge
-              className={`ml-1 rounded-full text-[10px] px-1.5 py-0 ${
-                searchParams?.get("status") === "resolved"
-                  ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-brand-accent text-brand-accent-foreground border-0"
-              }`}
-            >
-              {statusCounts.resolved ?? 0}
-            </Badge>
-          </TabButton>
+        <div className="flex items-center space-x-1 overflow-x-auto border-b border-slate-200 pb-3 text-xs font-medium scrollbar-none">
+          {viewTabs.map((tab) => {
+            const active = isTabActive(tab);
+
+            return (
+              <TabButton
+                key={tab.id}
+                active={active}
+                onClick={() => openViewTab(tab)}
+              >
+                {tab.name}
+                <Badge
+                  className={`ml-1 rounded-full px-1.5 py-0 text-[10px] ${
+                    active
+                      ? "border-0 bg-primary-foreground/20 text-primary-foreground"
+                      : "border-0 bg-brand-accent text-brand-accent-foreground"
+                  }`}
+                >
+                  {tab.count}
+                </Badge>
+              </TabButton>
+            );
+          })}
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 sm:gap-4">

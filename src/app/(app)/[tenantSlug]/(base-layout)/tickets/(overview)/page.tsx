@@ -11,6 +11,13 @@ import {
   fetchTicketStatusCounts,
   getCurrentUserIdentity,
 } from "@/features/tickets/services/tickets.service";
+import {
+  fetchSavedViewFilter,
+  fetchSavedViewTabs,
+} from "@/features/saved-view/services/saved-views.service";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const metadata: Metadata = {
   title: "Tickets",
@@ -38,6 +45,15 @@ export default async function TicketsPage({
   const status = isTicketStatus(rawStatus) ? rawStatus : undefined;
   const priority = isTicketPriority(rawPriority) ? rawPriority : undefined;
   const search = typeof sp.search === "string" ? sp.search : undefined;
+
+  // A saved view's AND / OR rules don't fit in status=/priority= params, so
+  // its tab links by id and the rules are read here. An id that isn't a view
+  // the viewer can see is ignored: every ticket.
+  const viewId =
+    typeof sp.view === "string" && UUID_RE.test(sp.view) ? sp.view : null;
+  const viewFilter = viewId
+    ? await fetchSavedViewFilter(tenantSlug, viewId)
+    : null;
   // Subject A→Z unless the list asks otherwise; the table shows the same.
   const sort =
     sp.sort === "subject" || sp.sort === "created_at" ? sp.sort : "subject";
@@ -54,12 +70,13 @@ export default async function TicketsPage({
     ? Number(sp.limit)
     : TICKET_PAGE_SIZES[0];
 
-  const [{ tickets, totalCount }, statusCounts, currentUser] =
+  const [{ tickets, totalCount }, statusCounts, currentUser, viewTabs] =
     await Promise.all([
       fetchTenantTickets(tenantSlug, {
         status,
         priority,
         search,
+        viewFilter,
         sort,
         sortOrder,
         page,
@@ -67,6 +84,9 @@ export default async function TicketsPage({
       }),
       fetchTicketStatusCounts(tenantSlug),
       getCurrentUserIdentity(tenantSlug),
+      // The tabs are the viewer's saved views, in their Views page order.
+      // [] if they fail to load: the table falls back to the status tabs.
+      fetchSavedViewTabs(tenantSlug),
     ]);
 
   return (
@@ -76,6 +96,7 @@ export default async function TicketsPage({
       page={page}
       limit={limit}
       statusCounts={statusCounts}
+      viewTabs={viewTabs}
       tenant={tenantSlug}
       // Tenant admins aren't assignees, so no bulk "Assign to me".
       canAssignToSelf={

@@ -399,7 +399,7 @@ export function PortalRequestDetailView({
               listClassName="order-last basis-full"
             />
 
-            <div className="order-first grid grid-cols-1 gap-2 sm:order-none sm:ml-auto sm:flex sm:shrink-0 sm:gap-2.5">
+            <div className="order-first grid grid-cols-1 gap-2 sm:order-0 sm:ml-auto sm:flex sm:shrink-0 sm:gap-2.5">
               {canReopen(request.state) ? (
                 <Button
                   type="button"

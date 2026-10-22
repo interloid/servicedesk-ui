@@ -237,7 +237,7 @@ export async function fetchTenantTickets(
   if (!tenantid) throw new Error("Tenant not found.");
 
   // No process_sla_breaches() here: pg_cron's sla_tick() marks overdue
-  // clocks every minute, and the list works out breaches from due_at itself
+  // clocks every 15 minutes, and the list works out breaches from due_at itself
   // (computeSlaClock), so a list render stays read-only.
   const {
     search,

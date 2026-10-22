@@ -1,6 +1,6 @@
 -- Breach overdue SLA clocks in the caller's tenant, for a tenant without a
--- working pg_cron; sla_tick() does the same for every tenant every minute and
--- sends the notifications. SECURITY DEFINER because sla_events has no write
+-- working pg_cron; sla_tick() does the same for every tenant every 15 minutes and
+-- queues the alerts. SECURITY DEFINER because sla_events has no write
 -- policy, so the tenant and staff checks are made here. Paused clocks are
 -- skipped, and breached_at is the deadline itself.
 -- Migration: 20261012120000_ticket_review_hardening.sql.

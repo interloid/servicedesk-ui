@@ -39,11 +39,11 @@ export const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /**
- * Logos go to the public avatars bucket under `<tenant id>/branding/`, which is
- * what its insert policy keys on. SVG is left out on purpose: the bucket is
- * public and only allows raster types (see portal_rls_hardening).
+ * Logos go to the public branding bucket under `<tenant id>/`, written only
+ * with a server-issued signed upload. SVG is left out on purpose: the bucket
+ * is public and only allows raster types (see schemas/storage/buckets.sql).
  */
-export const LOGO_BUCKET = "avatars";
+export const LOGO_BUCKET = "branding";
 export const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 export const LOGO_MIME_TYPES = [
   "image/png",

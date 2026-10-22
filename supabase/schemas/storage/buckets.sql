@@ -26,24 +26,35 @@ ON CONFLICT (id) DO NOTHING;
 
 
 -- =====================================================
--- 2. Customer Files
--- Private
--- 20 MB
+-- 2. Branding
+-- Public
+-- 2 MB
+-- png / jpeg / webp only
 -- =====================================================
+--
+-- Workspace logos, one folder per tenant: `<tenant id>/logo-<ts>.<ext>`.
+-- Uploads only happen with a signed URL the server issues to a Tenant Admin
+-- (prepareLogoUpload), so there are no client write policies. The bucket is
+-- public, so the type and size limits here are the backstop, as for avatars.
 
 INSERT INTO storage.buckets (
     id,
     name,
     public,
-    file_size_limit
+    file_size_limit,
+    allowed_mime_types
 )
 VALUES (
-    'customer-files',
-    'customer-files',
-    false,
-    20971520
+    'branding',
+    'branding',
+    true,
+    2097152,
+    '{image/png,image/jpeg,image/webp}'
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE
+SET public = EXCLUDED.public,
+    allowed_mime_types = EXCLUDED.allowed_mime_types,
+    file_size_limit = EXCLUDED.file_size_limit;
 
 
 -- =====================================================

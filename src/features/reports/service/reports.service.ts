@@ -600,7 +600,7 @@ function median(values: number[]): number {
 /**
  * Met or missed, as the SLA engine recorded it: a clock that finished in time
  * is met, a breached one missed, and a running clock already past its
- * deadline is missed too (sla_tick marks it within the minute). A clock still
+ * deadline is missed too (sla_tick marks it on its next 15-minute run). A clock still
  * running in time, or paused while the ticket waits on the customer, can still
  * make it and is left out, so ignoring tickets can never raise the figure.
  */

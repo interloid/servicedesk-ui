@@ -262,17 +262,22 @@ export async function updateBranding(
   }
 
   const logoUrl = values.logoUrl?.trim() || null;
+  const current = readBrandingJson(tenant.branding_json);
 
   // Logos come from the upload flow, which only writes under this folder. A
   // URL from anywhere else would be loaded by every admin who opens this page.
-  if (logoUrl && !logoUrl.startsWith(ownLogoPrefix(actor.tenantId))) {
+  // The saved logo is let through unchanged: logos uploaded before the
+  // branding bucket still live under avatars/<tenant id>/branding/.
+  if (
+    logoUrl &&
+    logoUrl !== current.logo_url &&
+    !logoUrl.startsWith(ownLogoPrefix(actor.tenantId))
+  ) {
     throw new BrandingError("Upload the logo instead of linking to it.", {
       code: "validation",
       field: "logoUrl",
     });
   }
-
-  const current = readBrandingJson(tenant.branding_json);
 
   // show_logo_on_email was this toggle's old key, from when it was meant for
   // email. Nothing reads it now, so it is dropped rather than left to mislead.
@@ -357,7 +362,7 @@ function slugTakenError(slug: string) {
 }
 
 function logoFolder(tenantId: string): string {
-  return `${tenantId}/branding`;
+  return tenantId;
 }
 
 function ownLogoPrefix(tenantId: string): string {
@@ -447,7 +452,7 @@ export async function prepareLogoUpload(file: {
   }
 
   const extension = file.type.split("/")[1].replace("jpeg", "jpg");
-  const path = `${actor.tenantId}/branding/logo-${Date.now()}.${extension}`;
+  const path = `${logoFolder(actor.tenantId)}/logo-${Date.now()}.${extension}`;
 
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin.storage

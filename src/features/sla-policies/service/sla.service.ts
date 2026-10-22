@@ -98,70 +98,6 @@ async function assertCanManageSla(): Promise<void> {
 }
 
 /**
- * Columns added by migration 20261002120000. Until it is applied to a
- * database, PostgREST rejects any write that names them (PGRST204), so writes
- * retry without them rather than failing the whole save.
- */
-const EDITOR_FIELD_COLUMNS = ["description", "updated_by"];
-
-function isMissingEditorColumn(error: DbError | null): boolean {
-  return (
-    error?.code === "PGRST204" &&
-    EDITOR_FIELD_COLUMNS.some((c) => error.message.includes(`'${c}'`))
-  );
-}
-
-function withoutEditorColumns<T extends Record<string, unknown>>(row: T): T {
-  const copy: Record<string, unknown> = { ...row };
-  for (const column of EDITOR_FIELD_COLUMNS) delete copy[column];
-  return copy as T;
-}
-
-function warnMissingEditorColumns() {
-  console.warn(
-    "sla_policies has no description/updated_by columns; apply migration 20261002120000_sla_policy_editor_fields.sql. Saved without them.",
-  );
-}
-
-/* ── Target units (migration 20261009120000) ─────────────────────────── */
-
-/**
- * Columns added by migration 20261009120000. Before it, a target row stores a
- * day as 1440 minutes whatever the policy counts, so a write that PostgREST
- * rejects for naming them (PGRST204) is retried in that older form.
- */
-const TARGET_UNIT_COLUMNS = ["first_response_unit", "resolution_unit"];
-
-function isMissingTargetUnitColumn(error: DbError | null): boolean {
-  return (
-    error?.code === "PGRST204" &&
-    TARGET_UNIT_COLUMNS.some((c) => error.message.includes(`'${c}'`))
-  );
-}
-
-/** A target row as a database without the unit columns stores it. */
-function toLegacyTargetRow(row: ReturnType<typeof targetRow>, dayMins: number) {
-  const legacyMins = (mins: number, unit: string | undefined) =>
-    unit === "days" ? (mins / dayMins) * UNIT_MINS.days : mins;
-  const {
-    first_response_unit: firstUnit,
-    resolution_unit: resolutionUnit,
-    ...rest
-  } = row;
-  return {
-    ...rest,
-    first_response_mins: legacyMins(row.first_response_mins, firstUnit),
-    resolution_mins: legacyMins(row.resolution_mins, resolutionUnit),
-  };
-}
-
-function warnMissingTargetUnitColumns() {
-  console.warn(
-    "sla_policy_targets has no unit columns; apply migration 20261009120000_sla_target_units.sql. Saved days as 24 hours.",
-  );
-}
-
-/**
  * Minutes in one SLA day of the calendar a policy counts: its working day,
  * or 1440 for 24/7.
  */
@@ -175,37 +111,43 @@ async function loadPolicyDayMins(
   return slaDayMins(toBusinessHoursOption(row));
 }
 
-/* ── Selected customers (migration 20261005120000) ───────────────────── */
-
-const SELECTED_CUSTOMERS_MIGRATION =
-  "20261005120000_sla_policy_selected_customers.sql";
-
-/** The sla_policy_customers table isn't on this database yet. */
-function isMissingCustomerTable(error: DbError | null): boolean {
-  // undefined_table / PostgREST "not in the schema cache"
-  return error?.code === "42P01" || error?.code === "PGRST205";
-}
-
-/** The table, or the 'Selected customers' value, isn't on this database yet. */
-function isMissingCustomerScope(error: DbError | null): boolean {
-  return (
-    isMissingCustomerTable(error) ||
-    Boolean(error?.message.includes("sla_policies_applies_to_check"))
-  );
-}
-
-function missingCustomerScopeError(): Error {
-  console.warn(
-    `Selected-customer SLA policies need migration ${SELECTED_CUSTOMERS_MIGRATION}.`,
-  );
-  return new Error(
-    "Limiting a policy to selected customers isn't available yet. Use All customers for now.",
-  );
-}
+const BUSINESS_HOURS_CHANGED_MESSAGE =
+  "Business hours changed since you opened this page. Reload and try again.";
 
 /**
- * Customer ids per policy. Empty only when the table isn't there yet; any
- * other error throws, because the one-active rules rely on this list.
+ * "Days" targets arrive as minutes the editor worked out from the calendar it
+ * loaded when the page opened. If someone changed the working day since, those
+ * minutes are for the old day (a "1 day" target that is really 9 hours), so
+ * they are checked against the calendar as it is now. `editorDayMins` is the
+ * day length the editor used; without it, the minutes must at least be whole
+ * days of the current calendar.
+ */
+async function assertDayTargetsMatchCalendar(
+  supabase: SupabaseClient,
+  tenantId: string,
+  businessHoursId: string | null | undefined,
+  targets: SlaPolicyEditorTarget[],
+  editorDayMins: number | undefined,
+): Promise<void> {
+  const dayValues = targets.flatMap((t) => [
+    ...(t.firstResponseUnit === "days" ? [t.firstResponseMins] : []),
+    ...(t.resolutionUnit === "days" ? [t.resolutionMins] : []),
+  ]);
+  if (dayValues.length === 0) return;
+
+  const dayMins = await loadPolicyDayMins(supabase, tenantId, businessHoursId);
+  const stale =
+    editorDayMins !== undefined
+      ? editorDayMins !== dayMins
+      : dayValues.some((mins) => mins % dayMins !== 0);
+  if (stale) throw new Error(BUSINESS_HOURS_CHANGED_MESSAGE);
+}
+
+/* ── Selected customers ──────────────────────────────────────────────── */
+
+/**
+ * Customer ids per policy. Any error throws, because the one-active rules
+ * rely on this list.
  */
 async function loadPolicyCustomerIds(
   supabase: SupabaseClient,
@@ -219,10 +161,7 @@ async function loadPolicyCustomerIds(
     .select("policy_id, customer_id")
     .in("policy_id", policyIds);
 
-  if (error) {
-    if (isMissingCustomerTable(error)) return byPolicy;
-    throw dbError(error, "Couldn't load the policy's customers.");
-  }
+  if (error) throw dbError(error, "Couldn't load the policy's customers.");
 
   for (const row of data || []) {
     const list = byPolicy.get(row.policy_id) ?? [];
@@ -245,12 +184,7 @@ async function replacePolicyCustomers(
     .eq("policy_id", policyId)
     .eq("tenant_id", tenantId);
 
-  if (deleteError) {
-    // Nothing to clear on a database without the table.
-    if (isMissingCustomerScope(deleteError) && customerIds.length === 0) return;
-    if (isMissingCustomerScope(deleteError)) throw missingCustomerScopeError();
-    throw dbError(deleteError);
-  }
+  if (deleteError) throw dbError(deleteError);
 
   if (customerIds.length === 0) return;
 
@@ -1026,42 +960,24 @@ function targetRow(
   };
 }
 
-/**
- * Makes the policy's targets exactly `targets`, one row per priority.
- * `dayMins` is only asked for on a database without the unit columns, to
- * write "days" in the older 1440-a-day form.
- */
+/** Makes the policy's targets exactly `targets`, one row per priority. */
 async function replacePolicyTargets(
   supabase: SupabaseClient,
   tenantId: string,
   policyId: string,
   targets: SlaPolicyEditorTarget[],
   existing: SlaPolicyTarget[] = [],
-  dayMins: () => Promise<number> = async () => UNIT_MINS.days,
 ): Promise<void> {
-  let legacyDayMins: number | null = null;
-
   for (const target of targets) {
     const current = existing.find((t) => t.priority_scope === target.priority);
     const row = targetRow(tenantId, policyId, target);
-    const write = (payload: Record<string, unknown>) =>
-      current
-        ? supabase
-            .from("sla_policy_targets")
-            .update(payload)
-            .eq("id", current.id)
-            .eq("tenant_id", tenantId)
-        : supabase.from("sla_policy_targets").insert(payload);
-
-    let { error } =
-      legacyDayMins === null
-        ? await write(row)
-        : await write(toLegacyTargetRow(row, legacyDayMins));
-    if (legacyDayMins === null && isMissingTargetUnitColumn(error)) {
-      warnMissingTargetUnitColumns();
-      legacyDayMins = await dayMins();
-      ({ error } = await write(toLegacyTargetRow(row, legacyDayMins)));
-    }
+    const { error } = current
+      ? await supabase
+          .from("sla_policy_targets")
+          .update(row)
+          .eq("id", current.id)
+          .eq("tenant_id", tenantId)
+      : await supabase.from("sla_policy_targets").insert(row);
     if (error) throw dbError(error);
   }
 
@@ -1186,6 +1102,13 @@ export async function createSlaPolicy(tenant: string, dto: CreateSlaPolicyDto) {
     appliesTo,
     customerIds: dto.customer_ids ?? [],
   });
+  await assertDayTargetsMatchCalendar(
+    supabase,
+    tenantId,
+    dto.business_hours_id,
+    dto.targets,
+    dto.day_mins,
+  );
 
   const row = {
     ...policyColumns(dto),
@@ -1202,29 +1125,18 @@ export async function createSlaPolicy(tenant: string, dto: CreateSlaPolicyDto) {
     updated_by: await currentUserId(supabase),
     is_default: false,
   };
-  const insert = (values: typeof row) =>
-    supabase.from("sla_policies").insert(values).select().single();
+  const { data: policy, error } = await supabase
+    .from("sla_policies")
+    .insert(row)
+    .select()
+    .single();
 
-  let { data: policy, error } = await insert(row);
-  if (isMissingEditorColumn(error)) {
-    warnMissingEditorColumns();
-    ({ data: policy, error } = await insert(withoutEditorColumns(row)));
-  }
-
-  if (isMissingCustomerScope(error)) throw missingCustomerScopeError();
   if (error || !policy) {
     throw error ? dbError(error) : new Error("Couldn't create the policy.");
   }
 
   try {
-    await replacePolicyTargets(
-      supabase,
-      tenantId,
-      policy.id,
-      dto.targets,
-      [],
-      () => loadPolicyDayMins(supabase, tenantId, policy.business_hours_id),
-    );
+    await replacePolicyTargets(supabase, tenantId, policy.id, dto.targets);
     await replacePolicyCustomers(
       supabase,
       tenantId,
@@ -1302,6 +1214,18 @@ export async function updateSlaPolicy(
     loadPolicyCustomerIds(supabase, [policyId]),
   ]);
 
+  // Before the in-use check: a stale page would otherwise be refused with
+  // "policy in use" on a save that only renames it.
+  await assertDayTargetsMatchCalendar(
+    supabase,
+    tenantId,
+    dto.business_hours_id !== undefined
+      ? dto.business_hours_id
+      : current.business_hours_id,
+    dto.targets,
+    dto.day_mins,
+  );
+
   // A policy applied to tickets keeps what its deadlines are worked out
   // from -- the targets and the calendar -- so no running clock moves.
   // Everything else (name, status, scope, customers, notifications, default)
@@ -1333,14 +1257,7 @@ export async function updateSlaPolicy(
       .select()
       .single();
 
-  let { data: policy, error } = await update(updates);
-  const missingEditorColumns = isMissingEditorColumn(error);
-  if (missingEditorColumns) {
-    warnMissingEditorColumns();
-    ({ data: policy, error } = await update(withoutEditorColumns(updates)));
-  }
-
-  if (isMissingCustomerScope(error)) throw missingCustomerScopeError();
+  const { data: policy, error } = await update(updates);
   if (error) throw dbError(error);
 
   try {
@@ -1352,12 +1269,6 @@ export async function updateSlaPolicy(
         policyId,
         dto.targets,
         previousTargets,
-        () =>
-          loadPolicyDayMins(
-            supabase,
-            tenantId,
-            policy?.business_hours_id ?? current.business_hours_id,
-          ),
       );
     }
     await replacePolicyCustomers(
@@ -1378,9 +1289,7 @@ export async function updateSlaPolicy(
           (current as Record<string, unknown>)[key],
         ]),
       );
-      const { error: restoreError } = await update(
-        missingEditorColumns ? withoutEditorColumns(restore) : restore,
-      );
+      const { error: restoreError } = await update(restore);
       if (restoreError) throw new Error(restoreError.message);
     });
     await rollBack("the SLA targets", async () =>

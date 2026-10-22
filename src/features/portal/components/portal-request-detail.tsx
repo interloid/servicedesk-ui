@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 
 import { BackLink } from "@/components/shared/back-link";
+import { CharacterCount } from "@/components/shared/character-count";
+import { LinkifiedText } from "@/components/shared/linkified-text";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -49,6 +51,7 @@ import {
   type PortalRequestState,
   type PortalUploadedFile,
 } from "@/features/portal/portal";
+import { PORTAL_REPLY_MAX } from "@/features/portal/schemas/portal.schema";
 import { prepareAndUpload } from "@/features/portal/upload";
 import { useMounted } from "@/hooks/use-mounted";
 import { useRealtimePortalRequest } from "@/hooks/use-realtime-portal-request";
@@ -377,10 +380,16 @@ export function PortalRequestDetailView({
             onChange={(event) => setBody(event.target.value)}
             onKeyDown={onReplyKeyDown}
             onPaste={onReplyPaste}
+            maxLength={PORTAL_REPLY_MAX}
             disabled={busy}
             rows={2}
             placeholder="Write your reply…"
             className="min-h-11 max-h-32 resize-none overflow-y-auto rounded-xl bg-background text-sm leading-6 sm:min-h-14 sm:max-h-40"
+          />
+          <CharacterCount
+            length={body.length}
+            max={PORTAL_REPLY_MAX}
+            className="mt-1"
           />
 
           {/* On a phone, one column: Send (and Reopen) full width first,
@@ -405,7 +414,7 @@ export function PortalRequestDetailView({
                   type="button"
                   variant="outline"
                   size="lg"
-                  className="h-11 w-full px-5 font-semibold sm:w-auto"
+                  className="h-11 w-full px-5 font-semibold sm:w-auto hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
                   onClick={() => void reopen()}
                   disabled={busy}
                 >
@@ -536,8 +545,9 @@ function Message({
           )}
         >
           {/* Plain text, split on blank lines. Agent replies are not trusted
-            markup and must never be rendered as HTML. Blank paragraphs are
-            dropped, so a message that is only attachments shows its files. */}
+            markup and must never be rendered as HTML -- LinkifiedText only
+            turns http(s) URLs into links. Blank paragraphs are dropped, so a
+            message that is only attachments shows its files. */}
           {message.body
             .split(/\n{2,}/)
             .filter((paragraph) => paragraph.trim() !== "")
@@ -549,7 +559,7 @@ function Message({
                   index > 0 && "mt-2.5",
                 )}
               >
-                {paragraph}
+                <LinkifiedText text={paragraph} />
               </p>
             ))}
 

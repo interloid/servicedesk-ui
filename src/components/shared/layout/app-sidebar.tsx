@@ -43,7 +43,7 @@ import {
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-import { stripTenantPrefix, tenantPath } from "@/lib/tenancy";
+import { stripTenantPrefix, TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -70,17 +70,17 @@ interface NavSection {
 }
 
 const SHIPPED_ROUTES = new Set<string>([
-  "/tickets",
-  "/views",
-  "/customers",
-  "/sla",
-  "/reports",
-  "/settings/team",
-  "/settings/branding",
-  "/settings/notifications",
-  "/settings/audit",
-  "/account/billing",
-  "/account/plans",
+  TENANT_ROUTES.TICKETS,
+  TENANT_ROUTES.VIEWS,
+  TENANT_ROUTES.CUSTOMERS,
+  TENANT_ROUTES.SLA,
+  TENANT_ROUTES.REPORTS,
+  TENANT_ROUTES.SETTINGS.TEAM,
+  TENANT_ROUTES.SETTINGS.BRANDING,
+  TENANT_ROUTES.SETTINGS.NOTIFICATIONS,
+  TENANT_ROUTES.SETTINGS.AUDIT,
+  TENANT_ROUTES.ACCOUNT.BILLING,
+  TENANT_ROUTES.ACCOUNT.PLANS,
 ]);
 
 export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
@@ -110,43 +110,43 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
       items: [
         {
           label: "Ticket queue",
-          href: "/tickets",
+          href: TENANT_ROUTES.TICKETS,
           icon: Ticket,
           roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Saved views",
-          href: "/views",
+          href: TENANT_ROUTES.VIEWS,
           icon: Bookmark,
           roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Customers",
-          href: "/customers",
+          href: TENANT_ROUTES.CUSTOMERS,
           icon: Building2,
           roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Knowledge base",
-          href: "/kb",
+          href: TENANT_ROUTES.KNOWLEDGE_BASE,
           icon: BookOpen,
           roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Macros & templates",
-          href: "/macros",
+          href: TENANT_ROUTES.MACROS,
           icon: MessageSquareText,
           roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "SLA policies",
-          href: "/sla",
+          href: TENANT_ROUTES.SLA,
           icon: Clock,
           roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Reports",
-          href: "/reports",
+          href: TENANT_ROUTES.REPORTS,
           icon: BarChart2,
           roles: ["tenant_admin", "manager"],
           locked: !planIncludesReports(identity?.org.planName),
@@ -159,49 +159,49 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
       items: [
         {
           label: "Team & roles",
-          href: "/settings/team",
+          href: TENANT_ROUTES.SETTINGS.TEAM,
           icon: Users,
           roles: ["tenant_admin", "manager"],
         },
         {
           label: "Branding",
-          href: "/settings/branding",
+          href: TENANT_ROUTES.SETTINGS.BRANDING,
           icon: Droplet,
           roles: ["tenant_admin", "manager"],
         },
         {
           label: "Channels & email",
-          href: "/settings/channels",
+          href: TENANT_ROUTES.SETTINGS.CHANNELS,
           icon: Mail,
           roles: ["tenant_admin"],
         },
         {
           label: "Integrations & API",
-          href: "/settings/integrations",
+          href: TENANT_ROUTES.SETTINGS.INTEGRATIONS,
           icon: Zap,
           roles: ["tenant_admin"],
         },
         {
           label: "Security & SSO",
-          href: "/settings/security",
+          href: TENANT_ROUTES.SETTINGS.SECURITY,
           icon: Shield,
           roles: ["tenant_admin"],
         },
         {
           label: "Data & privacy",
-          href: "/settings/data",
+          href: TENANT_ROUTES.SETTINGS.DATA,
           icon: Database,
           roles: ["tenant_admin"],
         },
         {
           label: "Notification center",
-          href: "/settings/notifications",
+          href: TENANT_ROUTES.SETTINGS.NOTIFICATIONS,
           icon: Bell,
           roles: ["tenant_admin", "manager", "agent"],
         },
         {
           label: "Audit log",
-          href: "/settings/audit",
+          href: TENANT_ROUTES.SETTINGS.AUDIT,
           icon: FileText,
           roles: ["tenant_admin", "manager"],
         },
@@ -213,13 +213,13 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
       items: [
         {
           label: "Billing overview",
-          href: "/account/billing",
+          href: TENANT_ROUTES.ACCOUNT.BILLING,
           icon: CreditCard,
           roles: ["tenant_admin", "billing_admin"],
         },
         {
           label: "Plans & pricing",
-          href: "/account/plans",
+          href: TENANT_ROUTES.ACCOUNT.PLANS,
           icon: BadgeDollarSign,
           roles: ["tenant_admin", "billing_admin"],
         },

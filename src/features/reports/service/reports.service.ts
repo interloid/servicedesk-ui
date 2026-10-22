@@ -54,16 +54,26 @@ type MessageRow = Pick<
   "ticket_id" | "author_id" | "created_at"
 >;
 
-/** How a ticket's first response is judged: its target, and on what clock. */
-interface FirstResponseTarget {
-  mins: number;
-  /** null counts wall-clock (24/7) minutes. */
-  calendar: WorkCalendar | null;
-}
+/**
+ * A ticket's first-response clock, as the SLA engine keeps it. The engine is
+ * the source of truth for met or missed: it pauses while the ticket waits,
+ * keeps the target the clock started with, and only runs one when a policy
+ * covered the ticket. Reports read its verdict instead of re-deriving it.
+ */
+type FirstResponseEvent = Pick<
+  Tables<"sla_events">,
+  "ticket_id" | "status" | "due_at" | "paused_at" | "business_hours_id"
+>;
 
 interface SlaSetup {
-  /** null when no policy covers the ticket, so it is left out of SLA. */
-  targetFor: (t: TicketRow) => FirstResponseTarget | null;
+  /** Each ticket's first-response clock; a ticket without one has no SLA. */
+  eventByTicket: Map<string, FirstResponseEvent>;
+  /** Business-hours calendars by id, for timing replies on a clock's hours. */
+  calendars: Map<string, WorkCalendar>;
+}
+
+interface Calendars {
+  calendars: Map<string, WorkCalendar>;
   /** The tenant's calendar timezone, for day and month buckets. */
   timeZone: string;
 }
@@ -217,12 +227,12 @@ export async function fetchReportsData(
   const now = new Date();
   // First, because the range starts on a bucket boundary in the tenant's
   // timezone, and that timezone comes from the SLA calendars.
-  const slaSetup = await loadSlaSetup(supabase, tenantId);
-  const sinceDate = rangeStart(range, now, slaSetup.timeZone);
+  const { calendars, timeZone } = await loadCalendars(supabase, tenantId);
+  const sinceDate = rangeStart(range, now, timeZone);
   const since = sinceDate.toISOString();
 
   // Independent queries, so they go together rather than one after another.
-  const [ticketsRes, messagesRes, ratingsRes] = await Promise.all([
+  const [ticketsRes, messagesRes, ratingsRes, eventsRes] = await Promise.all([
     // Three overlapping sets in one read: raised in the range (volume, SLA,
     // first response), resolved in the range (throughput, even when raised
     // before it) and open right now (backlog, however old).
@@ -244,8 +254,9 @@ export async function fetchReportsData(
         .range(from, to),
     ),
     fetchFirstReplies(supabase, tenantId, since),
-    // Tolerates the table not existing yet: the reports page must still render
-    // for anyone who has not pushed the csat migration.
+    // Tolerates only the table not existing yet, so the page still renders
+    // for anyone who has not pushed the csat migration. Any other failure
+    // throws: "No ratings yet" would hide it.
     fetchAll<CsatRow>("csat", (from, to) =>
       supabase
         .from("csat_ratings")
@@ -254,10 +265,29 @@ export async function fetchReportsData(
         .gte("created_at", since)
         .order("id", { ascending: true })
         .range(from, to),
-    ).catch((error: Error): FetchedRows<CsatRow> => {
-      console.error(error.message);
-      return { rows: [], truncated: false };
+    ).catch((error: unknown): FetchedRows<CsatRow> => {
+      if (
+        error instanceof ReportsQueryError &&
+        (error.code === "42P01" || error.code === "PGRST205")
+      ) {
+        console.error(error.message);
+        return { rows: [], truncated: false };
+      }
+      throw error;
     }),
+    // First-response clocks of the tickets raised in the range.
+    fetchAll<FirstResponseEvent>("sla events", (from, to) =>
+      supabase
+        .from("sla_events")
+        .select(
+          "ticket_id, status, due_at, paused_at, business_hours_id, tickets!inner(created_at)",
+        )
+        .eq("tenant_id", tenantId)
+        .eq("type", "first_response")
+        .gte("tickets.created_at", since)
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
   ]);
 
   const allTickets = [
@@ -266,7 +296,15 @@ export async function fetchReportsData(
   const messageRows = messagesRes.rows;
   const ratingRows = ratingsRes.rows;
   const truncated =
-    ticketsRes.truncated || messagesRes.truncated || ratingsRes.truncated;
+    ticketsRes.truncated ||
+    messagesRes.truncated ||
+    ratingsRes.truncated ||
+    eventsRes.truncated;
+  const slaSetup: SlaSetup = {
+    // One first_response clock per ticket (uq_ticket_sla_type).
+    eventByTicket: new Map(eventsRes.rows.map((e) => [e.ticket_id, e])),
+    calendars,
+  };
 
   const csat = summariseCsat(ratingRows);
 
@@ -299,11 +337,11 @@ export async function fetchReportsData(
     .filter((v): v is number => v !== null)
     .sort((a, b) => a - b);
 
-  const sla = tallySla(created, firstResponseByTicket, slaSetup, now);
+  const sla = tallySla(created, slaSetup, now);
 
   const prioritySla: PrioritySlaMetric[] = PRIORITY_KEYS.map((key, index) => {
     const rows = created.filter((t) => t.priority === key);
-    const tally = tallySla(rows, firstResponseByTicket, slaSetup, now);
+    const tally = tallySla(rows, slaSetup, now);
     return {
       level: PRIORITY_LEVELS[index],
       metPercentage: tally.percentage,
@@ -319,7 +357,7 @@ export async function fetchReportsData(
     sinceDate,
     now,
     RANGE_GRANULARITY[range],
-    slaSetup.timeZone,
+    timeZone,
   );
 
   const agents = await computeAgentLoad(supabase, tenantId, {
@@ -327,7 +365,6 @@ export async function fetchReportsData(
     resolved,
     backlog,
     firstReplyByAgentAndTicket,
-    firstResponseByTicket,
     ratings: ratingRows,
     slaSetup,
     now,
@@ -561,83 +598,77 @@ function median(values: number[]): number {
 }
 
 /**
- * A ticket counts once it can be judged: it has been answered, it was closed
- * without an answer, or it is still open, unanswered and already past its
- * target (both misses). Only an open ticket that can still make its target is
- * left out, so ignoring tickets can never raise the figure.
+ * Met or missed, as the SLA engine recorded it: a clock that finished in time
+ * is met, a breached one missed, and a running clock already past its
+ * deadline is missed too (sla_tick marks it within the minute). A clock still
+ * running in time, or paused while the ticket waits on the customer, can still
+ * make it and is left out, so ignoring tickets can never raise the figure.
  */
+function firstResponseOutcome(
+  event: FirstResponseEvent | undefined,
+  nowMs: number,
+): "met" | "missed" | null {
+  if (!event) return null;
+  if (event.status === "completed") return "met";
+  if (event.status === "breached") return "missed";
+  return event.paused_at === null && Date.parse(event.due_at) < nowMs
+    ? "missed"
+    : null;
+}
+
+/** Tickets with no first-response clock had no policy, so no target to miss. */
 function tallySla(
   tickets: TicketRow[],
-  firstResponseByTicket: Map<string, string>,
   slaSetup: SlaSetup,
   now: Date,
 ): SlaTally {
-  const nowIso = now.toISOString();
-  const eligible = tickets.filter((t) => {
-    const target = slaSetup.targetFor(t);
-    if (!target) return false;
-    if (getFirstResponseAt(t, firstResponseByTicket) !== null) return true;
-    if (!OPEN_STATUSES.includes(t.status)) return true;
-    return responseMinutes(t, nowIso, slaSetup) > target.mins;
-  });
-  const met = eligible.filter((t) =>
-    ticketMetFirstResponse(t, firstResponseByTicket, slaSetup),
-  ).length;
+  const nowMs = now.getTime();
+  let met = 0;
+  let eligible = 0;
+  for (const t of tickets) {
+    const outcome = firstResponseOutcome(
+      slaSetup.eventByTicket.get(t.id),
+      nowMs,
+    );
+    if (outcome === null) continue;
+    eligible += 1;
+    if (outcome === "met") met += 1;
+  }
 
   return {
     met,
-    eligible: eligible.length,
+    eligible,
     percentage:
-      eligible.length === 0
-        ? null
-        : Math.round((met / eligible.length) * 1000) / 10,
+      eligible === 0 ? null : Math.round((met / eligible) * 1000) / 10,
   };
 }
 
-function ticketMetFirstResponse(
-  t: TicketRow,
-  firstResponseByTicket: Map<string, string>,
-  slaSetup: SlaSetup,
-): boolean {
-  const target = slaSetup.targetFor(t);
-  const frt = getFirstResponseAt(t, firstResponseByTicket);
-  if (target === null || frt === null) return false;
-
-  return responseMinutes(t, frt, slaSetup) <= target.mins;
-}
-
 /**
- * Minutes from the ticket being raised to `at`, on the clock its SLA target
- * runs on: business hours when the target is a business-hours one, wall-clock
- * otherwise. A Friday-evening ticket answered first thing Monday is minutes,
- * not days, against a business-hours target.
+ * Minutes from the ticket being raised to `at`, on the clock its SLA runs on:
+ * the business hours of the ticket's first-response clock when it has some,
+ * wall-clock otherwise. A Friday-evening ticket answered first thing Monday is
+ * minutes, not days, on a business-hours policy.
  */
 function responseMinutes(t: TicketRow, at: string, slaSetup: SlaSetup): number {
-  const calendar = slaSetup.targetFor(t)?.calendar;
+  const hoursId = slaSetup.eventByTicket.get(t.id)?.business_hours_id;
+  const calendar = hoursId ? slaSetup.calendars.get(hoursId) : undefined;
   return calendar
     ? businessMinutesBetween(t.created_at, at, calendar)
     : minutesBetween(t.created_at, at);
 }
 
 /**
- * Judges each ticket by the SLA policy stamped on it, or the tenant's default
- * policy when it has none, with business-hours targets counted on that
- * policy's calendar. A ticket no policy covers has no target to miss.
+ * The tenant's business-hours calendars, and the timezone the trend buckets
+ * follow: the default policy's calendar, else the oldest one, else UTC.
  */
-async function loadSlaSetup(
+async function loadCalendars(
   supabase: SupabaseClient,
   tenantId: string,
-): Promise<SlaSetup> {
-  const [policiesRes, targetsRes, hoursRes] = await Promise.all([
+): Promise<Calendars> {
+  const [policiesRes, hoursRes] = await Promise.all([
     supabase
       .from("sla_policies")
-      .select("id, business_hours_id, is_default, status")
-      .eq("tenant_id", tenantId),
-    supabase
-      .from("sla_policy_targets")
-      .select(
-        "policy_id, priority_scope, first_response_mins, first_response_business",
-      )
+      .select("business_hours_id, is_default, status")
       .eq("tenant_id", tenantId),
     supabase
       .from("business_hours")
@@ -648,9 +679,9 @@ async function loadSlaSetup(
       .order("created_at", { ascending: true }),
   ]);
 
-  // Thrown, not logged: without its policies every ticket would read as
-  // "not covered", and the page would say there is nothing to judge.
-  for (const res of [policiesRes, targetsRes, hoursRes]) {
+  // Thrown, not logged: a failed read would quietly time every reply on the
+  // wrong clock and bucket the trend in the wrong timezone.
+  for (const res of [policiesRes, hoursRes]) {
     if (res.error) {
       throw new Error(
         `[reports] sla setup lookup failed: ${res.error.message}`,
@@ -667,9 +698,9 @@ async function loadSlaSetup(
     if (!code || !isValidTimeZone(code)) continue;
     if (!option.dayStart || !option.dayEnd) continue;
     // A calendar with no working window counts 0 minutes for every gap, so
-    // every answered ticket would read as met. The settings form blocks this,
-    // but provisioning and direct edits do not. Skipped, its targets fall back
-    // to wall-clock time. (HH:MM is zero-padded, so string order is time order.)
+    // every reply would read as instant. The settings form blocks this, but
+    // provisioning and direct edits do not. Skipped, its replies are timed on
+    // wall-clock time. (HH:MM is zero-padded, so string order is time order.)
     if (option.workingDays.length === 0 || option.dayEnd <= option.dayStart) {
       console.warn(
         `[reports] business hours ${row.id} has no working window; using 24/7`,
@@ -685,25 +716,9 @@ async function loadSlaSetup(
     });
   }
 
-  const policies = new Map(
-    (policiesRes.data || []).map((p) => [p.id as string, p]),
-  );
   const defaultPolicy = (policiesRes.data || []).find(
     (p) => p.is_default && p.status === "active",
   );
-
-  const targets = new Map<string, FirstResponseTarget>();
-  for (const row of targetsRes.data || []) {
-    const policy = policies.get(row.policy_id);
-    const calendar =
-      row.first_response_business && policy?.business_hours_id
-        ? (calendars.get(policy.business_hours_id) ?? null)
-        : null;
-    targets.set(`${row.policy_id}:${row.priority_scope}`, {
-      mins: row.first_response_mins,
-      calendar,
-    });
-  }
 
   const timeZone =
     (defaultPolicy?.business_hours_id &&
@@ -711,14 +726,7 @@ async function loadSlaSetup(
     calendars.values().next().value?.timeZone ||
     "UTC";
 
-  return {
-    timeZone,
-    targetFor: (t) => {
-      const policyId = t.sla_policy_id ?? defaultPolicy?.id;
-      if (!policyId) return null;
-      return targets.get(`${policyId}:${t.priority}`) ?? null;
-    },
-  };
+  return { calendars, timeZone };
 }
 
 /* ------------------------------------------------------------------ */
@@ -733,7 +741,6 @@ async function computeAgentLoad(
     resolved: TicketRow[];
     backlog: TicketRow[];
     firstReplyByAgentAndTicket: Map<string, string>;
-    firstResponseByTicket: Map<string, string>;
     ratings: CsatRow[];
     slaSetup: SlaSetup;
     now: Date;
@@ -795,12 +802,7 @@ async function computeAgentLoad(
     const solved = sets.resolved.filter(
       (t) => t.assignee_user_id === id,
     ).length;
-    const sla = tallySla(
-      assigned,
-      sets.firstResponseByTicket,
-      sets.slaSetup,
-      sets.now,
-    );
+    const sla = tallySla(assigned, sets.slaSetup, sets.now);
 
     const replyMinutes = assigned
       .map((t) => {

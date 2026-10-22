@@ -71,7 +71,12 @@ declare
 begin
     new.meta_json := coalesce(new.meta_json, '{}'::jsonb);
 
-    if new.module is null or new.module = 'general' then
+    -- current_user is the API role only for a direct PostgREST insert; inside
+    -- audit_record() and the other SECURITY DEFINER writers it is the owner.
+    -- A client-sent module is never kept.
+    if new.module is null
+       or new.module = 'general'
+       or current_user in ('authenticated', 'anon') then
         new.module := public.audit_module_for(
             new.entity,
             new.action::text,
@@ -130,7 +135,7 @@ execute function public.audit_logs_fill();
 ------------------------------------------------------------
 
 -- The one insert every trigger goes through. SECURITY DEFINER because the
--- insert policy only lets a user write rows naming themselves, and a webhook
+-- insert policy only lets staff write a few events naming themselves, and a webhook
 -- or cron has no user at all (actor_id null reads as "System").
 create or replace function public.audit_record(
     p_tenant_id uuid,

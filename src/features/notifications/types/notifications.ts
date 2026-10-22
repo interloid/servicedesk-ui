@@ -3,6 +3,7 @@ export const NOTIFICATION_EVENT_KEYS = [
   "replies",
   "sla",
   "mention",
+  "created",
 ] as const;
 
 export type NotificationEventKey = (typeof NOTIFICATION_EVENT_KEYS)[number];
@@ -18,8 +19,22 @@ export interface NotificationPrefs {
 
 export function defaultNotificationPrefs(): NotificationPrefs {
   return {
-    email: { assigned: true, replies: true, sla: true, mention: true },
-    in_app: { assigned: true, replies: true, sla: true, mention: true },
+    // "New tickets" reaches admins and managers on every ticket, so its email
+    // is opt-in. queue_notification_email applies the same defaults.
+    email: {
+      assigned: true,
+      replies: true,
+      sla: true,
+      mention: true,
+      created: false,
+    },
+    in_app: {
+      assigned: true,
+      replies: true,
+      sla: true,
+      mention: true,
+      created: true,
+    },
   };
 }
 

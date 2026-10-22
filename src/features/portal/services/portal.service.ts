@@ -42,6 +42,10 @@ import {
   trustedCustomerAvatarUrl,
   trustedTenantLogoUrl,
 } from "@/features/portal/avatar-url";
+import {
+  attachmentContentType,
+  attachmentExtension,
+} from "@/features/tickets/lib/attachments";
 import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { statStoredObject } from "@/lib/supabase/storage-object";
@@ -113,12 +117,13 @@ type TenantRow = {
   name: string;
   slug: string;
   primary_color: string | null;
-  // Optional: get_tenant_by_slug only returns these once the migration that
-  // added the extra branding colours has been applied. Until then they are
-  // absent and the portal falls back to the app defaults.
+  // Optional: get_tenant_by_slug only returns these once migration
+  // 20261022120000_get_tenant_by_slug_branding has been applied. Until then
+  // they are absent and the portal falls back to the app defaults.
   secondary_color?: string | null;
   text_color?: string | null;
   background_color?: string | null;
+  show_logo_on_portal?: boolean | null;
   logo_url: string | null;
 };
 
@@ -224,6 +229,8 @@ export const getPortalTenant = cache(async function getPortalTenant(
     secondaryColor: row.secondary_color?.trim() || null,
     textColor: row.text_color?.trim() || null,
     backgroundColor: row.background_color?.trim() || null,
+    // Shown unless the admin switched it off; absent (older database) = shown.
+    showLogoOnPortal: row.show_logo_on_portal !== false,
     logoUrl: trustedTenantLogoUrl(row.logo_url?.trim() || null),
   };
 });
@@ -1508,24 +1515,61 @@ function formatTarget(
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
 /**
- * The tenant's active default SLA policy -- the one whose promises the portal
- * quotes. `is_default` first, then the oldest, so a tenant that never flagged
- * a default still gets a stable answer.
+ * The SLA policy a new ticket from this customer would get, and so the one
+ * whose promises the portal quotes -- the same choice as
+ * public.sla_resolve_policy (17_sla_engine.sql), which the
+ * tickets_assign_sla_policy trigger runs: the customer's active "Selected
+ * customers" policy (oldest first), else the oldest active non-"Selected
+ * customers" policy with is_default first. Signed out (`customerId` null) only
+ * the second step applies, so a visitor is never quoted another customer
+ * group's policy. One resolver for every portal promise -- reply target,
+ * footer hours, the "support is closed" note -- so they can't disagree.
  */
-async function getDefaultPolicy(admin: AdminClient, tenantId: string) {
+async function resolvePortalPolicy(
+  admin: AdminClient,
+  tenantId: string,
+  customerId: string | null,
+) {
+  if (customerId) {
+    const { data, error } = await admin
+      .from("sla_policies")
+      .select(
+        `id, business_hours_id, created_at, sla_policy_customers!inner(customer_id), ${CALENDAR_SELECT}`,
+      )
+      .eq("tenant_id", tenantId)
+      .eq("status", "active")
+      .eq("applies_to", "Selected customers")
+      .eq("sla_policy_customers.customer_id", customerId)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) return data;
+  }
+
   const { data, error } = await admin
     .from("sla_policies")
-    // The calendar too, for the "support is closed" note: one query picks
-    // the default for every portal promise, so they can't disagree.
     .select(`id, business_hours_id, ${CALENDAR_SELECT}`)
     .eq("tenant_id", tenantId)
     .eq("status", "active")
+    .neq("applies_to", "Selected customers")
     .order("is_default", { ascending: false })
     .order("created_at")
     .limit(1)
     .maybeSingle();
 
   return error ? null : data;
+}
+
+/** A schedule_json carrying the working-day times onboarding writes. */
+function hasDayTimes(
+  schedule: unknown,
+): schedule is { day_start?: unknown; day_end?: unknown } {
+  return (
+    typeof schedule === "object" &&
+    schedule !== null &&
+    !Array.isArray(schedule)
+  );
 }
 
 async function getPolicyFirstResponse(
@@ -1544,20 +1588,16 @@ async function getPolicyFirstResponse(
 
   if (!target) return null;
 
-  // Both embeds are many-to-one, so PostgREST returns objects; the generated
-  // types can't tell and type them as arrays.
-  const policy = target.policy as unknown as {
-    business_hours: { schedule_json: unknown } | null;
-  } | null;
-  const schedule = (policy?.business_hours?.schedule_json ?? null) as {
-    day_start?: string;
-    day_end?: string;
-  } | null;
+  // Both embeds are many-to-one; one() takes either shape PostgREST and the
+  // generated types may give.
+  const schedule = one(one(target.policy)?.business_hours)?.schedule_json;
   const dayMins = slaDayMins(
-    schedule
+    hasDayTimes(schedule)
       ? {
-          dayStart: schedule.day_start ?? null,
-          dayEnd: schedule.day_end ?? null,
+          dayStart:
+            typeof schedule.day_start === "string" ? schedule.day_start : null,
+          dayEnd:
+            typeof schedule.day_end === "string" ? schedule.day_end : null,
         }
       : null,
   );
@@ -1585,11 +1625,7 @@ function supportClosedAt(
 }
 
 /**
- * The calendar of the policy a new ticket from this customer would get --
- * the same choice as public.sla_resolve_policy (17_sla_engine.sql), which the
- * tickets_assign_sla_policy trigger runs: the customer's active "Selected
- * customers" policy (oldest first), else the oldest active non-"Selected
- * customers" policy with is_default first. Kept in step with that function so
+ * The calendar of the policy a new ticket from this customer would get, so
  * the note on the form names the same opening as the toast after submitting.
  */
 async function getNewTicketPolicyCalendar(
@@ -1597,35 +1633,9 @@ async function getNewTicketPolicyCalendar(
   tenantId: string,
   customerId: string | null,
 ): Promise<CalendarJoin | undefined> {
-  if (customerId) {
-    const { data, error } = await admin
-      .from("sla_policies")
-      .select(
-        `created_at, sla_policy_customers!inner(customer_id), ${CALENDAR_SELECT}`,
-      )
-      .eq("tenant_id", tenantId)
-      .eq("status", "active")
-      .eq("applies_to", "Selected customers")
-      .eq("sla_policy_customers.customer_id", customerId)
-      .order("created_at")
-      .limit(1)
-      .maybeSingle();
+  const policy = await resolvePortalPolicy(admin, tenantId, customerId);
 
-    if (!error && data) return data.business_hours;
-  }
-
-  const { data, error } = await admin
-    .from("sla_policies")
-    .select(CALENDAR_SELECT)
-    .eq("tenant_id", tenantId)
-    .eq("status", "active")
-    .neq("applies_to", "Selected customers")
-    .order("is_default", { ascending: false })
-    .order("created_at")
-    .limit(1)
-    .maybeSingle();
-
-  return error || !data ? undefined : data.business_hours;
+  return policy ? policy.business_hours : undefined;
 }
 
 /**
@@ -1680,15 +1690,17 @@ export async function getTicketSupportClosed(
  * only the default policy's target for PORTAL_REQUEST_PRIORITY is exposed --
  * the priority every portal request is created with, so the promise printed
  * is the one the ticket is actually held to. Every other column stays behind
- * the policies.
+ * the policies. The policy is the signed-in customer's own when they have
+ * one (see resolvePortalPolicy).
  */
 export async function getFirstResponseTarget(
   tenantId: string,
+  customerId: string | null = null,
 ): Promise<string> {
   const fallback = "one business day";
 
   const admin = createSupabaseAdminClient();
-  const policy = await getDefaultPolicy(admin, tenantId);
+  const policy = await resolvePortalPolicy(admin, tenantId, customerId);
 
   if (!policy) {
     return fallback;
@@ -1701,8 +1713,8 @@ export async function getFirstResponseTarget(
 }
 
 /**
- * What the portal footer says about when the team is around: the default
- * policy's business hours as one line ("Mon–Fri, 09:00–18:30 IST"), and the
+ * What the portal footer says about when the team is around: the business
+ * hours of the policy resolvePortalPolicy picks for this visitor as one line ("Mon–Fri, 09:00–18:30 IST"), and the
  * urgent first-response promise when there is one.
  *
  * Admin client for the same reason as getFirstResponseTarget -- business_hours
@@ -1713,9 +1725,10 @@ export async function getFirstResponseTarget(
  */
 export const getPortalSupportHours = cache(async function getPortalSupportHours(
   tenantId: string,
+  customerId: string | null = null,
 ): Promise<PortalSupportHours> {
   const admin = createSupabaseAdminClient();
-  const policy = await getDefaultPolicy(admin, tenantId);
+  const policy = await resolvePortalPolicy(admin, tenantId, customerId);
 
   // The policy's own calendar when it names one; otherwise the tenant's
   // oldest, which is the "Default Business Hours" row onboarding creates.
@@ -1735,9 +1748,7 @@ export const getPortalSupportHours = cache(async function getPortalSupportHours(
 
   // The embed is to-one, but the generated types cannot tell once the query
   // is reassigned above, so accept either shape.
-  const timezone = Array.isArray(hours?.timezones)
-    ? (hours.timezones[0] ?? null)
-    : (hours?.timezones ?? null);
+  const timezone = one(hours?.timezones);
 
   return {
     hours: hours ? describeBusinessHours(hours.schedule_json, timezone) : null,
@@ -1904,8 +1915,24 @@ function splitUploadPath(path: string, expectedPrefix: string): string {
   return filename;
 }
 
+/** Same reduction as the agent uploads, so the stored type follows from it. */
 function extensionOf(filename: string): string | null {
-  return filename.match(/\.([A-Za-z0-9]{1,12})$/)?.[1]?.toLowerCase() ?? null;
+  return attachmentExtension(filename) || null;
+}
+
+/**
+ * The type a stored object must carry: the one its server-minted name's
+ * extension maps to. Null when the object is stored under anything else --
+ * a hand-made upload claiming text/html for a .pdf -- or the type isn't allowed.
+ */
+function verifiedStoredMime(
+  storedName: string,
+  storedMime: string,
+): string | null {
+  const expected = attachmentContentType(storedName);
+  const actual = storedMime.split(";")[0].trim().toLowerCase();
+
+  return expected && actual === expected ? expected : null;
 }
 
 /** A randomised basename. Filenames arrive from an untrusted machine, and
@@ -1981,7 +2008,9 @@ async function mintUploadTargets(
       token: data.token,
       name: file.name,
       size: file.size,
-      mime: file.type || "application/octet-stream",
+      // Chosen here from the extension, never from the browser's file.type;
+      // the record step refuses an object stored under any other type.
+      mime: attachmentContentType(file.name) ?? "application/octet-stream",
     });
   }
 
@@ -2090,11 +2119,16 @@ export async function recordPortalAttachments(params: {
     }
 
     const problem = attachmentError({ name: upload.name, size: stored.size });
+    const mime = verifiedStoredMime(filename, stored.mime);
 
-    if (problem) {
+    if (problem || !mime) {
       await admin.storage.from(ATTACHMENT_BUCKET).remove([upload.path]);
 
-      throw new PortalError(problem, "validation");
+      throw new PortalError(
+        problem ??
+          `${upload.name} can't be attached: that file type isn't allowed.`,
+        "validation",
+      );
     }
 
     rows.push({
@@ -2104,7 +2138,7 @@ export async function recordPortalAttachments(params: {
       storage_path: upload.path,
       filename,
       original_filename: upload.name,
-      mime: stored.mime,
+      mime,
       extension: extensionOf(filename),
       size: stored.size,
       uploaded_by: identity.userId,
@@ -2348,11 +2382,18 @@ async function attachStagedUploads(params: {
     }
 
     const problem = attachmentError({ name: upload.name, size: stored.size });
+    const mime = verifiedStoredMime(stagedName, stored.mime);
 
-    if (problem) {
+    if (problem || !mime) {
+      // The refused object goes too, not just what was already moved.
+      await admin.storage.from(ATTACHMENT_BUCKET).remove([upload.path]);
       await unwind();
 
-      throw new PortalError(problem, "validation");
+      throw new PortalError(
+        problem ??
+          `${upload.name} can't be attached: that file type isn't allowed.`,
+        "validation",
+      );
     }
 
     const finalPath = `${destination}/${stagedName}`;
@@ -2386,7 +2427,7 @@ async function attachStagedUploads(params: {
       storage_path: finalPath,
       filename: stagedName,
       original_filename: upload.name,
-      mime: stored.mime,
+      mime,
       extension: extensionOf(stagedName),
       size: stored.size,
       uploaded_by: uploadedBy,

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { abortPlanSwitchAction } from "../billing-actions";
+import { usePaymentRedirect } from "../hooks/use-payment-redirect";
 
 /**
  * Undo whatever is scheduled against the subscription.
@@ -43,7 +44,9 @@ export function UndoScheduledChangeButton({
   onDone?: () => void;
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isTransitionPending, startTransition] = useTransition();
+  const { redirecting, redirect } = usePaymentRedirect();
+  const isPending = isTransitionPending || redirecting;
 
   const handleUndo = (event: React.MouseEvent<HTMLButtonElement>) => {
     // Keep an enclosing AlertDialogAction from closing the dialog the instant
@@ -62,7 +65,7 @@ export function UndoScheduledChangeButton({
       // to confirm. The scheduled change stays until they do -- see the
       // `abort` action -- so there is nothing to announce yet.
       if ("approvalUrl" in result && result.approvalUrl) {
-        window.location.assign(result.approvalUrl);
+        redirect(result.approvalUrl);
         return;
       }
 

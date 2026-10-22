@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 
 export default function Error({
   error,
@@ -9,7 +10,10 @@ export default function Error({
   error: Error & { digest?: string };
   retry: () => void;
 }) {
+  // Errors thrown by the (base-layout) and portal layouts land here, not in
+  // their own segment's boundary, so this one has to report them too.
   useEffect(() => {
+    Sentry.captureException(error);
     console.error(error);
   }, [error]);
 

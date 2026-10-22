@@ -11,8 +11,10 @@
 -- Mirrors getTeamSeats() in src/features/team/services/team.service.ts:
 --   * a seat is a staff membership that is not disabled (invites count);
 --   * platform_admin is not a customer seat (see STAFF_ROLES);
---   * the limit is the seat_limit of the tenant's current (active/trialing)
---     subscription's plan, falling back to Free's 2; 0 means unlimited.
+--   * the limit is the seat_limit of the tenant's current (active/trialing/
+--     past_due, see CURRENT_SUBSCRIPTION_STATUSES) subscription's plan; with
+--     no subscription row at all, the tenant's own plan_id; else Free's 2;
+--     0 means unlimited.
 --
 -- Raises SQLSTATE TS409, which the team service maps to seat-limit-reached.
 
@@ -51,9 +53,19 @@ BEGIN
     FROM public.subscriptions s
     JOIN public.plans p ON p.id = s.plan_id
     WHERE s.tenant_id = NEW.tenant_id
-      AND s.status IN ('active', 'trialing')
+      AND s.status IN ('active', 'trialing', 'past_due')
     ORDER BY s.current_period_start DESC
     LIMIT 1;
+
+    IF NOT FOUND AND NOT EXISTS (
+        SELECT 1 FROM public.subscriptions s WHERE s.tenant_id = NEW.tenant_id
+    ) THEN
+        SELECT p.seat_limit
+        INTO v_limit
+        FROM public.tenants t
+        JOIN public.plans p ON p.id = t.plan_id
+        WHERE t.id = NEW.tenant_id;
+    END IF;
 
     v_limit := COALESCE(v_limit, 2);
 

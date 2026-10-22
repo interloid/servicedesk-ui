@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { isUuid } from "@/lib/uuid";
 
 import { getTenantEntitlements } from "../services/entitlements.service";
 import {
@@ -48,8 +49,6 @@ export type SavedViewFormInput = {
 };
 
 const REORDER_MAX = 500;
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Only messages written for the user go back as is; a raw Postgres or
@@ -213,7 +212,7 @@ function duplicateViewError(
 }
 
 function isViewId(id: unknown): id is string {
-  return typeof id === "string" && UUID_RE.test(id);
+  return isUuid(id);
 }
 
 export async function createSavedViewAction(

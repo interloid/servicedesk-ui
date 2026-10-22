@@ -6,18 +6,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowDown,
-  ArrowDownRight,
-  ArrowUpRight,
   Bell,
   Box,
   CreditCard,
   Download,
   Eye,
   FileText,
-  Hash,
   LayoutList,
   Loader2,
-  MoreHorizontal,
   Search,
   Shield,
   ShieldAlert,
@@ -30,12 +26,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -59,10 +49,7 @@ import { cn } from "@/lib/utils";
 
 import { exportAuditLogAction } from "@/features/audit/audit-actions";
 import { AuditDateRangePicker } from "@/features/audit/components/audit-date-range-picker";
-import {
-  AuditEventDetails,
-  copyText,
-} from "@/features/audit/components/audit-event-details";
+import { AuditEventDetails } from "@/features/audit/components/audit-event-details";
 import { AUDIT_ACTION_ICONS } from "@/features/audit/components/audit-icons";
 import { AuditSettingsDialog } from "@/features/audit/components/audit-settings-dialog";
 import {
@@ -85,7 +72,6 @@ import {
   type AuditFilters,
   type AuditModule,
   type AuditPageData,
-  type AuditStat,
 } from "@/features/audit/types/audit";
 
 const ALL = "all";
@@ -101,26 +87,33 @@ const TAB_ICONS: Record<(typeof AUDIT_TAB_MODULES)[number], LucideIcon> = {
   security: Shield,
 };
 
-/** Wide enough for the docked details panel beside the table. */
-const DOCK_QUERY = "(min-width: 1280px)";
-
-function useDocked(): boolean {
-  return React.useSyncExternalStore(
-    (onChange) => {
-      const media = window.matchMedia(DOCK_QUERY);
-      media.addEventListener("change", onChange);
-      return () => media.removeEventListener("change", onChange);
-    },
-    () => window.matchMedia(DOCK_QUERY).matches,
-    () => true,
-  );
-}
-
 type Draft = Pick<AuditFilters, "q" | "module" | "action" | "user" | "result">;
 
 function draftOf(filters: AuditFilters): Draft {
   const { q, module, action, user, result } = filters;
   return { q, module, action, user, result };
+}
+
+/** An option for a User filter value that isn't one of data.users. */
+function missingUserOption(
+  user: string | null,
+  data: AuditPageData,
+  pinned: { value: string; label: string } | null,
+): { value: string; label: string }[] {
+  if (
+    !user ||
+    user === AUDIT_SYSTEM_ACTOR ||
+    data.users.some((option) => option.id === user)
+  ) {
+    return [];
+  }
+
+  const label =
+    (pinned?.value === user ? pinned.label : null) ??
+    data.events.find((event) => event.actor?.id === user)?.actor?.name ??
+    "Unknown user";
+
+  return [{ value: user, label }];
 }
 
 /* ── Stat cards ─────────────────────────────────────────────────────────── */
@@ -129,20 +122,13 @@ function StatCard({
   icon: Icon,
   tone,
   label,
-  stat,
-  upIsBad,
+  value,
 }: {
   icon: LucideIcon;
   tone: string;
   label: string;
-  stat: AuditStat;
-  upIsBad?: boolean;
+  value: number;
 }) {
-  const change = stat.change;
-  const bad =
-    change !== null && change !== 0 && change > 0 === Boolean(upIsBad);
-  const Arrow = change !== null && change < 0 ? ArrowDownRight : ArrowUpRight;
-
   return (
     <div className="flex items-center gap-4 rounded-[14px] border border-border bg-card p-4 shadow-xs sm:p-5">
       <span
@@ -155,31 +141,10 @@ function StatCard({
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-2xl font-bold tabular-nums">
-          {stat.value.toLocaleString("en-US")}
+          {value.toLocaleString("en-US")}
         </p>
         <p className="truncate text-sm text-muted-foreground">{label}</p>
       </div>
-      {change === null || change === 0 ? (
-        <span
-          className="self-end text-sm text-muted-foreground"
-          title="No change against the previous period"
-        >
-          —
-        </span>
-      ) : (
-        <span
-          className={cn(
-            "flex items-center gap-0.5 self-end text-sm font-semibold tabular-nums",
-            bad
-              ? "text-red-600 dark:text-red-400"
-              : "text-emerald-700 dark:text-emerald-400",
-          )}
-          title="Against the previous period of the same length"
-        >
-          <Arrow className="size-4" aria-hidden />
-          {Math.abs(change)}%
-        </span>
-      )}
     </div>
   );
 }
@@ -207,9 +172,20 @@ export function AuditLogView({
   const [exporting, startExport] = useTransition();
   const [draft, setDraft] = React.useState<Draft>(() => draftOf(filters));
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const docked = useDocked();
 
   const selected = data.events.find((event) => event.id === selectedId) ?? null;
+  // The last opened event stays rendered while the sheet slides closed, so
+  // the panel doesn't go blank mid-animation.
+  const [shown, setShown] = React.useState<AuditEvent | null>(null);
+  if (selected && selected !== shown) {
+    setShown(selected);
+  }
+  // "Show this user's events" can pick a customer or a removed member, who is
+  // not in data.users; remember their name so the User filter isn't blank.
+  const [pinnedUser, setPinnedUser] = React.useState<{
+    value: string;
+    label: string;
+  } | null>(null);
   const pageCount = Math.max(1, Math.ceil(data.total / filters.pageSize));
 
   const hrefFor = (next: Partial<AuditFilters>) => {
@@ -276,18 +252,19 @@ export function AuditLogView({
     data.total === 0 ? 0 : (filters.page - 1) * filters.pageSize + 1;
   const lastRow = Math.min(filters.page * filters.pageSize, data.total);
 
-  const details = selected && (
-    <AuditEventDetails
-      event={selected}
-      timeZone={timeZone}
-      now={now}
-      onClose={() => setSelectedId(null)}
-    />
-  );
+  const showUserEvents = (event: AuditEvent) => {
+    const user = event.actor?.id ?? AUDIT_SYSTEM_ACTOR;
+    if (event.actor) {
+      setPinnedUser({ value: event.actor.id, label: event.actor.name });
+    }
+    setSelectedId(null);
+    setDraft({ ...draftOf(filters), user });
+    go({ ...draftOf(filters), user });
+  };
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="h-full min-w-0 flex-1 overflow-y-auto p-4 font-sans text-slate-900 sm:p-6 lg:p-8 dark:text-foreground">
+    <>
+      <div className="h-full min-w-0 overflow-y-auto p-4 font-sans text-slate-900 sm:p-6 lg:p-8 dark:text-foreground">
         <div className="mx-auto flex w-full flex-col gap-6">
           {/* Header */}
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -340,26 +317,25 @@ export function AuditLogView({
               icon={FileText}
               tone="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
               label="Total events"
-              stat={data.summary.total}
+              value={data.summary.total}
             />
             <StatCard
               icon={Users}
               tone="bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
               label="Unique users"
-              stat={data.summary.users}
+              value={data.summary.users}
             />
             <StatCard
               icon={Box}
               tone="bg-violet-50 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300"
               label="Modules tracked"
-              stat={data.summary.modules}
+              value={data.summary.modules}
             />
             <StatCard
               icon={ShieldAlert}
               tone="bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-300"
               label="Security events"
-              stat={data.summary.security}
-              upIsBad
+              value={data.summary.security}
             />
           </div>
 
@@ -422,6 +398,7 @@ export function AuditLogView({
                     value: user.id,
                     label: user.name,
                   })),
+                  ...missingUserOption(draft.user, data, pinnedUser),
                   { value: AUDIT_SYSTEM_ACTOR, label: "System" },
                 ]}
                 onChange={(user) => setDraft({ ...draft, user })}
@@ -461,7 +438,9 @@ export function AuditLogView({
 
             <nav
               aria-label="Modules"
-              className="flex gap-1 overflow-x-auto border-b border-border px-4"
+              // overflow-x alone makes overflow-y auto too, and the tabs'
+              // -mb-px then shows a vertical scrollbar beside them.
+              className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border px-4 scrollbar-none"
             >
               <TabButton
                 active={filters.module === null}
@@ -489,7 +468,7 @@ export function AuditLogView({
               )}
               aria-busy={navigating}
             >
-              <Table className="min-w-[1080px]">
+              <Table className="min-w-270">
                 <TableHeader>
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
                     <TableHead className={TH}>
@@ -543,11 +522,6 @@ export function AuditLogView({
                         now={now}
                         selected={event.id === selectedId}
                         onOpen={() => setSelectedId(event.id)}
-                        onFilterUser={() => {
-                          const user = event.actor?.id ?? AUDIT_SYSTEM_ACTOR;
-                          setDraft({ ...draftOf(filters), user });
-                          go({ ...draftOf(filters), user });
-                        }}
                       />
                     ))
                   )}
@@ -597,35 +571,29 @@ export function AuditLogView({
         </div>
       </div>
 
-      {/* Details: docked beside the table on wide screens, a sheet otherwise. */}
-      {docked && details && (
-        <aside className="hidden h-full w-[380px] shrink-0 border-l border-border bg-card xl:block">
-          {details}
-        </aside>
-      )}
-      {!docked && (
-        <Sheet
-          open={Boolean(selected)}
-          onOpenChange={(open) => !open && setSelectedId(null)}
+      {/* Details open over the page, so the table keeps its full width. */}
+      <Sheet
+        open={Boolean(selected)}
+        onOpenChange={(open) => !open && setSelectedId(null)}
+      >
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md"
         >
-          <SheetContent
-            side="right"
-            showCloseButton={false}
-            className="w-full gap-0 p-0 data-[side=right]:sm:max-w-md"
-          >
-            <SheetTitle className="sr-only">Event details</SheetTitle>
-            {selected && (
-              <AuditEventDetails
-                event={selected}
-                timeZone={timeZone}
-                now={now}
-                onClose={() => setSelectedId(null)}
-              />
-            )}
-          </SheetContent>
-        </Sheet>
-      )}
-    </div>
+          <SheetTitle className="sr-only">Event details</SheetTitle>
+          {shown && (
+            <AuditEventDetails
+              event={shown}
+              timeZone={timeZone}
+              now={now}
+              onClose={() => setSelectedId(null)}
+              onShowUserEvents={() => showUserEvents(shown)}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
 
@@ -655,10 +623,21 @@ function FilterSelect({
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ALL}>{allLabel}</SelectItem>
+      <SelectContent
+        side="bottom"
+        align="start"
+        position="popper"
+        className="p-1"
+      >
+        <SelectItem value={ALL} className="p-2 cursor-pointer">
+          {allLabel}
+        </SelectItem>
         {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
+          <SelectItem
+            key={option.value}
+            value={option.value}
+            className="p-2 cursor-pointer"
+          >
             {option.label}
           </SelectItem>
         ))}
@@ -714,14 +693,12 @@ function EventRow({
   now,
   selected,
   onOpen,
-  onFilterUser,
 }: {
   event: AuditEvent;
   timeZone: string;
   now: number;
   selected: boolean;
   onOpen: () => void;
-  onFilterUser: () => void;
 }) {
   const ActionIcon = AUDIT_ACTION_ICONS[event.action];
 
@@ -805,32 +782,16 @@ function EventRow({
         className="px-4 py-3 text-center"
         onClick={(e) => e.stopPropagation()}
       >
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-8 rounded-lg shadow-none"
-              aria-label="Event actions"
-            >
-              <MoreHorizontal className="size-4" aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={onOpen}>
-              <Eye className="size-4" aria-hidden />
-              View details
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onFilterUser}>
-              <Users className="size-4" aria-hidden />
-              {event.actor ? "Show this user's events" : "Show system events"}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => copyText(event.id, "Event ID")}>
-              <Hash className="size-4" aria-hidden />
-              Copy event ID
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8 rounded-lg text-muted-foreground shadow-none hover:text-foreground"
+          aria-label="View event details"
+          title="View details"
+          onClick={onOpen}
+        >
+          <Eye className="size-4" aria-hidden />
+        </Button>
       </TableCell>
     </TableRow>
   );

@@ -336,6 +336,13 @@ export async function sendPasswordResetLink(
       return { success: true };
     }
 
+    // Same rule as the tenant flow below: a revoked invitee or removed member
+    // keeps their login, so without this they could still mail themselves a
+    // link and set a password. Same silent success as an unknown address.
+    if (!(await hasUsableMembership(user.id))) {
+      return { success: true };
+    }
+
     const redirectTo = `${
       process.env.NEXT_PUBLIC_SITE_URL || ""
     }/reset-password`;
@@ -426,6 +433,18 @@ export async function updatePassword(values: UpdatePasswordValues) {
     };
   }
 
+  const access = await checkPasswordAccess().catch((error) => {
+    console.error("[auth] checkPasswordAccess failed", error);
+    return {
+      success: false as const,
+      error: "We couldn't update your password. Try again in a moment.",
+    };
+  });
+
+  if (!access.success) {
+    return { success: false, error: access.error };
+  }
+
   const supabase = await createSupabaseServerClient();
 
   const { error } = await supabase.auth.updateUser({
@@ -476,6 +495,28 @@ async function getTenantMembershipAccess(
   }
 
   return data.status === "disabled" ? "disabled" : "allowed";
+}
+
+/**
+ * Whether this user still belongs to any workspace (invited or active). The
+ * central reset page has no workspace in its URL, so this is its version of
+ * getTenantMembershipAccess. Fails closed, like that one.
+ */
+async function hasUsableMembership(userId: string): Promise<boolean> {
+  const admin = createSupabaseAdminClient();
+
+  const { count, error } = await admin
+    .from("memberships")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .neq("status", "disabled");
+
+  if (error) {
+    console.error("[auth] membership lookup failed:", error.message);
+    throw error;
+  }
+
+  return Boolean(count);
 }
 
 const EXPIRED_LINK_MESSAGE =
@@ -532,6 +573,35 @@ export async function checkTenantPasswordAccess(
     return {
       success: false,
       error: TENANT_ACCESS_MESSAGES[access],
+      reason: "no-access",
+    };
+  }
+
+  return { success: true };
+}
+
+/**
+ * The central reset page's version of checkTenantPasswordAccess: the link's
+ * session must belong to someone who still has a workspace. A denied session
+ * is signed out on the way.
+ */
+export async function checkPasswordAccess(): Promise<TenantPasswordAccessResult> {
+  const supabase = await createSupabaseServerClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return { success: false, error: EXPIRED_LINK_MESSAGE, reason: "expired" };
+  }
+
+  if (!(await hasUsableMembership(user.id))) {
+    await supabase.auth.signOut();
+    return {
+      success: false,
+      error: TENANT_ACCESS_MESSAGES["no-membership"],
       reason: "no-access",
     };
   }

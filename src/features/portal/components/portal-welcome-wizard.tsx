@@ -113,7 +113,7 @@ export function PortalWelcomeWizard({
 
             <p className="mx-auto mt-2 max-w-md text-sm leading-[1.6] text-muted-foreground">
               {company
-                ? `Your support account is ready and linked to ${company}, so you'll see every request your team raises with us.`
+                ? `Your support account is ready and linked to ${company}. Every request you raise with us shows up here.`
                 : "Your support account is ready. Here's what you can do:"}
             </p>
 
@@ -140,7 +140,7 @@ export function PortalWelcomeWizard({
                 type="button"
                 size="lg"
                 variant="outline"
-                className="h-11 px-5 font-semibold"
+                className="h-11 px-5 font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
                 onClick={() => void finish()}
                 disabled={isFinishing}
               >
@@ -196,7 +196,7 @@ export function PortalWelcomeWizard({
                 type="button"
                 size="lg"
                 variant="outline"
-                className="h-11 px-5 font-semibold"
+                className="h-11 px-5 font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
                 onClick={() => setStep(1)}
                 disabled={isFinishing}
               >

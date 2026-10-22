@@ -83,7 +83,11 @@ function PortalHeader({
           // --brand-pressed, which is just as invisible.
           className="flex min-w-0 items-center gap-2.5 rounded-md text-brand-accent-foreground outline-none hover:text-brand-accent-foreground focus-visible:ring-2 focus-visible:ring-current/60"
         >
-          <TenantMark tenant={tenant} className="bg-current/15" />
+          {/* Switched off in branding: no logo and no initial tile either --
+              the name alone still reads as the workspace. */}
+          {tenant.showLogoOnPortal ? (
+            <TenantMark tenant={tenant} className="bg-current/15" />
+          ) : null}
 
           {/* min-w-0 + truncate so a long workspace name shortens instead of
               squeezing the actions off the right edge on a narrow screen. */}

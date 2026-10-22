@@ -307,7 +307,7 @@ export function TicketDetailSkeleton() {
           </div>
           {/* Subject: text-2xl. */}
           <Skeleton className="h-8 w-96 max-w-full" />
-          {/* Opened by … · last activity. */}
+          {/* Created by … · last activity. */}
           <Skeleton className="h-4 w-72 max-w-full" />
         </div>
 

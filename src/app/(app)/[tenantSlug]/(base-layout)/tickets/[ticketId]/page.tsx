@@ -15,6 +15,7 @@ import {
   getCurrentUserIdentity,
   getTicketMessages,
 } from "@/features/tickets/services/tickets.service";
+import { isUuid } from "@/lib/uuid";
 
 interface TicketDetailPageProps {
   params: Promise<{ tenantSlug: string; ticketId: string }>;
@@ -24,7 +25,9 @@ export async function generateMetadata({
   params,
 }: TicketDetailPageProps): Promise<Metadata> {
   const { tenantSlug, ticketId } = await params;
-  const ticket = await fetchTicketById(tenantSlug, ticketId);
+  const ticket = isUuid(ticketId)
+    ? await fetchTicketById(tenantSlug, ticketId)
+    : null;
   return {
     title: ticket ? `#${ticket.number} · ${ticket.subject}` : "Ticket",
   };
@@ -34,6 +37,9 @@ export default async function TicketDetailPage({
   params,
 }: TicketDetailPageProps) {
   const { tenantSlug, ticketId } = await params;
+  // A malformed id would reach Postgres as a 22P02 error; it is just a 404.
+  if (!isUuid(ticketId)) notFound();
+
   const tenantId = await getTenantIdBySlug(tenantSlug);
   const ticket = tenantId ? await fetchTicketById(tenantSlug, ticketId) : null;
 

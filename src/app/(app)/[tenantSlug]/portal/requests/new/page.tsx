@@ -33,11 +33,12 @@ export default async function PortalNewRequestPage({
   const identity = await getPortalIdentity(tenantSlug);
   const tenant = identity?.tenant ?? (await getPortalTenant(tenantSlug));
 
+  // The signed-in customer's own policy, as their ticket will get.
+  const customerId = identity?.customer.id ?? null;
   const [firstResponseTarget, supportClosed] = tenant
     ? await Promise.all([
-        getFirstResponseTarget(tenant.id),
-        // The signed-in customer's own policy, as their ticket will get.
-        getPortalSupportClosed(tenant.id, identity?.customer.id ?? null),
+        getFirstResponseTarget(tenant.id, customerId),
+        getPortalSupportClosed(tenant.id, customerId),
       ])
     : ["one business day", null];
 

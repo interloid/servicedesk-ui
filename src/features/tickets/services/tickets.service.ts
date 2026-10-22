@@ -19,7 +19,6 @@ import {
   TicketMessage,
   TicketPriority,
   TicketStatus,
-  TICKET_STATUSES,
   NO_SLA_TEXT,
   isTicketPriority,
   isTicketStatus,
@@ -33,7 +32,7 @@ import { normalizeTagName } from "../lib/tags";
 import { CALENDAR_SELECT, one, toSlaCalendar } from "../lib/sla-calendar-row";
 import { DurationUnit, isDurationUnit } from "@/features/sla-policies/duration";
 import { getInitials } from "@/lib/format";
-import { filterToPostgrest } from "@/features/saved-view/filters";
+import { filterToPostgrest, searchTerm } from "@/features/saved-view/filters";
 import {
   attachmentContentType,
   attachmentExtension,
@@ -215,7 +214,7 @@ function applyTicketFilters<Q extends TicketFilterable<Q>>(
 
   // Commas, parentheses and quotes are syntax in a PostgREST or-filter, so
   // they are dropped and the pattern quoted: "login, password" is plain text.
-  const term = (filters.search ?? "").replace(/[,()"\\]/g, " ").trim();
+  const term = searchTerm(filters.search ?? "");
   const searchLogic = term
     ? `or(subject.ilike."%${term}%",description.ilike."%${term}%")`
     : null;
@@ -352,38 +351,6 @@ export async function fetchTenantTickets(
   };
 }
 
-export type TicketStatusCounts = Partial<Record<TicketStatus, number>>;
-
-export async function fetchTicketStatusCounts(
-  tenant: string,
-): Promise<TicketStatusCounts> {
-  const supabase = await createSupabaseServerClient();
-  const tenantId = await getTenantIdBySlug(tenant);
-  if (!tenantId) return {};
-
-  // One head-only count per status: nothing is downloaded, and the totals
-  // aren't cut off at the API's max_rows (1000) the way counting rows was.
-  const results = await Promise.all(
-    TICKET_STATUSES.map((status) =>
-      supabase
-        .from("tickets")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("status", status),
-    ),
-  );
-
-  const counts: TicketStatusCounts = {};
-  results.forEach(({ count, error }, i) => {
-    if (error) {
-      console.error("Error fetching ticket status counts:", error.message);
-      return;
-    }
-    if (count) counts[TICKET_STATUSES[i]] = count;
-  });
-  return counts;
-}
-
 /**
  * Attach each ticket's SLA snapshot (the clock that matters most right now)
  * and its tags. The list ticks the countdown itself from this (computeLiveSla).
@@ -406,14 +373,16 @@ async function attachSlaInfo(tickets: Ticket[]): Promise<Ticket[]> {
     policyIds.length > 0
       ? supabase
           .from("sla_policies")
-          .select(`id, notify_before_mins, ${CALENDAR_SELECT}`)
+          .select(
+            `id, notify_before_mins, notify_before_breach, ${CALENDAR_SELECT}`,
+          )
           .in("id", policyIds)
       : Promise.resolve({ data: [], error: null }),
     fetchTagsForTickets(ids),
   ]);
 
   const warnByPolicy = new Map(
-    (policiesRes.data || []).map((p) => [p.id, p.notify_before_mins]),
+    (policiesRes.data || []).map((p) => [p.id, slaWarnMins(p)]),
   );
   const calendarByPolicy = new Map(
     (policiesRes.data || []).map((p) => [
@@ -647,6 +616,18 @@ export async function setTicketTags(
   return fetchTicketTags(ticketId);
 }
 
+/**
+ * A policy's amber lead. With warnings off sla_tick sends none, so the UI
+ * shows no amber either: a 0-minute lead.
+ */
+function slaWarnMins(policy: {
+  notify_before_mins: number | null;
+  notify_before_breach: boolean | null;
+}): number {
+  if (policy.notify_before_breach === false) return 0;
+  return policy.notify_before_mins ?? DEFAULT_SLA_WARN_MINS;
+}
+
 /** The policy a ticket runs against, with what the SLA card shows of it. */
 export async function fetchTicketSlaPolicy(
   policyId: string | null | undefined,
@@ -655,7 +636,9 @@ export async function fetchTicketSlaPolicy(
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("sla_policies")
-    .select(`id, name, notify_before_mins, ${CALENDAR_SELECT}`)
+    .select(
+      `id, name, notify_before_mins, notify_before_breach, ${CALENDAR_SELECT}`,
+    )
     .eq("id", policyId)
     .maybeSingle();
 
@@ -688,7 +671,7 @@ export async function fetchTicketSlaPolicy(
   return {
     id: data.id,
     name: data.name,
-    warn_before_mins: data.notify_before_mins ?? DEFAULT_SLA_WARN_MINS,
+    warn_before_mins: slaWarnMins(data),
     business_hours_name: one(join)?.name ?? null,
     calendar,
     day_mins: dayMins,
@@ -1514,10 +1497,7 @@ export async function searchTenantCustomers(
     .eq("tenant_id", tenantId);
 
   // Same escaping as the ticket search: these are or-filter syntax.
-  const term = query
-    .replace(/[,()"\\]/g, " ")
-    .trim()
-    .slice(0, 100);
+  const term = searchTerm(query).slice(0, 100);
   if (term) {
     request = request.or(
       `full_name.ilike."%${term}%",email.ilike."%${term}%",company.ilike."%${term}%"`,

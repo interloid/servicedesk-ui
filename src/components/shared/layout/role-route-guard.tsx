@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import {
+  defaultTenantLanding,
   isTenantRouteAllowed,
   stripTenantPrefix,
   tenantPath,
@@ -28,7 +29,7 @@ export function RoleRouteGuard({ role }: { role: string }) {
       return;
     }
 
-    router.replace(tenantPath(parsed.slug, "/account/billing"));
+    router.replace(tenantPath(parsed.slug, defaultTenantLanding(role)));
   }, [pathname, role, router]);
 
   return null;

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { AuthShell } from "@/features/auth/components/auth-card";
+import { loginErrorMessage } from "@/features/auth/login-errors";
 import { TenantLoginForm } from "@/features/auth/components/tenant-login-form";
 import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
 import { getShellIdentity } from "@/lib/identity";
@@ -27,7 +28,10 @@ export default async function TenantLoginPage(props: PageProps) {
   ]);
 
   const errorParam = searchParams.error;
-  const initialError = Array.isArray(errorParam) ? errorParam[0] : errorParam;
+  // Only a known code is shown; free text in `?error=` is dropped.
+  const initialError = loginErrorMessage(
+    Array.isArray(errorParam) ? errorParam[0] : errorParam,
+  );
 
   const nextParam = searchParams.next;
   const next = Array.isArray(nextParam) ? nextParam[0] : nextParam;

@@ -40,7 +40,10 @@ export default async function PortalWelcomePage({
   // replayed render of this page cannot spend the wizard before the customer
   // has seen it. See markWelcomeShownAction.
 
-  const firstResponseTarget = await getFirstResponseTarget(identity.tenant.id);
+  const firstResponseTarget = await getFirstResponseTarget(
+    identity.tenant.id,
+    identity.customer.id,
+  );
 
   return (
     <PortalWelcomeWizard

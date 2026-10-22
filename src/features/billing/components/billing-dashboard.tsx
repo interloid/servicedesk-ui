@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useTransition, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarClock,
@@ -46,25 +46,19 @@ import { UpdatePaymentModal } from "./payment-method";
 import { ModalNotice } from "@/components/shared/modal-notice";
 import { UndoScheduledChangeButton } from "./undo-scheduled-change-button";
 import { ResumeUpgradeApprovalButton } from "./resume-upgrade-approval-button";
+import { MODAL_BUTTON, MODAL_BUTTON_PRIMARY } from "./modal-buttons";
+import type { PillTone } from "../types";
 import {
   DashboardCard,
   DetailRow,
   IconTile,
-  LoadingState,
   NoticeBanner,
   PayPalMark,
   StatusPill,
   StatusText,
 } from "./reuse";
 
-export const MODAL_BUTTON =
-  "h-10 w-full gap-2 rounded-lg px-5 text-sm font-semibold shadow-none duration-200 ease-out motion-safe:active:scale-[0.98] sm:w-auto";
-
-/** The affirmative action in a dialog footer. */
-export const MODAL_BUTTON_PRIMARY =
-  "bg-brand-accent text-brand-accent-foreground hover:bg-brand-accent/90";
 type Invoice = BillingDashboardData["invoices"][number];
-type PillTone = "emerald" | "sky" | "amber" | "red" | "slate";
 
 // Billing history pages through invoices newest first, one page at a time.
 const INVOICES_PER_PAGE = 5;
@@ -84,9 +78,8 @@ const SECONDARY_BUTTON = `h-10 gap-2 rounded-lg px-4 text-sm font-semibold ${BUT
 const PAGINATION_BUTTON = `size-10 shrink-0 rounded-lg border-slate-200 p-0 sm:size-9 ${BUTTON_MICRO}`;
 
 interface BillingDashboardProps {
-  params: Promise<{ tenantSlug: string }>;
+  tenantSlug: string;
   initialData?: BillingDashboardData | null;
-  isLoading?: boolean;
 }
 
 // Invoice numbers are sequential per tenant ("INV-002"), so within one day the
@@ -101,12 +94,10 @@ function newestFirst(invoices: Invoice[]): Invoice[] {
 }
 
 export default function BillingDashboard({
-  params,
+  tenantSlug,
   initialData,
-  isLoading = false,
 }: BillingDashboardProps) {
   const router = useRouter();
-  const { tenantSlug } = use(params);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [isUpdatePaymentOpen, setIsUpdatePaymentOpen] = useState(false);
   const [isPlanDetailsOpen, setIsPlanDetailsOpen] = useState(false);
@@ -122,20 +113,6 @@ export default function BillingDashboard({
     setDismissedBanners((current) =>
       current.includes(id) ? current : [...current, id],
     );
-
-  if (isLoading) {
-    return (
-      <LoadingState
-        showBanner={
-          !!initialData &&
-          (initialData.billingStatus === "past_due" ||
-            initialData.billingStatus === "cancelled" ||
-            !!initialData.isSuspended ||
-            !!initialData.scheduledChange)
-        }
-      />
-    );
-  }
 
   if (!initialData) {
     return (
@@ -193,12 +170,26 @@ export default function BillingDashboard({
       ) ?? invoices.find((inv) => inv.status === "Paid"))
     : undefined;
 
+  // past_due: PayPal could not collect a recurring charge. The plan is kept
+  // until the grace period ends (reconcile-subscriptions downgrades then), so
+  // it must read as a failure with that deadline -- never as a green "Active".
+  const isPastDue = data.billingStatus === "past_due";
+  const graceEndsLabel = data.paymentTrouble?.graceEndsAt
+    ? new Date(data.paymentTrouble.graceEndsAt).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
+
   const planStatus: { label: string; tone: PillTone } =
     data.billingStatus === "cancelled"
       ? { label: `Ends ${data.renewalDate}`, tone: "amber" }
       : data.billingStatus === "trialing"
         ? { label: "Trial", tone: "sky" }
-        : { label: "Active", tone: "emerald" };
+        : isPastDue
+          ? { label: "Payment failed", tone: "red" }
+          : { label: "Active", tone: "emerald" };
 
   const effectiveDateLabel = scheduledChange
     ? new Date(scheduledChange.effectiveAt).toLocaleDateString("en-US", {
@@ -292,6 +283,31 @@ export default function BillingDashboard({
             Change plan
           </Button>
         </div>
+
+        {isPastDue ? (
+          <NoticeBanner
+            tone="red"
+            icon={CreditCard}
+            title="Your last payment failed."
+            description={
+              graceEndsLabel
+                ? `Update your payment method by ${graceEndsLabel} to keep ${currentPlanName}. After that date the workspace moves to the Free plan.`
+                : `PayPal is retrying the charge. Update your payment method to keep ${currentPlanName}.`
+            }
+            action={
+              <Button
+                variant="outline"
+                className={cn(
+                  OUTLINE_BUTTON,
+                  "h-9 w-full border-red-300 text-xs text-red-900 hover:bg-red-100 sm:w-auto",
+                )}
+                onClick={() => setIsUpdatePaymentOpen(true)}
+              >
+                Update payment method
+              </Button>
+            }
+          />
+        ) : null}
 
         {isPendingCancellation &&
         !dismissedBanners.includes("pending-cancellation") ? (

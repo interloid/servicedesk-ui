@@ -49,7 +49,8 @@ useEffect(() => {
     // ...same .on(...) handlers...
     .subscribe((status, err) => {
       if (status === "SUBSCRIBED") void reload();
-      if (status === "CHANNEL_ERROR") console.error("[notifications] realtime", err);
+      if (status === "CHANNEL_ERROR")
+        console.error("[notifications] realtime", err);
     });
   return () => {
     active = false;
@@ -69,8 +70,9 @@ useEffect(() => {
 
 ```tsx
 // setRead failure: flip only that row back
-setNotifications((list) =>
-  list?.map((n) => (n.id === id ? { ...n, unread: read } : n)) ?? list,
+setNotifications(
+  (list) =>
+    list?.map((n) => (n.id === id ? { ...n, unread: read } : n)) ?? list,
 );
 // remove failure: re-insert only the removed row
 setNotifications((list) =>
@@ -133,7 +135,9 @@ onClick={() => visible.filter((n) => n.unread).forEach((n) => void setRead(n.id,
 ```tsx
 // provider
 const hydrated = useRef(false);
-const hydrate = useCallback((data) => { hydrated.current = true; /* set state */ }, []);
+const hydrate = useCallback((data) => {
+  hydrated.current = true; /* set state */
+}, []);
 // mount load: if (!hydrated.current) reload();
 ```
 
@@ -145,7 +149,11 @@ const hydrate = useCallback((data) => { hydrated.current = true; /* set state */
 - **Minimal fix:**
 
 ```ts
-export async function markNotificationReadAction(id: string, read = true, revalidate = false) {
+export async function markNotificationReadAction(
+  id: string,
+  read = true,
+  revalidate = false,
+) {
   await markNotificationRead(id, read);
   if (revalidate) await revalidateNotifications();
   return { ok: true };
@@ -162,7 +170,10 @@ export async function markNotificationReadAction(id: string, read = true, revali
 ```tsx
 const p = prefsRef.current;
 if (p && isShownInApp(item, p)) {
-  toast(item.title, { id: `notif-${item.kind}`, description: item.subtitle || undefined });
+  toast(item.title, {
+    id: `notif-${item.kind}`,
+    description: item.subtitle || undefined,
+  });
 }
 ```
 
@@ -174,9 +185,12 @@ if (p && isShownInApp(item, p)) {
 - **Minimal fix:**
 
 ```ts
-const { count } = await supabase.from("notifications")
+const { count } = await supabase
+  .from("notifications")
   .select("id", { count: "exact", head: true })
-  .eq("tenant_id", actor.tenantId).eq("user_id", actor.userId).is("read_at", null);
+  .eq("tenant_id", actor.tenantId)
+  .eq("user_id", actor.userId)
+  .is("read_at", null);
 ```
 
 ## 🏗️ 3. Architectural & Cross-File Findings
@@ -214,21 +228,21 @@ const { count } = await supabase.from("notifications")
 
 ## 📋 6. Risk Tracking Table
 
-| Risk ID  | Priority | Risk (Short Description)                      | File                                                        | Completed | Reason if Not Completed |
-| -------- | -------- | --------------------------------------------- | ----------------------------------------------------------- | --------- | ----------------------- |
-| RISK-001 | High     | Members can read others' notifications        | `supabase/schemas/policies/17_notifications.sql`            | No        | _Pending_               |
-| RISK-002 | High     | Bell load waits on realtime subscribe         | `src/features/notifications/components/notifications-provider.tsx` | No        | _Pending_               |
-| RISK-003 | Medium   | Failed save rollback erases other changes     | `src/features/notifications/components/notifications-provider.tsx` | No        | _Pending_               |
-| RISK-004 | Medium   | Relative times frozen at load time            | `src/features/notifications/lib/feed.ts`                    | No        | _Pending_               |
-| RISK-005 | Medium   | Replies missing from replies filter           | `src/features/notifications/lib/feed.ts`                    | No        | _Pending_               |
-| RISK-006 | Medium   | Bell and page unread counts disagree          | `src/components/shared/layout/notification-menu.tsx`        | No        | _Pending_               |
-| RISK-007 | Medium   | Bell not openable by keyboard                 | `src/components/shared/layout/notification-menu.tsx`        | No        | _Pending_               |
-| RISK-008 | Medium   | Notifications page loads data twice           | `src/features/notifications/components/notifications-view.tsx` | No        | _Pending_               |
-| RISK-009 | Medium   | Bell clicks purge all cached pages            | `src/features/notifications/actions/notifications.actions.ts` | No        | _Pending_               |
-| RISK-010 | Medium   | Toasts ignore prefs before load               | `src/features/notifications/components/notifications-provider.tsx` | No        | _Pending_               |
-| RISK-011 | Medium   | Unread count capped at 200 rows               | `src/features/notifications/services/notifications.service.ts` | No        | _Pending_               |
-| RISK-012 | Low      | Duplicate icon and tone mappings              | `notifications-view.tsx`, `notification-menu.tsx`           | No        | _Pending_               |
-| RISK-013 | Low      | Dead `Notification` type left behind          | `src/types/notification.ts`                                 | No        | _Pending_               |
-| RISK-014 | Low      | Unchecked casts on notification rows          | `notifications-provider.tsx`, `notifications.service.ts`    | No        | _Pending_               |
+| Risk ID  | Priority | Risk (Short Description)                  | File                                                               | Completed | Reason if Not Completed |
+| -------- | -------- | ----------------------------------------- | ------------------------------------------------------------------ | --------- | ----------------------- |
+| RISK-001 | High     | Members can read others' notifications    | `supabase/schemas/policies/17_notifications.sql`                   | No        | _Pending_               |
+| RISK-002 | High     | Bell load waits on realtime subscribe     | `src/features/notifications/components/notifications-provider.tsx` | No        | _Pending_               |
+| RISK-003 | Medium   | Failed save rollback erases other changes | `src/features/notifications/components/notifications-provider.tsx` | No        | _Pending_               |
+| RISK-004 | Medium   | Relative times frozen at load time        | `src/features/notifications/lib/feed.ts`                           | No        | _Pending_               |
+| RISK-005 | Medium   | Replies missing from replies filter       | `src/features/notifications/lib/feed.ts`                           | No        | _Pending_               |
+| RISK-006 | Medium   | Bell and page unread counts disagree      | `src/components/shared/layout/notification-menu.tsx`               | No        | _Pending_               |
+| RISK-007 | Medium   | Bell not openable by keyboard             | `src/components/shared/layout/notification-menu.tsx`               | No        | _Pending_               |
+| RISK-008 | Medium   | Notifications page loads data twice       | `src/features/notifications/components/notifications-view.tsx`     | No        | _Pending_               |
+| RISK-009 | Medium   | Bell clicks purge all cached pages        | `src/features/notifications/actions/notifications.actions.ts`      | No        | _Pending_               |
+| RISK-010 | Medium   | Toasts ignore prefs before load           | `src/features/notifications/components/notifications-provider.tsx` | No        | _Pending_               |
+| RISK-011 | Medium   | Unread count capped at 200 rows           | `src/features/notifications/services/notifications.service.ts`     | No        | _Pending_               |
+| RISK-012 | Low      | Duplicate icon and tone mappings          | `notifications-view.tsx`, `notification-menu.tsx`                  | No        | _Pending_               |
+| RISK-013 | Low      | Dead `Notification` type left behind      | `src/types/notification.ts`                                        | No        | _Pending_               |
+| RISK-014 | Low      | Unchecked casts on notification rows      | `notifications-provider.tsx`, `notifications.service.ts`           | No        | _Pending_               |
 
 > Update the **Completed** column as you fix each item. If a risk will not be fixed, replace `_Pending_` with the reason (for example: "Deferred to Q3 — requires auth refactor" or "Accepted risk — internal admin page only").

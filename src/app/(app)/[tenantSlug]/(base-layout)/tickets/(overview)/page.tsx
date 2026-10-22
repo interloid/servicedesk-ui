@@ -8,16 +8,13 @@ import {
 import {
   ASSIGNEE_ROLES,
   fetchTenantTickets,
-  fetchTicketStatusCounts,
   getCurrentUserIdentity,
 } from "@/features/tickets/services/tickets.service";
 import {
   fetchSavedViewFilter,
   fetchSavedViewTabs,
 } from "@/features/saved-view/services/saved-views.service";
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { isUuid } from "@/lib/uuid";
 
 export const metadata: Metadata = {
   title: "Tickets",
@@ -49,8 +46,7 @@ export default async function TicketsPage({
   // A saved view's AND / OR rules don't fit in status=/priority= params, so
   // its tab links by id and the rules are read here. An id that isn't a view
   // the viewer can see is ignored: every ticket.
-  const viewId =
-    typeof sp.view === "string" && UUID_RE.test(sp.view) ? sp.view : null;
+  const viewId = isUuid(sp.view) ? sp.view : null;
   const viewFilter = viewId
     ? await fetchSavedViewFilter(tenantSlug, viewId)
     : null;
@@ -70,32 +66,30 @@ export default async function TicketsPage({
     ? Number(sp.limit)
     : TICKET_PAGE_SIZES[0];
 
-  const [{ tickets, totalCount }, statusCounts, currentUser, viewTabs] =
-    await Promise.all([
-      fetchTenantTickets(tenantSlug, {
-        status,
-        priority,
-        search,
-        viewFilter,
-        sort,
-        sortOrder,
-        page,
-        limit,
-      }),
-      fetchTicketStatusCounts(tenantSlug),
-      getCurrentUserIdentity(tenantSlug),
-      // The tabs are the viewer's saved views, in their Views page order.
-      // [] if they fail to load: the table falls back to the status tabs.
-      fetchSavedViewTabs(tenantSlug),
-    ]);
+  // The tabs are the viewer's saved views, in their Views page order, each
+  // with a count query: started first but not awaited, so the table paints first and the tabs
+  // stream in. [] if they fail to load: the table shows "All tickets" alone.
+  const viewTabs = fetchSavedViewTabs(tenantSlug);
 
+  const [{ tickets, totalCount }, currentUser] = await Promise.all([
+    fetchTenantTickets(tenantSlug, {
+      status,
+      priority,
+      search,
+      viewFilter,
+      sort,
+      sortOrder,
+      page,
+      limit,
+    }),
+    getCurrentUserIdentity(tenantSlug),
+  ]);
   return (
     <TicketsTable
       initialTickets={tickets}
       totalCount={totalCount}
       page={page}
       limit={limit}
-      statusCounts={statusCounts}
       viewTabs={viewTabs}
       tenant={tenantSlug}
       // Tenant admins aren't assignees, so no bulk "Assign to me".

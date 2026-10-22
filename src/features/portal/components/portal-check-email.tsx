@@ -48,19 +48,24 @@ export function PortalCheckEmail({
     setNotice(undefined);
     setIsResending(true);
 
-    const result = await requestSignInLinkAction(tenantSlug, { email });
+    try {
+      const result = await requestSignInLinkAction(tenantSlug, { email });
 
-    setIsResending(false);
+      if (result.success) {
+        // The inline notice below already reads as status (role="status"), and
+        // this is a terminal screen in the sign-in flow -- a toast saying "sent
+        // again" would only repeat the line above the button.
+        setNotice(`We sent another link to ${email}.`);
+        return;
+      }
 
-    if (result.success) {
-      // The inline notice below already reads as status (role="status"), and
-      // this is a terminal screen in the sign-in flow -- a toast saying "sent
-      // again" would only repeat the line above the button.
-      setNotice(`We sent another link to ${email}.`);
-      return;
+      setError(result.message);
+    } catch {
+      // A network failure: say so, and give the button back.
+      setError("We couldn't send another link. Try again.");
+    } finally {
+      setIsResending(false);
     }
-
-    setError(result.message);
   }
 
   return (

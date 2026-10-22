@@ -49,7 +49,7 @@ export function PortalPasswordDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* As in the profile dialog: no hover wash on the cross. */}
-      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] gap-5 overflow-y-auto rounded-2xl p-5 sm:max-w-md sm:p-6 [&_[data-slot=dialog-close]]:hover:bg-transparent">
+      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] gap-5 overflow-y-auto rounded-2xl p-5 sm:max-w-md sm:p-6 **:data-[slot=dialog-close]:hover:bg-transparent">
         <DialogHeader className="gap-1 text-left">
           <DialogTitle className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
             Change password
@@ -138,7 +138,7 @@ function PasswordForm({
               variant="outline"
               disabled={form.formState.isSubmitting}
               onClick={onDone}
-              className="h-11 px-5 text-sm font-semibold"
+              className="h-11 px-5 text-sm font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
             >
               Cancel
             </Button>

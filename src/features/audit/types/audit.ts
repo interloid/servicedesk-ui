@@ -354,17 +354,12 @@ export function formatAuditDay(day: string): string {
 
 /* ── Page payload ──────────────────────────────────────────────────────── */
 
-export type AuditStat = {
-  value: number;
-  /** Percent change against the previous period, or null when there was none. */
-  change: number | null;
-};
-
+/** Counts for the stat cards, over the selected period. */
 export type AuditSummary = {
-  total: AuditStat;
-  users: AuditStat;
-  modules: AuditStat;
-  security: AuditStat;
+  total: number;
+  users: number;
+  modules: number;
+  security: number;
 };
 
 export type AuditUserOption = {

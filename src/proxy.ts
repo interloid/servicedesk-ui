@@ -25,6 +25,11 @@ import {
 } from "@/lib/tenancy";
 
 import { readTenantClaims } from "@/features/auth/claims";
+import {
+  REMEMBER_COOKIE,
+  authCookieLifetime,
+  isRememberedSession,
+} from "@/lib/supabase/remember";
 
 import { APP_ROUTES } from "@/lib/routes";
 
@@ -154,6 +159,11 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
 
   const hostHeader = request.headers.get("host") || "";
 
+  // A token refresh must keep the lifetime chosen at sign-in (see remember.ts).
+  const remember = isRememberedSession(
+    request.cookies.get(REMEMBER_COOKIE)?.value,
+  );
+
   const supabase = createServerClient(
     env.NEXT_PUBLIC_SUPABASE_URL,
     env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -183,6 +193,7 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
               path: "/",
               sameSite: "lax",
               secure: IS_HTTPS,
+              ...authCookieLifetime(options, remember),
             });
           });
         },
@@ -558,6 +569,8 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Metadata routes are anchored with $ so a tenant slug that merely starts
+    // with the same letters still goes through the proxy.
+    "/((?!_next/static|_next/image|favicon.ico|(?:opengraph-image|robots\\.txt|sitemap\\.xml)$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

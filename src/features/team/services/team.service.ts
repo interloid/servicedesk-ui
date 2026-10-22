@@ -395,15 +395,8 @@ export async function getTeamSeats(): Promise<TeamSeats> {
   return calcTeamSeats(count ?? 0, limit);
 }
 
-/**
- * The server's clock for this render, handed to the table so its relative
- * times ("2 days ago") come out the same on the server and on hydration.
- * Lives here rather than in the page because calling Date.now() in a component
- * body is a render-purity violation.
- */
-export const serverNow = cache(async function serverNow(): Promise<number> {
-  return Date.now();
-});
+// The one shared per-request clock; re-exported for existing importers.
+export { serverNow } from "@/lib/server-now";
 
 export async function getCallerRole(): Promise<TeamRole | null> {
   return (await getActorOrNull())?.role ?? null;
@@ -466,6 +459,35 @@ export async function inviteMember(values: InviteMemberValues): Promise<void> {
   if (!hasSeatLeft(seats)) {
     throw seatLimitError(seats);
   }
+
+  await addInvitedStaffMember({
+    tenantId: actor.tenantId,
+    tenantSlug: actor.tenantSlug,
+    inviterId: actor.userId,
+    email: values.email,
+    role: values.role,
+  });
+}
+
+/**
+ * The invite itself, after the caller's permission and seat checks: an
+ * `invited` membership (never an active one) and the team invitation email.
+ * An existing account is only invited, and is refused when it already belongs
+ * to another workspace. Shared by the Team page and the signup wizard, so the
+ * two can't drift apart again. The seat trigger still re-checks the limit.
+ */
+export async function addInvitedStaffMember(values: {
+  tenantId: string;
+  tenantSlug: string | null;
+  inviterId: string;
+  email: string;
+  role: TeamRole;
+}): Promise<void> {
+  const actor = {
+    tenantId: values.tenantId,
+    tenantSlug: values.tenantSlug,
+    userId: values.inviterId,
+  };
 
   const email = values.email.trim().toLowerCase();
   // The invite form collects an email and a role, nothing else, so the
@@ -715,6 +737,9 @@ export async function resendInvite(values: ResendInviteValues): Promise<void> {
       "id, role, status, user_id, user:users!memberships_user_id_fkey ( email, full_name )",
     )
     .eq("id", values.memberId)
+    .eq("tenant_id", actor.tenantId)
+    // A customer's invited membership must not get a staff invitation.
+    .in("role", [...STAFF_ROLES])
     .maybeSingle<InviteRow>();
 
   if (error) {
@@ -915,6 +940,16 @@ export async function changeMemberStatus(
       throw fail("We couldn't look that member up.", currentError);
     }
 
+    // Only a disabled member is switched back on here. A pending invite
+    // becomes active when the person accepts it; marking it active from here
+    // would count someone as staff who never joined.
+    if (current?.status === "invited") {
+      throw new TeamError(
+        "A pending invite becomes active when they accept it.",
+        { status: 409, code: "action-not-allowed" },
+      );
+    }
+
     if (current?.status === "disabled") {
       const seats = await getTeamSeats();
 
@@ -924,7 +959,7 @@ export async function changeMemberStatus(
     }
   }
 
-  const { data, error } = await createSupabaseAdminClient()
+  let statusUpdate = createSupabaseAdminClient()
     .from("memberships")
     .update({
       status: STATUS_TO_DB[values.status],
@@ -934,8 +969,14 @@ export async function changeMemberStatus(
     })
     .eq("id", values.memberId)
     .eq("tenant_id", actor.tenantId)
-    .eq("role", ROLE_TO_DB[target.role])
-    .select("id");
+    .eq("role", ROLE_TO_DB[target.role]);
+
+  if (values.status === "Active") {
+    // Same rule as above, held at write time too.
+    statusUpdate = statusUpdate.neq("status", "invited");
+  }
+
+  const { data, error } = await statusUpdate.select("id");
 
   if (error) {
     // The trigger caught a seat taken between the check above and this write.
@@ -1043,6 +1084,55 @@ export async function transferOwnership(
   }
 }
 
+/**
+ * For a tenant with no subscription row at all, the plan on the tenant itself
+ * (what the header and plans page show), so the gates agree with it. A tenant
+ * whose subscription exists but is no longer current gets nothing here and so
+ * falls back to Free, as before.
+ */
+async function getPlanRecordFromTenant(
+  admin: SupabaseClient,
+  tenantId: string,
+): Promise<TenantPlanRecord | null> {
+  const { count, error: countError } = await admin
+    .from("subscriptions")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId);
+
+  if (countError || count) {
+    if (countError) {
+      console.error("[entitlements] subscription count failed:", countError);
+    }
+    return null;
+  }
+
+  const { data, error } = await admin
+    .from("tenants")
+    .select("plans!tenants_plan_id_fkey ( name, seat_limit, features_json )")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[entitlements] tenant plan lookup failed:", error);
+    return null;
+  }
+
+  const plans = data?.plans as
+    TenantPlanRow | TenantPlanRow[] | null | undefined;
+  const plan = Array.isArray(plans) ? plans[0] : plans;
+
+  if (!plan) {
+    return null;
+  }
+
+  return {
+    planName: plan.name ?? "Free",
+    seatLimit: typeof plan.seat_limit === "number" ? plan.seat_limit : null,
+    seats: null,
+    featuresJson: plan.features_json,
+  };
+}
+
 export const getTenantPlanRecord = cache(async function getTenantPlanRecord(
   tenantId: string,
 ): Promise<TenantPlanRecord | null> {
@@ -1078,7 +1168,7 @@ export const getTenantPlanRecord = cache(async function getTenantPlanRecord(
   }
 
   if (!data) {
-    return null;
+    return getPlanRecordFromTenant(admin, tenantId);
   }
 
   // PostgREST types an embedded to-one as an array or an object depending on

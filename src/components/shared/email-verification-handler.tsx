@@ -6,7 +6,10 @@ import { toast } from "sonner";
 import { createSupabaseClient } from "@/lib/supabase/client";
 
 const SKIP_TYPES = new Set(["recovery", "invite"]);
-const OWNED_PATHS = /\/(reset-password|auth\/callback|auth\/confirm)$/;
+// Pages that read their own link params. The login pages also put their own
+// `?error=` codes in the URL, which are not email-link failures.
+const OWNED_PATHS =
+  /\/(reset-password|auth\/callback|auth\/confirm|login|portal\/login)$/;
 
 export function EmailVerificationHandler() {
   const handledRef = useRef(false);
@@ -18,11 +21,9 @@ export function EmailVerificationHandler() {
     const search = new URLSearchParams(url.search);
     const hash = new URLSearchParams(url.hash.slice(1));
 
-    const providerError =
-      hash.get("error_description") ||
-      search.get("error_description") ||
-      hash.get("error") ||
-      search.get("error");
+    // Supabase's own failure marker only. A bare `?error=` belongs to
+    // whichever page set it (a login redirect, a portal error), not to us.
+    const providerError = hash.get("error_code") || search.get("error_code");
     const type = hash.get("type") || search.get("type");
     const code = search.get("code") || hash.get("code");
     const tokenHash = search.get("token_hash");

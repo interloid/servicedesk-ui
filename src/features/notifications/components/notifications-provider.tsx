@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 
 import { createSupabaseClient } from "@/lib/supabase/client";
+import { subscribeWithAuth } from "@/lib/supabase/realtime";
 import {
   isShownInApp,
   toFeedItem,
@@ -141,15 +142,16 @@ export function NotificationsProvider({
             prev ? prev.filter((n) => n.id !== old.id) : prev,
           );
         },
-      )
-      // Realtime doesn't replay what was missed while the socket was down,
-      // so every (re)subscribe loads the feed again.
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") void reload();
-      });
+      );
+
+    // Realtime doesn't replay what was missed while the socket was down,
+    // so every (re)subscribe loads the feed again.
+    const unsubscribe = subscribeWithAuth(supabase, channel, (status) => {
+      if (status === "SUBSCRIBED") void reload();
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [userId, reload]);
 

@@ -49,7 +49,10 @@ function withCurrentTenantPrefix(path: string): string {
   return prefix ? `${prefix}${normalizedPath}` : normalizedPath;
 }
 
-export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
+// `next` goes to the server, which checks it (same-site path, allowed for
+// the role) and answers with the URL to open. The client never navigates to a
+// caller-supplied target directly.
+export function useLogin({ next }: Pick<UseLoginOptions, "next"> = {}) {
   const router = useRouter();
   const [isPending, setIsPending] = useState<boolean>(false);
 
@@ -83,8 +86,7 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
 
       toast.success("Logged in successfully");
 
-      const rawTarget =
-        redirectTo === undefined ? result.data.redirectTo : redirectTo;
+      const rawTarget = result.data.redirectTo;
 
       if (!rawTarget) {
         // Nothing to navigate to, so nothing will unmount this component.
@@ -106,7 +108,7 @@ export function useLogin({ redirectTo, next }: UseLoginOptions = {}) {
 
       return result;
     },
-    [next, redirectTo, router],
+    [next, router],
   );
 
   return { login, isPending };

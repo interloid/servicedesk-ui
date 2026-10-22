@@ -108,14 +108,18 @@ export function PortalUserMenu({
 
           <DropdownMenuItem
             onSelect={() => setIsProfileOpen(true)}
-            className="h-9 px-3 text-sm font-medium cursor-pointer"
+            className="h-9 px-3 text-sm font-medium cursor-pointer
+    hover:bg-brand-accent/10 hover:text-brand-accent
+    focus:bg-brand-accent/10 focus:text-brand-accent"
           >
             Profile settings
           </DropdownMenuItem>
 
           <DropdownMenuItem
             onSelect={() => setIsPasswordOpen(true)}
-            className="h-9 px-3 text-sm font-medium cursor-pointer"
+            className="h-9 px-3 text-sm font-medium cursor-pointer
+    hover:bg-brand-accent/10 hover:text-brand-accent
+    focus:bg-brand-accent/10 focus:text-brand-accent"
           >
             Change password
           </DropdownMenuItem>

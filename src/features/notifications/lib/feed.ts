@@ -28,7 +28,7 @@ const TYPE_TO_FEED: Record<string, NotificationFeedType> = {
 
 /**
  * Which preference row governs a notification type. Types without a row
- * (new tickets, billing, system notices) are always delivered.
+ * (closures, billing, system notices) are always delivered.
  */
 const TYPE_TO_PREF: Record<string, NotificationEventKey> = {
   ticket_assigned: "assigned",
@@ -36,6 +36,7 @@ const TYPE_TO_PREF: Record<string, NotificationEventKey> = {
   sla_breach: "sla",
   sla_warning: "sla",
   mention: "mention",
+  ticket_created: "created",
 };
 
 const FALLBACK_TITLES: Record<string, string> = {

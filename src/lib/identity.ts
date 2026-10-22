@@ -1,12 +1,15 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getTenantContext } from "@/features/tenancy/services/tenant-resolver";
 import { ShellIdentity } from "@/types/shell-identity";
 import { getTenantClaims } from "@/features/auth/claims";
 import { STAFF_ROLES } from "@/features/team/types/team";
 
-export async function getShellIdentity(
+// Cached per request: the layout and the pages under it can all ask.
+export const getShellIdentity = cache(async function getShellIdentity(
   tenantSlug: string,
 ): Promise<ShellIdentity | null> {
   const supabase = await createSupabaseServerClient();
@@ -36,22 +39,67 @@ export async function getShellIdentity(
     return null;
   }
 
-  const tenant = await getTenantContext();
+  // None of these reads depends on another, so they go out together rather
+  // than as a chain of round-trips before the first byte.
+  const [
+    tenant,
+    { data: liveMembership, error: liveMembershipError },
+    { data: tenantData, error: tenantError },
+    { data: subscription, error: subscriptionError },
+    { count: memberCount, error: memberError },
+    { data: profile },
+  ] = await Promise.all([
+    getTenantContext(),
+    // The claims above live until the access token refreshes (up to an hour),
+    // so on their own they let a removed or disabled member keep using the
+    // app, and a demoted one keep their old role, until then. The live row
+    // decides.
+    supabase
+      .from("memberships")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("tenant_id", tenantId)
+      .eq("status", "active")
+      .maybeSingle<{ role: string }>(),
+    supabase
+      .from("tenants")
+      .select("id, name, plan_id")
+      .eq("id", tenantId)
+      .single(),
+    supabase
+      .from("subscriptions")
+      .select(
+        `
+          id,
+          status,
+          plan_id,
+          seats
+        `,
+      )
+      .eq("tenant_id", tenantId)
+      .eq("status", "active")
+      .maybeSingle(),
+    supabase
+      .from("memberships")
+      .select("id", {
+        count: "exact",
+        head: true,
+      })
+      .eq("tenant_id", tenantId)
+      // Seats are staff only, as on the Team page and in the seat trigger:
+      // portal customers hold a membership too, but never a seat.
+      .in("role", [...STAFF_ROLES])
+      .eq("status", "active"),
+    supabase
+      .from("users")
+      .select("full_name, avatar_url")
+      .eq("id", user.id)
+      .maybeSingle(),
+  ]);
 
   if (tenant && tenant.id !== tenantId) {
     return null;
   }
-
-  // The claims above live until the access token refreshes (up to an hour),
-  // so on their own they let a removed or disabled member keep using the app,
-  // and a demoted one keep their old role, until then. The live row decides.
-  const { data: liveMembership, error: liveMembershipError } = await supabase
-    .from("memberships")
-    .select("role")
-    .eq("user_id", user.id)
-    .eq("tenant_id", tenantId)
-    .eq("status", "active")
-    .maybeSingle<{ role: string }>();
 
   if (liveMembershipError) {
     console.error(
@@ -65,12 +113,6 @@ export async function getShellIdentity(
     return null;
   }
 
-  const { data: tenantData, error: tenantError } = await supabase
-    .from("tenants")
-    .select("id, name, plan_id")
-    .eq("id", tenantId)
-    .single();
-
   if (tenantError || !tenantData) {
     console.error(
       `[identity] tenant ${tenantId} lookup failed:`,
@@ -78,20 +120,6 @@ export async function getShellIdentity(
     );
     return null;
   }
-
-  const { data: subscription, error: subscriptionError } = await supabase
-    .from("subscriptions")
-    .select(
-      `
-        id,
-        status,
-        plan_id,
-        seats
-      `,
-    )
-    .eq("tenant_id", tenantId)
-    .eq("status", "active")
-    .maybeSingle();
 
   if (subscriptionError) {
     console.error(
@@ -138,18 +166,6 @@ export async function getShellIdentity(
     }
   }
 
-  const { count: memberCount, error: memberError } = await supabase
-    .from("memberships")
-    .select("id", {
-      count: "exact",
-      head: true,
-    })
-    .eq("tenant_id", tenantId)
-    // Seats are staff only, as on the Team page and in the seat trigger:
-    // portal customers hold a membership too, but never a seat.
-    .in("role", [...STAFF_ROLES])
-    .eq("status", "active");
-
   if (memberError) {
     console.error("[identity] member count failed:", memberError.message);
   }
@@ -162,12 +178,6 @@ export async function getShellIdentity(
     seatLimit > 0
       ? `${planName} plan · ${seatsUsed} of ${seatLimit} agent seats`
       : `${planName} plan · ${seatsUsed} agent seats`;
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("full_name, avatar_url")
-    .eq("id", user.id)
-    .maybeSingle();
 
   const fullName =
     profile?.full_name?.trim() || user.user_metadata?.full_name?.trim() || "";
@@ -199,4 +209,4 @@ export async function getShellIdentity(
       role: liveMembership.role,
     },
   };
-}
+});

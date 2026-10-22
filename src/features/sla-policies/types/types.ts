@@ -339,6 +339,11 @@ export interface CreateSlaPolicyDto {
   escalate_on_breach?: boolean;
   escalate_to_role?: EscalationRole;
   targets: SlaPolicyEditorTarget[];
+  /**
+   * The working-day length the editor turned "days" targets into minutes
+   * with, so the server can tell when business hours changed meanwhile.
+   */
+  day_mins?: number;
 }
 
 export interface UpdateSlaPolicyDto {
@@ -355,6 +360,11 @@ export interface UpdateSlaPolicyDto {
   escalate_on_breach?: boolean;
   escalate_to_role?: EscalationRole;
   targets: SlaPolicyEditorTarget[];
+  /**
+   * The working-day length the editor turned "days" targets into minutes
+   * with, so the server can tell when business hours changed meanwhile.
+   */
+  day_mins?: number;
 }
 
 /**

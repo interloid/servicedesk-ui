@@ -27,7 +27,13 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { PageLoader } from "@/components/shared/page-loader";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { toast } from "sonner";
-import { updatePasswordAction } from "@/features/auth/actions/actions";
+import {
+  checkPasswordAccessAction,
+  updatePasswordAction,
+} from "@/features/auth/actions/actions";
+
+const EXPIRED_LINK_MESSAGE =
+  "This link has expired or was already used. Request a new one.";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -51,6 +57,31 @@ function ResetPasswordForm() {
       const supabase = createSupabaseClient();
 
       try {
+        // Supabase sends a dead link back with the reason in the URL
+        // (#error=access_denied&error_code=otp_expired, or ?error=… on the
+        // code flow) and no tokens. Stop there: falling through to
+        // getSession() would pick up whoever is already signed in on this
+        // browser and offer to change THEIR password.
+        const linkParams = new URLSearchParams(
+          window.location.hash.substring(1),
+        );
+        const linkError =
+          searchParams.get("error_code") ??
+          searchParams.get("error") ??
+          linkParams.get("error_code") ??
+          linkParams.get("error");
+
+        if (linkError) {
+          console.error("[Reset Password] Link rejected:", linkError);
+          window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname,
+          );
+          setAuthError(EXPIRED_LINK_MESSAGE);
+          return;
+        }
+
         const code = searchParams.get("code");
 
         if (code) {
@@ -58,19 +89,20 @@ function ResetPasswordForm() {
 
           if (error) {
             console.error("Code exchange failed:", error);
-            setAuthError(error.message);
+            setAuthError(EXPIRED_LINK_MESSAGE);
+            return;
           }
 
-          return;
-        }
-        const hash = window.location.hash;
-
-        if (hash) {
-          const params = new URLSearchParams(hash.substring(1));
-
-          const accessToken = params.get("access_token");
-          const refreshToken = params.get("refresh_token");
-          const type = params.get("type");
+          // A used code must not stay in the URL to be replayed or shared.
+          window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname,
+          );
+        } else if (window.location.hash) {
+          const accessToken = linkParams.get("access_token");
+          const refreshToken = linkParams.get("refresh_token");
+          const type = linkParams.get("type");
 
           if (accessToken && refreshToken) {
             const { data, error } = await supabase.auth.setSession({
@@ -80,7 +112,7 @@ function ResetPasswordForm() {
 
             if (error) {
               console.error("Failed to establish invite session:", error);
-              setAuthError(error.message);
+              setAuthError(EXPIRED_LINK_MESSAGE);
               return;
             }
 
@@ -90,11 +122,7 @@ function ResetPasswordForm() {
             }
 
             window.history.replaceState(null, "", window.location.pathname);
-
-            return;
-          }
-
-          if (type === "invite") {
+          } else if (type === "invite") {
             setAuthError("Invalid or expired invitation link.");
             return;
           }
@@ -106,6 +134,16 @@ function ResetPasswordForm() {
 
         if (!session) {
           setAuthError("Invalid or expired password reset link.");
+          return;
+        }
+
+        // The link's session is valid on its own (it is Supabase's, not ours),
+        // so check the person still belongs to a workspace before offering
+        // the form. A revoked invitee is signed out by the check.
+        const access = await checkPasswordAccessAction();
+
+        if (!access.success) {
+          setAuthError(access.error);
         }
       } catch (error) {
         console.error("Authentication error:", error);

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  AuthError,
   exchangeOAuthCode,
   logout,
   safeNext,
@@ -14,6 +15,7 @@ import {
   TENANT_ROUTES,
 } from "@/lib/tenancy";
 import { APP_ROUTES } from "@/lib/routes";
+import type { LoginErrorCode } from "@/features/auth/login-errors";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
@@ -30,21 +32,23 @@ export async function GET(request: NextRequest) {
     ? tenantLoginPath(requestedSlug)
     : APP_ROUTES.LOGIN;
 
-  function failure(message: string) {
+  // The code, never the message: the login page maps it back to fixed copy,
+  // so a crafted link cannot put arbitrary text in the sign-in alert.
+  function failure(code: LoginErrorCode) {
     const loginUrl = new URL(loginPath, origin);
-    loginUrl.searchParams.set("error", message);
+    loginUrl.searchParams.set("error", code);
 
     return NextResponse.redirect(loginUrl);
   }
 
-  async function rejectSession(message: string) {
+  async function rejectSession(code: LoginErrorCode) {
     try {
       await logout();
     } catch (error) {
       console.error("[app-auth] failed to revoke rejected session:", error);
     }
 
-    return failure(message);
+    return failure(code);
   }
 
   const providerError =
@@ -53,13 +57,13 @@ export async function GET(request: NextRequest) {
   if (providerError) {
     console.error("[app-auth] provider returned an error:", providerError);
 
-    return failure(providerError);
+    return failure("provider_error");
   }
 
   const code = searchParams.get("code");
 
   if (!code) {
-    return failure("That sign-in link is incomplete. Start again.");
+    return failure("incomplete");
   }
 
   try {
@@ -76,15 +80,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (!tenantSlug) {
-      return rejectSession(
-        "That Google account isn't a member of any workspace yet. Ask your admin for an invite.",
-      );
+      return rejectSession("no_workspace");
     }
 
     if (requestedSlug && requestedSlug !== tenantSlug) {
-      return rejectSession(
-        "You are not registered as a member of this workspace. Contact your admin.",
-      );
+      return rejectSession("not_member");
     }
 
     const landing = isTenantRouteAllowed(role, destination)
@@ -97,8 +97,14 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("[app-auth] Callback failed:", error);
 
-    return failure(
-      error instanceof Error ? error.message : "Authentication failed",
-    );
+    if (error instanceof AuthError) {
+      return failure(
+        error.code === "no_workspace_access"
+          ? "no_workspace_access"
+          : "expired",
+      );
+    }
+
+    return failure("unknown");
   }
 }

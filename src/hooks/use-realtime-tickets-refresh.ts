@@ -2,12 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createSupabaseClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
-
-/** Quiet time before a refresh, so a burst of changes is one refresh. */
-const DEBOUNCE_MS = 400;
-/** A steady stream of changes still refreshes at least this often. */
-const MAX_WAIT_MS = 2000;
+import { subscribeWithAuth } from "@/lib/supabase/realtime";
+import { useDebouncedRefresh } from "@/hooks/use-debounced-refresh";
 
 /**
  * Subscribe to realtime changes on `tickets` and `sla_events` for the current
@@ -26,7 +22,7 @@ export function useRealtimeTicketsRefresh(
   tenantSlug?: string,
   knownTenantId?: string,
 ) {
-  const router = useRouter();
+  const { schedule, fire, cancel } = useDebouncedRefresh();
 
   // Remember the tenant id once seen, so a filter that empties the list
   // doesn't drop the subscription.
@@ -66,29 +62,7 @@ export function useRealtimeTicketsRefresh(
     if (typeof window === "undefined" || typeof WebSocket === "undefined")
       return;
     const supabase = createSupabaseClient();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let firstQueuedAt: number | null = null;
     let joined = false;
-
-    const fire = () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-      firstQueuedAt = null;
-      router.refresh();
-    };
-
-    // Debounced, but never more than MAX_WAIT_MS after the first change
-    // queued, so a steady stream can't starve the refresh.
-    const schedule = () => {
-      const now = Date.now();
-      firstQueuedAt ??= now;
-      if (timer) clearTimeout(timer);
-      const wait = Math.max(
-        0,
-        Math.min(DEBOUNCE_MS, firstQueuedAt + MAX_WAIT_MS - now),
-      );
-      timer = setTimeout(fire, wait);
-    };
 
     const filter = `tenant_id=eq.${tenantId}`;
 
@@ -124,18 +98,19 @@ export function useRealtimeTicketsRefresh(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "tickets", filter },
         schedule,
-      )
-      // Realtime doesn't replay changes missed while the socket was down
-      // (a sleeping laptop, dropped wifi): re-read the list on rejoin.
-      .subscribe((status) => {
-        if (status !== "SUBSCRIBED") return;
-        if (joined) fire();
-        joined = true;
-      });
+      );
+
+    // Realtime doesn't replay changes missed while the socket was down
+    // (a sleeping laptop, dropped wifi): re-read the list on rejoin.
+    const unsubscribe = subscribeWithAuth(supabase, channel, (status) => {
+      if (status !== "SUBSCRIBED") return;
+      if (joined) fire();
+      joined = true;
+    });
 
     return () => {
-      if (timer) clearTimeout(timer);
-      supabase.removeChannel(channel);
+      cancel();
+      unsubscribe();
     };
-  }, [tenantId, router]);
+  }, [tenantId, schedule, fire, cancel]);
 }

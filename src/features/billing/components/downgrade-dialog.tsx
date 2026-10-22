@@ -19,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { usePaymentRedirect } from "../hooks/use-payment-redirect";
 const CONFIRM_DANGER =
   "border-red-600 bg-background text-red-600 hover:border-red-600 hover:bg-red-50 hover:text-red-600 disabled:border-red-300 disabled:bg-background disabled:text-red-300 disabled:opacity-100 dark:hover:bg-red-950/30";
 const CONFIRM_ACCENT =
@@ -48,7 +49,9 @@ export function DowngradeDialog({
   scheduledToPlan,
 }: DowngradeDialogProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isTransitionPending, startTransition] = useTransition();
+  const { redirecting, redirect } = usePaymentRedirect();
+  const isPending = isTransitionPending || redirecting;
 
   const isFreeTarget = targetPlan?.priceValue === 0;
   const targetSeatLimit = targetPlan?.seatLimit ?? 0;
@@ -125,7 +128,7 @@ export function DowngradeDialog({
         }
 
         if (res.approvalUrl) {
-          window.location.assign(res.approvalUrl);
+          redirect(res.approvalUrl);
           return;
         }
 
@@ -143,6 +146,7 @@ export function DowngradeDialog({
           );
 
           onOpenChange(false);
+          router.refresh();
           return;
         }
 

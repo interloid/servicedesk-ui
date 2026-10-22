@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getTenantIdBySlug } from "@/features/tenancy/services/tenant-resolver";
 import {
   CUSTOM_VIEWS_PER_USER_MAX,
   filterToPostgrest,
@@ -71,21 +72,16 @@ type PreferenceRow = {
   order_position: number;
 };
 
-type RlsClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+/**
+ * The per-request cached lookup. It only maps slug to id: every query below
+ * runs on the RLS client, so membership is still checked on saved_views.
+ */
+async function tenantIdFor(tenantSlug: string): Promise<string> {
+  const tenantId = await getTenantIdBySlug(tenantSlug);
 
-async function tenantIdFor(
-  supabase: RlsClient,
-  tenantSlug: string,
-): Promise<string> {
-  const { data } = await supabase
-    .from("tenants")
-    .select("id")
-    .eq("slug", tenantSlug)
-    .single();
+  if (!tenantId) throw new SavedViewError("That workspace couldn't be found.");
 
-  if (!data) throw new SavedViewError("That workspace couldn't be found.");
-
-  return data.id as string;
+  return tenantId;
 }
 
 function systemKeyOf(row: SavedViewRow): SystemViewKey | null {
@@ -131,7 +127,7 @@ export async function fetchTenantSavedViews(
 
   if (!user) return [];
 
-  const tenantId = await tenantIdFor(supabase, tenantSlug);
+  const tenantId = await tenantIdFor(tenantSlug);
 
   // RLS decides what is visible: own views, built-in views, and shared views
   // whose visibility_roles include the viewer's role.
@@ -243,7 +239,7 @@ export async function fetchSavedViewFilter(
   viewId: string,
 ): Promise<ViewFilter | null> {
   const supabase = await createSupabaseServerClient();
-  const tenantId = await tenantIdFor(supabase, tenantSlug);
+  const tenantId = await tenantIdFor(tenantSlug);
 
   const { data } = await supabase
     .from("saved_views")
@@ -285,7 +281,7 @@ export async function loadSaveContext(
   if (!user)
     throw new SavedViewError("Your session has expired. Sign in again.");
 
-  const tenantId = await tenantIdFor(supabase, tenantSlug);
+  const tenantId = await tenantIdFor(tenantSlug);
 
   const { data, error } = await supabase
     .from("saved_views")
@@ -345,7 +341,7 @@ export async function deleteTenantSavedView(
   // RLS already restricts this to the owner and keeps built-in views out of
   // reach; the tenant filter is defence in depth so a stale id from another
   // workspace cannot be aimed at this one.
-  const tenantId = await tenantIdFor(supabase, tenantSlug);
+  const tenantId = await tenantIdFor(tenantSlug);
 
   const { data, error } = await supabase
     .from("saved_views")
@@ -409,7 +405,7 @@ export async function saveSavedViewOrder(
   if (!user)
     throw new SavedViewError("Your session has expired. Sign in again.");
 
-  const tenantId = await tenantIdFor(supabase, tenantSlug);
+  const tenantId = await tenantIdFor(tenantSlug);
 
   const { error } = await supabase.from("saved_view_user_preferences").upsert(
     orderedIds.map((id, index) => ({

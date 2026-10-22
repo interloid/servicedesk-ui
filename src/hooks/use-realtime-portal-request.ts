@@ -1,13 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useDebouncedRefresh } from "@/hooks/use-debounced-refresh";
 import { createSupabaseClient } from "@/lib/supabase/client";
-
-/** Quiet time before a refresh, so a reply and its attachments are one refresh. */
-const DEBOUNCE_MS = 400;
-/** A steady stream of changes still refreshes at least this often. */
-const MAX_WAIT_MS = 2000;
+import { subscribeWithAuth } from "@/lib/supabase/realtime";
 
 /**
  * Follow one portal request so the team's replies, edits and status changes
@@ -20,35 +16,13 @@ const MAX_WAIT_MS = 2000;
  * requests, never internal notes.
  */
 export function useRealtimePortalRequest(requestId: string) {
-  const router = useRouter();
+  const { schedule, fire, cancel } = useDebouncedRefresh();
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof WebSocket === "undefined")
       return;
     const supabase = createSupabaseClient();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let firstQueuedAt: number | null = null;
     let joined = false;
-
-    const fire = () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-      firstQueuedAt = null;
-      router.refresh();
-    };
-
-    // Debounced, but never more than MAX_WAIT_MS after the first change
-    // queued, so a steady stream can't starve the refresh.
-    const schedule = () => {
-      const now = Date.now();
-      firstQueuedAt ??= now;
-      if (timer) clearTimeout(timer);
-      const wait = Math.max(
-        0,
-        Math.min(DEBOUNCE_MS, firstQueuedAt + MAX_WAIT_MS - now),
-      );
-      timer = setTimeout(fire, wait);
-    };
 
     const messages = `ticket_id=eq.${requestId}`;
 
@@ -84,18 +58,19 @@ export function useRealtimePortalRequest(requestId: string) {
           filter: `id=eq.${requestId}`,
         },
         schedule,
-      )
-      // Realtime doesn't replay changes missed while the socket was down
-      // (a sleeping phone, dropped wifi): re-read the thread on rejoin.
-      .subscribe((status) => {
-        if (status !== "SUBSCRIBED") return;
-        if (joined) fire();
-        joined = true;
-      });
+      );
+
+    // Realtime doesn't replay changes missed while the socket was down
+    // (a sleeping phone, dropped wifi): re-read the thread on rejoin.
+    const unsubscribe = subscribeWithAuth(supabase, channel, (status) => {
+      if (status !== "SUBSCRIBED") return;
+      if (joined) fire();
+      joined = true;
+    });
 
     return () => {
-      if (timer) clearTimeout(timer);
-      supabase.removeChannel(channel);
+      cancel();
+      unsubscribe();
     };
-  }, [requestId, router]);
+  }, [requestId, schedule, fire, cancel]);
 }

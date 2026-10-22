@@ -32,7 +32,6 @@ import {
   type AuditFilters,
   type AuditModule,
   type AuditPageData,
-  type AuditStat,
   type AuditSummary,
   type AuditUserOption,
 } from "@/features/audit/types/audit";
@@ -323,8 +322,8 @@ type FilterOptions = {
 
 // The builder's generic type is not worth spelling out; every caller passes a
 // fresh `.from("audit_logs").select(…)` and chains on the result.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyFilters<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PostgREST builder generics
   Q extends { eq: any; gte: any; lt: any; is: any; or: any },
 >(
   query: Q,
@@ -525,16 +524,6 @@ async function toEvents(rows: AuditRow[], members: Member[]) {
 
 /* ── Summary ────────────────────────────────────────────────────────────── */
 
-function stat(current: unknown, previous: unknown): AuditStat {
-  const value = Number(current) || 0;
-  const before = Number(previous) || 0;
-
-  return {
-    value,
-    change: before > 0 ? Math.round(((value - before) / before) * 100) : null,
-  };
-}
-
 async function loadSummary(range: Range): Promise<AuditSummary> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.rpc("audit_log_summary", {
@@ -546,13 +535,15 @@ async function loadSummary(range: Range): Promise<AuditSummary> {
     throw new AuditError(`Couldn't load the audit summary: ${error.message}`);
   }
 
+  // The RPC also returns prev_* counts for the previous period; the cards no
+  // longer show a change, so they are not read.
   const s = (data ?? {}) as Record<string, unknown>;
 
   return {
-    total: stat(s.total, s.prev_total),
-    users: stat(s.users, s.prev_users),
-    modules: stat(s.modules, s.prev_modules),
-    security: stat(s.security, s.prev_security),
+    total: Number(s.total) || 0,
+    users: Number(s.users) || 0,
+    modules: Number(s.modules) || 0,
+    security: Number(s.security) || 0,
   };
 }
 

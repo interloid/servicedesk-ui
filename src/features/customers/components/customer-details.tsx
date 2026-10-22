@@ -164,11 +164,7 @@ export function CustomerTicketsTab({
 
   return (
     <section className={cn(CARD, "overflow-hidden")}>
-      <TicketTable
-        tickets={tickets.tickets}
-        now={now}
-        href={tenantPath(tenant, TENANT_ROUTES.TICKETS)}
-      />
+      <TicketTable tickets={tickets.tickets} now={now} tenant={tenant} />
       {tickets.pageCount > 1 ? (
         <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:px-6">
           <span>
@@ -206,7 +202,6 @@ export function CustomerOverview({
   portalUrl: string;
 }) {
   const ticketsHref = `${customerPath(tenant, customer.id)}?tab=tickets`;
-  const ticketsRouteHref = tenantPath(tenant, TENANT_ROUTES.TICKETS);
 
   return (
     <>
@@ -341,7 +336,7 @@ export function CustomerOverview({
           <TicketTable
             tickets={ticketPage.tickets.slice(0, RECENT_TICKETS)}
             now={now}
-            href={ticketsRouteHref}
+            tenant={tenant}
             className="border-t"
           />
         </section>
@@ -541,12 +536,13 @@ function ContactRow({
 function TicketTable({
   tickets,
   now,
-  href,
+  tenant,
   className,
 }: {
   tickets: CustomerTicket[];
   now: number;
-  href: string;
+  /** Each row links to its own ticket under this workspace. */
+  tenant: string;
   /** The rule under a section heading. Only passed where one is drawn. */
   className?: string;
 }) {
@@ -622,7 +618,10 @@ function TicketTable({
                     on hover. A wrapping subject would make one row taller than
                     the rest and the row would stop reading as a row. */}
                 <Link
-                  href={href}
+                  href={tenantPath(
+                    tenant,
+                    `${TENANT_ROUTES.TICKETS}/${ticket.id}`,
+                  )}
                   title={ticket.subject}
                   className="block truncate font-medium text-slate-900 after:absolute after:inset-0 focus-visible:outline-none dark:text-foreground"
                 >

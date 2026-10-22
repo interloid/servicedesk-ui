@@ -9,7 +9,7 @@ import NotificationsView from "@/features/notifications/components/notifications
 import type { NotificationsData } from "@/features/notifications/types/notifications";
 
 export const metadata: Metadata = {
-  title: "Notifications | ServiceDesk Pro",
+  title: "Notifications",
   description: "Manage notification preferences and view workspace activity.",
 };
 

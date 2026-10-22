@@ -232,7 +232,22 @@ export async function changeTenantPlan(
   }
 }
 
-export async function abortPlanSwitch(tenantSlug: string): Promise<{
+/**
+ * What /payment/cancel passes: the ids PayPal appended to the cancel URL. With
+ * `checkoutOnly`, only the pending checkout those ids identify is dropped and
+ * a scheduled cancellation or downgrade is never touched.
+ */
+export type AbortPlanSwitchOptions = {
+  checkoutOnly: true;
+  token?: string | null;
+  baToken?: string | null;
+  paypalSubscriptionId?: string | null;
+};
+
+export async function abortPlanSwitch(
+  tenantSlug: string,
+  options?: AbortPlanSwitchOptions,
+): Promise<{
   success: boolean;
   restored?: boolean;
   planName?: string;
@@ -272,6 +287,14 @@ export async function abortPlanSwitch(tenantSlug: string): Promise<{
       body: {
         action: "abort",
         tenantSlug,
+        ...(options?.checkoutOnly === true
+          ? {
+              checkoutOnly: true,
+              token: options.token ?? null,
+              baToken: options.baToken ?? null,
+              paypalSubscriptionId: options.paypalSubscriptionId ?? null,
+            }
+          : {}),
       },
     });
 
@@ -341,6 +364,19 @@ export async function resumeUpgradeApproval(tenantSlug: string): Promise<{
 
   if (authError || !user) {
     return { success: false, error: "Unauthorized" };
+  }
+
+  const tenantId = await getTenantIdBySlug(tenantSlug);
+
+  if (!tenantId) {
+    return { success: false, error: "Workspace not found." };
+  }
+
+  if (!(await canManageTenantBilling(user.id, tenantId))) {
+    return {
+      success: false,
+      error: "You don't have permission to manage billing for this workspace.",
+    };
   }
 
   try {

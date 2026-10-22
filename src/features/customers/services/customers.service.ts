@@ -26,14 +26,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 /** Statuses that still need something from the team. */
 const OPEN_STATUSES: TicketStatus[] = ["new", "open", "pending", "on_hold"];
 
-/**
- * The server's clock, read once per request. Passed down so relative times
- * ("52 minutes ago") render the same on the server and in the browser.
- */
-export const serverNow = cache(async function serverNow(): Promise<number> {
-  return Date.now();
-});
-
 type ServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
 /**

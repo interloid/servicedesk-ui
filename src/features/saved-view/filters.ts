@@ -1,39 +1,16 @@
-import type {
-  TicketPriority,
-  TicketStatus,
+import {
+  TICKET_PRIORITIES,
+  TICKET_PRIORITY_LABELS,
+  TICKET_STATUSES,
+  TICKET_STATUS_LABELS,
+  type TicketPriority,
+  type TicketStatus,
 } from "@/features/tickets/types/tickets.types";
 
-export const TICKET_STATUSES: readonly TicketStatus[] = [
-  "new",
-  "open",
-  "pending",
-  "on_hold",
-  "resolved",
-  "closed",
-] as const;
-
-export const TICKET_PRIORITIES: readonly TicketPriority[] = [
-  "urgent",
-  "high",
-  "normal",
-  "low",
-] as const;
-
-export const STATUS_LABEL: Record<TicketStatus, string> = {
-  new: "New",
-  open: "Open",
-  pending: "Pending",
-  on_hold: "On hold",
-  resolved: "Resolved",
-  closed: "Closed",
-};
-
-export const PRIORITY_LABEL: Record<TicketPriority, string> = {
-  urgent: "Urgent",
-  high: "High",
-  normal: "Normal",
-  low: "Low",
-};
+// One source for the enums and their names: the ticket types.
+export { TICKET_PRIORITIES, TICKET_STATUSES };
+export const STATUS_LABEL = TICKET_STATUS_LABELS;
+export const PRIORITY_LABEL = TICKET_PRIORITY_LABELS;
 
 /**
  * Deliberately not a user id.

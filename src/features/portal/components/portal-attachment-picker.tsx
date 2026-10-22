@@ -11,6 +11,7 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
 } from "@/features/portal/portal";
 import { portalToastError } from "@/features/portal/portal-toast";
+import { TICKET_ATTACHMENT_ACCEPT } from "@/features/tickets/lib/attachments";
 import { cn } from "@/lib/utils";
 
 /**
@@ -122,6 +123,7 @@ export function PortalAttachmentPicker({
         type="file"
         multiple
         hidden
+        accept={TICKET_ATTACHMENT_ACCEPT}
         disabled={locked}
         onChange={(event) => add(event.target.files)}
       />
@@ -199,7 +201,7 @@ export function PortalAttachmentPicker({
             variant="outline"
             size="lg"
             className={cn(
-              "h-11 px-5 font-semibold",
+              "h-11 px-5 font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent",
               compact && "max-sm:w-full",
             )}
             disabled={locked}

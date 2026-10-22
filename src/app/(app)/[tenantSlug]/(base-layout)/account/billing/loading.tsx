@@ -1,7 +1,5 @@
-import BillingDashboard from "@/features/billing/components/billing-dashboard";
+import { LoadingState } from "@/features/billing/components/reuse";
 
 export default function Loading() {
-  return (
-    <BillingDashboard params={Promise.resolve({ tenantSlug: "" })} isLoading />
-  );
+  return <LoadingState showBanner={false} />;
 }

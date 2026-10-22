@@ -1,6 +1,7 @@
 import { AppFooter } from "@/components/shared/layout/app-footer";
 import { AppHeader } from "@/components/shared/layout/app-header";
 import { AppSidebar } from "@/components/shared/layout/app-sidebar";
+import { GlobalShortcuts } from "@/components/shared/layout/global-shortcuts";
 import { RoleRouteGuard } from "@/components/shared/layout/role-route-guard";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { NotificationsProvider } from "@/features/notifications/components/notifications-provider";
@@ -51,6 +52,7 @@ export default async function DashboardLayout({
       <TooltipProvider delayDuration={0}>
         <NotificationsProvider userId={identity.user.id}>
           <RoleRouteGuard role={identity.user.role} />
+          <GlobalShortcuts role={identity.user.role} />
           <div className="flex h-screen w-full overflow-hidden bg-background text-xs text-slate-800 font-sans antialiased">
             <AppSidebar identity={identity} />
 

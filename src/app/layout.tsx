@@ -19,12 +19,11 @@ export const metadata: Metadata = {
   },
   description: siteConfig.description,
   applicationName: siteConfig.name,
-  alternates: {
-    canonical: "/",
-  },
+  // No canonical or og:url here: every route inherits the root metadata, so
+  // they would name the home page for /setup and the rest. app/page.tsx sets
+  // its own.
   openGraph: {
     type: "website",
-    url: "/",
     siteName: siteConfig.name,
     title: siteConfig.name,
     description: siteConfig.description,

@@ -12,7 +12,6 @@ import {
 import {
   fetchCustomerById,
   fetchCustomerTickets,
-  serverNow,
 } from "@/features/customers/services/customers.service";
 import {
   isCustomerId,
@@ -22,6 +21,7 @@ import {
 } from "@/features/customers/types/customers";
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
+import { serverNow } from "@/lib/server-now";
 
 type Props = {
   params: Promise<{ tenantSlug: string; customerId: string }>;

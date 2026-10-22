@@ -154,6 +154,7 @@ export const TENANT_ROUTES = {
   KNOWLEDGE_BASE: "/kb",
   MACROS: "/macros",
   SLA: "/sla",
+  REPORTS: "/reports",
 
   LOGIN: "/login",
   FORGOT_PASSWORD: "/forgot-password",
@@ -344,19 +345,6 @@ export function tenantResetPasswordPath(slug: string): string {
   return tenantPath(slug, TENANT_ROUTES.RESET_PASSWORD);
 }
 
-export function tenantAuthCallbackPath(
-  slug: string,
-  next?: string | null,
-): string {
-  const base = tenantPath(slug, "/auth/callback");
-
-  if (!next) {
-    return base;
-  }
-
-  return `${base}?next=${encodeURIComponent(next)}`;
-}
-
 const TENANT_PATH_PATTERN = new RegExp("^/([^/]+)(/.*)?$");
 
 export function stripTenantPrefix(
@@ -382,10 +370,6 @@ export function stripTenantPrefix(
     slug,
     rest: match[2] || "/",
   };
-}
-
-export function tenantPrefix(slug: string): string {
-  return `/${encodeURIComponent(slug)}`;
 }
 
 export function landingUrlForSlug(

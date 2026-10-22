@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
-import { serverNow } from "@/features/team/services/team.service";
+import { serverNow } from "@/lib/server-now";
 import { AuditLocked } from "@/features/audit/components/audit-locked";
 import { AuditLogView } from "@/features/audit/components/audit-log-view";
 import {

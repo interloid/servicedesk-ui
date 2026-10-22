@@ -81,22 +81,27 @@ export function PortalCsatCard({
     setError(undefined);
     setIsSubmitting(true);
 
-    const result = await submitCsatAction(tenantSlug, requestId, {
-      score: selected,
-      comment,
-    });
+    try {
+      const result = await submitCsatAction(tenantSlug, requestId, {
+        score: selected,
+        comment,
+      });
 
-    setIsSubmitting(false);
+      if (result.success) {
+        // The card turns to a thank-you with the refresh; the toast says what
+        // the score means to us, by band.
+        portalToastSuccess(ratingAcknowledgement(selected));
+        router.refresh();
+        return;
+      }
 
-    if (result.success) {
-      // The card turns to a thank-you with the refresh; the toast says what
-      // the score means to us, by band.
-      portalToastSuccess(ratingAcknowledgement(selected));
-      router.refresh();
-      return;
+      setError(result.message);
+    } catch {
+      // A network failure: say so, and give the button back.
+      setError("We couldn't send your rating. Try again.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setError(result.message);
   }
 
   return (

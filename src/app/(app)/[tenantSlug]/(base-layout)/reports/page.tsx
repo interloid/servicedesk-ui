@@ -9,7 +9,7 @@ import { parseReportRange } from "@/features/reports/types/types";
 import { getActorOrNull } from "@/features/team/services/team.service";
 
 export const metadata = {
-  title: "Reports | ServiceDesk Pro",
+  title: "Reports",
   description: "Performance metrics, SLA attainment, and agent workload.",
 };
 

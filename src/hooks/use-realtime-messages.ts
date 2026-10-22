@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createSupabaseClient } from "@/lib/supabase/client";
+import { subscribeWithAuth } from "@/lib/supabase/realtime";
 import { TicketMessage } from "@/features/tickets/types/tickets.types";
 import { getInitials } from "@/lib/format";
 
@@ -95,11 +96,12 @@ export function useRealtimeMessages(
             ),
           );
         },
-      )
-      .subscribe();
+      );
+
+    const unsubscribe = subscribeWithAuth(supabase, channel);
 
     return () => {
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [ticketId]);
 

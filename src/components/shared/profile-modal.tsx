@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, ChangeEvent } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Camera } from "lucide-react";
@@ -27,9 +29,14 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { updateProfileAction } from "@/actions/user-actions";
+import {
+  prepareProfileAvatarUploadAction,
+  updateProfileAction,
+} from "@/actions/user-actions";
+import { uploadAvatar } from "@/features/portal/avatar-upload";
+import { avatarError } from "@/features/portal/portal";
+import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 import { toast } from "sonner";
 
 interface ProfileModalProps {
@@ -38,6 +45,8 @@ interface ProfileModalProps {
   companyName: string;
   tenantId: string;
   role: string;
+  /** False for roles that can't open the notification settings page. */
+  showNotificationsLink?: boolean;
   initialValues?: Partial<ProfileFormValues> & { initials?: string };
 }
 
@@ -47,8 +56,10 @@ export function ProfileModal({
   companyName,
   role,
   tenantId,
+  showNotificationsLink = true,
   initialValues,
 }: ProfileModalProps) {
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(
@@ -63,9 +74,26 @@ export function ProfileModal({
       fullName: initialValues?.fullName || "",
       email: initialValues?.email || "",
       avatarUrl: initialValues?.avatarUrl || "",
-      slaNotification: initialValues?.slaNotification ?? true,
     },
   });
+
+  // Backing out (Cancel, Esc, outside click) drops the picked photo and any
+  // unsaved edits, so they are not saved by the next, unrelated save.
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      setSelectedFile(null);
+      setPreviewUrl(initialValues?.avatarUrl || null);
+      form.reset({
+        fullName: initialValues?.fullName || "",
+        email: initialValues?.email || "",
+        avatarUrl: initialValues?.avatarUrl || "",
+      });
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+    onOpenChange(next);
+  };
 
   useEffect(() => {
     return () => {
@@ -78,8 +106,9 @@ export function ProfileModal({
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("Image must be under 5MB.");
+      const problem = avatarError(file);
+      if (problem) {
+        toast.error(problem);
         return;
       }
       setSelectedFile(file);
@@ -96,9 +125,30 @@ export function ProfileModal({
     setIsSubmitting(true);
 
     try {
-      const result = await updateProfileAction(tenantId, data, selectedFile);
+      let avatarPath: string | null = null;
+
+      // The photo goes straight to Storage with a single-use token; only its
+      // path is sent to the action (Server Action bodies are capped at 1 MB).
+      if (selectedFile) {
+        const prepared = await prepareProfileAvatarUploadAction(tenantId, {
+          size: selectedFile.size,
+          type: selectedFile.type,
+        });
+
+        if (!prepared.success) {
+          toast.error(prepared.message);
+          return;
+        }
+
+        await uploadAvatar(prepared.data, selectedFile);
+        avatarPath = prepared.data.path;
+      }
+
+      const result = await updateProfileAction(tenantId, data, avatarPath);
 
       if (result.success) {
+        // Saved: keep the new photo as the starting point, then close.
+        setSelectedFile(null);
         onOpenChange(false);
       } else if (result.errors) {
         Object.entries(result.errors).forEach(([key, messages]) => {
@@ -106,16 +156,23 @@ export function ProfileModal({
             message: messages?.[0],
           });
         });
+      } else {
+        toast.error(result.message);
       }
     } catch (err) {
       console.error(err);
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : "We couldn't save your profile. Try again.",
+      );
     } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md p-4 sm:p-6 rounded-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="space-y-1 text-left">
           <DialogTitle className="text-lg sm:text-xl font-bold text-slate-900">
@@ -236,32 +293,31 @@ export function ProfileModal({
                 Contact support to update your company name.
               </p>
             </FormItem>
-            <FormField
-              control={form.control}
-              name="slaNotification"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center space-x-3 space-y-0 pt-2">
-                  <FormControl>
-                    <Switch
-                      disabled={isSubmitting}
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                      className="shrink-0"
-                    />
-                  </FormControl>
-                  <FormLabel className="text-xs sm:text-sm font-medium text-slate-800 cursor-pointer leading-tight">
-                    Email me when a ticket breaches SLA
-                  </FormLabel>
-                </FormItem>
-              )}
-            />
+            {/* SLA and other email alerts live in the Notification center;
+                a second switch here never saved and disagreed with it. */}
+            {showNotificationsLink && tenantSlug && (
+              <p className="text-xs sm:text-sm text-slate-500 pt-2">
+                Choose which emails you get in{" "}
+                <Link
+                  href={tenantPath(
+                    tenantSlug,
+                    TENANT_ROUTES.SETTINGS.NOTIFICATIONS,
+                  )}
+                  onClick={() => handleOpenChange(false)}
+                  className="font-semibold text-brand-accent hover:underline"
+                >
+                  Notification preferences
+                </Link>
+                .
+              </p>
+            )}
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 pt-4">
               <Button
                 type="button"
                 variant="outline"
                 disabled={isSubmitting}
-                onClick={() => onOpenChange(false)}
+                onClick={() => handleOpenChange(false)}
                 className="w-full sm:w-auto h-11 font-semibold text-xs sm:text-sm"
               >
                 Cancel

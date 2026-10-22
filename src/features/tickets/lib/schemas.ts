@@ -30,6 +30,8 @@ export const tenantSlugField = z
 export const BULK_TICKETS_MAX = 100;
 export const TICKET_SUBJECT_MAX = 200;
 export const TICKET_BODY_MAX = 20_000;
+/** One reply or note; the portal caps a customer's reply the same. */
+export const TICKET_REPLY_MAX = 10_000;
 /** The tag picker sets no count limit; 50 is far above real use. */
 export const TICKET_TAGS_MAX = 50;
 /** Raw length before normalizeTagName trims and cuts it to TAG_NAME_MAX. */
@@ -69,7 +71,12 @@ export const createTicketSchema = z.object({
 export const sendTicketMessageSchema = z.object({
   ticketId: idField,
   tenantSlug: tenantSlugField,
-  body: z.string().max(TICKET_BODY_MAX, "That reply is too long to send."),
+  body: z
+    .string()
+    .max(
+      TICKET_REPLY_MAX,
+      `A reply can be up to ${TICKET_REPLY_MAX.toLocaleString("en-US")} characters.`,
+    ),
 });
 
 export const updateTicketDetailsSchema = z

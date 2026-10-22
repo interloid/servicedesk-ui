@@ -55,6 +55,9 @@ const STATE_BADGE: Record<PortalRequestState, string> = {
     "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
 };
 
+const PORTAL_SORT_ITEM_CLASS =
+  "p-2 cursor-pointer data-highlighted:bg-brand-accent/10! data-highlighted:text-brand-accent! data-highlighted:**:text-brand-accent! data-[state=checked]:text-brand-accent! data-[state=checked]:**:text-brand-accent!";
+
 export function PortalRequestsList({
   tenantSlug,
   tenantName,
@@ -76,6 +79,22 @@ export function PortalRequestsList({
   const [isPending, startTransition] = useTransition();
 
   const [term, setTerm] = useState(search);
+  // The page stays mounted when only the query string changes, so a `q` that
+  // changes from outside -- the header link back to all requests, Back --
+  // has to reset the box here, or the debounce below would put the old term
+  // straight back. The term this box pushed itself is skipped: the customer
+  // may have typed on since, and resetting would eat those keystrokes.
+  const [syncedSearch, setSyncedSearch] = useState(search);
+  const [pushedSearch, setPushedSearch] = useState<string | null>(null);
+
+  if (search !== syncedSearch) {
+    setSyncedSearch(search);
+    setPushedSearch(null);
+
+    if (search !== pushedSearch) {
+      setTerm(search);
+    }
+  }
 
   const { requests, total, page, perPage } = result;
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -104,6 +123,7 @@ export function PortalRequestsList({
         params.delete("q");
       }
 
+      setPushedSearch(term.trim());
       startTransition(() => {
         router.replace(`${pathname}?${params.toString()}`, { scroll: false });
       });
@@ -270,7 +290,7 @@ export function PortalRequestsList({
                 <SelectItem
                   key={option.value}
                   value={option.value}
-                  className="p-2 cursor-pointer"
+                  className={PORTAL_SORT_ITEM_CLASS}
                 >
                   {option.label}
                 </SelectItem>
@@ -315,7 +335,7 @@ export function PortalRequestsList({
                 <SelectItem
                   key={value}
                   value={value}
-                  className="p-2 cursor-pointer"
+                  className={PORTAL_SORT_ITEM_CLASS}
                 >
                   {label}
                 </SelectItem>
@@ -416,7 +436,7 @@ function Pagination({
           type="button"
           variant="outline"
           size="lg"
-          className="h-11 px-4 font-semibold"
+          className="h-11 px-4 font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
           disabled={page <= 1}
           onClick={() => onChange(page - 1)}
         >
@@ -437,7 +457,7 @@ function Pagination({
           type="button"
           variant="outline"
           size="lg"
-          className="h-11 px-4 font-semibold"
+          className="h-11 px-4 font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
           disabled={page >= totalPages}
           onClick={() => onChange(page + 1)}
         >
@@ -596,7 +616,7 @@ function EmptyState({
               asChild
               size="lg"
               variant="outline"
-              className="h-11 px-5 font-semibold text-brand-ink hover:text-brand-ink"
+              className="h-11 px-5 font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
             >
               <Link href={portalPath(tenantSlug, PORTAL_ROUTES.HELP)}>
                 Browse help centre

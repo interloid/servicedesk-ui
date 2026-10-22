@@ -16,6 +16,7 @@ import { useLogout } from "@/features/auth/hooks/use-auth";
 import { ProfileModal } from "../profile-modal";
 import { KeyboardShortcutsModal } from "../keyboard-shortcuts-modal";
 import { ShellIdentity } from "@/types/shell-identity";
+import { isTenantRouteAllowed, TENANT_ROUTES } from "@/lib/tenancy";
 
 const ROLE_DISPLAY_NAMES: Record<string, string> = {
   platform_admin: "Platform Admin",
@@ -145,6 +146,10 @@ export function ProfileMenu({ identity }: ProfileMenuProps) {
         tenantId={identity.org.id}
         companyName={identity.org.name}
         role={displayRole}
+        showNotificationsLink={isTenantRouteAllowed(
+          identity.user.role,
+          TENANT_ROUTES.SETTINGS.NOTIFICATIONS,
+        )}
         initialValues={{
           fullName: identity.user.name,
           email: identity.user.email,

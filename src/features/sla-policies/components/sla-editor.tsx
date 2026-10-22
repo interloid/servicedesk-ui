@@ -446,6 +446,7 @@ export default function SlaEditor({
       escalate_on_breach: draft.escalateOnBreach,
       escalate_to_role: draft.escalateToRole,
       targets,
+      day_mins: dayMins,
     };
   };
 

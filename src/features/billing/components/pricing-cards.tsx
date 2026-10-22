@@ -18,6 +18,7 @@ import {
 import { FormattedPlan } from "../types";
 import { toast } from "sonner";
 import { changeTenantPlanAction } from "../billing-actions";
+import { usePaymentRedirect } from "../hooks/use-payment-redirect";
 import type { BillingDashboardData } from "../services/billing-dashboard.service";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +63,9 @@ export function PricingCards({
 }: PricingCardsProps) {
   const router = useRouter();
 
-  const [isPending, startTransition] = useTransition();
+  const [isTransitionPending, startTransition] = useTransition();
+  const { redirecting, redirect } = usePaymentRedirect();
+  const isPending = isTransitionPending || redirecting;
   const [loadingPlanCode, setLoadingPlanCode] = useState<string | null>(null);
   const [selectedPlanForSwitch, setSelectedPlanForSwitch] =
     useState<FormattedPlan | null>(null);
@@ -91,7 +94,7 @@ export function PricingCards({
     billingData?.billingStatus === "cancelled" &&
     cancellation?.canReactivate === false;
   // A cancelled PayPal checkout is announced by /payment/cancel, which the
-  // cancel_url points at: it calls `abort`, says what was restored and sends
+  // cancel_url points at: it drops that checkout, says so and sends
   // the buyer here. Nothing in the app has ever set ?status=cancelled, so the
   // effect that watched for it could not fire -- and its three state resets
   // were dead twice over, since arriving here from PayPal is a full page load
@@ -126,6 +129,8 @@ export function PricingCards({
     setLoadingPlanCode(plan.id);
 
     startTransition(async () => {
+      let leaving = false;
+
       try {
         const res = await changeTenantPlanAction(tenantSlug, plan.id);
 
@@ -136,7 +141,8 @@ export function PricingCards({
 
         if (res.approvalUrl) {
           // Redirecting to PayPal
-          window.location.assign(res.approvalUrl);
+          leaving = true;
+          redirect(res.approvalUrl);
           return;
         }
 
@@ -157,7 +163,7 @@ export function PricingCards({
             : "Something went wrong while switching the plan.",
         );
       } finally {
-        setLoadingPlanCode(null);
+        if (!leaving) setLoadingPlanCode(null);
       }
     });
   };

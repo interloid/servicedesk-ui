@@ -5,6 +5,12 @@ import { createServerClient } from "@supabase/ssr";
 import { env } from "@/config/env";
 import { AUTH_COOKIE_DOMAIN } from "@/lib/tenancy";
 import { auditForwardHeaders } from "@/lib/request-context";
+import {
+  REMEMBER_COOKIE,
+  authCookieLifetime,
+  isCookieDeletion,
+  isRememberedSession,
+} from "@/lib/supabase/remember";
 
 function getSupabaseCredentials() {
   const url = env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,6 +27,10 @@ function getSupabaseCredentials() {
 }
 
 type SupabaseServerClientOptions = {
+  /**
+   * Set only by sign-in. Everywhere else the choice made then is read back
+   * from the REMEMBER_COOKIE marker.
+   */
   remember?: boolean;
 };
 
@@ -29,7 +39,9 @@ export async function createSupabaseServerClient(
 ) {
   const { url, key } = getSupabaseCredentials();
   const cookieStore = await cookies();
-  const remember = options.remember ?? true;
+  const remember =
+    options.remember ??
+    isRememberedSession(cookieStore.get(REMEMBER_COOKIE)?.value);
 
   const isProduction = process.env.NODE_ENV === "production";
 
@@ -38,7 +50,8 @@ export async function createSupabaseServerClient(
     !env.NEXT_PUBLIC_SITE_URL.startsWith("http://localhost") &&
     !env.NEXT_PUBLIC_SITE_URL.startsWith("http://127.0.0.1");
 
-  const REMEMBER_ME_MAX_AGE = 60 * 60 * 24 * 30;
+  const domainOption =
+    isProduction && AUTH_COOKIE_DOMAIN ? { domain: AUTH_COOKIE_DOMAIN } : {};
 
   return createServerClient(url, key, {
     global: { headers: await auditForwardHeaders() },
@@ -52,23 +65,32 @@ export async function createSupabaseServerClient(
           cookieStore.set(name, value, {
             ...cookieOptions,
 
-            ...(isProduction && AUTH_COOKIE_DOMAIN
-              ? { domain: AUTH_COOKIE_DOMAIN }
-              : {}),
+            ...domainOption,
 
             path: "/",
             sameSite: cookieOptions?.sameSite ?? "lax",
             secure: cookieOptions?.secure ?? isHttps,
 
-            ...(remember
-              ? {
-                  maxAge: REMEMBER_ME_MAX_AGE,
-                  expires: new Date(Date.now() + REMEMBER_ME_MAX_AGE * 1000),
-                }
-              : {
-                  maxAge: cookieOptions?.maxAge,
-                  expires: cookieOptions?.expires,
-                }),
+            ...authCookieLifetime(cookieOptions, remember),
+          });
+        }
+
+        // Sign-in records its choice for later writes (see remember.ts); a
+        // sign-out, where every cookie is a deletion, clears it.
+        const signedOut =
+          cookiesToSet.length > 0 &&
+          cookiesToSet.every(({ options: o }) => isCookieDeletion(o));
+
+        if (signedOut || options.remember !== undefined) {
+          const keepMarker = !signedOut && options.remember === false;
+
+          cookieStore.set(REMEMBER_COOKIE, keepMarker ? "0" : "", {
+            ...domainOption,
+            path: "/",
+            httpOnly: true,
+            sameSite: "lax",
+            secure: isHttps,
+            ...(keepMarker ? {} : { maxAge: 0, expires: new Date(0) }),
           });
         }
       },

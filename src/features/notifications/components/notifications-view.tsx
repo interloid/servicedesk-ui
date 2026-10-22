@@ -94,6 +94,14 @@ const PREFERENCE_ROWS: PreferenceRow[] = [
     icon: AtSign,
     tone: "violet",
   },
+  {
+    id: "created",
+    label: "A new ticket is raised",
+    description:
+      "Admins and managers: get notified of every new ticket, portal ones included.",
+    icon: Ticket,
+    tone: "slate",
+  },
 ];
 
 const CHANNELS: {
@@ -400,7 +408,9 @@ export default function NotificationsView({ data }: NotificationsViewProps) {
         </div>
 
         <Card className="gap-4 rounded-xl bg-card p-4 sm:p-5 lg:p-6">
-          <div className="grid grid-cols-1 items-end gap-y-1 sm:grid-cols-[minmax(0,1fr)_112px_112px] lg:grid-cols-[minmax(0,1fr)_160px_160px]">
+          {/* Same column gap and right inset (px-3 + 1px border) as the rows
+              below, so the channel headings sit centred over their switches. */}
+          <div className="grid grid-cols-1 items-end gap-x-3 gap-y-1 sm:pr-[13px] sm:grid-cols-[minmax(0,1fr)_112px_112px] lg:grid-cols-[minmax(0,1fr)_160px_160px]">
             <div className="min-w-0 space-y-0.5">
               <h2 className="text-base font-bold text-foreground">
                 Notification preferences

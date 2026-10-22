@@ -1,7 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { changeTenantPlan } from "./services/billing.service";
+import {
+  changeTenantPlan,
+  type AbortPlanSwitchOptions,
+} from "./services/billing.service";
 
 export async function changeTenantPlanAction(
   tenantSlug: string,
@@ -18,6 +21,7 @@ export async function changeTenantPlanAction(
     }
 
     revalidatePath(`/${tenantSlug}/account/billing`);
+    revalidatePath(`/${tenantSlug}/account/plans`);
     return {
       success: true,
       error: null,
@@ -35,10 +39,13 @@ export async function changeTenantPlanAction(
   }
 }
 
-export async function abortPlanSwitchAction(tenantSlug: string) {
+export async function abortPlanSwitchAction(
+  tenantSlug: string,
+  options?: AbortPlanSwitchOptions,
+) {
   try {
     const { abortPlanSwitch } = await import("./services/billing.service");
-    const result = await abortPlanSwitch(tenantSlug);
+    const result = await abortPlanSwitch(tenantSlug, options);
     revalidatePath(`/${tenantSlug}/account/plans`);
     revalidatePath(`/${tenantSlug}/account/billing`);
     return result;
@@ -179,6 +186,22 @@ export async function updatePaymentMethodAction(tenantSlug: string): Promise<{
 
     if (userError || !user) {
       return { success: false, error: "Unauthorized" };
+    }
+
+    const { canManageTenantBilling, getTenantIdBySlug } =
+      await import("@/features/tenancy/services/tenant-resolver");
+    const tenantId = await getTenantIdBySlug(tenantSlug);
+
+    if (!tenantId) {
+      return { success: false, error: "Workspace not found." };
+    }
+
+    if (!(await canManageTenantBilling(user.id, tenantId))) {
+      return {
+        success: false,
+        error:
+          "You don't have permission to manage billing for this workspace.",
+      };
     }
 
     const { data, error } = await supabase.functions.invoke(

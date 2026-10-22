@@ -77,7 +77,7 @@ export function PortalProfileDialog({
       {/* The close button has no hover wash: it is the one control in here
           that is neither about the profile nor destructive, and the grey
           circle behind it read as a button waiting to be pressed. */}
-      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] gap-5 overflow-y-auto rounded-2xl p-5 sm:max-w-md sm:p-6 [&_[data-slot=dialog-close]]:hover:bg-transparent">
+      <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] gap-5 overflow-y-auto rounded-2xl p-5 sm:max-w-md sm:p-6 **:data-[slot=dialog-close]:hover:bg-transparent">
         <DialogHeader className="gap-1 text-left">
           <DialogTitle className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
             Profile settings
@@ -416,7 +416,7 @@ function ProfileForm({
               variant="outline"
               disabled={isSaving}
               onClick={onDone}
-              className="h-11 px-5 text-sm font-semibold"
+              className="h-11 px-5 text-sm font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
             >
               Cancel
             </Button>

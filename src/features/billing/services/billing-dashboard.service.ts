@@ -14,7 +14,6 @@ export interface BillingDashboardData {
   /** tenants.id, printed as "Tenant ID" on invoices. */
   tenantId: string;
   billingStatus: "active" | "past_due" | "cancelled" | "trialing";
-  isSuspended?: boolean;
   suspensionReason?: {
     card?: string;
     invoiceId?: string;
@@ -191,28 +190,56 @@ export async function fetchTenantBillingData(
 
   if (!(await canManageTenantBilling(user.id, callerTenantId))) return null;
 
-  const { data: tenant, error: tenantError } = await supabase
-    .from("tenants")
-    .select("id, name, slug, plan_id")
-    .eq("slug", sanitizedSlug)
-    .single();
+  // Every read below is keyed on the tenant id alone, so none waits on another.
+  const [
+    { data: tenant, error: tenantError },
+    { data: sub },
+    { data: paymentMethod },
+    { data: activeMembers },
+    { data: invoiceRows },
+  ] = await Promise.all([
+    supabase
+      .from("tenants")
+      .select("id, name, slug, plan_id")
+      .eq("id", callerTenantId)
+      .single(),
+    supabase
+      .from("subscriptions")
+      // subscriptions has three FKs to plans (plan_id, next_plan_id,
+      // pending_plan_id); the embed must name the one it means, or PostgREST
+      // rejects the whole query as ambiguous (PGRST201).
+      .select("*, plans!subscriptions_plan_id_fkey(*)")
+      .eq("tenant_id", callerTenantId)
+      // past_due belongs here: a subscription PayPal has suspended for
+      // non-payment is exactly the one whose billing page the customer needs
+      // to reach. Leaving it out hid the row entirely, so the "Payment failed"
+      // state below could never render.
+      .in("status", ["active", "trialing", "past_due"])
+      .order("created_at", { ascending: false })
+      .maybeSingle(),
+    supabase
+      .from("payment_methods")
+      .select("*")
+      .eq("tenant_id", callerTenantId)
+      .eq("is_default", true)
+      .eq("status", "active")
+      .maybeSingle(),
+    supabase
+      .from("memberships")
+      .select("role")
+      .eq("tenant_id", callerTenantId)
+      // Staff only: portal customers have memberships but don't use seats.
+      .in("role", [...STAFF_ROLES])
+      .eq("status", "active"),
+    supabase
+      .from("invoices")
+      .select("*")
+      .eq("tenant_id", callerTenantId)
+      .order("period_start", { ascending: false })
+      .order("invoice_number", { ascending: true }),
+  ]);
 
   if (tenantError || !tenant) return null;
-
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    // subscriptions has three FKs to plans (plan_id, next_plan_id,
-    // pending_plan_id); the embed must name the one it means, or PostgREST
-    // rejects the whole query as ambiguous (PGRST201).
-    .select("*, plans!subscriptions_plan_id_fkey(*)")
-    .eq("tenant_id", tenant.id)
-    // past_due belongs here: a subscription PayPal has suspended for
-    // non-payment is exactly the one whose billing page the customer needs to
-    // reach. Leaving it out hid the row entirely, so the "Payment failed"
-    // state below could never render.
-    .in("status", ["active", "trialing", "past_due"])
-    .order("created_at", { ascending: false })
-    .maybeSingle();
 
   // Both a scheduled change and an unfinished checkout live on the
   // subscription itself: next_plan_* is committed for the end of the paid
@@ -232,8 +259,10 @@ export async function fetchTenantBillingData(
     return (data as SwitchPlan) ?? null;
   };
 
-  const nextPlan = await readPlan(sub?.next_plan_id);
-  const pendingPlan = await readPlan(sub?.pending_plan_id);
+  const [nextPlan, pendingPlan] = await Promise.all([
+    readPlan(sub?.next_plan_id),
+    readPlan(sub?.pending_plan_id),
+  ]);
 
   let scheduledChange: BillingDashboardData["scheduledChange"] = null;
 
@@ -251,22 +280,6 @@ export async function fetchTenantBillingData(
       daysRemaining,
     };
   }
-
-  const { data: paymentMethod } = await supabase
-    .from("payment_methods")
-    .select("*")
-    .eq("tenant_id", tenant.id)
-    .eq("is_default", true)
-    .eq("status", "active")
-    .maybeSingle();
-
-  const { data: activeMembers } = await supabase
-    .from("memberships")
-    .select("role")
-    .eq("tenant_id", tenant.id)
-    // Staff only: portal customers have memberships but don't use seats.
-    .in("role", [...STAFF_ROLES])
-    .eq("status", "active");
 
   const members = activeMembers || [];
   const usedSeats = members.length;
@@ -360,13 +373,6 @@ export async function fetchTenantBillingData(
   const hasAgreement = Boolean(sub?.paypal_subscription_id);
   const isFreePlan = !hasAgreement || monthlyRate === 0;
 
-  const { data: invoiceRows } = await supabase
-    .from("invoices")
-    .select("*")
-    .eq("tenant_id", tenant.id)
-    .order("period_start", { ascending: false })
-    .order("invoice_number", { ascending: true });
-
   // A paid one-time invoice for the pending plan means the capture went
   // through and the upgrade is waiting on the buyer's PayPal confirmation
   // rather than on their payment. Read locally: the capture writes this
@@ -380,65 +386,78 @@ export async function fetchTenantBillingData(
     );
   }
 
-  const invoices = await Promise.all(
-    (invoiceRows || []).map(async (inv) => {
-      const amountNum = Number(inv.amount ?? 0);
+  // Every stored PDF is signed in ONE storage call, not one per invoice.
+  const pdfPathOf = (storagePath: string | null | undefined) =>
+    storagePath
+      ? storagePath.replace(/^invoices\//, "").replace(/^\//, "")
+      : null;
+  const pdfPaths = [
+    ...new Set(
+      (invoiceRows || [])
+        .map((inv) => pdfPathOf(inv.storage_path))
+        .filter((path): path is string => Boolean(path)),
+    ),
+  ];
+  const signedPdfUrls = new Map<string, string>();
 
-      let pdfUrl: string | undefined = undefined;
+  if (pdfPaths.length > 0) {
+    const { data: signed } = await supabase.storage
+      .from("invoices")
+      .createSignedUrls(pdfPaths, 3600);
 
-      if (inv.storage_path) {
-        const cleanPath = inv.storage_path
-          .replace(/^invoices\//, "")
-          .replace(/^\//, "");
-        const { data: signedData } = await supabase.storage
-          .from("invoices")
-          .createSignedUrl(cleanPath, 3600);
-
-        pdfUrl = signedData?.signedUrl || undefined;
+    for (const entry of signed ?? []) {
+      if (entry.path && entry.signedUrl) {
+        signedPdfUrls.set(entry.path, entry.signedUrl);
       }
+    }
+  }
 
-      const isOneTime = inv.invoice_type === "one_time";
-      const planName: string = inv.plan_name ?? plan?.name ?? "ServiceDesk";
-      const description = `${planName} · ${
-        isOneTime ? "One-time upgrade" : "Monthly"
-      }`;
-      const statusLabel =
-        inv.status === "paid"
-          ? "Paid"
-          : inv.status === "failed"
-            ? "Failed"
-            : inv.status === "refunded"
-              ? "Refunded"
-              : "Unpaid";
-      const currency = inv.currency || "USD";
-      const subtotalNum = Number(inv.subtotal ?? amountNum);
-      const taxNum = Number(inv.tax ?? 0);
+  const invoices = (invoiceRows || []).map((inv) => {
+    const amountNum = Number(inv.amount ?? 0);
+    const pdfPath = pdfPathOf(inv.storage_path);
+    const pdfUrl = pdfPath ? signedPdfUrls.get(pdfPath) : undefined;
 
-      return {
-        id: inv.invoice_number || `INV-${inv.id.slice(0, 8).toUpperCase()}`,
-        date: formatCalendarDate(inv.period_start),
-        description,
-        seats: inv.seats ?? (totalSeats > 0 ? totalSeats : 0),
-        amount: formatMoney(amountNum, currency),
-        status: statusLabel,
-        pdfUrl,
-        invoiceType: isOneTime ? ("one_time" as const) : ("recurring" as const),
-        planName,
-        periodStart: formatCalendarDate(inv.period_start),
-        periodEnd: formatCalendarDate(inv.period_end),
-        paidAt: inv.paid_at ? formatTimestamp(inv.paid_at) : undefined,
-        paymentMethod: inv.payment_method || "PayPal",
-        transactionId: inv.paypal_txn_id || undefined,
-        billingEmail: inv.billing_email || undefined,
-        subtotal: formatMoney(subtotalNum, currency),
-        tax: formatMoney(taxNum, currency),
-        taxRate:
-          subtotalNum > 0
-            ? `${Number(((taxNum / subtotalNum) * 100).toFixed(2))}%`
-            : "0%",
-      };
-    }),
-  );
+    const isOneTime = inv.invoice_type === "one_time";
+    const planName: string = inv.plan_name ?? plan?.name ?? "ServiceDesk";
+    const description = `${planName} · ${
+      isOneTime ? "One-time upgrade" : "Monthly"
+    }`;
+    const statusLabel =
+      inv.status === "paid"
+        ? "Paid"
+        : inv.status === "failed"
+          ? "Failed"
+          : inv.status === "refunded"
+            ? "Refunded"
+            : "Unpaid";
+    const currency = inv.currency || "USD";
+    const subtotalNum = Number(inv.subtotal ?? amountNum);
+    const taxNum = Number(inv.tax ?? 0);
+
+    return {
+      id: inv.invoice_number || `INV-${inv.id.slice(0, 8).toUpperCase()}`,
+      date: formatCalendarDate(inv.period_start),
+      description,
+      seats: inv.seats ?? (totalSeats > 0 ? totalSeats : 0),
+      amount: formatMoney(amountNum, currency),
+      status: statusLabel,
+      pdfUrl,
+      invoiceType: isOneTime ? ("one_time" as const) : ("recurring" as const),
+      planName,
+      periodStart: formatCalendarDate(inv.period_start),
+      periodEnd: formatCalendarDate(inv.period_end),
+      paidAt: inv.paid_at ? formatTimestamp(inv.paid_at) : undefined,
+      paymentMethod: inv.payment_method || "PayPal",
+      transactionId: inv.paypal_txn_id || undefined,
+      billingEmail: inv.billing_email || undefined,
+      subtotal: formatMoney(subtotalNum, currency),
+      tax: formatMoney(taxNum, currency),
+      taxRate:
+        subtotalNum > 0
+          ? `${Number(((taxNum / subtotalNum) * 100).toFixed(2))}%`
+          : "0%",
+    };
+  });
 
   let paymentMethodData: BillingDashboardData["paymentMethod"];
 
@@ -544,9 +563,6 @@ export async function fetchTenantBillingData(
     billingStatus,
     cancellation,
     paymentTrouble,
-    // Restricted only once PayPal has stopped retrying. A charge that is
-    // still being retried leaves the account alone.
-    isSuspended: graceEndsAt !== null,
     plan: {
       name: plan?.name ?? "Free",
       rate: isFreePlan ? "$0.00/mo" : `$${monthlyRate.toFixed(2)}/mo`,

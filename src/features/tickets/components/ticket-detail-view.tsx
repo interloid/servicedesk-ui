@@ -10,6 +10,7 @@ import {
   useEffect,
 } from "react";
 import { useRouter } from "next/navigation";
+import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -45,6 +46,7 @@ import {
   updateTicketDetailsAction,
   assignTicketToMeAction,
 } from "@/features/tickets/actions/tickets.actions";
+import { CharacterCount } from "@/components/shared/character-count";
 import { MentionText } from "@/components/shared/mention-text";
 import { serializeMention } from "@/lib/mentions";
 import { isComposerSendKey, pastedFiles } from "@/lib/composer-keys";
@@ -79,6 +81,7 @@ import {
   TICKET_ATTACHMENT_ACCEPT,
   attachmentsError,
 } from "@/features/tickets/lib/attachments";
+import { TICKET_REPLY_MAX } from "@/features/tickets/lib/schemas";
 import {
   discardTicketFiles,
   uploadTicketFiles,
@@ -585,6 +588,18 @@ export default function TicketDetailView({
 
   const isClosed = status === "closed";
 
+  // Only an empty composer switches to "Send to customer": a half-written
+  // internal note keeps its type, so R then Enter can't publish it. Off while
+  // support is closed, as the composer is.
+  useKeyboardShortcut(
+    "r",
+    () =>
+      replyText.trim() || pendingFiles.length > 0
+        ? replyInputRef.current?.focus()
+        : startComposing("public"),
+    !isClosed && !supportClosed,
+  );
+
   const savePriority = (val: TicketPriority, reason?: string) => {
     const prev = priority;
     setPriority(val);
@@ -734,7 +749,7 @@ export default function TicketDetailView({
           </div>
 
           <p className="text-xs text-slate-500">
-            Opened by{" "}
+            Created by{" "}
             <span className="font-semibold text-slate-700">
               {ticket.requester_name}
             </span>
@@ -917,6 +932,7 @@ export default function TicketDetailView({
                     onChange={handleReplyTextChange}
                     onKeyDown={handleReplyKeyDown}
                     onPaste={handleReplyPaste}
+                    maxLength={TICKET_REPLY_MAX}
                     disabled={!!supportClosed}
                     placeholder={
                       supportClosed
@@ -976,6 +992,12 @@ export default function TicketDetailView({
                     </div>
                   )}
                 </div>
+
+                <CharacterCount
+                  length={replyText.length}
+                  max={TICKET_REPLY_MAX}
+                  className="px-3 pt-1 sm:px-4"
+                />
 
                 {pendingFiles.length > 0 && (
                   <div className="px-3 sm:px-4 pt-2 flex flex-wrap gap-2">

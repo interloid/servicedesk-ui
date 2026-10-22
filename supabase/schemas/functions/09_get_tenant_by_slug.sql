@@ -37,7 +37,19 @@ as $$
             'name',        t.name,
             'slug',        t.slug,
             'primary_color', t.branding_json ->> 'primary_color',
-            'logo_url',      t.branding_json ->> 'logo_url'
+            'secondary_color', t.branding_json ->> 'secondary_color',
+            'text_color',      t.branding_json ->> 'text_color',
+            'background_color', t.branding_json ->> 'background_color',
+            'logo_url',      t.branding_json ->> 'logo_url',
+            -- Read only when it is a real JSON boolean, so a hand-edited value
+            -- can't make the cast fail and take the whole lookup down with it.
+            -- Missing means shown, the branding editor's default.
+            'show_logo_on_portal',
+                case
+                    when jsonb_typeof(t.branding_json -> 'show_logo_on_portal') = 'boolean'
+                        then (t.branding_json -> 'show_logo_on_portal')::boolean
+                    else true
+                end
         )
     from public.tenants t
     where t.slug = lower(p_slug)

@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 
 import CustomersTable from "@/features/customers/components/customers-table";
-import {
-  fetchTenantCustomers,
-  serverNow,
-} from "@/features/customers/services/customers.service";
+import { fetchTenantCustomers } from "@/features/customers/services/customers.service";
 import {
   parseCustomerSort,
   parsePageParam,
@@ -12,6 +9,7 @@ import {
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
 import { getCallerRole } from "@/features/team/services/team.service";
+import { serverNow } from "@/lib/server-now";
 
 export const metadata: Metadata = {
   title: "Customers",

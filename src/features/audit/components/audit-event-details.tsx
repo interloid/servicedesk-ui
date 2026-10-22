@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowRight, Code, Copy, FileText, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ArrowRight,
+  Check,
+  Code,
+  Copy,
+  FileText,
+  Users,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -36,22 +45,48 @@ import {
 export async function copyText(value: string, what: string) {
   try {
     await navigator.clipboard.writeText(value);
-    toast.success(`${what} copied`);
+    return true;
   } catch {
     toast.error(`Couldn't copy the ${what.toLowerCase()}.`);
+    return false;
   }
 }
 
+const COPIED_MS = 2000;
+
+/** Copy, then report `copied` for two seconds so the button can show a tick. */
+function useCopy(value: string, what: string) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const copy = async () => {
+    if (!(await copyText(value, what))) return;
+    setCopied(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+  };
+
+  return { copied, copy };
+}
+
 function CopyButton({ value, what }: { value: string; what: string }) {
+  const { copied, copy } = useCopy(value, what);
+  const Icon = copied ? Check : Copy;
+
   return (
     <Button
       variant="outline"
       size="icon"
       className="size-7 shrink-0 rounded-md shadow-none"
-      aria-label={`Copy ${what.toLowerCase()}`}
-      onClick={() => copyText(value, what)}
+      aria-label={copied ? `${what} copied` : `Copy ${what.toLowerCase()}`}
+      onClick={copy}
     >
-      <Copy className="size-3.5" aria-hidden />
+      <Icon
+        className={cn("size-3.5", copied && "text-emerald-600")}
+        aria-hidden
+      />
     </Button>
   );
 }
@@ -71,7 +106,7 @@ function Row({
         "gap-2",
         stacked
           ? "flex flex-col"
-          : "grid grid-cols-[7rem_minmax(0,1fr)] items-center",
+          : "grid grid-cols-[5.5rem_minmax(0,1fr)] items-center sm:grid-cols-[7rem_minmax(0,1fr)]",
       )}
     >
       <dt className="text-sm text-muted-foreground">{label}</dt>
@@ -81,21 +116,22 @@ function Row({
 }
 
 /**
- * Everything recorded about one event. Drawn in the docked panel on wide
- * screens and in a sheet on narrow ones, so it takes no layout of its own
- * beyond a scrolling column.
+ * Everything recorded about one event. Drawn in a sheet over the page, so it
+ * takes no layout of its own beyond a scrolling column.
  */
 export function AuditEventDetails({
   event,
   timeZone,
   now,
   onClose,
+  onShowUserEvents,
   showClose = true,
 }: {
   event: AuditEvent;
   timeZone: string;
   now: number;
   onClose: () => void;
+  onShowUserEvents?: () => void;
   showClose?: boolean;
 }) {
   const ActionIcon = AUDIT_ACTION_ICONS[event.action];
@@ -185,8 +221,8 @@ export function AuditEventDetails({
 
           <Row label="IP address">
             {event.ip ? (
-              <div className="flex items-center gap-2">
-                <span className="truncate font-mono text-[13px]">
+              <div className="flex items-start justify-between gap-2">
+                <span className="min-w-0 font-mono text-[13px] break-all">
                   {event.ip}
                 </span>
                 <CopyButton value={event.ip} what="IP address" />
@@ -196,10 +232,19 @@ export function AuditEventDetails({
             )}
           </Row>
 
+          <Row label="Event ID">
+            <div className="flex items-start justify-between gap-2">
+              <span className="min-w-0 font-mono text-[13px] break-all">
+                {event.id}
+              </span>
+              <CopyButton value={event.id} what="Event ID" />
+            </div>
+          </Row>
+
           <Row label="User agent" stacked>
             {event.userAgent ? (
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 truncate" title={event.userAgent}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="min-w-0 text-xs break-all text-muted-foreground">
                   {event.userAgent}
                 </span>
                 <CopyButton value={event.userAgent} what="User agent" />
@@ -272,7 +317,19 @@ export function AuditEventDetails({
           </section>
         )}
 
-        <RawDataDialog event={event} />
+        <div className="mt-6 flex flex-col gap-2">
+          {onShowUserEvents && (
+            <Button
+              variant="outline"
+              className="h-10 w-full gap-2 rounded-lg font-semibold shadow-none"
+              onClick={onShowUserEvents}
+            >
+              <Users className="size-4" aria-hidden />
+              {event.actor ? "Show this user's events" : "Show system events"}
+            </Button>
+          )}
+          <RawDataDialog event={event} />
+        </div>
       </div>
     </div>
   );
@@ -302,7 +359,7 @@ function RawDataDialog({ event }: { event: AuditEvent }) {
       <DialogTrigger asChild>
         <Button
           variant="outline"
-          className="mt-6 h-10 w-full gap-2 rounded-lg font-semibold shadow-none"
+          className="h-10 w-full gap-2 rounded-lg font-semibold shadow-none"
         >
           <Code className="size-4" aria-hidden />
           View raw data
@@ -321,16 +378,28 @@ function RawDataDialog({ event }: { event: AuditEvent }) {
           {raw}
         </pre>
         <div className="flex justify-end">
-          <Button
-            variant="outline"
-            className="h-10 gap-2 rounded-lg font-semibold shadow-none"
-            onClick={() => copyText(raw, "Raw data")}
-          >
-            <Copy className="size-4" aria-hidden />
-            Copy JSON
-          </Button>
+          <CopyJsonButton raw={raw} />
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CopyJsonButton({ raw }: { raw: string }) {
+  const { copied, copy } = useCopy(raw, "Raw data");
+  const Icon = copied ? Check : Copy;
+
+  return (
+    <Button
+      variant="outline"
+      className="h-10 gap-2 rounded-lg font-semibold shadow-none"
+      onClick={copy}
+    >
+      <Icon
+        className={cn("size-4", copied && "text-emerald-600")}
+        aria-hidden
+      />
+      <span aria-live="polite">{copied ? "Copied" : "Copy JSON"}</span>
+    </Button>
   );
 }

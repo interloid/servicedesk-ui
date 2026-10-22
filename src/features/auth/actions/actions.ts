@@ -12,6 +12,7 @@ import {
   sendTenantPasswordResetLink,
   updatePassword,
   updatePasswordForTenant,
+  checkPasswordAccess,
   checkTenantPasswordAccess,
   type TenantPasswordAccessResult,
 } from "@/features/auth/services/auth.service";
@@ -272,6 +273,19 @@ export async function updateTenantPasswordAction(
   }
 
   return await updatePasswordForTenant(validatedFields.data, tenantSlug);
+}
+
+export async function checkPasswordAccessAction(): Promise<TenantPasswordAccessResult> {
+  try {
+    return await checkPasswordAccess();
+  } catch (error) {
+    console.error("[auth] checkPasswordAccess failed", error);
+    return {
+      success: false,
+      error: "We couldn't check your access right now. Try again in a moment.",
+      reason: "retry",
+    };
+  }
 }
 
 export async function checkTenantPasswordAccessAction(

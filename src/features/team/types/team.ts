@@ -271,7 +271,16 @@ export type TenantPlanRecord = {
 
 export const FREE_SEAT_LIMIT = 2;
 
-export const CURRENT_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
+/**
+ * Subscriptions whose plan still applies. past_due counts: PayPal is still
+ * retrying, and the dunning grace period keeps the plan until the reconcile
+ * job downgrades the tenant. Mirrored in enforce_team_seat_limit().
+ */
+export const CURRENT_SUBSCRIPTION_STATUSES = [
+  "active",
+  "trialing",
+  "past_due",
+] as const;
 
 /**
  * The roles that make up a workspace's team: shown on the roster, counted as

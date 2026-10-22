@@ -122,8 +122,8 @@ function normalizePrefs(value: unknown): NotificationPrefs {
 
   const pick = (
     channel: Record<string, unknown> | undefined,
+    target: NotificationPrefs["email"],
   ): NotificationPrefs["email"] => {
-    const target = defaults.email;
     const keys = Object.keys(target) as (keyof typeof target)[];
     return keys.reduce(
       (acc, key) => {
@@ -136,8 +136,8 @@ function normalizePrefs(value: unknown): NotificationPrefs {
   };
 
   return {
-    email: pick(raw.email),
-    in_app: pick(raw.in_app),
+    email: pick(raw.email, defaults.email),
+    in_app: pick(raw.in_app, defaults.in_app),
   };
 }
 
@@ -247,9 +247,9 @@ type PrefsAuditRow = {
 };
 
 /**
- * The signed-in user's own preference changes, newest first. audit_logs is
- * readable by tenant admins and managers only, so for anyone else RLS returns
- * no rows and the tab shows its empty state.
+ * The signed-in user's own preference changes, newest first. The
+ * audit_logs_select_own_prefs policy lets every user read these rows,
+ * whatever their role or plan.
  */
 export async function listNotificationPrefsHistory(): Promise<
   NotificationPrefsChange[]

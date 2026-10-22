@@ -191,6 +191,17 @@ function checkPolicy(
     return "Pick who a breach escalates to.";
   }
 
+  if (
+    dto.day_mins !== undefined &&
+    !(
+      Number.isInteger(dto.day_mins) &&
+      dto.day_mins >= 1 &&
+      dto.day_mins <= 1440
+    )
+  ) {
+    return "Invalid request.";
+  }
+
   const targetError = checkTargets(dto);
   if (targetError) return targetError;
 

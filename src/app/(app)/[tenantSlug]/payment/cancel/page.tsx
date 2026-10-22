@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { XCircle, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/shared/page-loader";
 import {
   Card,
   CardContent,
@@ -16,21 +17,35 @@ import { abortPlanSwitchAction } from "@/features/billing/billing-actions";
 
 type CancelState = "checking" | "restored" | "noop" | "error";
 
-export default function PaymentCancelPage() {
+function PaymentCancelContent() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const [countdown, setCountdown] = useState(5);
   const [state, setState] = useState<CancelState>("checking");
   const [planName, setPlanName] = useState<string | null>(null);
+  const abortedRef = useRef(false);
   const tenantSlug = params.tenantSlug as string;
   const targetRedirectUrl = `/${tenantSlug}/account/plans`;
+  // What PayPal appends to the cancel URL: the order id as `token` for an
+  // upgrade payment, `ba_token` (and sometimes `subscription_id`) for an
+  // agreement approval. Only the checkout these identify is dropped -- a
+  // stale tab or bookmark must never undo a scheduled cancellation.
+  const token = searchParams.get("token");
+  const baToken = searchParams.get("ba_token");
+  const paypalSubscriptionId = searchParams.get("subscription_id");
 
   useEffect(() => {
-    let cancelled = false;
+    if (abortedRef.current) return;
+    abortedRef.current = true;
 
-    abortPlanSwitchAction(tenantSlug)
+    abortPlanSwitchAction(tenantSlug, {
+      checkoutOnly: true,
+      token,
+      baToken,
+      paypalSubscriptionId,
+    })
       .then((res) => {
-        if (cancelled) return;
         if (res.success) {
           if (res.restored) {
             setState("restored");
@@ -43,25 +58,22 @@ export default function PaymentCancelPage() {
         }
       })
       .catch(() => {
-        if (!cancelled) setState("error");
+        setState("error");
       });
+  }, [tenantSlug, token, baToken, paypalSubscriptionId]);
 
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          router.push(targetRedirectUrl);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+  // One timeout per tick, so the redirect is a side effect of render and not
+  // of a state updater, and leaving the page (the button) stops the timer.
+  useEffect(() => {
+    if (countdown <= 0) {
+      router.push(targetRedirectUrl);
+      return;
+    }
 
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [router, tenantSlug, targetRedirectUrl]);
+    const timer = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
+
+    return () => clearTimeout(timer);
+  }, [countdown, router, targetRedirectUrl]);
 
   const title =
     state === "checking"
@@ -116,5 +128,13 @@ export default function PaymentCancelPage() {
         </CardFooter>
       </Card>
     </div>
+  );
+}
+
+export default function PaymentCancelPage() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <PaymentCancelContent />
+    </Suspense>
   );
 }

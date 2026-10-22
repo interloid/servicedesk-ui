@@ -58,9 +58,12 @@ export async function prepareAndUpload(
 
   const settled = await Promise.allSettled(
     targets.map(async (target, index) => {
+      // Uploaded as the type the server chose from the extension; the
+      // record step refuses an object stored under any other type.
+      const body = new Blob([files[index]], { type: target.mime });
       const { error } = await supabase.storage
         .from(ATTACHMENT_BUCKET)
-        .uploadToSignedUrl(target.path, target.token, files[index]);
+        .uploadToSignedUrl(target.path, target.token, body);
 
       if (error) {
         throw new Error(`We couldn't upload ${target.name}. Try again.`);

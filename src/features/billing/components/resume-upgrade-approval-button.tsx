@@ -6,6 +6,7 @@ import { Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { resumeUpgradeApprovalAction } from "../billing-actions";
+import { usePaymentRedirect } from "../hooks/use-payment-redirect";
 
 /**
  * Finishes an upgrade whose difference is already paid but whose new monthly
@@ -22,7 +23,9 @@ export function ResumeUpgradeApprovalButton({
   tenantSlug: string;
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isTransitionPending, startTransition] = useTransition();
+  const { redirecting, redirect } = usePaymentRedirect();
+  const isPending = isTransitionPending || redirecting;
 
   const handleResume = () => {
     startTransition(async () => {
@@ -34,7 +37,7 @@ export function ResumeUpgradeApprovalButton({
       }
 
       if (result.approvalUrl) {
-        window.location.assign(result.approvalUrl);
+        redirect(result.approvalUrl);
         return;
       }
 

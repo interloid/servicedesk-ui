@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createSupabaseClient } from "@/lib/supabase/client";
+import { subscribeWithAuth } from "@/lib/supabase/realtime";
 import { SlaEvent } from "@/features/tickets/types/tickets.types";
 
 const ORDER: Record<SlaEvent["type"], number> = {
@@ -93,11 +94,12 @@ export function useRealtimeSlaEvents(
           const old = payload.old as { id: string };
           setEvents((prev) => prev.filter((e) => e.id !== old.id));
         },
-      )
-      .subscribe();
+      );
+
+    const unsubscribe = subscribeWithAuth(supabase, channel);
 
     return () => {
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, [ticketId]);
 

@@ -1,3 +1,4 @@
+import { attachmentContentType } from "@/features/tickets/lib/attachments";
 import { tenantPath } from "@/lib/tenancy";
 
 /**
@@ -136,10 +137,11 @@ export function formatBytes(bytes: number): string {
 
 /**
  * Rejects what the customer should not be sending before it costs an upload.
- * Type is deliberately NOT restricted: support tickets carry logs, archives
- * and whatever the customer's machine produced, and a mime allowlist here
- * turns "I can't send you the file" into a support ticket of its own. The
- * bucket is private and nothing is ever served as active content.
+ * Type follows the agent app's extension allow-list (tickets/lib/attachments),
+ * which is broad on purpose -- logs, office files, archives, media -- but
+ * leaves out anything a browser would run, like .html or .svg: staff open
+ * these from signed links, so active content would run against them. The
+ * size limit stays per file, as the bucket's is.
  */
 export function attachmentError(file: {
   name: string;
@@ -147,6 +149,10 @@ export function attachmentError(file: {
 }): string | null {
   if (file.size === 0) {
     return `${file.name} is empty.`;
+  }
+
+  if (!attachmentContentType(file.name)) {
+    return `${file.name} can't be attached: that file type isn't allowed.`;
   }
 
   if (file.size > MAX_ATTACHMENT_BYTES) {
@@ -167,8 +173,50 @@ export type PortalTenant = {
   secondaryColor: string | null;
   textColor: string | null;
   backgroundColor: string | null;
+  /** Branding's "show logo on portal": false hides the header mark entirely. */
+  showLogoOnPortal: boolean;
   logoUrl: string | null;
 };
+
+/** The emails' teal, for a workspace that hasn't picked a primary colour. */
+const FAVICON_FALLBACK_COLOR = "#0f766e";
+
+/**
+ * The portal's favicon when the workspace has no logo: its initial on its
+ * primary colour, like the header's initial tile, so the tab reads as
+ * "Northwind Support" rather than ServiceDesk Pro. Inline, so there is no
+ * extra request and nothing to cache per tenant.
+ */
+export function portalFaviconDataUrl(
+  tenant: Pick<PortalTenant, "initial" | "primaryColor">,
+): string {
+  // primary_color is free text in the database; only a hex colour goes into
+  // the markup.
+  const color = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(
+    tenant.primaryColor ?? "",
+  )
+    ? tenant.primaryColor!
+    : FAVICON_FALLBACK_COLOR;
+
+  const hex =
+    color.length === 4 ? color.replace(/^#(.)(.)(.)$/, "#$1$1$2$2$3$3") : color;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  // Dark letter on a light colour, white on anything else.
+  const ink = 0.299 * r + 0.587 * g + 0.114 * b > 170 ? "#0f172a" : "#ffffff";
+
+  const initial = (tenant.initial.trim().charAt(0) || "S")
+    .toUpperCase()
+    .replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+    `<rect width="64" height="64" rx="14" fill="${color}"/>` +
+    `<text x="32" y="32" dy=".35em" text-anchor="middle" fill="${ink}" ` +
+    `font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" ` +
+    `font-size="38" font-weight="800">${initial}</text></svg>`;
+
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 
 /** What the portal footer says about when the team is around. */
 export type PortalSupportHours = {

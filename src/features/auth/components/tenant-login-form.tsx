@@ -49,7 +49,7 @@ export function TenantLoginForm({
   initialError?: string;
   next?: string;
 }) {
-  const { login, isPending } = useLogin({ redirectTo: next });
+  const { login, isPending } = useLogin({ next });
   const { signInWithGoogle, isPending: isGooglePending } = useGoogleLogin({
     redirectTo: next,
     tenantSlug,

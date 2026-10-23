@@ -52,6 +52,9 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+  experimental: {
+    agentUpgrade: "security",
+  },
   generateBuildId: async () => process.env.NEXT_BUILD_ID || null,
   images: {
     remotePatterns: remotePatterns(),

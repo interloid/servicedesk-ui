@@ -7,6 +7,7 @@ import { isValidTenantSlug } from "@/lib/tenancy";
 
 import type { UpdateBrandingValues } from "@/features/branding/schemas/branding";
 import { trustedTenantLogoUrl } from "@/features/portal/avatar-url";
+import { getTenantPlanRecord } from "@/features/team/services/team.service";
 
 import type {
   BrandingFailureCode,
@@ -22,6 +23,7 @@ import {
   LOGO_MIME_TYPES,
   MAX_LOGO_BYTES,
   PORTAL_DOMAIN,
+  planIncludesBranding,
 } from "@/features/branding/branding";
 
 export class BrandingError extends Error {
@@ -414,11 +416,28 @@ async function removeUnusedLogos(tenantId: string, keepUrl: string | null) {
   }
 }
 
+/**
+ * Whether the tenant's plan includes Branding. Read through getTenantPlanRecord
+ * so the page gate and every write agree on the plan.
+ */
+export async function hasBrandingAccess(tenantId: string): Promise<boolean> {
+  const plan = await getTenantPlanRecord(tenantId);
+  return planIncludesBranding(plan?.planName);
+}
+
 async function requireAdmin(supabase: SupabaseClient): Promise<BrandingActor> {
   const actor = await requireActor(supabase);
 
   if (actor.role !== "tenant_admin") {
     throw new BrandingError("Only a Tenant Admin can change branding.", {
+      status: 403,
+      code: "action-not-allowed",
+    });
+  }
+
+  // The locked page hides the editor, but the actions are still callable.
+  if (!(await hasBrandingAccess(actor.tenantId))) {
+    throw new BrandingError("Branding is available on Pro and above.", {
       status: 403,
       code: "action-not-allowed",
     });

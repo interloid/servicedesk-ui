@@ -1513,3 +1513,81 @@ export async function searchTenantCustomers(
   }
   return data || [];
 }
+
+/** How many tickets the header search shows as you type. */
+const QUICK_SEARCH_LIMIT = 8;
+
+/** A header search hit: just what its result row shows. */
+export interface TicketSearchHit {
+  id: string;
+  number: number;
+  subject: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  requester_name: string;
+  updated_at: string;
+}
+
+/**
+ * Tickets matching `query` by subject or description (or "#123" / "123" by
+ * number), newest activity first, at most 8, for the header search. RLS
+ * still decides which tickets the caller sees.
+ */
+export async function searchTenantTickets(
+  tenant: string,
+  query: string,
+): Promise<TicketSearchHit[]> {
+  const supabase = await createSupabaseServerClient();
+  const tenantId = await getTenantIdBySlug(tenant);
+  if (!tenantId) throw new Error("Tenant not found.");
+
+  // Same escaping as the list search: these are or-filter syntax.
+  const term = searchTerm(query).slice(0, 100);
+  if (!term) return [];
+
+  const numberMatch = /^#?(\d{1,9})$/.exec(term);
+  const clauses = [
+    `subject.ilike."%${term}%"`,
+    `description.ilike."%${term}%"`,
+  ];
+  if (numberMatch) clauses.push(`number.eq.${Number(numberMatch[1])}`);
+
+  const { data, error } = await supabase
+    .from("tickets")
+    .select(
+      `
+        id,
+        number,
+        subject,
+        status,
+        priority,
+        updated_at,
+        customers:requester_customer_id (
+          full_name,
+          email
+        )
+      `,
+    )
+    .eq("tenant_id", tenantId)
+    .or(clauses.join(","))
+    .order("updated_at", { ascending: false })
+    .limit(QUICK_SEARCH_LIMIT);
+
+  if (error) {
+    fail("search tickets", error, "Couldn't search tickets. Try again.");
+  }
+
+  return (data || []).map((t) => {
+    const customer = one(t.customers);
+    return {
+      id: t.id,
+      number: t.number,
+      subject: t.subject,
+      status: t.status as TicketStatus,
+      priority: t.priority as TicketPriority,
+      requester_name:
+        customer?.full_name || customer?.email || "Unknown Customer",
+      updated_at: t.updated_at,
+    };
+  });
+}

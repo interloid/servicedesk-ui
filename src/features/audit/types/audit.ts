@@ -386,3 +386,12 @@ export type AuditExportResult =
       truncated: boolean;
     }
   | { ok: false; message: string };
+
+/**
+ * Whether the sidebar shows the Audit log link unlocked. Matched on the plan
+ * name, the one plan field the sidebar's identity has; the page's own gate
+ * (getAuditAccess) checks the plan's audit_logs feature.
+ */
+export function planIncludesAuditLog(planName: string | null | undefined) {
+  return (planName ?? "").trim().toLowerCase() === "business";
+}

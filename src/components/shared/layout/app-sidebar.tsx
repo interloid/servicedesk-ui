@@ -54,6 +54,8 @@ import {
 import { isMembershipRole, MembershipRole } from "@/types/team-members";
 import { ShellIdentity } from "@/types/shell-identity";
 import { planIncludesReports } from "@/features/reports/types/types";
+import { planIncludesBranding } from "@/features/branding/branding";
+import { planIncludesAuditLog } from "@/features/audit/types/audit";
 
 interface NavItem {
   label: string;
@@ -168,6 +170,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           href: TENANT_ROUTES.SETTINGS.BRANDING,
           icon: Droplet,
           roles: ["tenant_admin", "manager"],
+          locked: !planIncludesBranding(identity?.org.planName),
         },
         {
           label: "Channels & email",
@@ -204,6 +207,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           href: TENANT_ROUTES.SETTINGS.AUDIT,
           icon: FileText,
           roles: ["tenant_admin", "manager"],
+          locked: !planIncludesAuditLog(identity?.org.planName),
         },
       ],
     },

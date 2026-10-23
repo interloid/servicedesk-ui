@@ -15,6 +15,7 @@ import {
   discardStagedAttachments,
   fetchTicketSlaPolicy,
   searchTenantCustomers,
+  searchTenantTickets,
   getCurrentUserIdentity,
   fetchAssignableAgents,
   fetchTenantStaff,
@@ -751,6 +752,34 @@ export async function searchTicketRequestersAction(
       success: false as const,
       error: errorMessage(error),
       customers: [],
+    };
+  }
+}
+
+/**
+ * Tickets matching what was typed in the header search: at most 8, by
+ * subject, description or number, from this tenant only.
+ */
+export async function searchTicketsAction(tenantSlug: string, query: string) {
+  try {
+    const parsed = searchRequestersSchema.safeParse({ tenantSlug, query });
+    if (!parsed.success) {
+      return {
+        success: false as const,
+        error: firstIssue(parsed.error),
+        tickets: [],
+      };
+    }
+    const tickets = await searchTenantTickets(
+      parsed.data.tenantSlug,
+      parsed.data.query,
+    );
+    return { success: true as const, tickets };
+  } catch (error) {
+    return {
+      success: false as const,
+      error: errorMessage(error),
+      tickets: [],
     };
   }
 }

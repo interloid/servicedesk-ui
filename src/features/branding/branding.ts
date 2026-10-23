@@ -23,6 +23,15 @@ export const DEFAULT_BACKGROUND_COLOR = "#f8fafc";
 
 export const DEFAULT_SHOW_LOGO_ON_PORTAL = true;
 
+/**
+ * Branding is a paid feature, like Reports: a Free workspace sees the page
+ * locked. Matched on the plan name because that is the one field the
+ * sidebar's identity and the page's server gate both have.
+ */
+export function planIncludesBranding(planName: string | null | undefined) {
+  return (planName ?? "Free").trim().toLowerCase() !== "free";
+}
+
 export const PORTAL_DOMAIN = PORTAL_BASE_DOMAIN;
 
 /** Mirrors the schema limits, so the editor's counters say what save enforces. */

@@ -46,6 +46,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { UnsavedChangesDialog } from "@/components/shared/unsaved-changes-dialog";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { createSupabaseClient } from "@/lib/supabase/client";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
@@ -189,6 +191,7 @@ export function BrandingEditor({
   const onBrandContrast = contrastRatio(palette.onBrand, palette.base);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const leaveGuard = useUnsavedChangesGuard(canEdit && dirty);
   const slug = draft.slug.trim();
 
   // The portal is path-based: /{slug}/portal/login on this app's own origin.
@@ -809,6 +812,13 @@ export function BrandingEditor({
           discard();
           setConfirm(null);
         }}
+      />
+
+      <UnsavedChangesDialog
+        open={leaveGuard.pendingHref !== null}
+        onStay={leaveGuard.stay}
+        onLeave={leaveGuard.leave}
+        description="Your branding changes haven't been saved. If you leave this page now, they will be lost."
       />
 
       <ConfirmDialog

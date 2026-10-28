@@ -58,7 +58,7 @@ import { cn } from "@/lib/utils";
  * select needs its height on the data-size variant, which otherwise wins
  * over a plain h-* and pins it at 32px.
  */
-const FIELD = "h-10 px-3 text-sm border-slate-200 focus:border-0";
+const FIELD = "h-10 px-3 text-sm border-slate-200";
 const SELECT_TRIGGER = `${FIELD} w-full data-[size=default]:h-10 text-slate-800`;
 const SELECT_ITEM = "p-2 text-sm";
 /**

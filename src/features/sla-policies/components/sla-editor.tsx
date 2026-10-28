@@ -113,6 +113,8 @@ import {
   EditBusinessHoursDialog,
   HolidayDialog,
 } from "./business-hours-dialogs";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
+import { UnsavedChangesDialog } from "@/components/shared/unsaved-changes-dialog";
 import {
   formatHolidayDate,
   formatWorkingDays,
@@ -143,7 +145,7 @@ interface SlaEditorProps {
   inUse?: boolean;
 }
 
-const CONTROL = "h-10 border-gray-200 text-sm focus:border-0";
+const CONTROL = "h-10 border-gray-200 text-sm";
 /** shadcn Card at the page's 20px padding, with a border instead of its ring. */
 const CARD =
   "gap-4 border border-gray-200/80 bg-white shadow-xs ring-0 [--card-spacing:--spacing(5)]";
@@ -264,6 +266,16 @@ export default function SlaEditor({
       ? { amount: String(initial.notifyBeforeMins / 60), unit: "hours" }
       : { amount: String(initial.notifyBeforeMins), unit: "minutes" },
   );
+
+  // The form as it loaded; leaving with anything different asks first.
+  // Holidays and business hours save on their own, so they don't count.
+  const [baseline] = useState(() =>
+    JSON.stringify({ draft, targetInputs, notifyLead }),
+  );
+  const dirty =
+    !readOnly &&
+    JSON.stringify({ draft, targetInputs, notifyLead }) !== baseline;
+  const leaveGuard = useUnsavedChangesGuard(dirty);
 
   const calendar =
     calendars.find((c) => c.id === draft.businessHoursId) ?? null;
@@ -520,7 +532,6 @@ export default function SlaEditor({
             disabled={pending}
             className="h-10 gap-2 rounded-lg bg-brand-accent px-4 text-sm font-semibold text-brand-accent-foreground shadow-none hover:bg-brand-accent/90"
           >
-            {mode === "edit" && <Plus className="size-4" aria-hidden />}
             {pending
               ? mode === "new"
                 ? "Creating…"
@@ -624,7 +635,7 @@ export default function SlaEditor({
                   <Textarea
                     maxLength={SLA_DESCRIPTION_MAX}
                     // Full height from the start instead of growing with the text.
-                    className="field-sizing-fixed h-21 resize-none overflow-y-auto border-gray-200 text-sm focus-within:border-0"
+                    className="field-sizing-fixed h-21 resize-none overflow-y-auto border-gray-200 text-sm"
                     value={draft.description}
                     onChange={(e) =>
                       setDraft((p) => ({ ...p, description: e.target.value }))
@@ -1087,6 +1098,13 @@ export default function SlaEditor({
           </div>
         </div>
       </fieldset>
+
+      <UnsavedChangesDialog
+        open={leaveGuard.pendingHref !== null}
+        onStay={leaveGuard.stay}
+        onLeave={leaveGuard.leave}
+        description="Your changes to this SLA policy haven't been saved. If you leave this page now, they will be lost."
+      />
 
       {activeCalendar && !readOnly && (
         <>

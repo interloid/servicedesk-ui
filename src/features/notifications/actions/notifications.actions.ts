@@ -13,6 +13,7 @@ import type {
 import {
   NotificationError,
   deleteNotification,
+  deleteNotifications,
   getNotificationPrefs,
   listNotifications,
   markAllNotificationsRead,
@@ -93,6 +94,22 @@ export async function deleteNotificationAction(
       error,
       "We couldn't delete that notification.",
       "deleteNotificationAction",
+    );
+  }
+}
+
+export async function clearNotificationsAction(
+  ids: string[],
+): Promise<NotificationActionResult> {
+  try {
+    await deleteNotifications(ids);
+    await revalidateNotifications();
+    return { ok: true };
+  } catch (error) {
+    return toFailure(
+      error,
+      "We couldn't clear your notifications.",
+      "clearNotificationsAction",
     );
   }
 }

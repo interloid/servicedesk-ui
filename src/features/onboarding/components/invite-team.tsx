@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { OnboardingState, TeamInvite } from "../types/onboarding";
+import { MAX_SIGNUP_INVITES } from "../schemas/onboarding.schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -64,6 +65,13 @@ export function StepInviteTeam({
 
     if (invalidEmails.length > 0) {
       setEmailError(`Invalid email format: ${invalidEmails.join(", ")}`);
+      return false;
+    }
+
+    if (emailList.length > MAX_SIGNUP_INVITES) {
+      setEmailError(
+        `Invite up to ${MAX_SIGNUP_INVITES} people now. You can add more from the Team page later.`,
+      );
       return false;
     }
 

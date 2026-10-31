@@ -4,6 +4,7 @@ export const NOTIFICATION_EVENT_KEYS = [
   "sla",
   "mention",
   "created",
+  "reopened",
 ] as const;
 
 export type NotificationEventKey = (typeof NOTIFICATION_EVENT_KEYS)[number];
@@ -27,6 +28,7 @@ export function defaultNotificationPrefs(): NotificationPrefs {
       sla: true,
       mention: true,
       created: false,
+      reopened: true,
     },
     in_app: {
       assigned: true,
@@ -34,6 +36,7 @@ export function defaultNotificationPrefs(): NotificationPrefs {
       sla: true,
       mention: true,
       created: true,
+      reopened: true,
     },
   };
 }

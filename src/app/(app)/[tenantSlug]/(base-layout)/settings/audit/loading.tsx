@@ -23,7 +23,7 @@ export default function Loading() {
     <div className="h-full overflow-y-auto p-4 font-sans sm:p-6 lg:p-8">
       <div className="mx-auto flex w-full flex-col gap-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1">
             <div className="flex items-center gap-3">
               <Skeleton className="h-8 w-32" />
               <Skeleton className="h-5 w-24 rounded-md" />
@@ -33,7 +33,6 @@ export default function Loading() {
           <div className="flex w-full flex-wrap gap-3 sm:w-auto">
             <Skeleton className="h-10 w-full rounded-lg sm:w-60" />
             <Skeleton className="h-10 flex-1 rounded-lg sm:w-24 sm:flex-none" />
-            <Skeleton className="h-10 flex-1 rounded-lg sm:w-44 sm:flex-none" />
           </div>
         </div>
 
@@ -44,9 +43,13 @@ export default function Loading() {
               className="flex items-center gap-4 rounded-[14px] border border-border bg-card p-4 sm:p-5"
             >
               <Skeleton className="size-12 rounded-xl" />
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Skeleton className="h-7 w-14" />
-                <Skeleton className="h-4 w-24" />
+              <div className="flex flex-1 flex-col">
+                <div className="flex h-8 items-center">
+                  <Skeleton className="h-7 w-14" />
+                </div>
+                <div className="flex h-5 items-center">
+                  <Skeleton className="h-4 w-24" />
+                </div>
               </div>
             </div>
           ))}
@@ -62,9 +65,12 @@ export default function Loading() {
               />
             ))}
           </div>
-          <div className="flex gap-5 border-b border-border px-4 pb-3">
+          <div className="flex gap-2 overflow-hidden border-b border-border p-3 sm:px-4">
             {Array.from({ length: 6 }).map((_, index) => (
-              <Skeleton key={index} className="h-6 w-28" />
+              <Skeleton
+                key={index}
+                className="h-10 w-36 shrink-0 rounded-full"
+              />
             ))}
           </div>
           <div className="overflow-hidden">
@@ -93,6 +99,10 @@ export default function Loading() {
                 <Skeleton className="size-8 rounded-lg" />
               </div>
             ))}
+          </div>
+          <div className="flex flex-col items-center justify-between gap-3 border-t border-border px-4 py-3 sm:flex-row">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-10 w-32 rounded-lg" />
           </div>
         </div>
       </div>

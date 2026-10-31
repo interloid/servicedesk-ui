@@ -64,7 +64,7 @@ import {
   TicketStatus,
   isPriorityLowered,
 } from "../types/tickets.types";
-import { PriorityReasonDialog } from "./priority-reason-dialog";
+import { PriorityConfirmDialog } from "./priority-confirm-dialog";
 import { toast } from "sonner";
 import {
   bulkAssignToMeAction,
@@ -221,7 +221,7 @@ export default function TicketsTable({
     "assign" | "priority" | "solved" | null
   >(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
-  // A bulk priority that lowers at least one ticket, waiting for its reason.
+  // A bulk priority that lowers at least one ticket, waiting for confirmation.
   const [bulkLowerTo, setBulkLowerTo] = useState<TicketPriority | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<
     Record<ColumnKey, boolean>
@@ -261,7 +261,6 @@ export default function TicketsTable({
   const runBulkAction = async (
     action: "assign" | "priority" | "solved",
     priority?: TicketPriority,
-    reason?: string,
   ) => {
     if (selectedTicketIds.length === 0) return;
     setBulkAction(action);
@@ -278,7 +277,6 @@ export default function TicketsTable({
               tenantSlug: tenant,
               ticketIds: selectedTicketIds,
               priority: priority!,
-              reason,
             })
           : bulkMarkSolvedAction({
               tenantSlug: tenant,
@@ -301,14 +299,16 @@ export default function TicketsTable({
         // The bulk actions' revalidatePath refreshes the list.
       } else {
         setBulkError(res.error || "Failed to update tickets.");
-        // The reason dialog covers the inline error; say it there too.
-        if (reason) toast.error(res.error || "Failed to update tickets.");
+        // The confirm dialog covers the inline error; say it there too.
+        if (action === "priority")
+          toast.error(res.error || "Failed to update tickets.");
       }
     } catch {
       // Thrown inside a transition this would reach error.tsx and replace
       // the whole list; keep it inline like any other failure.
       setBulkError("Couldn't reach the server. Try again.");
-      if (reason) toast.error("Couldn't reach the server. Try again.");
+      if (action === "priority")
+        toast.error("Couldn't reach the server. Try again.");
     } finally {
       setBulkAction(null);
     }
@@ -318,8 +318,7 @@ export default function TicketsTable({
     startTransition(() => runBulkAction("assign"));
   };
 
-  // Lowering any selected ticket asks why first; the reason goes on each
-  // lowered ticket's audit entry.
+  // Lowering any selected ticket asks for confirmation first.
   const handleSetPriority = (value: string) => {
     const priority = value as TicketPriority;
     const lowersAny = initialTickets.some(
@@ -477,6 +476,14 @@ export default function TicketsTable({
     ] as ColumnKey[]
   ).find((c) => visibleColumns[c]);
 
+  // No tickets at all (not just none matching a search or filter): the
+  // tabs, columns, search and filters show but are disabled, as there is
+  // nothing to narrow. With a filter on they stay usable so it can be cleared.
+  const isFiltered = ["search", "priority", "status", "view"].some((key) =>
+    searchParams.get(key),
+  );
+  const queueEmpty = totalCount === 0 && !isFiltered;
+
   const isAllSelected =
     initialTickets.length > 0 &&
     initialTickets.every((t) => selectedTicketIds.includes(t.id));
@@ -503,6 +510,7 @@ export default function TicketsTable({
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={queueEmpty}
                   className="h-10 gap-1.5 px-3 text-sm font-semibold"
                 >
                   <Columns className="w-3.5 h-3.5" />
@@ -581,6 +589,7 @@ export default function TicketsTable({
             tabs={viewTabs}
             activeViewId={activeViewId}
             onOpen={openViewTab}
+            disabled={queueEmpty}
           />
         </Suspense>
 
@@ -594,6 +603,7 @@ export default function TicketsTable({
               <Input
                 type="text"
                 value={searchQuery}
+                disabled={queueEmpty}
                 placeholder="Search this view"
                 onChange={(e) => {
                   // One navigation once typing stops, replacing the entry,
@@ -627,6 +637,7 @@ export default function TicketsTable({
               <Select
                 value={searchParams?.get("priority") || "all"}
                 onValueChange={(val) => updateQueryParam("priority", val)}
+                disabled={queueEmpty}
               >
                 <SelectTrigger className="h-10 min-h-10 w-full bg-white border-slate-200">
                   <SelectValue placeholder="All priorities" />
@@ -660,6 +671,7 @@ export default function TicketsTable({
               <Select
                 value={searchParams?.get("status") || "all"}
                 onValueChange={(val) => updateQueryParam("status", val)}
+                disabled={queueEmpty}
               >
                 <SelectTrigger className="h-10 min-h-10 w-full bg-white border-slate-200">
                   <SelectValue placeholder="All statuses" />
@@ -806,7 +818,14 @@ export default function TicketsTable({
         <Card className=" border-slate-200/80 overflow-hidden p-0 ring-0">
           <CardContent className="p-0">
             {initialTickets.length === 0 ? (
-              <TicketsEmptyState onAction={() => setIsSheetOpen(true)} />
+              <TicketsEmptyState
+                {...(queueEmpty && {
+                  title: "No tickets yet",
+                  description:
+                    "Tickets your customers raise will show up here. You can also raise one on a customer's behalf.",
+                })}
+                onAction={() => setIsSheetOpen(true)}
+              />
             ) : (
               <div className="overflow-x-auto rounded-[14px] border border-border bg-card">
                 <Table>
@@ -819,7 +838,7 @@ export default function TicketsTable({
                             handleSelectAll(Boolean(checked))
                           }
                           aria-label="Select all tickets on this page"
-                          className="h-4 w-4 rounded-xl border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-white"
+                          className="h-4 w-4 rounded-xl border-[1.5px] border-slate-400 dark:border-slate-500 data-[state=checked]:bg-brand-accent data-[state=checked]:text-white"
                         />
                       </TableHead>
 
@@ -932,7 +951,7 @@ export default function TicketsTable({
                                 handleSelectRow(ticket.id, Boolean(checked))
                               }
                               aria-label={`Select ticket #${ticket.number ?? ticket.id}`}
-                              className="h-4 w-4 rounded-md border-slate-300 data-[state=checked]:bg-brand-accent data-[state=checked]:text-white"
+                              className="h-4 w-4 rounded-md border-[1.5px] border-slate-400 dark:border-slate-500 data-[state=checked]:bg-brand-accent data-[state=checked]:text-white"
                             />
                           </TableCell>
 
@@ -1139,17 +1158,15 @@ export default function TicketsTable({
           tenant={tenant}
         />
 
-        <PriorityReasonDialog
+        <PriorityConfirmDialog
           open={bulkLowerTo !== null}
           to={bulkLowerTo}
           ticketCount={selectedTicketIds.length}
           pending={bulkAction === "priority"}
           onCancel={() => setBulkLowerTo(null)}
-          onConfirm={(reason) =>
+          onConfirm={() =>
             bulkLowerTo &&
-            startTransition(() =>
-              runBulkAction("priority", bulkLowerTo, reason),
-            )
+            startTransition(() => runBulkAction("priority", bulkLowerTo))
           }
         />
       </div>

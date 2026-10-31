@@ -42,6 +42,7 @@ import {
 import {
   canReopen,
   formatBytes,
+  MAX_ATTACHMENTS_PER_MESSAGE,
   PORTAL_ROUTES,
   PORTAL_STATE_LABEL,
   portalPath,
@@ -165,11 +166,8 @@ export function PortalRequestDetailView({
       // locally: the reply may also have moved the request out of
       // "Waiting on you", and the header has to agree with the thread.
       //
-      // The toast earns its place here: clearing the box is the only local sign
-      // the reply was sent, and the new bubble arrives with the re-render.
-      // Says where the answer will arrive, since the alternative reading of a
-      // portal is "check your email".
-      portalToastSuccess("Reply sent - the answer comes back to this thread.");
+      // No toast: as in a chat app, the new bubble appearing in the thread is
+      // the confirmation.
     } catch (uploadFailure) {
       const message =
         uploadFailure instanceof Error
@@ -250,15 +248,16 @@ export function PortalRequestDetailView({
     : { created: "\u00a0", updated: "\u00a0" };
 
   return (
-    // Laid out like a chat window: one card the height of the screen, with the
+    // Laid out like a chat window: one card filling the screen, with the
     // request's header pinned at the top, the composer pinned at the bottom,
-    // and only the thread between them scrolling. The height is the viewport
-    // less the portal header (h-15 / sm:h-16 plus its border) and <main>'s
-    // vertical padding (py-8 / md:py-12), so the card ends where the screen
-    // does, less the back link's 2.25rem (a 20px line and mt-4 under it).
-    // min-h keeps a short landscape phone from squeezing the thread to
-    // nothing -- there the page scrolls instead.
-    <div className="mx-auto flex h-[calc(100dvh-10.125rem)] min-h-120 w-full max-w-7xl flex-col sm:h-[calc(100dvh-10.3125rem)] md:h-[calc(100dvh-12.3125rem)] md:px-6">
+    // and only the thread between them scrolling. `data-portal-fill` tells
+    // PortalShell to size itself to the viewport, so the height comes from
+    // flex-1 here rather than from a calc that had to track the header,
+    // padding and footer by hand -- and the page itself never scrolls.
+    <div
+      data-portal-fill
+      className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col md:px-6"
+    >
       <BackLink href={portalPath(tenantSlug, PORTAL_ROUTES.REQUESTS)}>
         Your requests
       </BackLink>
@@ -370,88 +369,104 @@ export function PortalRequestDetailView({
             </Alert>
           ) : null}
 
+          {/* Resolved: reopening is its own decision, not a twin of Send, so
+              it sits on a line of its own above the composer and says what it
+              does. */}
+          {canReopen(request.state) ? (
+            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card px-3.5 py-2.5">
+              <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+                This request is resolved. Still need help? Reopen it to put it
+                back in the queue.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 shrink-0 px-4 font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent max-sm:w-full"
+                onClick={() => void reopen()}
+                disabled={busy}
+              >
+                {isReopening ? (
+                  <Loader2 aria-hidden className="size-4 animate-spin" />
+                ) : (
+                  <RotateCcw aria-hidden className="size-4" />
+                )}
+                {isReopening ? "Reopening…" : "Reopen request"}
+              </Button>
+            </div>
+          ) : null}
+
           <label htmlFor="portal-reply" className="sr-only">
             Reply to this request
           </label>
 
-          <Textarea
-            id="portal-reply"
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-            onKeyDown={onReplyKeyDown}
-            onPaste={onReplyPaste}
-            maxLength={PORTAL_REPLY_MAX}
-            disabled={busy}
-            rows={2}
-            placeholder="Write your reply…"
-            className="min-h-11 max-h-32 resize-none overflow-y-auto rounded-xl bg-background text-sm leading-6 sm:min-h-14 sm:max-h-40"
-          />
-          <CharacterCount
-            length={body.length}
-            max={PORTAL_REPLY_MAX}
-            className="mt-1"
-          />
-
-          {/* On a phone, one column: Send (and Reopen) full width first,
-              where the thumb lands, then Attach files with its limits, then
-              the attached files. From sm up, one row as a chat composer has.
-              The picker's own wrapper is `contents`, so its trigger and file
-              list are items of this container directly. */}
-          <div className="mt-2.5 grid grid-cols-1 gap-2 sm:mt-3 sm:flex sm:flex-wrap sm:items-center sm:gap-2.5">
+          {/* One field, as WhatsApp or Teams draw it: the paperclip, the text
+              and Send share a single rounded box, and attached files sit on
+              top of it as chips. The text grows with what is typed, one line
+              to start, up to roughly ten lines before it scrolls. The
+              picker's wrapper is `contents`, so its icon and file list are
+              items of this box directly. */}
+          <div
+            className={cn(
+              "flex flex-wrap items-end gap-1 rounded-3xl border border-input bg-background p-1.5 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+              busy && "opacity-80",
+            )}
+          >
             <PortalAttachmentPicker
               files={files}
               onChange={setFiles}
               onError={setError}
               disabled={busy}
-              compact
               className="contents"
-              listClassName="order-last basis-full"
+              // Two rows of chips at most; more scroll inside the box, so a
+              // full set of files never pushes the thread off the screen.
+              listClassName="order-first max-h-24 basis-full overflow-y-auto overscroll-contain px-1 pt-0.5 pb-1"
             />
 
-            <div className="order-first grid grid-cols-1 gap-2 sm:order-0 sm:ml-auto sm:flex sm:shrink-0 sm:gap-2.5">
-              {canReopen(request.state) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="lg"
-                  className="h-11 w-full px-5 font-semibold sm:w-auto hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent"
-                  onClick={() => void reopen()}
-                  disabled={busy}
-                >
-                  {isReopening ? (
-                    <Loader2 aria-hidden className="size-4 animate-spin" />
-                  ) : (
-                    <RotateCcw aria-hidden className="size-4" />
-                  )}
-                  {isReopening ? "Reopening…" : "Reopen"}
-                  {isReopening ? null : <span> request</span>}
-                </Button>
-              ) : null}
+            <Textarea
+              id="portal-reply"
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              onKeyDown={onReplyKeyDown}
+              onPaste={onReplyPaste}
+              maxLength={PORTAL_REPLY_MAX}
+              disabled={busy}
+              rows={1}
+              placeholder="Write your reply…"
+              className="max-h-[min(15rem,35dvh)] min-h-10 min-w-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-1.5 py-2 text-sm leading-6 shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
+            />
 
-              <Button
-                type="button"
-                size="lg"
-                className="h-11 w-full px-5 font-semibold sm:w-auto"
-                onClick={() => void sendReply()}
-                disabled={busy || !body.trim()}
-              >
-                {isSending ? "Sending…" : <span>Send reply</span>}
-                {isSending ? (
-                  <Loader2 aria-hidden className="size-4 animate-spin" />
-                ) : (
-                  <SendHorizontal aria-hidden className="size-4" />
-                )}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              size="icon"
+              className="size-10 shrink-0 rounded-full"
+              onClick={() => void sendReply()}
+              disabled={busy || !body.trim()}
+            >
+              {isSending ? (
+                <Loader2 aria-hidden className="size-4.5 animate-spin" />
+              ) : (
+                <SendHorizontal aria-hidden className="size-4.5" />
+              )}
+              <span className="sr-only">
+                {isSending ? "Sending…" : "Send reply"}
+              </span>
+            </Button>
           </div>
+
+          <CharacterCount
+            length={body.length}
+            max={PORTAL_REPLY_MAX}
+            className="mt-1 px-2"
+          />
 
           {/* Hidden on a phone, where every line here is a line taken from
               the thread; the request is just as private without the note. */}
-          <p className="mt-2.5 hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+          <p className="mt-2 hidden items-center gap-1.5 px-2 text-xs text-muted-foreground sm:flex">
             <Lock aria-hidden className="size-3.5 shrink-0" />
             Only you and the {tenantName} team can see this
             <span aria-hidden className="ml-auto">
-              Enter to send · Shift+Enter for a new line
+              Enter to send · Shift+Enter for a new line · Paste or attach up to{" "}
+              {MAX_ATTACHMENTS_PER_MESSAGE} files
             </span>
           </p>
         </footer>

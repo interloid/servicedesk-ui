@@ -54,7 +54,7 @@ function SectionHeading({
 
 function Section({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-border pb-5 not-first:pt-5">
+    <div className="flex flex-col gap-3 border-b border-border pb-5 not-first:pt-5 last:border-b-0 last:pb-0 xl:grow xl:justify-center">
       {children}
     </div>
   );
@@ -92,7 +92,7 @@ function SettingsCard() {
       {/* Display name */}
       <Section>
         <SectionHeading titleWidth="w-28" descriptionWidth="w-96" />
-        <div className="flex h-11 items-center justify-between rounded-sm border border-input px-3 md:h-10.5">
+        <div className="flex h-10 items-center justify-between rounded-lg border border-input px-3">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-3 w-10" />
         </div>
@@ -101,7 +101,7 @@ function SettingsCard() {
       {/* Portal address */}
       <Section>
         <SectionHeading titleWidth="w-32" descriptionWidth="w-96" />
-        <div className="flex h-11 items-stretch overflow-hidden rounded-sm border border-input md:h-10.5">
+        <div className="flex h-10 items-stretch overflow-hidden rounded-lg border border-input">
           <div className="hidden max-w-[45%] min-w-0 flex-none items-center border-r border-input bg-muted px-3 @sm:flex">
             <Skeleton className={`h-4 w-40 max-w-full ${SOFT}`} />
           </div>
@@ -137,7 +137,7 @@ function SettingsCard() {
             />
           ))}
           <div className="size-10 rounded-full border border-border @sm:size-11" />
-          <div className="flex h-11 w-full items-center rounded-sm border border-input px-3 @sm:w-32 md:h-10.5">
+          <div className="flex h-10 w-full items-center rounded-lg border border-input px-3 @sm:w-32">
             <Skeleton className="h-4 w-16" />
           </div>
         </div>
@@ -163,11 +163,9 @@ function SettingsCard() {
             <Skeleton className={`h-4 ${widths.label}`} />
             <div className="flex items-center gap-2.5">
               {index < 3 && (
-                <Skeleton
-                  className={`size-11 shrink-0 rounded-sm md:size-10.5 ${SOFT}`}
-                />
+                <Skeleton className={`size-10 shrink-0 rounded-lg ${SOFT}`} />
               )}
-              <div className="flex h-11 min-w-0 flex-1 items-center rounded-sm border border-input px-3 md:h-10.5">
+              <div className="flex h-10 min-w-0 flex-1 items-center rounded-lg border border-input px-3">
                 <Skeleton className="h-4 w-20" />
               </div>
             </div>
@@ -256,11 +254,11 @@ export default function Loading() {
           </div>
 
           <div className="flex w-full flex-wrap items-center gap-3 *:flex-1 sm:w-auto sm:*:flex-none">
-            <div className="flex h-9 items-center justify-center rounded-lg border bg-card px-3.5">
+            <div className="flex h-10 items-center justify-center rounded-lg border bg-card px-4">
               <Skeleton className="h-4 w-28" />
             </div>
             <div
-              className={`flex h-9 items-center justify-center rounded-lg px-3.5 ${ACCENT}`}
+              className={`flex h-10 items-center justify-center rounded-lg px-4 ${ACCENT}`}
             >
               <Skeleton className={`h-4 w-24 ${SOFT}`} />
             </div>

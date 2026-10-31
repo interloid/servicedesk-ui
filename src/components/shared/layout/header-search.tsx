@@ -22,6 +22,7 @@ import {
   TICKET_STATUS_LABELS,
 } from "@/features/tickets/types/tickets.types";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
+import { confirmNavigation } from "@/hooks/use-unsaved-changes-guard";
 import { formatRelativeTime } from "@/lib/format";
 import { stripTenantPrefix, tenantPath, TENANT_ROUTES } from "@/lib/tenancy";
 import { cn } from "@/lib/utils";
@@ -110,7 +111,12 @@ export function HeaderSearch({
       hits: prev.state === "done" || prev.state === "loading" ? prev.hits : [],
     }));
     timerRef.current = setTimeout(async () => {
-      const result = await searchTicketsAction(slug, term);
+      // A dropped request rejects instead of returning a failure; without
+      // this the spinner would turn forever.
+      const result = await searchTicketsAction(slug, term).catch(() => ({
+        success: false as const,
+        error: "Couldn't search tickets. Try again.",
+      }));
       if (request !== requestRef.current) return;
       setResults(
         result.success
@@ -147,11 +153,11 @@ export function HeaderSearch({
     if (!term || !slug) return;
 
     const picked = hits[active];
-    router.push(
-      picked
-        ? ticketHref(picked.id)
-        : `${tenantPath(slug, TENANT_ROUTES.TICKETS)}?search=${encodeURIComponent(term)}`,
-    );
+    const href = picked
+      ? ticketHref(picked.id)
+      : `${tenantPath(slug, TENANT_ROUTES.TICKETS)}?search=${encodeURIComponent(term)}`;
+    // Held by an unsaved form: its popup opens, and Leave goes to href.
+    if (confirmNavigation(href)) router.push(href);
     afterNavigate();
   };
 

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { isShortcutBlocked } from "@/hooks/use-keyboard-shortcut";
+import { confirmNavigation } from "@/hooks/use-unsaved-changes-guard";
 import {
   isTenantRouteAllowed,
   stripTenantPrefix,
@@ -59,7 +60,8 @@ export function GlobalShortcuts({ role }: { role: string }) {
               : null;
         if (target) {
           event.preventDefault();
-          router.push(tenantPath(parsed.slug, target));
+          const href = tenantPath(parsed.slug, target);
+          if (confirmNavigation(href)) router.push(href);
         }
         return;
       }
@@ -75,7 +77,8 @@ export function GlobalShortcuts({ role }: { role: string }) {
         parsed.rest !== TENANT_ROUTES.TICKETS
       ) {
         event.preventDefault();
-        router.push(`${tenantPath(parsed.slug, TENANT_ROUTES.TICKETS)}?new=1`);
+        const href = `${tenantPath(parsed.slug, TENANT_ROUTES.TICKETS)}?new=1`;
+        if (confirmNavigation(href)) router.push(href);
       }
     };
 

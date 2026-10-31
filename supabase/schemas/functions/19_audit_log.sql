@@ -59,6 +59,127 @@ exception
 end;
 $$;
 
+------------------------------------------------------------
+-- 3b. Who acted, when the session can't say
+------------------------------------------------------------
+
+-- The person behind a service-role write. The app's admin client and the
+-- billing Edge Functions send the signed-in user's id as x-audit-actor when a
+-- person's action has to run with the service key (a role change, a customer
+-- invite, a plan change). Trusted only on service-role requests: the key is a
+-- secret, so a browser can't name somebody else this way.
+create or replace function public.audit_trusted_actor()
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+    v_claims text := current_setting('request.jwt.claims', true);
+    v_id     uuid;
+begin
+    if v_claims is null or v_claims = ''
+       or (v_claims::jsonb ->> 'role') is distinct from 'service_role' then
+        return null;
+    end if;
+
+    v_id := nullif(public.audit_request_header('x-audit-actor'), '')::uuid;
+
+    if v_id is null or not exists (select 1 from public.users where id = v_id) then
+        return null;
+    end if;
+
+    return v_id;
+exception
+    when others then
+        return null;
+end;
+$$;
+
+-- The person a trigger attributes its rows to when nobody is acting right
+-- now: set by audit_subscriptions / audit_invoices to the subscription's
+-- billing_actor_id (the last Tenant Admin or Billing Admin who changed
+-- billing), so a webhook applying their plan change or charging their
+-- agreement is recorded against them. Transaction-local; cleared after use.
+create or replace function public.audit_fallback_actor()
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+    v_id uuid;
+begin
+    v_id := nullif(current_setting('app.audit_fallback_actor', true), '')::uuid;
+
+    if v_id is null or not exists (select 1 from public.users where id = v_id) then
+        return null;
+    end if;
+
+    return v_id;
+exception
+    when others then
+        return null;
+end;
+$$;
+
+-- Name, email and workspace role of the actor as they were when the event was
+-- written. Kept on the row because actor_id is set null when the account is
+-- deleted, which otherwise turns every past event of theirs into "System".
+create or replace function public.audit_actor_snapshot(
+    p_tenant_id uuid,
+    p_user_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+    v_role text := coalesce(
+        nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
+        ''
+    );
+begin
+    -- Over the API a signed-in user may only snapshot themselves; triggers,
+    -- the service role and cron (no request) may snapshot anyone.
+    if v_role in ('authenticated', 'anon')
+       and p_user_id is distinct from auth.uid() then
+        return null;
+    end if;
+
+    return (
+        select jsonb_strip_nulls(jsonb_build_object(
+            'name', nullif(btrim(u.full_name), ''),
+            'email', u.email,
+            'role', (
+                select public.audit_role_label(m.role::text)
+                from public.memberships m
+                where m.tenant_id = p_tenant_id
+                  and m.user_id = p_user_id
+                limit 1
+            )
+        ))
+        from public.users u
+        where u.id = p_user_id
+    );
+end;
+$$;
+
+-- audit_logs_fill runs as the writer, and staff insert a few events directly
+-- (as authenticated), so it needs these. Each is safe to call: the first two
+-- only answer for service-role / trigger context, and a signed-in caller can
+-- only snapshot themselves.
+revoke execute on function public.audit_trusted_actor() from public, anon;
+revoke execute on function public.audit_fallback_actor() from public, anon;
+revoke execute on function public.audit_actor_snapshot(uuid, uuid) from public, anon;
+grant execute on function public.audit_trusted_actor() to authenticated, service_role;
+grant execute on function public.audit_fallback_actor() to authenticated, service_role;
+grant execute on function public.audit_actor_snapshot(uuid, uuid) to authenticated, service_role;
+
 -- Fills what a writer left out: the module, the result, and the caller's
 -- address and user agent. A writer outside a request (the admin client, a
 -- cron) passes user_agent in meta_json; it is moved into the column here.
@@ -70,6 +191,25 @@ declare
     v_ip text;
 begin
     new.meta_json := coalesce(new.meta_json, '{}'::jsonb);
+
+    -- No session user: the person a service-role caller named, else the one
+    -- a billing trigger attributes this to. Still null for true system work.
+    if new.actor_id is null then
+        new.actor_id := coalesce(
+            public.audit_trusted_actor(),
+            public.audit_fallback_actor()
+        );
+    end if;
+
+    -- Who it was, as they were then. Never taken from the writer: a client
+    -- could otherwise put any name on its own row.
+    new.meta_json := new.meta_json - 'actor';
+    if new.actor_id is not null then
+        new.meta_json := new.meta_json || jsonb_build_object(
+            'actor',
+            public.audit_actor_snapshot(new.tenant_id, new.actor_id)
+        );
+    end if;
 
     -- current_user is the API role only for a direct PostgREST insert; inside
     -- audit_record() and the other SECURITY DEFINER writers it is the owner.
@@ -547,6 +687,14 @@ begin
         'paypal_subscription_id', new.paypal_subscription_id
     ));
 
+    -- A webhook or cron applying a change has no user: attribute it to the
+    -- Tenant Admin or Billing Admin who last changed billing.
+    perform set_config(
+        'app.audit_fallback_actor',
+        coalesce(new.billing_actor_id::text, ''),
+        true
+    );
+
     if tg_op = 'INSERT' then
         select * into v_new_plan from public.plans where id = new.plan_id;
         perform public.audit_record(
@@ -559,6 +707,7 @@ begin
                 'related', v_related
             )
         );
+        perform set_config('app.audit_fallback_actor', '', true);
         return null;
     end if;
 
@@ -640,6 +789,7 @@ begin
         );
     end if;
 
+    perform set_config('app.audit_fallback_actor', '', true);
     return null;
 end;
 $$;
@@ -650,6 +800,117 @@ create trigger audit_subscriptions
 after insert or update on public.subscriptions
 for each row
 execute function public.audit_subscriptions();
+
+-- Who last changed billing: the signed-in person behind a write (through the
+-- billing Edge Functions, which name them in x-audit-actor). A webhook or cron
+-- names nobody and leaves it as it was, so their follow-up writes -- and the
+-- renewals charged to the agreement this person set up -- are attributed to
+-- them by audit_subscriptions and audit_invoices.
+create or replace function public.subscriptions_billing_actor()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_actor uuid := auth.uid();
+begin
+    if v_actor is not null
+       and not exists (select 1 from public.users where id = v_actor) then
+        v_actor := null;
+    end if;
+
+    v_actor := coalesce(v_actor, public.audit_trusted_actor());
+
+    if v_actor is not null then
+        new.billing_actor_id := v_actor;
+    end if;
+
+    return new;
+end;
+$$;
+
+drop trigger if exists subscriptions_billing_actor on public.subscriptions;
+
+create trigger subscriptions_billing_actor
+before insert or update on public.subscriptions
+for each row
+execute function public.subscriptions_billing_actor();
+
+revoke execute on function public.subscriptions_billing_actor() from public, anon, authenticated;
+
+-- Payments ---------------------------------------------------------------
+
+-- One row per invoice the moment it is paid. The person is whoever is acting
+-- (an upgrade paid in the app), else the subscription's billing_actor_id: the
+-- Tenant Admin or Billing Admin whose agreement a renewal is charged to.
+create or replace function public.audit_invoices()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    v_actor uuid;
+begin
+    if new.status is distinct from 'paid'
+       or (tg_op = 'UPDATE' and old.status = 'paid') then
+        return null;
+    end if;
+
+    select s.billing_actor_id into v_actor
+    from public.subscriptions s
+    where s.tenant_id = new.tenant_id
+      and (new.subscription_id is null or s.id = new.subscription_id)
+    limit 1;
+
+    perform set_config(
+        'app.audit_fallback_actor',
+        coalesce(v_actor::text, ''),
+        true
+    );
+
+    perform public.audit_record(
+        new.tenant_id,
+        'create',
+        'invoice',
+        new.id,
+        jsonb_strip_nulls(jsonb_build_object(
+            'summary', format(
+                'Paid %s %s for the %s plan%s',
+                new.currency,
+                to_char(coalesce(new.amount_paid, new.amount), 'FM999999990.00'),
+                coalesce(nullif(new.plan_name, ''), 'current'),
+                case
+                    when nullif(new.invoice_number, '') is not null
+                    then format(' (%s)', new.invoice_number)
+                    else ''
+                end
+            ),
+            'amount', coalesce(new.amount_paid, new.amount),
+            'currency', new.currency,
+            'invoice_number', new.invoice_number,
+            'invoice_type', new.invoice_type,
+            'payment_method', new.payment_method,
+            'related', jsonb_strip_nulls(jsonb_build_object(
+                'paypal_subscription_id', new.paypal_subscription_id
+            ))
+        ))
+    );
+
+    perform set_config('app.audit_fallback_actor', '', true);
+    return null;
+end;
+$$;
+
+drop trigger if exists audit_invoices on public.invoices;
+
+create trigger audit_invoices
+after insert or update of status on public.invoices
+for each row
+execute function public.audit_invoices();
+
+revoke execute on function public.audit_invoices() from public, anon, authenticated;
 
 -- Workspace settings ------------------------------------------------------
 

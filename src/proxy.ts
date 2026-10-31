@@ -4,7 +4,6 @@ import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  AUTH_COOKIE_DOMAIN,
   SUBDOMAIN_ROUTING_AVAILABLE,
   TENANT_HINT_COOKIE,
   TENANT_HINT_MAX_AGE,
@@ -26,6 +25,7 @@ import {
 
 import { readTenantClaims } from "@/features/auth/claims";
 import {
+  AUTH_COOKIE_SCOPE,
   REMEMBER_COOKIE,
   authCookieLifetime,
   isRememberedSession,
@@ -36,11 +36,6 @@ import { APP_ROUTES } from "@/lib/routes";
 import { env } from "./config/env";
 
 const ROOT_PATH = "/";
-
-const IS_HTTPS =
-  process.env.NODE_ENV === "production" &&
-  !env.NEXT_PUBLIC_SITE_URL.startsWith("http://localhost") &&
-  !env.NEXT_PUBLIC_SITE_URL.startsWith("http://127.0.0.1");
 
 function withSessionCookies(
   target: NextResponse,
@@ -110,11 +105,8 @@ function isStaffSession(
 
 function rememberTenant(response: NextResponse, slug: string): NextResponse {
   response.cookies.set(TENANT_HINT_COOKIE, slug, {
-    path: "/",
-    sameSite: "lax",
+    ...AUTH_COOKIE_SCOPE,
     maxAge: TENANT_HINT_MAX_AGE,
-    secure: IS_HTTPS,
-    ...(AUTH_COOKIE_DOMAIN ? { domain: AUTH_COOKIE_DOMAIN } : {}),
   });
 
   return response;
@@ -185,14 +177,7 @@ async function routeRequest(request: NextRequest): Promise<NextResponse> {
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, {
               ...options,
-              ...(AUTH_COOKIE_DOMAIN
-                ? {
-                    domain: AUTH_COOKIE_DOMAIN,
-                  }
-                : {}),
-              path: "/",
-              sameSite: "lax",
-              secure: IS_HTTPS,
+              ...AUTH_COOKIE_SCOPE,
               ...authCookieLifetime(options, remember),
             });
           });

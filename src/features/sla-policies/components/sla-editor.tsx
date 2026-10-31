@@ -145,12 +145,12 @@ interface SlaEditorProps {
   inUse?: boolean;
 }
 
-const CONTROL = "h-10 border-gray-200 text-sm";
+const CONTROL = "h-10 border-slate-200 text-sm";
 /** shadcn Card at the page's 20px padding, with a border instead of its ring. */
 const CARD =
-  "gap-4 border border-gray-200/80 bg-white shadow-xs ring-0 [--card-spacing:--spacing(5)]";
+  "gap-4 border border-slate-200/80 bg-white shadow-xs ring-0 [--card-spacing:--spacing(5)]";
 /** A table set inside a card: its own rounded border, header tinted. */
-const INSET_TABLE = "overflow-hidden rounded-xl border border-gray-200";
+const INSET_TABLE = "overflow-hidden rounded-xl border border-slate-200";
 /**
  * The holidays table is always three rows tall (40px header + 3 × 52px rows +
  * borders = 199px), locked or not; more holidays scroll inside it under a
@@ -158,8 +158,8 @@ const INSET_TABLE = "overflow-hidden rounded-xl border border-gray-200";
  */
 const HOLIDAY_TABLE_SCROLL =
   "[&_[data-slot=table-container]]:h-[199px] [&_[data-slot=table-container]]:overflow-y-auto";
-const TABLE_HEAD_ROW = "border-gray-200 bg-gray-50/70 hover:bg-gray-50/70";
-const TH = "px-3 text-xs font-semibold text-gray-600";
+const TABLE_HEAD_ROW = "border-slate-200 bg-slate-50/70 hover:bg-slate-50/70";
+const TH = "px-3 text-xs font-semibold text-slate-600";
 /** Same as the billing page's in-card buttons (e.g. "Refresh"). */
 const CARD_BUTTON =
   "h-10 gap-2 rounded-lg px-4 text-sm font-semibold duration-200 ease-out motion-safe:active:scale-[0.98]";
@@ -508,14 +508,14 @@ export default function SlaEditor({
             SLA policies
           </Link>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="truncate text-2xl capitalize font-bold tracking-tight text-gray-900">
+            <h1 className="truncate text-2xl capitalize font-bold tracking-tight text-slate-900">
               {mode === "new"
                 ? "Create SLA policy"
                 : initial.name || "Edit SLA policy"}
             </h1>
             {mode === "edit" && <StatusBadge status={initial.status} />}
           </div>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-slate-500">
             Define how quickly your team should respond to and resolve customer
             tickets.
           </p>
@@ -607,7 +607,7 @@ export default function SlaEditor({
                       setDraft((p) => ({ ...p, status: v as PolicyStatus }))
                     }
                   >
-                    <SelectTrigger className="w-full min-h-11 h-10 border-gray-200 text-sm">
+                    <SelectTrigger className="w-full h-10 min-h-10 border-slate-200 text-sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent
@@ -635,7 +635,7 @@ export default function SlaEditor({
                   <Textarea
                     maxLength={SLA_DESCRIPTION_MAX}
                     // Full height from the start instead of growing with the text.
-                    className="field-sizing-fixed h-21 resize-none overflow-y-auto border-gray-200 text-sm"
+                    className="field-sizing-fixed h-21 resize-none overflow-y-auto border-slate-200 text-sm"
                     value={draft.description}
                     onChange={(e) =>
                       setDraft((p) => ({ ...p, description: e.target.value }))
@@ -739,11 +739,11 @@ export default function SlaEditor({
                           <React.Fragment key={target.priority}>
                             <TableRow
                               className={cn(
-                                "border-gray-100 hover:bg-transparent",
+                                "border-slate-100 hover:bg-transparent",
                                 error && "border-b-0",
                               )}
                             >
-                              <TableCell className="px-3 py-1.5 font-medium text-gray-900">
+                              <TableCell className="px-3 py-1.5 font-medium text-slate-900">
                                 <span className="inline-flex items-center gap-2">
                                   <span
                                     className={cn(
@@ -784,7 +784,7 @@ export default function SlaEditor({
                               </TableCell>
                             </TableRow>
                             {error && (
-                              <TableRow className="border-gray-100 hover:bg-transparent">
+                              <TableRow className="border-slate-100 hover:bg-transparent">
                                 <TableCell
                                   colSpan={3}
                                   className="px-3 pt-0 pb-1.5 text-xs whitespace-normal text-red-600"
@@ -862,7 +862,7 @@ export default function SlaEditor({
                     onClick={() => setHoursOpen(true)}
                     className={`${CARD_BUTTON} ${
                       !activeCalendar
-                        ? "cursor-not-allowed opacity-50 text-gray-400"
+                        ? "cursor-not-allowed opacity-50 text-slate-400"
                         : ""
                     }`}
                   >
@@ -882,7 +882,7 @@ export default function SlaEditor({
                       }
                     >
                       <SelectTrigger
-                        className="mb-3 h-9 w-full border-gray-200 text-sm sm:w-64"
+                        className="mb-3 h-9 w-full border-slate-200 text-sm sm:w-64"
                         aria-label="Business hours calendar"
                       >
                         <SelectValue />
@@ -929,7 +929,7 @@ export default function SlaEditor({
                     onClick={() => setHolidayDialog({ holiday: null })}
                     className={`${CARD_BUTTON} ${
                       !activeCalendar
-                        ? "cursor-not-allowed opacity-50 text-gray-400"
+                        ? "cursor-not-allowed opacity-50 text-slate-400"
                         : ""
                     }`}
                   >
@@ -969,16 +969,16 @@ export default function SlaEditor({
                     />
                     <Label
                       htmlFor="notify-breach"
-                      className="cursor-pointer text-sm font-semibold text-gray-800"
+                      className="cursor-pointer text-sm font-semibold text-slate-800"
                     >
                       Notify assignee before breach
                     </Label>
                   </div>
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
                       <Input
                         inputMode="numeric"
-                        className="h-9 w-16 border-gray-200 text-sm"
+                        className="h-9 w-16 border-slate-200 text-sm"
                         value={notifyLead.amount}
                         disabled={!draft.notifyBeforeBreach}
                         aria-label="How long before the target to warn the assignee"
@@ -998,7 +998,7 @@ export default function SlaEditor({
                         }
                       >
                         <SelectTrigger
-                          className="min-h-9 w-28 border-gray-200 text-sm"
+                          className="min-h-9 w-28 border-slate-200 text-sm"
                           aria-label="Lead time unit"
                         >
                           <SelectValue />
@@ -1020,7 +1020,7 @@ export default function SlaEditor({
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-slate-500">
                         Before the SLA deadline
                       </p>
                     </div>
@@ -1046,7 +1046,7 @@ export default function SlaEditor({
 
                     <Label
                       htmlFor="escalate-breach"
-                      className="cursor-pointer text-sm font-semibold text-gray-800"
+                      className="cursor-pointer text-sm font-semibold text-slate-800"
                     >
                       Escalate on breach
                     </Label>
@@ -1064,7 +1064,7 @@ export default function SlaEditor({
                       disabled={!draft.escalateOnBreach}
                     >
                       <SelectTrigger
-                        className="min-h-9 w-44 border-gray-200 text-sm"
+                        className="min-h-9 w-44 border-slate-200 text-sm"
                         aria-label="Escalate to"
                       >
                         <SelectValue />
@@ -1088,7 +1088,7 @@ export default function SlaEditor({
                       </SelectContent>
                     </Select>
 
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-slate-500">
                       Automatically escalate the ticket if SLA is breached.
                     </p>
                   </div>
@@ -1239,16 +1239,16 @@ function Section({
           {step}
         </span>
         <div className="space-y-0.5">
-          <CardTitle className="text-base font-semibold  text-gray-900">
+          <CardTitle className="text-base font-semibold  text-slate-900">
             {title}
             {optional && (
-              <span className="ml-1 text-xs font-normal text-gray-500">
+              <span className="ml-1 text-xs font-normal text-slate-500">
                 (Optional)
               </span>
             )}
           </CardTitle>
           {hint && (
-            <CardDescription className="text-xs text-gray-500">
+            <CardDescription className="text-xs text-slate-500">
               {hint}
             </CardDescription>
           )}
@@ -1279,10 +1279,10 @@ function AppliesToOption({
       className={cn(
         "flex items-start gap-3 rounded-xl border p-3.5 transition-colors",
         disabled
-          ? "cursor-not-allowed border-gray-200 opacity-60"
+          ? "cursor-not-allowed border-slate-200 opacity-60"
           : selected
             ? "cursor-pointer border-brand-accent bg-brand-accent/5"
-            : "cursor-pointer border-gray-200 hover:bg-gray-50",
+            : "cursor-pointer border-slate-200 hover:bg-slate-50",
       )}
     >
       <RadioGroupItem
@@ -1291,7 +1291,7 @@ function AppliesToOption({
         disabled={disabled}
         className={cn(
           "relative mt-0.5 size-4 shrink-0 rounded-full",
-          "border-2 border-solid border-gray-300 bg-white shadow-none",
+          "border-2 border-solid border-slate-300 bg-white shadow-none",
           "data-[state=checked]:border-brand-accent",
           "focus-visible:outline-none focus-visible:ring-2",
           "focus-visible:ring-brand-accent/30 focus-visible:ring-offset-2",
@@ -1300,10 +1300,10 @@ function AppliesToOption({
       />
 
       <span className="min-w-0 flex-1 space-y-0.5">
-        <span className="block text-sm font-semibold text-gray-900">
+        <span className="block text-sm font-semibold text-slate-900">
           {title}
         </span>
-        <span className="block text-xs text-gray-500">{body}</span>
+        <span className="block text-xs text-slate-500">{body}</span>
       </span>
     </label>
   );
@@ -1335,7 +1335,7 @@ function DefaultSlaCheckbox({
     <div
       className={cn(
         "rounded-xl border p-3.5 transition-colors",
-        checked ? "border-brand-accent bg-brand-accent/5" : "border-gray-200",
+        checked ? "border-brand-accent bg-brand-accent/5" : "border-slate-200",
       )}
     >
       <label
@@ -1355,14 +1355,14 @@ function DefaultSlaCheckbox({
           </CheckboxPrimitive.Indicator>
         </CheckboxPrimitive.Root>
         <span className="space-y-0.5">
-          <span className="block text-sm font-semibold text-gray-900">
+          <span className="block text-sm font-semibold text-slate-900">
             Default SLA
           </span>
-          <span className="block text-xs text-gray-500">
+          <span className="block text-xs text-slate-500">
             This policy will be used when no customer-specific SLA matches.
             <p>
               {note && (
-                <span className="mt-2 text-xs text-gray-600">{note}</span>
+                <span className="mt-2 text-xs text-slate-600">{note}</span>
               )}
             </p>
           </span>
@@ -1387,12 +1387,12 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label className="text-sm font-medium text-gray-800">
+      <Label className="text-sm font-medium text-slate-800">
         {label}
         {required && <span className="text-red-500">*</span>}
       </Label>
       {children}
-      {hint && <p className="text-xs text-gray-500">{hint}</p>}
+      {hint && <p className="text-xs text-slate-500">{hint}</p>}
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
@@ -1424,13 +1424,13 @@ function ChoiceCard({
         "flex items-start gap-3 rounded-xl border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
         selected
           ? "border-brand-accent bg-brand-accent/5"
-          : "border-gray-200 hover:bg-gray-50",
+          : "border-slate-200 hover:bg-slate-50",
       )}
     >
       <span
         className={cn(
           "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2",
-          selected ? "border-brand-accent" : "border-gray-300",
+          selected ? "border-brand-accent" : "border-slate-300",
         )}
       >
         {selected && <span className="size-2.5 rounded-full bg-brand-accent" />}
@@ -1438,14 +1438,14 @@ function ChoiceCard({
       <Icon
         className={cn(
           "mt-0.5 size-6 shrink-0",
-          selected ? "text-brand-accent" : "text-gray-500",
+          selected ? "text-brand-accent" : "text-slate-500",
         )}
       />
       <span className="space-y-1">
-        <span className="block text-sm font-semibold text-gray-900">
+        <span className="block text-sm font-semibold text-slate-900">
           {title}
         </span>
-        <span className="block text-xs leading-relaxed text-gray-500">
+        <span className="block text-xs leading-relaxed text-slate-500">
           {body}
         </span>
       </span>
@@ -1466,10 +1466,10 @@ function Fact({
 }) {
   return (
     <div className={cn("flex items-center gap-3", !bare && "px-4 py-3")}>
-      <Icon className="size-5 shrink-0 text-gray-500" />
+      <Icon className="size-5 shrink-0 text-slate-500" />
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-gray-900">{label}</p>
-        <p className="truncate text-xs text-gray-500">{value}</p>
+        <p className="text-sm font-semibold text-slate-900">{label}</p>
+        <p className="truncate text-xs text-slate-500">{value}</p>
       </div>
     </div>
   );
@@ -1490,7 +1490,7 @@ function DurationInputs({
     <div className="flex items-center gap-2">
       <Input
         inputMode="numeric"
-        className="h-9 w-24 border-gray-200 text-sm"
+        className="h-9 w-24 border-slate-200 text-sm"
         value={value.amount}
         aria-label={`${label} amount`}
         aria-invalid={invalid || undefined}
@@ -1501,7 +1501,7 @@ function DurationInputs({
         onValueChange={(v) => onChange({ unit: v as Unit })}
       >
         <SelectTrigger
-          className="min-h-9 w-32 border-gray-200 text-sm"
+          className="min-h-9 w-32 border-slate-200 text-sm"
           aria-label={`${label} unit`}
         >
           <SelectValue />
@@ -1559,7 +1559,7 @@ function IconCard({
             className={cn(
               "flex size-9 shrink-0 items-center justify-center rounded-lg",
               locked
-                ? "bg-gray-100 text-gray-500"
+                ? "bg-slate-100 text-slate-500"
                 : solid
                   ? "bg-brand-accent text-brand-accent-foreground"
                   : "bg-brand-accent/10 text-brand-accent",
@@ -1568,16 +1568,16 @@ function IconCard({
             <Icon className="size-5" />
           </span>
           <div className="min-w-0 space-y-0.5">
-            <CardTitle className="text-base font-semibold text-gray-900">
+            <CardTitle className="text-base font-semibold text-slate-900">
               {title}
               {optional && (
-                <span className="ml-1 text-xs font-normal text-gray-500">
+                <span className="ml-1 text-xs font-normal text-slate-500">
                   (Optional)
                 </span>
               )}
             </CardTitle>
             {hint && (
-              <CardDescription className="text-xs text-gray-500">
+              <CardDescription className="text-xs text-slate-500">
                 {hint}
               </CardDescription>
             )}
@@ -1593,14 +1593,14 @@ function IconCard({
 /** A skeleton of the card's content with a lock message over it. */
 function LockedPreview({ title, body }: { title: string; body: string }) {
   return (
-    <div className="flex min-h-35 flex-col items-center justify-center rounded-xl bg-gray-50 px-4 text-center">
-      <span className="mb-2 flex size-10 items-center justify-center rounded-full bg-white text-gray-400 ring-1 ring-gray-200">
+    <div className="flex min-h-35 flex-col items-center justify-center rounded-xl bg-slate-50 px-4 text-center">
+      <span className="mb-2 flex size-10 items-center justify-center rounded-full bg-white text-slate-400 ring-1 ring-slate-200">
         <Lock className="size-4" aria-hidden />
       </span>
 
-      <p className="text-sm font-semibold text-gray-900">{title}</p>
+      <p className="text-sm font-semibold text-slate-900">{title}</p>
 
-      <p className="mt-1 text-xs text-gray-500">{body}</p>
+      <p className="mt-1 text-xs text-slate-500">{body}</p>
     </div>
   );
 }
@@ -1616,13 +1616,13 @@ function BusinessHoursSummary({
   onManageHolidays?: () => void;
 }) {
   return (
-    <Card className="gap-0 border border-gray-200 py-0 shadow-none ring-0">
-      <div className="grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+    <Card className="gap-0 border border-slate-200 py-0 shadow-none ring-0">
+      <div className="grid grid-cols-1 divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
         <Fact icon={CalendarDays} label="Working days" value={workingDays} />
         <Fact icon={Clock} label="Working hours" value={workingHours} />
       </div>
-      <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-2.5">
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-2.5">
+        <div className="flex items-center gap-2 text-sm text-slate-600">
           <TreePalm className="size-4" aria-hidden />
           {holidayCount} holiday{holidayCount !== 1 ? "s" : ""} configured
         </div>
@@ -1686,7 +1686,7 @@ function HolidaysTable({
   return (
     <div className={cn(INSET_TABLE, HOLIDAY_TABLE_SCROLL)}>
       <Table className="min-w-120">
-        <TableHeader className="sticky top-0 z-10 bg-gray-50 shadow-[inset_0_-1px_0_var(--color-gray-200)]">
+        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_var(--color-slate-200)]">
           <TableRow className={TABLE_HEAD_ROW}>
             <TableHead className={cn(TH, "px-4")}>Holiday name</TableHead>
             <TableHead className={cn(TH, "px-4")}>Date</TableHead>
@@ -1702,18 +1702,18 @@ function HolidaysTable({
               <TableCell
                 colSpan={5}
                 // Fills the three-row body so the message sits centred.
-                className="h-39.5 px-4 text-center text-gray-500"
+                className="h-39.5 px-4 text-center text-slate-500"
               >
                 No holidays configured yet.
               </TableCell>
             </TableRow>
           ) : (
             sorted.map((h) => (
-              <TableRow key={h.id} className="border-gray-100">
-                <TableCell className="max-w-40 truncate px-4 py-3 font-semibold text-gray-900">
+              <TableRow key={h.id} className="border-slate-100">
+                <TableCell className="max-w-40 truncate px-4 py-3 font-semibold text-slate-900">
                   {h.name}
                 </TableCell>
-                <TableCell className="px-4 py-3 text-gray-700">
+                <TableCell className="px-4 py-3 text-slate-700">
                   {formatHolidayDate(h)}
                 </TableCell>
                 <TableCell className="px-4 py-3">

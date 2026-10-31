@@ -18,9 +18,9 @@ import { cn } from "@/lib/utils";
 
 /** Same as the editor's CARD. */
 const CARD =
-  "gap-4 border border-gray-200/80 bg-white shadow-xs ring-0 [--card-spacing:--spacing(5)]";
-const INSET = "overflow-hidden rounded-xl border border-gray-200";
-const HEAD_ROW = "border-gray-200 bg-gray-50/70 hover:bg-gray-50/70";
+  "gap-4 border border-slate-200/80 bg-white shadow-xs ring-0 [--card-spacing:--spacing(5)]";
+const INSET = "overflow-hidden rounded-xl border border-slate-200";
+const HEAD_ROW = "border-slate-200 bg-slate-50/70 hover:bg-slate-50/70";
 
 /* ───────────────────────── Policy list ───────────────────────── */
 
@@ -49,10 +49,10 @@ export function SlaPoliciesSkeleton() {
           <Skeleton className="h-10 w-32 rounded-lg" />
         </div>
 
-        <Card className="gap-0 border border-gray-200/80 bg-white py-0 shadow-xs ring-0">
+        <Card className="gap-0 border border-slate-200/80 bg-white py-0 shadow-xs ring-0">
           <Table>
             <TableHeader>
-              <TableRow className="border-slate-100 bg-slate-50 hover:bg-slate-50">
+              <TableRow className="h-14 border-slate-100 bg-slate-50 hover:bg-slate-50">
                 {LIST_COLUMNS.map((w, i) => (
                   <TableHead key={i} className="h-10 px-4">
                     <Skeleton className={cn("h-2.5", w)} />
@@ -64,7 +64,7 @@ export function SlaPoliciesSkeleton() {
               {Array.from({ length: 4 }, (_, row) => (
                 <TableRow
                   key={row}
-                  className="border-gray-100 hover:bg-transparent"
+                  className="border-slate-100 hover:bg-transparent"
                 >
                   <TableCell className="px-4 py-4 align-top">
                     <Skeleton className="h-4 w-32" />
@@ -79,9 +79,16 @@ export function SlaPoliciesSkeleton() {
                       </div>
                     </div>
                   </TableCell>
+                  {/* Urgent and Low targets: two 20px lines, 6px apart. */}
                   <TableCell className="px-4 py-4 align-top">
-                    <Skeleton className="h-4 w-28" />
-                    <Skeleton className="mt-2 h-4 w-24" />
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex h-5 items-center">
+                        <Skeleton className="h-4 w-28" />
+                      </div>
+                      <div className="flex h-5 items-center">
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell className="px-4 py-4 align-top">
                     <Skeleton className="h-4 w-24" />
@@ -106,21 +113,34 @@ export function SlaPoliciesSkeleton() {
 
 /* ───────────────────────── Editor (new / edit) ───────────────────────── */
 
-/** A card header: numbered badge or icon tile, title and hint, optional action. */
+/**
+ * A card header: numbered badge or icon tile, title and hint, optional action.
+ * The title and hint sit in boxes of their real line heights (text-base 24px,
+ * text-xs 16px), so a header with a hint is 42px and one without is the tile's
+ * height, exactly as in the editor.
+ */
 function HeaderSkeleton({
   tile = "size-7 rounded-md",
+  hint = true,
   action,
 }: {
   tile?: string;
+  hint?: boolean;
   action?: string;
 }) {
   return (
     <CardHeader className="flex items-start justify-between gap-3">
       <div className="flex items-start gap-3">
         <Skeleton className={cn("shrink-0", tile)} />
-        <div className="space-y-2 pt-0.5">
-          <Skeleton className="h-4.5 w-36" />
-          <Skeleton className="h-3 w-56 max-w-full" />
+        <div className="space-y-0.5">
+          <div className="flex h-6 items-center">
+            <Skeleton className="h-4 w-36" />
+          </div>
+          {hint && (
+            <div className="flex h-4 items-center">
+              <Skeleton className="h-3 w-56 max-w-full" />
+            </div>
+          )}
         </div>
       </div>
       {action && <Skeleton className={cn("h-10 rounded-lg", action)} />}
@@ -128,11 +148,36 @@ function HeaderSkeleton({
   );
 }
 
+/** The editor's Field: a 20px label, 6px gap, then the control. */
 function FieldSkeleton({ control = "h-10" }: { control?: string }) {
   return (
-    <div className="flex flex-col gap-2">
-      <Skeleton className="h-4 w-24" />
+    <div className="flex flex-col gap-1.5">
+      <div className="flex h-5 items-center">
+        <Skeleton className="h-4 w-24" />
+      </div>
       <Skeleton className={cn("w-full rounded-lg", control)} />
+    </div>
+  );
+}
+
+/** A bordered option with a 20px title over a 16px line (Applies to, Default SLA). */
+function OptionSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-xl border border-slate-200 p-3.5",
+        className,
+      )}
+    >
+      <Skeleton className="mt-0.5 size-4 shrink-0 rounded-full" />
+      <div className="space-y-0.5">
+        <div className="flex h-5 items-center">
+          <Skeleton className="h-4 w-28" />
+        </div>
+        <div className="flex h-4 items-center">
+          <Skeleton className="h-3 w-48 max-w-full" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -160,12 +205,24 @@ export function SlaEditorSkeleton() {
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
           <div className="flex flex-col gap-5">
             <Card className={CARD}>
-              <HeaderSkeleton />
+              <HeaderSkeleton hint={false} />
               <CardContent className="flex flex-col gap-3">
                 <FieldSkeleton />
-                <FieldSkeleton control="h-11" />
-                <FieldSkeleton control="h-32" />
-                <FieldSkeleton control="h-11" />
+                <FieldSkeleton />
+                <FieldSkeleton control="h-21" />
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex h-5 items-center">
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <OptionSkeleton />
+                    <OptionSkeleton />
+                  </div>
+                  <div className="flex h-4 items-center">
+                    <Skeleton className="h-3 w-72 max-w-full" />
+                  </div>
+                </div>
+                <OptionSkeleton />
               </CardContent>
             </Card>
 
@@ -187,7 +244,7 @@ export function SlaEditorSkeleton() {
                       {Array.from({ length: 4 }, (_, i) => (
                         <TableRow
                           key={i}
-                          className="border-gray-100 hover:bg-transparent"
+                          className="border-slate-100 hover:bg-transparent"
                         >
                           <TableCell className="px-3 py-1.5">
                             <div className="flex items-center gap-2">
@@ -219,13 +276,17 @@ export function SlaEditorSkeleton() {
                 {[0, 1].map((i) => (
                   <div
                     key={i}
-                    className="flex items-start gap-3 rounded-xl border border-gray-200 p-4"
+                    className="flex items-start gap-3 rounded-xl border border-slate-200 p-4"
                   >
-                    <Skeleton className="size-5 shrink-0 rounded-full" />
-                    <Skeleton className="size-6 shrink-0 rounded" />
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-24" />
-                      <Skeleton className="h-3 w-40" />
+                    <Skeleton className="mt-0.5 size-5 shrink-0 rounded-full" />
+                    <Skeleton className="mt-0.5 size-6 shrink-0 rounded" />
+                    <div className="space-y-1">
+                      <div className="flex h-5 items-center">
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                      <div className="flex h-5 items-center">
+                        <Skeleton className="h-3 w-40" />
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -236,21 +297,25 @@ export function SlaEditorSkeleton() {
               <HeaderSkeleton tile="size-9 rounded-lg" action="w-36" />
               <CardContent>
                 <div className={INSET}>
-                  <div className="grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                  <div className="grid grid-cols-1 divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
                     {[0, 1].map((i) => (
                       <div
                         key={i}
                         className="flex items-center gap-3 px-4 py-3"
                       >
                         <Skeleton className="size-5 shrink-0 rounded" />
-                        <div className="space-y-1.5">
-                          <Skeleton className="h-3.5 w-24" />
-                          <Skeleton className="h-3 w-16" />
+                        <div>
+                          <div className="flex h-5 items-center">
+                            <Skeleton className="h-3.5 w-24" />
+                          </div>
+                          <div className="flex h-4 items-center">
+                            <Skeleton className="h-3 w-16" />
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                  <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+                  <div className="flex h-10 items-center justify-between border-t border-slate-100 px-4">
                     <Skeleton className="h-3.5 w-36" />
                     <Skeleton className="h-3.5 w-24" />
                   </div>
@@ -262,7 +327,7 @@ export function SlaEditorSkeleton() {
               <HeaderSkeleton tile="size-9 rounded-lg" action="w-28" />
               <CardContent>
                 <div className={cn(INSET, "h-50.25")}>
-                  <div className="flex h-10 items-center gap-6 border-b border-gray-200 bg-gray-50/70 px-4">
+                  <div className="flex h-10 items-center gap-6 border-b border-slate-200 bg-slate-50/70 px-4">
                     {["w-24", "w-12", "w-12", "w-14"].map((w, i) => (
                       <Skeleton key={i} className={cn("h-3", w)} />
                     ))}
@@ -270,7 +335,7 @@ export function SlaEditorSkeleton() {
                   {Array.from({ length: 3 }, (_, i) => (
                     <div
                       key={i}
-                      className="flex h-13 items-center gap-6 border-b border-gray-100 px-4 last:border-b-0"
+                      className="flex h-13 items-center gap-6 border-b border-slate-100 px-4 last:border-b-0"
                     >
                       <Skeleton className="h-3.5 w-28" />
                       <Skeleton className="h-3.5 w-20" />
@@ -283,17 +348,19 @@ export function SlaEditorSkeleton() {
             </Card>
 
             <Card className={CARD}>
-              <HeaderSkeleton tile="size-9 rounded-lg" />
+              <HeaderSkeleton tile="size-9 rounded-lg" hint={false} />
               <CardContent className="space-y-3">
-                <div className="flex items-center gap-3">
+                <div className="flex h-9 items-center gap-3">
                   <Skeleton className="h-5 w-9 rounded-full" />
                   <Skeleton className="h-4 w-48" />
                   <Skeleton className="ml-3 h-9 w-16 rounded-lg" />
                   <Skeleton className="h-9 w-28 rounded-lg" />
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex h-9 items-center gap-3">
                   <Skeleton className="h-5 w-9 rounded-full" />
                   <Skeleton className="h-4 w-36" />
+                  <Skeleton className="ml-3 h-9 w-44 rounded-lg" />
+                  <Skeleton className="hidden h-3 w-72 sm:block" />
                 </div>
               </CardContent>
             </Card>

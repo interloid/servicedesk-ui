@@ -38,6 +38,7 @@ BEGIN
         WHEN 'sla_warning' THEN 'sla'
         WHEN 'mention' THEN 'mention'
         WHEN 'ticket_created' THEN 'created'
+        WHEN 'ticket_reopened' THEN 'reopened'
     END;
 
     IF v_event IS NULL THEN

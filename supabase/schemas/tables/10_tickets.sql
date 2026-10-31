@@ -47,6 +47,18 @@ create table if not exists public.tickets
 
     closed_at timestamptz,
 
+    -- Staff user who raised it; null when the customer did (portal).
+    created_by uuid
+        references public.users(id)
+        on delete set null,
+
+    -- First agent, manager or tenant admin to open the ticket.
+    opened_by uuid
+        references public.users(id)
+        on delete set null,
+
+    opened_at timestamptz,
+
     created_at timestamptz
         not null
         default now(),

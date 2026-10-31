@@ -4,12 +4,30 @@ import { ArrowRight, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 
-import type { TenantBranding } from "@/features/branding/branding";
+import {
+  PORTAL_DOMAIN,
+  type TenantBranding,
+} from "@/features/branding/branding";
 import { BrandingEditor } from "./branding-editor";
+
+/**
+ * Made-up branding for the blurred backdrop. A locked workspace's real
+ * branding is never passed down: the blur is decoration, and anything under
+ * it can still be read (or un-blurred) from dev tools.
+ */
+const SAMPLE_BRANDING: TenantBranding = {
+  name: "Acme Support",
+  slug: "acme",
+  portalUrl: `acme.${PORTAL_DOMAIN}`,
+  logoUrl: null,
+  primaryColor: null,
+  textColor: null,
+  backgroundColor: null,
+  showLogoOnPortal: true,
+};
 
 interface BrandingLockedProps {
   tenantSlug: string;
-  branding: TenantBranding;
   portalOrigin: string;
   /** Only a Tenant Admin can open Plans & pricing; a Manager is told who can. */
   canUpgrade: boolean;
@@ -18,7 +36,6 @@ interface BrandingLockedProps {
 /** What a Free tenant sees at /settings/branding: the editor, blurred, under a lock. */
 export function BrandingLocked({
   tenantSlug,
-  branding,
   portalOrigin,
   canUpgrade,
 }: BrandingLockedProps) {
@@ -30,7 +47,7 @@ export function BrandingLocked({
         className="pointer-events-none h-full select-none opacity-60 blur-[6px]"
       >
         <BrandingEditor
-          branding={branding}
+          branding={SAMPLE_BRANDING}
           canEdit={false}
           portalOrigin={portalOrigin}
         />

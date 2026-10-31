@@ -33,10 +33,16 @@ export function PortalShell({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-dvh flex-col bg-muted/40">
+    // A page marked `data-portal-fill` (the request thread, laid out as a chat
+    // window) gets exactly one screen: the shell stops growing with its
+    // content, <main> hands its child the height left over, and only the
+    // thread inside scrolls. The min-h keeps a short landscape phone usable
+    // -- below it the page scrolls as any other would.
+    // bg-background, not a fixed tint: BrandTheme points --background at the
+    // tenant's background colour, which a hard-coded shade never showed.
+    <div className="group/portal flex min-h-dvh flex-col bg-background has-[[data-portal-fill]]:h-dvh has-[[data-portal-fill]]:min-h-[34rem]">
       <BrandTheme
         primary={tenant.primaryColor}
-        secondary={tenant.secondaryColor}
         text={tenant.textColor}
         background={tenant.backgroundColor}
       />
@@ -48,7 +54,7 @@ export function PortalShell({
           header and the footer. Every page renders a single child here, so
           column flex is otherwise indistinguishable from block flow. Don't drop
           it without checking those three screens still centre. */}
-      <main className="flex flex-1 flex-col px-4 py-8 sm:px-5 md:px-6 md:py-12">
+      <main className="flex flex-1 flex-col px-4 py-8 sm:px-5 md:px-6 md:py-12 group-has-[[data-portal-fill]]/portal:min-h-0 group-has-[[data-portal-fill]]/portal:py-4 md:group-has-[[data-portal-fill]]/portal:py-6">
         {children}
       </main>
 
@@ -165,7 +171,9 @@ function PortalFooter({
   ];
 
   return (
-    <footer className="bg-slate-900 text-slate-400">
+    // Off on a phone under a full-screen thread: there it wraps to several
+    // lines, every one taken from the conversation.
+    <footer className="bg-slate-900 text-slate-400 max-md:group-has-[[data-portal-fill]]/portal:hidden">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 md:px-6">
         {/* flex-wrap rather than one forced line: at 320px the hours and the
             urgent target do not both fit, and truncating them would drop the

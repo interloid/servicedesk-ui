@@ -10,7 +10,10 @@ import {
   EMAIL_ALREADY_REGISTERED_MESSAGE,
   signUpWithPkce,
 } from "@/lib/supabase/pkce";
-import { enqueueEmail } from "@/lib/email/email-queue";
+import {
+  addInvitedStaffMember,
+  TeamError,
+} from "@/features/team/services/team.service";
 import type { TeamRole } from "@/features/team/types/team";
 import { registerSchema, RegisterInput } from "../schemas/onboarding.schema";
 
@@ -35,9 +38,38 @@ export interface Timezone {
 
 export type InvitationResult = {
   email: string;
-  status: "added" | "invited" | "already_exists" | "failed";
+  status: "invited" | "already_exists" | "failed";
   message: string;
 };
+
+function invitationFailure(email: string, error: unknown): InvitationResult {
+  if (!(error instanceof TeamError)) {
+    console.error(
+      `[Onboarding] Unexpected invitation error for ${email}:`,
+      error,
+    );
+    return {
+      email,
+      status: "failed",
+      message: "Unable to process this invitation.",
+    };
+  }
+
+  switch (error.code) {
+    // The membership stands; Resend invite on the team page retries.
+    case "invite-email-failed":
+      return { email, status: "invited", message: error.message };
+    // The same address twice in the signup list.
+    case "invite-already-sent":
+      return {
+        email,
+        status: "already_exists",
+        message: "This email is listed more than once.",
+      };
+    default:
+      return { email, status: "failed", message: error.message };
+  }
+}
 
 export async function registerTenant(payload: RegisterInput) {
   const validated = registerSchema.parse(payload);
@@ -131,273 +163,29 @@ export async function registerTenant(payload: RegisterInput) {
 
     const provisioned = data[0];
 
-    if (invite_users?.length) {
-      for (const invite of invite_users) {
-        const inviteEmail = invite.email?.trim().toLowerCase();
+    // Same rules as the Team page: an `invited` membership only, and anyone
+    // who already belongs to another workspace is refused.
+    for (const invite of invite_users ?? []) {
+      const inviteEmail = invite.email?.trim().toLowerCase();
 
-        if (!inviteEmail) continue;
+      if (!inviteEmail) continue;
 
-        try {
-          const { data: existingUser, error: userLookupError } =
-            await adminSupabase
-              .from("users")
-              .select("id, email")
-              .eq("email", inviteEmail)
-              .maybeSingle();
+      try {
+        await addInvitedStaffMember({
+          tenantId: provisioned.tenant_id,
+          tenantSlug: provisioned.tenant_slug,
+          inviterId: userId,
+          email: inviteEmail,
+          role: ONBOARDING_ROLE_LABEL[invite.role],
+        });
 
-          if (userLookupError) {
-            console.error(
-              `[Onboarding] Failed to find user ${inviteEmail}:`,
-              userLookupError.message,
-            );
-
-            invitationResults.push({
-              email: inviteEmail,
-              status: "failed",
-              message: "Unable to check the user.",
-            });
-
-            continue;
-          }
-
-          if (existingUser) {
-            const { data: existingMembership, error: membershipLookupError } =
-              await adminSupabase
-                .from("memberships")
-                .select("id")
-                .eq("tenant_id", provisioned.tenant_id)
-                .eq("user_id", existingUser.id)
-                .maybeSingle();
-
-            if (membershipLookupError) {
-              console.error(
-                `[Onboarding] Failed to check membership for ${inviteEmail}:`,
-                membershipLookupError.message,
-              );
-
-              invitationResults.push({
-                email: inviteEmail,
-                status: "failed",
-                message: "Unable to check organization membership.",
-              });
-
-              continue;
-            }
-
-            if (existingMembership) {
-              invitationResults.push({
-                email: inviteEmail,
-                status: "already_exists",
-                message: "User is already a member of this organization.",
-              });
-
-              continue;
-            }
-
-            const { error: membershipError } = await adminSupabase
-              .from("memberships")
-              .insert({
-                tenant_id: provisioned.tenant_id,
-                user_id: existingUser.id,
-                role: invite.role,
-                status: "active",
-                invited_by: userId,
-              });
-
-            if (membershipError) {
-              console.error(
-                `[Onboarding] Failed to add ${inviteEmail} to tenant:`,
-                membershipError.message,
-              );
-
-              invitationResults.push({
-                email: inviteEmail,
-                status: "failed",
-                message: "Unable to add user to the organization.",
-              });
-
-              continue;
-            }
-            // Queued: signup shouldn't wait on one auth API call per invitee.
-            try {
-              await enqueueEmail(
-                "password_reset",
-                {
-                  email: inviteEmail,
-                  redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
-                },
-                {
-                  tenantId: provisioned.tenant_id,
-                  dedupeKey: `reset:${inviteEmail}`,
-                },
-              );
-            } catch (emailError) {
-              console.error(
-                `[Onboarding] Failed to queue notification email to ${inviteEmail}:`,
-                emailError,
-              );
-
-              invitationResults.push({
-                email: inviteEmail,
-                status: "added",
-                message:
-                  "User was added to the organization, but the email could not be sent.",
-              });
-
-              continue;
-            }
-
-            invitationResults.push({
-              email: inviteEmail,
-              status: "added",
-              message: "User was added successfully and an email was sent.",
-            });
-
-            continue;
-          }
-
-          // Create the account without mailing it; the invite email is queued
-          // below once the membership exists. user_metadata carries tenant_id
-          // and role as inviteUserByEmail's `data` used to: the avatar storage
-          // policies read tenant_id from it.
-          const metadata = {
-            tenant_id: provisioned.tenant_id,
-            role: invite.role,
-          };
-
-          const { data: created, error: inviteError } =
-            await adminSupabase.auth.admin.createUser({
-              email: inviteEmail,
-              email_confirm: false,
-              user_metadata: metadata,
-            });
-
-          if (inviteError || !created?.user) {
-            console.error(
-              `[Onboarding] Failed to invite ${inviteEmail}:`,
-              inviteError?.message,
-            );
-
-            invitationResults.push({
-              email: inviteEmail,
-              status: "failed",
-              message: inviteError?.message || "Unable to send the invitation.",
-            });
-
-            continue;
-          }
-
-          const invitedUser = created.user;
-
-          const { error: userError } = await adminSupabase.from("users").upsert(
-            {
-              id: invitedUser.id,
-              email: inviteEmail,
-              full_name: "",
-              avatar_url: null,
-            },
-            {
-              onConflict: "id",
-            },
-          );
-
-          if (userError) {
-            console.error(
-              `[Onboarding] Failed to create user ${inviteEmail}:`,
-              userError.message,
-            );
-
-            await adminSupabase.auth.admin.deleteUser(invitedUser.id);
-
-            invitationResults.push({
-              email: inviteEmail,
-              status: "failed",
-              message: "Unable to create the invited user.",
-            });
-
-            continue;
-          }
-
-          const { error: membershipError } = await adminSupabase
-            .from("memberships")
-            .insert({
-              tenant_id: provisioned.tenant_id,
-              user_id: invitedUser.id,
-              role: invite.role,
-              status: "invited",
-              invited_by: userId,
-            });
-
-          if (membershipError) {
-            console.error(
-              `[Onboarding] Failed to create membership for ${inviteEmail}:`,
-              membershipError.message,
-            );
-
-            await adminSupabase.from("users").delete().eq("id", invitedUser.id);
-
-            await adminSupabase.auth.admin.deleteUser(invitedUser.id);
-
-            invitationResults.push({
-              email: inviteEmail,
-              status: "failed",
-              message: "Unable to add the invited user to the organization.",
-            });
-
-            continue;
-          }
-
-          try {
-            await enqueueEmail(
-              "team_invitation",
-              {
-                userId: invitedUser.id,
-                email: inviteEmail,
-                name: "",
-                role: ONBOARDING_ROLE_LABEL[invite.role],
-                tenantId: provisioned.tenant_id,
-                redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
-                metadata,
-              },
-              {
-                tenantId: provisioned.tenant_id,
-                dedupeKey: `${provisioned.tenant_id}:${invitedUser.id}`,
-              },
-            );
-          } catch (emailError) {
-            // The membership stands; Resend invite on the team page retries.
-            console.error(
-              `[Onboarding] Failed to queue invitation to ${inviteEmail}:`,
-              emailError,
-            );
-
-            invitationResults.push({
-              email: inviteEmail,
-              status: "invited",
-              message:
-                "User was invited, but the email could not be sent. Resend it from the team page.",
-            });
-
-            continue;
-          }
-
-          invitationResults.push({
-            email: inviteEmail,
-            status: "invited",
-            message: "Invitation sent successfully.",
-          });
-        } catch (error) {
-          console.error(
-            `[Onboarding] Unexpected invitation error for ${inviteEmail}:`,
-            error,
-          );
-
-          invitationResults.push({
-            email: inviteEmail,
-            status: "failed",
-            message: "Unable to process this invitation.",
-          });
-        }
+        invitationResults.push({
+          email: inviteEmail,
+          status: "invited",
+          message: "Invitation sent successfully.",
+        });
+      } catch (error) {
+        invitationResults.push(invitationFailure(inviteEmail, error));
       }
     }
 

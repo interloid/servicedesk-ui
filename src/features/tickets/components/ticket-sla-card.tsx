@@ -225,8 +225,8 @@ export function TicketSlaCard({
   const paused = events.some((e) => e.status === "pending" && e.paused_at);
 
   return (
-    <Card className="shadow-sm border-slate-200 bg-white ring-0">
-      <CardContent className="p-5 space-y-4 text-xs">
+    <Card className="gap-0 py-0 shadow-sm border-slate-200 bg-white ring-0">
+      <CardContent className="p-4 space-y-3 text-xs">
         <h4 className="font-bold uppercase tracking-wider text-[11px] text-slate-400">
           SLA
         </h4>
@@ -279,13 +279,13 @@ export function TicketSlaCard({
             const target = formatTarget(ev, policy, priority);
             const footnote =
               clock.state === "met" && ev.completed_at
-                ? `Met ${formatClock(ev.completed_at)} · due ${formatClock(ev.due_at)}`
+                ? `Met ${formatClock(ev.completed_at)} · Due ${formatClock(ev.due_at)}`
                 : clock.state === "breached"
                   ? `Was due ${formatClock(ev.breached_at ?? ev.due_at)}`
                   : clock.state === "paused"
                     ? `Paused ${formatClock(ev.paused_at!)}`
                     : clock.state === "waiting"
-                      ? `${formatSlaDuration(clock.remainingMs, policy?.calendar ? policy.day_mins : 1440)} left · due ${formatClock(ev.due_at)}`
+                      ? `${formatSlaDuration(clock.remainingMs, policy?.calendar ? policy.day_mins : 1440)} left · Due ${formatClock(ev.due_at)}`
                       : `Due ${formatClock(ev.due_at)}`;
 
             return (

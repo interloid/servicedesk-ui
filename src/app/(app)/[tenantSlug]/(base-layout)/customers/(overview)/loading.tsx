@@ -112,24 +112,25 @@ export default function Loading() {
       <div className="mx-auto flex w-full flex-col gap-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <Skeleton className="h-7 w-40" />
+            <Skeleton className="h-8 w-40" />
             <Skeleton className="h-5 w-80 max-w-full" />
-            <Skeleton className="h-3 w-44" />
           </div>
 
           {/* The search field stands in the heading row on the real table, so
               it stands there here too: a bar of its own would leave the table
               64px lower than the page it replaces. Same width ramp as the real
               field, so the right edge lands on the table's. */}
-          <div className="w-full sm:w-80 lg:w-96">
-            <div className="relative">
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+            <div className="relative w-full sm:w-80 lg:w-96">
               <Skeleton className="absolute top-1/2 left-3 size-4 -translate-y-1/2 rounded bg-slate-200/80" />
               <div className="h-10 w-full rounded-lg border bg-card" />
             </div>
+            {/* "Invite customer", which admins see beside the search. */}
+            <Skeleton className="h-10 w-full rounded-lg sm:w-40" />
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-[14px] border bg-card">
+        <div className="overflow-hidden rounded-lg border bg-card">
           <div className="@container overflow-x-auto">
             <div className="flex min-w-md flex-col">
               {/* The real header is 44px tall and every cell carries px-4, so

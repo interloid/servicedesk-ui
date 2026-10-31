@@ -55,7 +55,7 @@ const PRIORITY_RANK: Record<TicketPriority, number> = {
   urgent: 3,
 };
 
-/** Lowering a priority needs a reason (change_ticket_priority enforces it). */
+/** Lowering a priority asks for confirmation in the UI first. */
 export function isPriorityLowered(
   from: TicketPriority,
   to: TicketPriority,
@@ -171,6 +171,11 @@ export interface Ticket {
   sla_day_mins?: number;
   sla_policy_id?: string | null;
   created_at: string;
+  /** Staff user who raised it; null when the customer did, on the portal. */
+  created_by?: string | null;
+  /** First agent, manager or tenant admin to open the ticket. */
+  opened_by?: string | null;
+  opened_at?: string | null;
   assignee_id?: string | null;
   first_response_at?: string | null;
   resolved_at?: string | null;

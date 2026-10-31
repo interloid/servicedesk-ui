@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** More can be invited from the Team page once the workspace exists. */
+export const MAX_SIGNUP_INVITES = 20;
+
 export const inviteUserSchema = z.object({
   email: z.string().email("Invalid email address"),
   role: z.enum(["agent", "manager", "billing_admin"]).default("agent"),
@@ -38,7 +41,13 @@ export const registerSchema = z.object({
     .array(slaRuleSchema)
     .min(1, "At least one SLA target rule is required"),
 
-  invite_users: z.array(inviteUserSchema).default([]),
+  invite_users: z
+    .array(inviteUserSchema)
+    .max(
+      MAX_SIGNUP_INVITES,
+      `Invite up to ${MAX_SIGNUP_INVITES} people at sign-up`,
+    )
+    .default([]),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

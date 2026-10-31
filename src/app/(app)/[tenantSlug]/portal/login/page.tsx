@@ -55,6 +55,9 @@ export default async function PortalLoginPage({
     <PortalSignInForm
       tenantSlug={tenantSlug}
       initialMode={first(query.mode) === "password" ? "password" : "link"}
+      // From the ticket form's sign-in / sign-up prompt.
+      // Only ever an input's starting value, never rendered as text.
+      initialEmail={first(query.email)?.slice(0, 254)}
       // A disabled customer who is still signed in lands here from every
       // portal page; say why instead of showing an empty form.
       initialError={

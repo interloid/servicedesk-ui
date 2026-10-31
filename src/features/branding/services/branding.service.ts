@@ -154,10 +154,8 @@ function readBrandingJson(value: unknown): BrandingJson {
     ...json,
     logo_url: text(json.logo_url),
     primary_color: text(json.primary_color),
-    secondary_color: text(json.secondary_color),
     text_color: text(json.text_color),
     background_color: text(json.background_color),
-    support_email: text(json.support_email),
     show_logo_on_portal:
       typeof json.show_logo_on_portal === "boolean"
         ? json.show_logo_on_portal
@@ -176,10 +174,8 @@ function toBranding(row: TenantRow): TenantBranding {
     // logo that customers would not see.
     logoUrl: trustedTenantLogoUrl(json.logo_url ?? null),
     primaryColor: json.primary_color ?? null,
-    secondaryColor: json.secondary_color ?? null,
     textColor: json.text_color ?? null,
     backgroundColor: json.background_color ?? null,
-    supportEmail: json.support_email ?? null,
     showLogoOnPortal: json.show_logo_on_portal ?? DEFAULT_SHOW_LOGO_ON_PORTAL,
   };
 }
@@ -282,9 +278,17 @@ export async function updateBranding(
   }
 
   // show_logo_on_email was this toggle's old key, from when it was meant for
-  // email. Nothing reads it now, so it is dropped rather than left to mislead.
-  const kept: BrandingJson & { show_logo_on_email?: boolean } = { ...current };
+  // email. Secondary colour and support email were removed from the editor.
+  // Nothing reads any of them now, so they are dropped rather than left to
+  // mislead (or, for the secondary colour, keep tinting the portal).
+  const kept: BrandingJson & {
+    show_logo_on_email?: boolean;
+    secondary_color?: string | null;
+    support_email?: string | null;
+  } = { ...current };
   delete kept.show_logo_on_email;
+  delete kept.secondary_color;
+  delete kept.support_email;
 
   const nextJson: BrandingJson = {
     ...kept,
@@ -292,10 +296,8 @@ export async function updateBranding(
     primary_color: values.primaryColor,
     // Empty string means "clear it" — stored as null so brandCssVars omits the
     // token entirely and the app default applies again.
-    secondary_color: values.secondaryColor?.trim() || null,
     text_color: values.textColor?.trim() || null,
     background_color: values.backgroundColor?.trim() || null,
-    support_email: values.supportEmail.trim() || null,
     show_logo_on_portal: values.showLogoOnPortal,
   };
 

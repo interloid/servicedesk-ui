@@ -25,16 +25,12 @@ import {
   Star,
   Upload,
   UserPlus,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -63,7 +59,6 @@ import {
   contrastRatio,
   DEFAULT_BACKGROUND_COLOR,
   DEFAULT_BRAND_COLOR,
-  DEFAULT_SECONDARY_COLOR,
   DEFAULT_TEXT_COLOR,
   HEX_COLOR,
   isHexColor,
@@ -99,11 +94,11 @@ import {
   TEAM_MODAL_BUTTON_DANGER,
 } from "@/features/team/components/modal-buttons";
 
-const FIELD_CLASS = "h-11 rounded-sm text-sm md:h-10.5";
+const FIELD_CLASS = "h-10 rounded-lg text-sm";
 
 // Page-level actions, the same metrics as the SLA policy editor's header.
 const PAGE_BUTTON =
-  "h-9 gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold shadow-none";
+  "h-10 gap-1.5 rounded-lg px-4 text-sm font-semibold shadow-none";
 const PAGE_BUTTON_PRIMARY = `${PAGE_BUTTON} bg-brand-accent text-brand-accent-foreground hover:bg-brand-accent/90`;
 const PAGE_BUTTON_OUTLINE = `${PAGE_BUTTON} bg-white`;
 
@@ -164,7 +159,6 @@ export function BrandingEditor({
   const [errors, setErrors] = useState<FieldErrors>({});
   const [pending, startTransition] = useTransition();
   const [uploading, setUploading] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(true);
   const [slugCheck, setSlugCheck] = useState<SlugCheck | null>(null);
   const [confirm, setConfirm] = useState<"discard" | "remove-logo" | null>(
     null,
@@ -172,6 +166,7 @@ export function BrandingEditor({
 
   const color = draft.primaryColor || DEFAULT_BRAND_COLOR;
   const previewColor = HEX_COLOR.test(color) ? color : DEFAULT_BRAND_COLOR;
+  const isCustomColor = !PRESET_COLORS.includes(previewColor.toLowerCase());
 
   // The same function the running app paints with, so the preview cannot drift
   // from it. Notably `onBrand`: on a light brand colour the app puts dark text
@@ -179,7 +174,6 @@ export function BrandingEditor({
   // unreadable and then shipped as something else.
   const palette = brandPalette({
     primary: previewColor,
-    secondary: draft.secondaryColor,
     text: draft.textColor,
     background: draft.backgroundColor,
   });
@@ -256,11 +250,7 @@ export function BrandingEditor({
       next.color = "Enter a hex color like #0F766E.";
     }
 
-    // Blank is allowed and meaningful for these three — it clears the override.
-    if (draft.secondaryColor?.trim() && !isHexColor(draft.secondaryColor)) {
-      next.secondaryColor = "Enter a hex color like #F1F5F9.";
-    }
-
+    // Blank is allowed and meaningful for these two — it clears the override.
     if (draft.textColor?.trim() && !isHexColor(draft.textColor)) {
       next.textColor = "Enter a hex color like #0F172A.";
     }
@@ -269,25 +259,7 @@ export function BrandingEditor({
       next.backgroundColor = "Enter a hex color like #F8FAFC.";
     }
 
-    if (
-      draft.supportEmail?.trim() &&
-      !/^\S+@\S+\.\S+$/.test(draft.supportEmail.trim())
-    ) {
-      next.email = "Enter a valid support email.";
-    }
-
     setErrors(next);
-
-    // The extra settings can be collapsed; reopen them so the message is
-    // actually visible.
-    if (
-      next.secondaryColor ||
-      next.textColor ||
-      next.backgroundColor ||
-      next.email
-    ) {
-      setMoreOpen(true);
-    }
 
     return Object.keys(next).length === 0;
   };
@@ -300,10 +272,8 @@ export function BrandingEditor({
         name: draft.name,
         slug: draft.slug,
         primaryColor: normalizeHex(color),
-        secondaryColor: normalizeHex(draft.secondaryColor ?? ""),
         textColor: normalizeHex(draft.textColor ?? ""),
         backgroundColor: normalizeHex(draft.backgroundColor ?? ""),
-        supportEmail: draft.supportEmail ?? "",
         logoUrl: draft.logoUrl ?? "",
         showLogoOnPortal: draft.showLogoOnPortal,
       });
@@ -314,14 +284,6 @@ export function BrandingEditor({
 
         if (field) {
           setErrors((prev) => ({ ...prev, [field]: message }));
-          if (
-            field === "secondaryColor" ||
-            field === "textColor" ||
-            field === "backgroundColor" ||
-            field === "email"
-          ) {
-            setMoreOpen(true);
-          }
         }
 
         toast.error(message);
@@ -442,39 +404,52 @@ export function BrandingEditor({
               description="This logo will appear in the portal header and on customer pages."
             >
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
-                <div className="relative flex items-center gap-3 rounded-[12px] border border-border p-3.5">
-                  <BrandMark
-                    logoUrl={logoUrl}
-                    initials={initials}
-                    palette={palette}
-                    className="size-14 rounded-[10px] text-xl"
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col pr-24">
-                    <span className="text-xs text-muted-foreground">
-                      Current logo
-                    </span>
-                    <span className="truncate text-sm font-semibold">
-                      {displayName}
-                    </span>
+                {/* Two fixed rows, the same at every width: the logo and name
+                    on top, the portal toggle in a strip beneath. Letting the
+                    toggle wrap left an empty corner beside the name on some
+                    widths and sat it at the top on others. */}
+                <div className="flex flex-col overflow-hidden rounded-[12px] border border-border">
+                  <div className="flex flex-1 items-center gap-4 p-3.5">
+                    {/* The logo sits in its own tile; removing it is the small ×
+                      on the tile's corner, so the action stays on the thing it
+                      removes. */}
+                    <div className="relative flex-none">
+                      <div className="flex size-16 items-center justify-center rounded-[12px] border border-border bg-card p-1.5">
+                        <BrandMark
+                          logoUrl={logoUrl}
+                          initials={initials}
+                          palette={palette}
+                          className="size-full rounded-[8px] text-xl"
+                        />
+                      </div>
+                      {canEdit && logoUrl && (
+                        <button
+                          type="button"
+                          className="absolute -top-2 -right-2 flex size-4 items-center justify-center rounded-full bg-foreground text-background ring-2 ring-card transition-transform hover:scale-110 disabled:pointer-events-none disabled:opacity-50"
+                          onClick={() => setConfirm("remove-logo")}
+                          disabled={pending || uploading}
+                          aria-label="Remove logo"
+                        >
+                          <X className="size-3.5" strokeWidth={3} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="text-sm text-muted-foreground">
+                        Current logo
+                      </span>
+                      <span className="truncate text-base font-semibold">
+                        {displayName}
+                      </span>
+                    </div>
                   </div>
-                  {canEdit && logoUrl && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`h-8 self-end rounded-lg px-3 text-xs font-semibold shadow-none ${TEAM_MODAL_BUTTON_DANGER}`}
-                      onClick={() => setConfirm("remove-logo")}
-                      disabled={pending || uploading}
-                    >
-                      Remove
-                    </Button>
-                  )}
 
-                  <div className="absolute top-3 right-3.5 flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-3 border-t border-border bg-muted/30 px-3.5 py-2.5">
                     <Label
                       htmlFor="branding-logo-on-portal"
-                      className="text-xs font-semibold text-foreground"
+                      className="text-sm font-medium text-foreground"
                     >
-                      Show logo
+                      Show logo on portal
                     </Label>
                     <Switch
                       id="branding-logo-on-portal"
@@ -529,7 +504,7 @@ export function BrandingEditor({
             >
               <div
                 className={cn(
-                  "flex h-11 items-stretch overflow-hidden rounded-sm border border-input text-sm md:h-10.5",
+                  "flex h-10 items-stretch overflow-hidden rounded-lg border border-input text-sm",
                   "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
                   errors.slug && "border-destructive",
                   !canEdit && "opacity-50",
@@ -629,20 +604,34 @@ export function BrandingEditor({
                   );
                 })}
 
+                {/* A custom colour gets its own swatch, filled and checked like
+                    a selected preset, and the "+" stays beside it so another
+                    colour can always be picked. */}
+                {isCustomColor && (
+                  <span
+                    className="flex size-10 items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-card @sm:size-11"
+                    style={
+                      {
+                        backgroundColor: palette.base,
+                        "--tw-ring-color": palette.base,
+                      } as React.CSSProperties
+                    }
+                    aria-label={`Custom colour ${palette.base}`}
+                    role="img"
+                  >
+                    <Check
+                      className="size-5"
+                      style={{ color: palette.onBrand }}
+                      strokeWidth={3}
+                    />
+                  </span>
+                )}
+
                 <label
                   className={cn(
                     "relative flex size-10 cursor-pointer items-center justify-center rounded-full border @sm:size-11 border-border bg-card text-foreground transition-colors hover:bg-muted",
-                    !PRESET_COLORS.includes(previewColor.toLowerCase()) &&
-                      "ring-2 ring-offset-2 ring-offset-card",
                     !canEdit && "pointer-events-none opacity-50",
                   )}
-                  style={
-                    !PRESET_COLORS.includes(previewColor.toLowerCase())
-                      ? ({
-                          "--tw-ring-color": previewColor,
-                        } as React.CSSProperties)
-                      : undefined
-                  }
                   aria-label="Pick a custom colour"
                 >
                   <Plus className="size-5" />
@@ -688,92 +677,44 @@ export function BrandingEditor({
               )}
             </Section>
 
-            <Collapsible open={moreOpen} onOpenChange={setMoreOpen}>
-              <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border-t border-border pt-4 text-left">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[15px] font-semibold">
-                    More options
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    Page colours and support email.
-                  </span>
-                </div>
-                <ChevronDown
-                  className={cn(
-                    "size-4 flex-none text-muted-foreground transition-transform",
-                    moreOpen && "rotate-180",
-                  )}
+            <Section
+              title="Text & background colours"
+              description="Fine-tune how your portal reads. Leave a field blank to use the default."
+            >
+              <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2">
+                <ColorField
+                  id="branding-text-color"
+                  label="Text colour"
+                  hint="Body text across the portal."
+                  swatch={palette.text}
+                  value={draft.textColor ?? ""}
+                  placeholder={DEFAULT_TEXT_COLOR}
+                  error={errors.textColor}
+                  disabled={!canEdit}
+                  onChange={(textColor) => set({ textColor })}
                 />
-              </CollapsibleTrigger>
 
-              <CollapsibleContent className="flex flex-col gap-4 pt-4">
-                <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2">
-                  <ColorField
-                    id="branding-secondary-color"
-                    label="Secondary colour"
-                    hint="Quiet buttons and muted surfaces. Blank uses the default."
-                    swatch={palette.secondary}
-                    value={draft.secondaryColor ?? ""}
-                    placeholder={DEFAULT_SECONDARY_COLOR}
-                    error={errors.secondaryColor}
-                    disabled={!canEdit}
-                    onChange={(secondaryColor) => set({ secondaryColor })}
-                  />
+                <ColorField
+                  id="branding-background-color"
+                  label="Background colour"
+                  hint="The page behind your cards."
+                  swatch={palette.background}
+                  value={draft.backgroundColor ?? ""}
+                  placeholder={DEFAULT_BACKGROUND_COLOR}
+                  error={errors.backgroundColor}
+                  disabled={!canEdit}
+                  onChange={(backgroundColor) => set({ backgroundColor })}
+                />
+              </div>
 
-                  <ColorField
-                    id="branding-text-color"
-                    label="Text colour"
-                    hint="Body text across the app. Blank uses the default."
-                    swatch={palette.text}
-                    value={draft.textColor ?? ""}
-                    placeholder={DEFAULT_TEXT_COLOR}
-                    error={errors.textColor}
-                    disabled={!canEdit}
-                    onChange={(textColor) => set({ textColor })}
-                  />
-
-                  <ColorField
-                    id="branding-background-color"
-                    label="Background colour"
-                    hint="The page behind your cards. Blank uses the default."
-                    swatch={palette.background}
-                    value={draft.backgroundColor ?? ""}
-                    placeholder={DEFAULT_BACKGROUND_COLOR}
-                    error={errors.backgroundColor}
-                    disabled={!canEdit}
-                    onChange={(backgroundColor) => set({ backgroundColor })}
-                  />
-
-                  <Field
-                    id="branding-support-email"
-                    label="Support email"
-                    hint="Where customer replies go."
-                    error={errors.email}
-                    control={
-                      <Input
-                        id="branding-support-email"
-                        type="email"
-                        className={FIELD_CLASS}
-                        placeholder="support@northwind.io"
-                        value={draft.supportEmail ?? ""}
-                        onChange={(e) => set({ supportEmail: e.target.value })}
-                        disabled={!canEdit}
-                        aria-invalid={Boolean(errors.email)}
-                      />
-                    }
-                  />
-                </div>
-
-                {lowContrast && (
-                  <Notice tone="warn">
-                    Your text and background sit at{" "}
-                    {textOnBackground.toFixed(1)}:1. Below{" "}
-                    {MIN_READABLE_CONTRAST}:1 body text is hard to read. You can
-                    still save this.
-                  </Notice>
-                )}
-              </CollapsibleContent>
-            </Collapsible>
+              {lowContrast && (
+                <Notice tone="warn">
+                  Your text and background sit at {textOnBackground.toFixed(1)}
+                  :1. Below {MIN_READABLE_CONTRAST}:1 body text is hard to read.
+                  You can still save this.
+                </Notice>
+              )}
+            </Section>
           </div>
 
           <div className="flex min-w-0 flex-col gap-4 rounded-[14px] border border-border bg-card p-4 sm:p-5 xl:overflow-hidden">
@@ -901,7 +842,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3 border-b border-border pb-5 not-first:pt-5">
+    <section className="flex flex-col gap-3 border-b border-border pb-5 not-first:pt-5 last:border-b-0 last:pb-0 xl:grow xl:justify-center">
       <div className="flex flex-col gap-0.5">
         {htmlFor ? (
           <Label htmlFor={htmlFor} className="text-[15px] font-semibold">
@@ -1148,7 +1089,7 @@ function ColorField({
         <div className="flex items-center gap-2.5">
           <label
             htmlFor={`${id}-picker`}
-            className="relative inline-flex size-11 flex-none cursor-pointer overflow-hidden rounded-sm border border-border md:size-10.5"
+            className="relative inline-flex size-10 flex-none cursor-pointer overflow-hidden rounded-lg border border-border shadow-xs transition-shadow hover:ring-2 hover:ring-ring/30"
             style={{ backgroundColor: swatch }}
             aria-label={`Pick ${label.toLowerCase()}`}
           >
@@ -1417,7 +1358,7 @@ function ScreenCard({
   );
 }
 
-/** The portal page behind a screen: white, with the brand text colour. */
+/** The portal page behind a screen, in the brand's background and text colours. */
 function MiniPage({
   palette,
   className,
@@ -1434,7 +1375,7 @@ function MiniPage({
         className,
       )}
       style={{
-        backgroundColor: "#ffffff",
+        backgroundColor: palette.background,
         color: palette.text,
         borderColor: PREVIEW_BORDER,
       }}
@@ -1496,10 +1437,13 @@ function MiniLabel({
 
 function MiniInput({
   palette,
+  filled,
   className,
   children,
 }: {
   palette: BrandPalette;
+  /** Filled with the page colour, like the portal's sign-in fields. */
+  filled?: boolean;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -1509,7 +1453,11 @@ function MiniInput({
         "flex h-7 items-center gap-2 rounded-md border bg-white px-2 text-[10px]",
         className,
       )}
-      style={{ borderColor: PREVIEW_BORDER, color: palette.mutedText }}
+      style={{
+        borderColor: PREVIEW_BORDER,
+        color: palette.mutedText,
+        ...(filled ? { backgroundColor: palette.background } : null),
+      }}
     >
       {children}
     </div>
@@ -1523,7 +1471,8 @@ function MiniButton({
   children,
 }: {
   palette: BrandPalette;
-  variant?: "solid" | "outline";
+  /** `switch` is the sign-in screens' other way in: outlined, brand text. */
+  variant?: "solid" | "outline" | "switch";
   className?: string;
   children: React.ReactNode;
 }) {
@@ -1531,13 +1480,19 @@ function MiniButton({
     <span
       className={cn(
         "flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-[10px] font-semibold whitespace-nowrap [&>svg]:size-3",
-        variant === "outline" && "border bg-white",
+        variant !== "solid" && "border bg-white",
         className,
       )}
       style={
         variant === "solid"
           ? { backgroundColor: palette.base, color: palette.onBrand }
-          : { borderColor: PREVIEW_BORDER, color: palette.text }
+          : variant === "switch"
+            ? {
+                borderColor: PREVIEW_BORDER,
+                backgroundColor: palette.background,
+                color: palette.base,
+              }
+            : { borderColor: PREVIEW_BORDER, color: palette.text }
       }
     >
       {children}
@@ -1556,25 +1511,6 @@ function MiniLink({
     <span className="font-semibold" style={{ color: palette.base }}>
       {children}
     </span>
-  );
-}
-
-function MiniDivider({ palette }: { palette: BrandPalette }) {
-  return (
-    <div
-      className="my-2 flex items-center gap-2 text-[9px]"
-      style={{ color: palette.mutedText }}
-    >
-      <span
-        className="h-px flex-1"
-        style={{ backgroundColor: PREVIEW_BORDER }}
-      />
-      or
-      <span
-        className="h-px flex-1"
-        style={{ backgroundColor: PREVIEW_BORDER }}
-      />
-    </div>
   );
 }
 
@@ -1670,46 +1606,93 @@ function RequestsScreen({ palette, headerName, ...mark }: PreviewBrand) {
   );
 }
 
-function MagicLinkScreen({ palette }: { palette: BrandPalette }) {
+/**
+ * The sign-in card's shared shape: icon tile, heading, fields, the two ways in
+ * side by side, then a rule and the "First time here?" note inside the card.
+ */
+function SignInPanel({
+  palette,
+  icon,
+  title,
+  description,
+  primary,
+  secondary,
+  children,
+}: {
+  palette: BrandPalette;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  primary: string;
+  secondary: string;
+  children: React.ReactNode;
+}) {
   const muted = { color: palette.mutedText };
 
   return (
     <MiniPage palette={palette} className="justify-center p-2.5">
       <MiniPanel>
-        <MiniIcon palette={palette}>
-          <Mail />
-        </MiniIcon>
-        <p className="mt-2 text-xs font-bold">Track your requests</p>
+        <MiniIcon palette={palette}>{icon}</MiniIcon>
+        <p className="mt-2 text-xs font-bold">{title}</p>
         <p className="mt-0.5 text-[10px]" style={muted}>
-          Use the email you contact us from. We&apos;ll send a sign-in link - no
-          password needed.
+          {description}
         </p>
-        <MiniLabel>Email address</MiniLabel>
-        <MiniInput palette={palette}>you@company.com</MiniInput>
-        <MiniButton palette={palette} className="mt-2">
-          Email me a sign-in link
-        </MiniButton>
-        <MiniDivider palette={palette} />
-        <p className="text-center text-[10px]">
-          <MiniLink palette={palette}>Sign in with a password instead</MiniLink>
-        </p>
+        {children}
+        <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+          <MiniButton palette={palette} className="min-w-0 px-1.5">
+            <span className="truncate">{primary}</span>
+          </MiniButton>
+          <MiniButton
+            palette={palette}
+            variant="switch"
+            className="min-w-0 px-1.5"
+          >
+            <span className="truncate">{secondary}</span>
+          </MiniButton>
+        </div>
+        <div
+          className="mt-3 h-px"
+          style={{ backgroundColor: PREVIEW_BORDER }}
+        />
+        <div
+          className="mt-3 rounded-lg border p-2.5 text-[10px]"
+          style={{
+            borderColor: PREVIEW_BORDER,
+            backgroundColor: palette.background,
+          }}
+        >
+          <p className="flex items-center gap-1.5 font-semibold">
+            <span className="flex size-4.5 items-center justify-center rounded-md bg-white shadow-xs">
+              <UserPlus className="size-3" style={{ color: palette.base }} />
+            </span>
+            First time here?
+          </p>
+          <p className="mt-1.5 text-[9px]" style={muted}>
+            Only signed-up customers can create a ticket.{" "}
+            <MiniLink palette={palette}>Email me a sign-in link</MiniLink> to
+            sign up.
+          </p>
+        </div>
       </MiniPanel>
-
-      <div
-        className="mt-2 rounded-lg border p-2.5 text-[10px]"
-        style={{ borderColor: PREVIEW_BORDER, backgroundColor: tint(3) }}
-      >
-        <p className="flex items-center gap-1.5 font-semibold">
-          <UserPlus className="size-3" style={{ color: palette.base }} />
-          First time here?
-        </p>
-        <p className="mt-1" style={muted}>
-          You don&apos;t need an account to reach us.{" "}
-          <MiniLink palette={palette}>Submit a request</MiniLink> and we&apos;ll
-          set one up from your email.
-        </p>
-      </div>
     </MiniPage>
+  );
+}
+
+function MagicLinkScreen({ palette }: { palette: BrandPalette }) {
+  return (
+    <SignInPanel
+      palette={palette}
+      icon={<Mail />}
+      title="Track your requests"
+      description="Use the email you contact us from. We'll send a sign-in link - no password needed."
+      primary="Email me a sign-in link"
+      secondary="Sign in with a password"
+    >
+      <MiniLabel>Email address</MiniLabel>
+      <MiniInput palette={palette} filled>
+        you@company.com
+      </MiniInput>
+    </SignInPanel>
   );
 }
 
@@ -1758,28 +1741,24 @@ function CheckInboxScreen({ palette }: { palette: BrandPalette }) {
 
 function PasswordScreen({ palette }: { palette: BrandPalette }) {
   return (
-    <MiniPage palette={palette} className="justify-center p-2.5">
-      <MiniPanel>
-        <p className="text-xs font-bold">Sign in to your account</p>
-        <p className="mt-0.5 text-[10px]" style={{ color: palette.mutedText }}>
-          Use the email you contact us from, and the password you set here.
-        </p>
-        <MiniLabel>Email address</MiniLabel>
-        <MiniInput palette={palette}>you@company.com</MiniInput>
-        <MiniLabel>Password</MiniLabel>
-        <MiniInput palette={palette} className="justify-between">
-          <span style={{ color: palette.text }}>••••••••••</span>
-          <EyeOff className="size-3" />
-        </MiniInput>
-        <MiniButton palette={palette} className="mt-2.5">
-          Sign in
-        </MiniButton>
-        <MiniDivider palette={palette} />
-        <p className="text-center text-[10px]">
-          <MiniLink palette={palette}>Use a sign-in link instead</MiniLink>
-        </p>
-      </MiniPanel>
-    </MiniPage>
+    <SignInPanel
+      palette={palette}
+      icon={<LockKeyhole />}
+      title="Sign in to your account"
+      description="Use the email you contact us from, and the password you set here."
+      primary="Sign in"
+      secondary="Email me a link instead"
+    >
+      <MiniLabel>Email address</MiniLabel>
+      <MiniInput palette={palette} filled>
+        you@company.com
+      </MiniInput>
+      <MiniLabel>Password</MiniLabel>
+      <MiniInput palette={palette} filled className="justify-between">
+        <span style={{ color: palette.text }}>••••••••••</span>
+        <EyeOff className="size-3" />
+      </MiniInput>
+    </SignInPanel>
   );
 }
 

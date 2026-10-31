@@ -76,6 +76,13 @@ create table if not exists public.subscriptions
 
     pending_started_at timestamptz,
 
+    -- The last Tenant Admin or Billing Admin who changed billing. Set by
+    -- subscriptions_billing_actor (19_audit_log.sql); webhook and cron writes
+    -- leave it, and their audit rows are attributed to this person.
+    billing_actor_id uuid
+        references public.users(id)
+        on delete set null,
+
     seats integer
         not null
         default 1,

@@ -6,6 +6,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@/features/tickets/types/tickets.types";
+import { ilikeOrValue } from "@/lib/postgrest";
 
 // One source for the enums and their names: the ticket types.
 export { TICKET_PRIORITIES, TICKET_STATUSES };
@@ -136,18 +137,8 @@ export function ruleValueLabel(rule: Pick<FilterRule, "field" | "value">) {
 }
 
 /**
- * A text condition's term as it goes into the query. Commas, parentheses,
- * quotes and backslashes are syntax in a PostgREST logic tree, so they are
- * dropped, as the queue's search box does.
- */
-export function searchTerm(value: string): string {
-  return value.replace(/[,()"\\]/g, " ").trim();
-}
-
-/**
- * A cleaned rule, or null when the field or value isn't one we know. A text
- * condition that is empty once cleaned (only punctuation) is dropped too: it
- * would become `ilike '%%'` and match every ticket.
+ * A cleaned rule, or null when the field or value isn't one we know, or when
+ * the value is blank (a blank text condition would match every ticket).
  */
 function cleanRule(raw: {
   field?: string;
@@ -165,7 +156,6 @@ function cleanRule(raw: {
         : raw.value.trim()
       : "";
   if (!value || (allowed && !allowed.includes(value))) return null;
-  if (field === "search" && !searchTerm(value)) return null;
 
   return { field, value, join: raw.join === "or" ? "or" : "and" };
 }
@@ -401,8 +391,8 @@ export function filterToPostgrest(
             ? `assignee_user_id.eq.${viewerId}`
             : "assignee_user_id.is.null";
         case "search": {
-          const term = searchTerm(rule.value);
-          return `or(subject.ilike."%${term}%",description.ilike."%${term}%")`;
+          const value = ilikeOrValue(rule.value);
+          return `or(subject.ilike.${value},description.ilike.${value})`;
         }
       }
     },

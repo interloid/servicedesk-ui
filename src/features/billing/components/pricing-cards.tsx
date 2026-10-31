@@ -393,7 +393,7 @@ export function PricingCards({
                   ? "border-2! border-brand-accent! bg-brand-accent/5 shadow-sm"
                   : isScheduledTarget
                     ? "border-2! border-amber-500! bg-amber-500/5 shadow-sm"
-                    : "bg-white hover:border-gray-300! hover:shadow-md dark:hover:border-neutral-700!",
+                    : "bg-white hover:border-slate-300! hover:shadow-md dark:hover:border-neutral-700!",
               )}
             >
               {isCurrent && (

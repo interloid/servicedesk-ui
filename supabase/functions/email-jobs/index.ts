@@ -5,7 +5,10 @@ import { PermanentEmailError, sendEmail } from "../_shared/gmail.ts";
 import { invitationEmailHtml, roleWithArticle } from "./invitation-template.ts";
 import { customerTicketEmailHtml } from "./customer-ticket-template.ts";
 import { notificationEmailHtml } from "./notification-template.ts";
-import { portalSignInEmailHtml } from "./portal-sign-in-template.ts";
+import {
+  portalSignInEmailCopy,
+  portalSignInEmailHtml,
+} from "./portal-sign-in-template.ts";
 
 // Sends the mail queued in public.email_jobs: team invitations and password
 // resets (through Supabase Auth), and our own invitation and customer-portal
@@ -75,6 +78,8 @@ type PortalSignInPayload = {
   tenantName: string;
   /** A Tenant Admin's "Invite customer": same link, worded as an invitation. */
   invited?: boolean;
+  /** A first ticket filed signed out: same link, worded as account setup. */
+  ticketNumber?: number | null;
 };
 
 type NotificationPayload = {
@@ -95,6 +100,7 @@ const NOTIFICATION_FALLBACK_TITLES: Record<string, string> = {
   sla_breach: "SLA breached",
   sla_warning: "SLA deadline approaching",
   ticket_created: "New ticket",
+  ticket_reopened: "Ticket reopened",
 };
 
 // Same pattern and unescaping as mentionsToNames in src/lib/mentions.ts: the
@@ -245,6 +251,7 @@ async function sendPortalSignIn({
   redirectTo,
   tenantName,
   invited = false,
+  ticketNumber = null,
 }: PortalSignInPayload): Promise<void> {
   const { error: createError } = await admin.auth.admin.createUser({
     email,
@@ -275,19 +282,22 @@ async function sendPortalSignIn({
 
   const signInLink = url.toString();
 
+  const copy = portalSignInEmailCopy({
+    workspace: tenantName,
+    invited,
+    ticketNumber,
+  });
+
   await sendEmail({
     to: email,
-    subject: invited
-      ? `You're invited to ${tenantName} Support`
-      : `Your sign-in link for ${tenantName} Support`,
+    subject: copy.subject,
     html: portalSignInEmailHtml({
       workspace: tenantName,
       link: signInLink,
       invited,
+      ticketNumber,
     }),
-    text: invited
-      ? `You've been invited to ${tenantName} Support, where you can raise tickets and follow their progress: ${signInLink}\n\nThis link works once and expires in 1 hour. After that, sign in from the portal with this email address to get a new one.`
-      : `Sign in to ${tenantName} Support: ${signInLink}\n\nThis link works once and expires in 1 hour. If you didn't ask to sign in, you can ignore this email.`,
+    text: `${copy.bodyText}: ${signInLink}\n\n${copy.note}`,
   });
 }
 

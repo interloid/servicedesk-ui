@@ -94,7 +94,7 @@ export function KeyboardShortcutsModal({
 
         <div className="mt-3 sm:mt-4 flex justify-end shrink-0">
           <DialogClose asChild>
-            <Button className="w-full sm:w-auto px-6 h-11 font-semibold text-xs sm:text-sm">
+            <Button className="h-10 w-full px-5 text-sm font-semibold sm:w-auto">
               Done
             </Button>
           </DialogClose>

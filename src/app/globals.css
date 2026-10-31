@@ -313,3 +313,29 @@
 .plan-card-current {
   border-color: var(--brand-accent);
 }
+
+/*
+ * Reports PDF export (src/features/reports/lib/export-pdf.ts). While it
+ * captures the page, scroll boxes marked data-pdf-expand open up to their full
+ * height, so every agent row reaches the PDF instead of the first ten.
+ */
+.exporting [data-pdf-expand] {
+  position: static !important;
+  inset: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+/*
+ * The page's grids follow the browser window, so during the capture they are
+ * given a document layout instead, the same on any monitor: the headline
+ * cards in one row (data-pdf-row), and the charts and the agent table stacked
+ * full width (data-pdf-stack).
+ */
+.exporting [data-pdf-row] {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+}
+
+.exporting [data-pdf-stack] {
+  grid-template-columns: minmax(0, 1fr) !important;
+}

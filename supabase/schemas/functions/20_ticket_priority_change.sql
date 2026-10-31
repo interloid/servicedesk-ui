@@ -1,13 +1,17 @@
 -- ==========================================================
 -- File: 20_ticket_priority_change.sql
--- Description: ticket priority changes -- reason to lower,
+-- Description: ticket priority changes -- confirmed to lower,
 -- due-soon SLA deadlines kept, every change audited
 -- ==========================================================
 
 ------------------------------------------------------------
--- 1. Refuse a lowered priority without a reason
+-- 1. Lower a priority only through change_ticket_priority
 ------------------------------------------------------------
 
+-- No reason is needed any more (the app asks for a confirmation instead), but
+-- a lowered priority still has to come through change_ticket_priority, which
+-- keeps due-soon deadlines. It marks its own update with
+-- app.priority_change_rpc; a plain update has no such mark.
 create or replace function public.tickets_guard_priority_change()
 returns trigger
 language plpgsql
@@ -16,11 +20,11 @@ as $$
 begin
     -- ticket_priority is ordered low < normal < high < urgent.
     if new.priority < old.priority
-       and coalesce(btrim(current_setting('app.priority_change_reason', true)), '') = ''
+       and coalesce(current_setting('app.priority_change_rpc', true), '') <> 'on'
     then
-        raise exception 'A reason is required to lower a ticket''s priority.'
+        raise exception 'Lower a ticket''s priority through change_ticket_priority.'
             using errcode = 'P0001',
-                  hint = 'Use change_ticket_priority(ticket, priority, reason).';
+                  hint = 'Use change_ticket_priority(ticket, priority).';
     end if;
     return new;
 end;
@@ -122,10 +126,7 @@ begin
 
     v_lowering := p_priority < v_ticket.priority;
 
-    if v_lowering and v_reason is null then
-        raise exception 'A reason is required to lower a ticket''s priority.'
-            using errcode = 'P0001';
-    end if;
+    -- The reason is optional; when given it goes on the audit entry.
     if char_length(coalesce(v_reason, '')) > 500 then
         raise exception 'Keep the reason under 500 characters.' using errcode = 'P0001';
     end if;
@@ -161,6 +162,7 @@ begin
         end loop;
     end if;
 
+    perform set_config('app.priority_change_rpc', 'on', true);
     perform set_config('app.priority_change_reason', coalesce(v_reason, ''), true);
     perform set_config('app.priority_sla_kept', to_jsonb(v_kept_types)::text, true);
 
@@ -182,7 +184,8 @@ begin
     end loop;
 
     -- Settings are transaction-local; clear them so a later statement in the
-    -- same transaction can't reuse this reason.
+    -- same transaction can't reuse this mark or reason.
+    perform set_config('app.priority_change_rpc', '', true);
     perform set_config('app.priority_change_reason', '', true);
     perform set_config('app.priority_sla_kept', '', true);
 

@@ -10,15 +10,17 @@ import type { SavedViewTab } from "@/features/saved-view/filters";
 interface TabButtonProps {
   active: boolean;
   onClick: () => void;
+  disabled?: boolean;
   children: ReactNode;
 }
 
-function TabButton({ active, onClick, children }: TabButtonProps) {
+function TabButton({ active, onClick, disabled, children }: TabButtonProps) {
   return (
     <Button
       variant="ghost"
       size="sm"
       onClick={onClick}
+      disabled={disabled}
       className={`h-8 whitespace-nowrap border ${
         active
           ? "border-transparent bg-brand-accent font-semibold text-primary-foreground hover:bg-brand-hover hover:text-primary-foreground"
@@ -64,11 +66,14 @@ export function TicketViewTabs({
   tabs,
   activeViewId,
   onOpen,
+  disabled = false,
 }: {
   tabs: Promise<SavedViewTab[]>;
   /** ?view=; none is the "All tickets" tab. */
   activeViewId: string | null;
   onOpen: (tab: SavedViewTab) => void;
+  /** An empty queue: the tabs show, but there is nothing to switch to. */
+  disabled?: boolean;
 }) {
   const loaded = use(tabs);
   const fallback = loaded.length === 0;
@@ -80,7 +85,12 @@ export function TicketViewTabs({
         const active = activeViewId ? tab.id === activeViewId : tab.isAll;
 
         return (
-          <TabButton key={tab.id} active={active} onClick={() => onOpen(tab)}>
+          <TabButton
+            key={tab.id}
+            active={active}
+            onClick={() => onOpen(tab)}
+            disabled={disabled}
+          >
             {tab.name}
             {!fallback && (
               <Badge

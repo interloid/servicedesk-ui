@@ -174,11 +174,14 @@ export default function BillingDashboard({
   // until the grace period ends (reconcile-subscriptions downgrades then), so
   // it must read as a failure with that deadline -- never as a green "Active".
   const isPastDue = data.billingStatus === "past_due";
+  // Billing dates are UTC, as the renewal date is. A fixed zone also keeps
+  // the server render and the browser's in step (no hydration mismatch).
   const graceEndsLabel = data.paymentTrouble?.graceEndsAt
     ? new Date(data.paymentTrouble.graceEndsAt).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
         year: "numeric",
+        timeZone: "UTC",
       })
     : null;
 
@@ -196,6 +199,7 @@ export default function BillingDashboard({
         month: "short",
         day: "numeric",
         year: "numeric",
+        timeZone: "UTC",
       })
     : "";
 

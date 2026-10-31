@@ -32,9 +32,12 @@ const CARD = cn(
 export default function Loading() {
   return (
     // The same fixed-height chat window as the page: header pinned on top,
-    // composer pinned below, thread between. Same calc as the real one, so the
-    // card does not change height when the data arrives.
-    <div className="mx-auto flex h-[calc(100dvh-10.125rem)] min-h-120 w-full max-w-7xl flex-col sm:h-[calc(100dvh-10.3125rem)] md:h-[calc(100dvh-12.3125rem)] md:px-6">
+    // composer pinned below, thread between. Marked data-portal-fill like the
+    // real one, so the card does not change height when the data arrives.
+    <div
+      data-portal-fill
+      className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col md:px-6"
+    >
       <PortalBackLinkSkeleton />
 
       <section className={cn(CARD, "mt-4 flex min-h-0 flex-1 flex-col")}>

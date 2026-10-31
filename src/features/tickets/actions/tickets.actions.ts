@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import {
   createTenantTicket,
   updateTicketDetails,
+  markTicketOpened,
   bulkUpdateTickets,
   changeTicketPriority,
   createMessage,
@@ -489,7 +490,7 @@ export async function updateTicketDetailsAction(input: {
       }
     }
 
-    // Priority has its own rules (reason to lower, due-soon deadlines kept,
+    // Priority has its own rules (due-soon deadlines kept when lowering,
     // audit), so it goes through change_ticket_priority, not a plain update.
     // The schema refuses priority mixed with other fields, so a call runs
     // either the RPC or the update below, never half of both.
@@ -566,6 +567,43 @@ export async function assignTicketToMeAction(input: {
   }
 }
 
+/**
+ * The first staff member to open a ticket is its opener. Called once by the
+ * detail page when the ticket has none yet; no revalidate, the page already
+ * shows the viewer.
+ */
+export async function markTicketOpenedAction(input: {
+  ticketId: string;
+  tenantSlug: string;
+}) {
+  try {
+    const parsed = ticketRefSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: firstIssue(parsed.error) };
+    }
+    const { ticketId, tenantSlug } = parsed.data;
+    const identity = await getCurrentUserIdentity(tenantSlug);
+    // Only the people who work tickets count as opening one.
+    if (
+      !identity?.id ||
+      !["agent", "manager", "tenant_admin"].includes(identity.role ?? "")
+    ) {
+      return { success: false, error: "Unauthorized" };
+    }
+    const row = await markTicketOpened(ticketId, tenantSlug, identity.id);
+    return {
+      success: true,
+      openedBy: row?.opened_by ?? null,
+      openedAt: row?.opened_at ?? null,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "An error occurred",
+    };
+  }
+}
+
 export async function bulkAssignToMeAction(input: {
   tenantSlug: string;
   ticketIds: string[];
@@ -624,7 +662,7 @@ export async function bulkSetPriorityAction(input: {
 
     // One at a time through change_ticket_priority, so each ticket gets the
     // same rules and its own audit entry as a change from the ticket page.
-    // A failure on one (deleted meanwhile, a reason missing) doesn't stop the
+    // A failure on one (deleted meanwhile, say) doesn't stop the
     // rest, and the list is refreshed either way so it shows what changed.
     let count = 0;
     let slaKept = 0;

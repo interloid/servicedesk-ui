@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import { useMounted } from "@/hooks/use-mounted";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  CheckCircle2,
   CircleAlert,
   Clock3,
   Loader2,
+  LogIn,
+  MailCheck,
   MoonStar,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
@@ -29,13 +30,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  checkGuestEmailAction,
   discardUploadsAction,
   prepareRequestUploadsAction,
   submitGuestRequestAction,
   submitRequestAction,
 } from "@/features/portal/actions/portal.actions";
 import { PortalAttachmentPicker } from "@/features/portal/components/portal-attachment-picker";
-import { PortalCentered } from "@/features/portal/components/portal-shell";
 import { applyFieldErrors } from "@/features/portal/form-errors";
 import { portalToastSuccess } from "@/features/portal/portal-toast";
 import {
@@ -61,9 +62,11 @@ const LABEL_CLASS =
   "flex items-center gap-1.5 text-sm font-semibold text-foreground";
 
 /**
- * One form serves both the signed-in and the signed-out paths. They differ only
- * in whether the email is asked for or taken from the session, so splitting them
- * would duplicate the subject/description/attachment block twice over.
+ * One form serves both the signed-in and the signed-out paths. Signed out, a
+ * first-time customer files the ticket straight away with their name and
+ * email; the account is set up from it and they are emailed a link to set a
+ * password. An email that already has a sign-in is sent to sign in instead,
+ * so nobody can post into somebody else's account.
  */
 export function PortalNewRequestForm({
   tenantSlug,
@@ -85,9 +88,8 @@ export function PortalNewRequestForm({
 
   const [banner, setBanner] = useState<string | undefined>();
   const [files, setFiles] = useState<File[]>([]);
-  const [submitted, setSubmitted] = useState<
-    { email: string; closed: PortalSupportClosed | null } | undefined
-  >();
+  // Signed out: the email Create ticket found to already have a sign-in.
+  const [signInEmail, setSignInEmail] = useState<string | undefined>();
 
   const form = useForm<PortalGuestRequestValues>({
     defaultValues: {
@@ -107,8 +109,29 @@ export function PortalNewRequestForm({
 
   async function onSubmit(values: PortalGuestRequestValues) {
     setBanner(undefined);
+    setSignInEmail(undefined);
+
+    const email = values.email.trim();
 
     try {
+      // Signed out, an address that already has a sign-in has to use it.
+      // Asked before the upload so its files are not sent for nothing; the
+      // server refuses the address again when the ticket is filed.
+      if (!isSignedIn) {
+        const check = await checkGuestEmailAction(tenantSlug, { email });
+
+        if (!check.success) {
+          applyFieldErrors(form, check.fieldErrors);
+          setBanner(check.message);
+          return;
+        }
+
+        if (check.data.hasAccount) {
+          setSignInEmail(email);
+          return;
+        }
+      }
+
       // Bytes first, request second. The storage path an attachment ends up on
       // is built from the ticket id, so these land on a staging path that the
       // server moves across once the ticket exists -- and a request is never
@@ -122,50 +145,60 @@ export function PortalNewRequestForm({
         discard,
       );
 
-      const result = isSignedIn
-        ? await submitRequestAction(
-            tenantSlug,
-            {
-              subject: values.subject,
-              description: values.description,
-            },
-            uploads,
-          )
-        : await submitGuestRequestAction(tenantSlug, values, uploads);
+      if (!isSignedIn) {
+        const result = await submitGuestRequestAction(
+          tenantSlug,
+          {
+            email,
+            fullName: values.fullName,
+            subject: values.subject,
+            description: values.description,
+          },
+          uploads,
+        );
 
-      if (result.success) {
-        if ("redirectTo" in result.data) {
-          // Fired before the redirect, which is why the guest branch below does
-          // not toast: it stays on this screen and the confirmation panel it
-          // swaps in is the feedback.
-          //
-          // Carries the plan's response promise rather than "request submitted",
-          // because that is the thing they cannot see once they leave the form.
-          // Outside business hours the promise would read as broken, so
-          // they're told when the team is back instead.
-          if (result.data.closed) {
-            portalToastSuccess(
-              supportClosedCreatedMessage(result.data.closed),
-              {
-                duration: 10_000,
-              },
-            );
-          } else {
-            portalToastSuccess(
-              `Ticket created. Expect a reply within ${firstResponseTarget}.`,
-            );
-          }
+        if (result.success) {
+          // The check-email screen says the request is in and what to do next.
           router.replace(result.data.redirectTo);
           return;
         }
 
-        setSubmitted({
-          email: result.data.email,
-          closed: result.data.closed,
-        });
-        form.reset();
-        setFiles([]);
+        void discard(uploads.map((upload) => upload.path));
 
+        if (result.code === "sign_in_required") {
+          setSignInEmail(email);
+          return;
+        }
+
+        applyFieldErrors(form, result.fieldErrors);
+        setBanner(result.message);
+        return;
+      }
+
+      const result = await submitRequestAction(
+        tenantSlug,
+        {
+          subject: values.subject,
+          description: values.description,
+        },
+        uploads,
+      );
+
+      if (result.success) {
+        // Carries the plan's response promise rather than "request submitted",
+        // because that is the thing they cannot see once they leave the form.
+        // Outside business hours the promise would read as broken, so they're
+        // told when the team is back instead.
+        if (result.data.closed) {
+          portalToastSuccess(supportClosedCreatedMessage(result.data.closed), {
+            duration: 10_000,
+          });
+        } else {
+          portalToastSuccess(
+            `Ticket created. Expect a reply within ${firstResponseTarget}.`,
+          );
+        }
+        router.replace(result.data.redirectTo);
         return;
       }
 
@@ -184,16 +217,6 @@ export function PortalNewRequestForm({
       // The banner says it; no toast on top (RISK-047).
       setBanner(message);
     }
-  }
-
-  if (submitted) {
-    return (
-      <GuestConfirmation
-        tenantSlug={tenantSlug}
-        email={submitted.email}
-        closed={submitted.closed}
-      />
-    );
   }
 
   const isSubmitting = form.formState.isSubmitting;
@@ -224,6 +247,8 @@ export function PortalNewRequestForm({
       </div>
 
       <div className="min-w-0">
+        {!isSignedIn ? <NoAccountNeededNotice tenantSlug={tenantSlug} /> : null}
+
         {supportClosed ? (
           <div
             role="status"
@@ -274,6 +299,10 @@ export function PortalNewRequestForm({
                         <FormControl>
                           <Input
                             {...field}
+                            onChange={(event) => {
+                              field.onChange(event);
+                              setSignInEmail(undefined);
+                            }}
                             type="email"
                             autoComplete="email"
                             placeholder="you@company.com"
@@ -293,9 +322,7 @@ export function PortalNewRequestForm({
                       <FormItem>
                         <FormLabel className={LABEL_CLASS}>
                           Your name
-                          <span className="font-normal text-muted-foreground">
-                            (optional)
-                          </span>
+                          <RequiredMark />
                         </FormLabel>
 
                         <FormControl>
@@ -312,6 +339,10 @@ export function PortalNewRequestForm({
                     )}
                   />
                 </div>
+              ) : null}
+
+              {!isSignedIn && signInEmail ? (
+                <SignInRequired tenantSlug={tenantSlug} email={signInEmail} />
               ) : null}
 
               <FormField
@@ -462,48 +493,67 @@ function RequiredMark() {
   );
 }
 
-function GuestConfirmation({
+/** Signed out: said up front, before anything is typed. */
+function NoAccountNeededNotice({ tenantSlug }: { tenantSlug: string }) {
+  return (
+    <div
+      role="note"
+      className="mb-5 flex items-start gap-3 rounded-xl border border-brand-accent/25 bg-brand-accent/5 px-4 py-3 text-foreground"
+    >
+      <MailCheck
+        className="mt-0.5 size-4 shrink-0 text-brand-accent"
+        aria-hidden
+      />
+      <p className="text-sm leading-5">
+        <span className="font-semibold">No account needed.</span> Create your
+        ticket and we&apos;ll email you a link to set a password, so you can
+        follow it and reply. Already have an account?{" "}
+        <Link
+          href={portalPath(tenantSlug, PORTAL_ROUTES.LOGIN)}
+          className="font-semibold text-brand-ink underline-offset-4 hover:underline"
+        >
+          Sign in
+        </Link>
+        .
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The email already has a portal sign-in. The ticket has to come from that
+ * account: otherwise anyone knowing an email could post as it. Not an error,
+ * so not red -- a clear next step instead.
+ */
+function SignInRequired({
   tenantSlug,
   email,
-  closed,
 }: {
   tenantSlug: string;
   email: string;
-  closed: PortalSupportClosed | null;
 }) {
   return (
-    <PortalCentered width="max-w-120">
-      <div className="w-full rounded-2xl border bg-card p-6 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.06)] sm:p-8">
-        <span
-          aria-hidden
-          className="mx-auto flex size-14 items-center justify-center rounded-full bg-brand-accent/10 text-brand-accent ring-8 ring-brand-accent/5"
+    <div
+      role="status"
+      className="flex flex-col gap-3 rounded-xl border border-brand-accent/25 bg-brand-accent/5 px-4 py-3.5 sm:flex-row sm:items-center"
+    >
+      <p className="min-w-0 flex-1 text-sm leading-5 text-foreground">
+        <span className="font-semibold break-all">{email}</span> already has an
+        account. Sign in to create your ticket - it will be saved with your
+        other requests.
+      </p>
+
+      <Button
+        asChild
+        className="h-10 shrink-0 px-4 font-semibold max-sm:w-full"
+      >
+        <Link
+          href={`${portalPath(tenantSlug, PORTAL_ROUTES.LOGIN)}?email=${encodeURIComponent(email)}`}
         >
-          <CheckCircle2 className="size-7" />
-        </span>
-
-        <h1 className="mt-5 text-2xl font-bold tracking-tight text-foreground">
-          We&apos;ve got it
-        </h1>
-
-        <p className="mt-2 text-sm leading-[1.6] text-muted-foreground">
-          Your ticket is with our team. We&apos;ll reply to{" "}
-          <strong className="font-bold text-foreground">{email}</strong>. Sign
-          in with that address any time to follow it here.
-        </p>
-
-        {closed ? (
-          <p className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm leading-5 text-amber-900">
-            <MoonStar className="mt-0.5 size-4 shrink-0" aria-hidden />
-            {supportClosedCreatedMessage(closed)}
-          </p>
-        ) : null}
-
-        <Button asChild size="lg" className="mt-6 h-11 px-6 font-semibold">
-          <Link href={portalPath(tenantSlug, PORTAL_ROUTES.LOGIN)}>
-            Sign in to track it
-          </Link>
-        </Button>
-      </div>
-    </PortalCentered>
+          <LogIn aria-hidden className="size-4" />
+          Sign in to continue
+        </Link>
+      </Button>
+    </div>
   );
 }

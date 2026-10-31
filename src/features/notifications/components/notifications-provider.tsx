@@ -24,6 +24,7 @@ import type {
   NotificationPrefs,
 } from "@/features/notifications/types/notifications";
 import {
+  clearNotificationsAction,
   deleteNotificationAction,
   loadNotificationsAction,
   markAllNotificationsReadAction,
@@ -44,6 +45,8 @@ interface NotificationsContextValue {
   setRead: (id: string, read: boolean) => Promise<boolean>;
   markAllRead: () => Promise<boolean>;
   remove: (id: string) => Promise<boolean>;
+  /** Deletes these notifications, e.g. everything the bell shows. */
+  clear: (ids: string[]) => Promise<boolean>;
 }
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(
@@ -220,6 +223,18 @@ export function NotificationsProvider({
     [mutate],
   );
 
+  const clear = useCallback(
+    (ids: string[]) => {
+      const gone = new Set(ids);
+      return mutate(
+        (list) => list.filter((n) => !gone.has(n.id)),
+        () => clearNotificationsAction(ids),
+        "We couldn't clear your notifications.",
+      );
+    },
+    [mutate],
+  );
+
   const value = useMemo<NotificationsContextValue>(
     () => ({
       prefs,
@@ -229,8 +244,18 @@ export function NotificationsProvider({
       setRead,
       markAllRead,
       remove,
+      clear,
     }),
-    [prefs, notifications, hydrate, savePrefs, setRead, markAllRead, remove],
+    [
+      prefs,
+      notifications,
+      hydrate,
+      savePrefs,
+      setRead,
+      markAllRead,
+      remove,
+      clear,
+    ],
   );
 
   return (

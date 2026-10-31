@@ -17,7 +17,6 @@ import {
   AUDIT_EXPORT_LIMIT,
   AUDIT_MODULE_LABELS,
   AUDIT_RESULT_LABELS,
-  AUDIT_SYSTEM_ACTOR,
   AUDIT_TAB_MODULES,
   addDays,
   formatAuditTimestamp,
@@ -340,8 +339,7 @@ function applyFilters<
   if (moduleFilter) q = q.eq("module", moduleFilter);
   if (filters.action) q = q.eq("action", filters.action);
   if (filters.result) q = q.eq("result", filters.result);
-  if (filters.user === AUDIT_SYSTEM_ACTOR) q = q.is("actor_id", null);
-  else if (filters.user) q = q.eq("actor_id", filters.user);
+  if (filters.user) q = q.eq("actor_id", filters.user);
 
   const search = searchFilter(filters.q, members);
   if (search) q = q.or(search);
@@ -433,6 +431,7 @@ const ENTITY_LABELS: Record<string, string> = {
   sla_policy: "SLA policy",
   business_hours: "Business hours",
   subscription: "Subscription",
+  invoice: "Invoice",
   tenant: "Workspace",
   tenant_ownership: "Membership",
   audit_log: "Audit log",
@@ -478,6 +477,31 @@ function fallbackSummary(
   return `${AUDIT_ACTION_LABELS[action]} ${entity}`;
 }
 
+/**
+ * Who the row says acted, as they were when it was written (meta_json.actor,
+ * stamped by audit_logs_fill). Used when the account is gone: actor_id is set
+ * null on delete, which would otherwise read as "System".
+ */
+function snapshotActor(
+  row: AuditRow,
+  meta: Record<string, unknown>,
+): AuditActor | null {
+  const snap = meta.actor as Record<string, unknown> | undefined;
+  if (!snap || typeof snap !== "object") return null;
+
+  const email = typeof snap.email === "string" ? snap.email : "";
+  const name = typeof snap.name === "string" && snap.name ? snap.name : email;
+  if (!name) return null;
+
+  return {
+    id: row.actor_id ?? "",
+    name,
+    email,
+    avatarUrl: null,
+    role: typeof snap.role === "string" ? snap.role : null,
+  };
+}
+
 function toEvent(row: AuditRow, actors: Map<string, AuditActor>): AuditEvent {
   const meta = row.meta_json ?? {};
   const action: AuditAction = isAuditAction(row.action) ? row.action : "update";
@@ -494,15 +518,18 @@ function toEvent(row: AuditRow, actors: Map<string, AuditActor>): AuditEvent {
     result: row.result === "failure" ? "failure" : "success",
     entity: row.entity,
     entityId: row.entity_id,
-    actor: row.actor_id
-      ? (actors.get(row.actor_id) ?? {
-          id: row.actor_id,
-          name: "Deleted user",
-          email: "",
-          avatarUrl: null,
-          role: null,
-        })
-      : null,
+    actor:
+      (row.actor_id ? actors.get(row.actor_id) : null) ??
+      snapshotActor(row, meta) ??
+      (row.actor_id
+        ? {
+            id: row.actor_id,
+            name: "Deleted user",
+            email: "",
+            avatarUrl: null,
+            role: null,
+          }
+        : null),
     summary,
     changes: toChanges(meta),
     related: toRelated(row, meta),

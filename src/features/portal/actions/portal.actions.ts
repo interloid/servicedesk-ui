@@ -17,8 +17,8 @@ import {
 import type { PortalSupportClosed } from "@/features/portal/support-closed";
 import {
   portalEmailSchema,
-  portalGuestRequestSchema,
   portalPasswordLoginSchema,
+  portalGuestRequestSchema,
   portalProfileSchema,
   portalRequestSchema,
   portalCsatSchema,
@@ -42,6 +42,7 @@ import {
 } from "@/features/portal/schemas/portal.schema";
 import {
   completePortalOnboarding,
+  createGuestPortalRequest,
   createPortalRequest,
   getTicketSupportClosed,
   createPortalStagingTargets,
@@ -55,10 +56,9 @@ import {
   portalSignOut,
   postPortalReply,
   reopenPortalRequest,
-  isTeamEmail,
+  hasPortalSignIn,
   markPortalWelcomeShown,
   sendPortalSignInLink,
-  TEAM_ACCOUNT_MESSAGE,
   setPortalPassword,
   submitPortalCsat,
   stepPath,
@@ -79,7 +79,10 @@ const LIMITS = {
   // Changing a password on an existing session. Separate from sign-in attempts
   // so one cannot use up the other.
   setPassword: { limit: 10, windowMs: 10 * MINUTE },
-  guestRequest: { limit: 3, windowMs: 15 * MINUTE },
+  // "Does this email have an account?" on the signed-out ticket form.
+  emailCheck: { limit: 15, windowMs: 10 * MINUTE },
+  // A signed-out ticket: writes a customer, a ticket and an email each time.
+  guestRequest: { limit: 5, windowMs: 10 * MINUTE },
   // Counted per file (guard's `cost`), not per call: one call can ask for up to
   // MAX_ATTACHMENTS_PER_MESSAGE targets. Roughly a dozen replies' worth.
   upload: { limit: 60, windowMs: 10 * MINUTE },
@@ -91,15 +94,10 @@ type Limit = keyof typeof LIMITS;
 async function guard(action: Limit, cost = 1): Promise<PortalFailure | null> {
   const key = `portal:${action}:${await clientKey()}`;
 
-  let allowed = true;
-  let retryAfterMs = 0;
-
-  // The limiter counts one hit per call, so a call that costs n is n hits.
-  for (let spent = 0; spent < Math.max(1, cost); spent += 1) {
-    ({ allowed, retryAfterMs } = rateLimit(key, LIMITS[action]));
-
-    if (!allowed) break;
-  }
+  const { allowed, retryAfterMs } = await rateLimit(key, {
+    ...LIMITS[action],
+    cost,
+  });
 
   if (allowed) {
     return null;
@@ -420,10 +418,10 @@ export async function completeOnboardingAction(
 /**
  * Authorise attachments for a request that has not been submitted yet.
  *
- * Open to guests on purpose -- the portal accepts requests without an account.
- * The paths it hands back are server-minted under a random batch id and are
- * only useful to whoever received them; rate limiting is what keeps this from
- * being free storage.
+ * Open to signed-out callers too, because a first-time customer files their
+ * request signed out. The paths it hands back are server-minted under a random
+ * batch id and are only useful to whoever received them, and the per-IP upload
+ * limit is what bounds an anonymous caller.
  */
 export async function prepareRequestUploadsAction(
   slug: string,
@@ -556,21 +554,19 @@ export async function submitRequestAction(
 }
 
 /**
- * "You don't need an account to reach us." Creates the customer row as a side
- * effect, so when that same address later signs in, portal_link_user claims
- * this ticket rather than starting a second history.
+ * A first-time customer's ticket, filed signed out. The customer record is
+ * found or created from the email, the ticket is filed against it, and the
+ * email gets a link to set a password -- see createGuestPortalRequest.
+ *
+ * Lands on the same check-email screen either way, including for a team
+ * address that filed nothing, so the answer never says which addresses are
+ * staff.
  */
 export async function submitGuestRequestAction(
   slug: string,
   values: PortalGuestRequestValues,
   uploads: PortalUploadedFile[] = [],
-): Promise<
-  PortalResult<{
-    email: string;
-    number: number | null;
-    closed: PortalSupportClosed | null;
-  }>
-> {
+): Promise<PortalResult<{ redirectTo: string }>> {
   const parsed = portalGuestRequestSchema.safeParse(values);
 
   if (!parsed.success) {
@@ -587,33 +583,61 @@ export async function submitGuestRequestAction(
   if (limited) return limited;
 
   try {
-    // A guest request is how a new customer's account begins, so a team
-    // email is refused here as well as at sign-in.
-    if (await isTeamEmail(parsed.data.email)) {
-      throw new PortalError(TEAM_ACCOUNT_MESSAGE, "no_portal_access");
-    }
-
-    const ticket = await createPortalRequest({
+    await createGuestPortalRequest({
       slug,
+      email: parsed.data.email,
+      fullName: parsed.data.fullName,
       subject: parsed.data.subject,
       description: parsed.data.description,
-      email: parsed.data.email,
-      fullName: parsed.data.fullName || undefined,
       uploads: files.data,
+    });
+
+    // No ticket number in the answer: the email carries it. Showing it here
+    // would set a customer's answer apart from a team address's, which files
+    // nothing.
+    const query = new URLSearchParams({
+      email: parsed.data.email,
+      request: "1",
     });
 
     return {
       success: true,
       data: {
-        email: parsed.data.email,
-        number: ticket.number,
-        // The ticket is already saved: a failed lookup only drops the
-        // "support is closed" note, it must not report the request as failed.
-        closed: await supportClosedOrNull(ticket.id),
+        redirectTo: `${portalPath(slug, PORTAL_ROUTES.CHECK_EMAIL)}?${query}`,
       },
     };
   } catch (error) {
     return failure(error, "We couldn't submit your request. Try again.");
+  }
+}
+
+/**
+ * Whether this email already has a portal sign-in. The signed-out form asks
+ * this before it uploads anything: an address with a sign-in has to sign in
+ * to raise a ticket, and any other address files it straight away.
+ */
+export async function checkGuestEmailAction(
+  slug: string,
+  values: PortalEmailValues,
+): Promise<PortalResult<{ hasAccount: boolean }>> {
+  const parsed = portalEmailSchema.safeParse(values);
+
+  if (!parsed.success) {
+    return invalid(parsed.error.flatten().fieldErrors);
+  }
+
+  const limited = await guard("emailCheck");
+  if (limited) return limited;
+
+  try {
+    return {
+      success: true,
+      data: {
+        hasAccount: await hasPortalSignIn(slug, parsed.data.email),
+      },
+    };
+  } catch (error) {
+    return failure(error, "We couldn't check that email. Try again.");
   }
 }
 

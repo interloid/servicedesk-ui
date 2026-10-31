@@ -83,29 +83,29 @@ export function CustomerPicker({
             variant="outline"
             aria-expanded={open}
             aria-invalid={invalid || undefined}
-            className="h-10 w-full justify-between border-gray-200 px-3 text-left text-sm font-normal shadow-none hover:bg-transparent"
+            className="h-10 w-full justify-between border-slate-200 px-3 text-left text-sm font-normal shadow-none hover:bg-transparent"
           >
             <span className="flex min-w-0 items-center gap-2">
-              <Users className="size-4 shrink-0 text-gray-500" aria-hidden />
+              <Users className="size-4 shrink-0 text-slate-500" aria-hidden />
               {chips.length === 0 ? (
                 <span className="text-muted-foreground">Select customers</span>
               ) : (
-                <span className="truncate text-gray-900">
+                <span className="truncate text-slate-900">
                   {chips.length} customer{chips.length === 1 ? "" : "s"}{" "}
                   selected
                 </span>
               )}
             </span>
-            <ChevronDown className="size-4 text-gray-500" aria-hidden />
+            <ChevronDown className="size-4 text-slate-500" aria-hidden />
           </Button>
         </PopoverTrigger>
         <PopoverContent
           align="start"
           className="w-(--radix-popover-trigger-width) min-w-72 p-0"
         >
-          <div className="relative border-b border-gray-100 p-2">
+          <div className="relative border-b border-slate-100 p-2">
             <Search
-              className="pointer-events-none absolute top-1/2 left-4.5 size-4 -translate-y-1/2 text-gray-400"
+              className="pointer-events-none absolute top-1/2 left-4.5 size-4 -translate-y-1/2 text-slate-400"
               aria-hidden
             />
             <Input
@@ -127,11 +127,11 @@ export function CustomerPicker({
               className="max-h-41 overflow-y-auto p-1"
             >
               {customers.length === 0 ? (
-                <p className="px-3 py-6 text-center text-sm text-gray-500">
+                <p className="px-3 py-6 text-center text-sm text-slate-500">
                   This tenant has no customers yet.
                 </p>
               ) : filtered.length === 0 ? (
-                <p className="px-3 py-6 text-center text-sm text-gray-500">
+                <p className="px-3 py-6 text-center text-sm text-slate-500">
                   No customers match “{query.trim()}”.
                 </p>
               ) : (
@@ -148,8 +148,8 @@ export function CustomerPicker({
                       className={cn(
                         "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors",
                         locked
-                          ? "cursor-not-allowed bg-gray-50/60"
-                          : "cursor-pointer hover:bg-gray-50",
+                          ? "cursor-not-allowed bg-slate-50/60"
+                          : "cursor-pointer hover:bg-slate-50",
                         checked && "bg-brand-accent/5",
                       )}
                     >
@@ -157,15 +157,15 @@ export function CustomerPicker({
                         checked={checked}
                         disabled={locked}
                         onCheckedChange={() => toggle(c.id)}
-                        className="border-gray-300 data-checked:border-brand-accent data-checked:bg-brand-accent [&_svg]:size-3"
+                        className="border-slate-300 data-checked:border-brand-accent data-checked:bg-brand-accent [&_svg]:size-3"
                       />
                       <span
                         className={cn("min-w-0 flex-1", locked && "opacity-60")}
                       >
-                        <span className="block truncate font-medium text-gray-900">
+                        <span className="block truncate font-medium text-slate-900">
                           {c.name}
                         </span>
-                        <span className="block truncate text-xs text-gray-500">
+                        <span className="block truncate text-xs text-slate-500">
                           {c.company ? `${c.company} · ${c.email}` : c.email}
                         </span>
                       </span>
@@ -192,7 +192,7 @@ export function CustomerPicker({
           </TooltipProvider>
 
           {value.length > 0 && (
-            <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
+            <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
               {value.length} selected
               <button
                 type="button"
@@ -211,14 +211,14 @@ export function CustomerPicker({
           {chips.map((c) => (
             <li
               key={c.id}
-              className="inline-flex max-w-full items-center gap-2 rounded-md border border-gray-200 bg-gray-50 py-0.5 pr-1 pl-2 text-xs text-gray-700"
+              className="inline-flex max-w-full items-center gap-2 rounded-md border border-slate-200 bg-slate-50 py-0.5 pr-1 pl-2 text-xs text-slate-700"
             >
               <span className="truncate">{c.name}</span>
               <button
                 type="button"
                 onClick={() => toggle(c.id)}
                 aria-label={`Remove ${c.name}`}
-                className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700"
+                className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
               >
                 <X className="size-3" />
               </button>

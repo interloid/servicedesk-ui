@@ -5,11 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { env } from "@/config/env";
 import type { LoginValues } from "@/features/auth/schemas/login";
-import type {
-  ActiveMembership,
-  AuthFailureCode,
-  SessionUser,
-} from "@/features/auth/types";
+import type { AuthFailureCode, SessionUser } from "@/features/auth/types";
 import {
   getTenantContext,
   getTenantSlugById,
@@ -36,6 +32,7 @@ import {
   type UpdatePasswordValues,
 } from "../schemas/reset-password";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { requestClientInfo } from "@/lib/request-context";
 import { enqueueEmail } from "@/lib/email/email-queue";
 
 export class AuthError extends Error {
@@ -677,15 +674,18 @@ async function recordLogoutAttempt(supabase: SupabaseClient) {
     return;
   }
 
-  const membership = await findActiveMembership(supabase, data.user.id);
+  // The workspace this session is signed in to, as login records it. The
+  // insert policy only accepts current_tenant_id(), so any other membership
+  // would be refused.
+  const claims = await getTenantClaims(supabase);
 
-  if (!membership) {
+  if (!claims?.tenantId) {
     return;
   }
 
   await recordAuthEvent(supabase, {
     action: "logout",
-    tenantId: membership.tenant_id,
+    tenantId: claims.tenantId,
     userId: data.user.id,
     email: data.user.email ?? "",
   });
@@ -790,39 +790,11 @@ async function recordFailedLogin(email: string) {
 }
 
 async function clientIp(): Promise<string | null> {
-  const requestHeaders = await headers();
-  const forwarded = requestHeaders.get("x-forwarded-for");
-
-  if (forwarded) {
-    return forwarded.split(",")[0]?.trim() || null;
-  }
-
-  return requestHeaders.get("x-real-ip");
+  return (await requestClientInfo()).ip;
 }
 
 function warn(message: string) {
   if (process.env.NODE_ENV !== "production") {
     console.warn(`[auth] ${message}`);
   }
-}
-
-export async function findActiveMembership(
-  supabase: SupabaseClient,
-  userId: string,
-): Promise<ActiveMembership | null> {
-  const { data, error } = await supabase
-    .from("memberships")
-    .select("tenant_id, role")
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Failed to find active membership:", error);
-    return null;
-  }
-
-  return data;
 }

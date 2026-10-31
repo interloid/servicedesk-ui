@@ -7,8 +7,11 @@
 --   Ticket created         assignee         in-app + email      (ticket_assigned)
 --   Ticket created         admins/managers  in-app + opt-in email (ticket_created)
 --   Agent replies (public) customer         email (+ portal thread)
+--   Customer replies       assignee         in-app + email per prefs (ticket_updated)
 --   Ticket assigned        new assignee     in-app + email per prefs
 --   Ticket resolved        customer         email (+ portal status)
+--   Ticket reopened        assignee, else   in-app + email per prefs
+--                          admins/managers  (ticket_reopened)
 --
 -- SLA warnings and breaches come from the SLA engine (17_sla_engine.sql).
 --
@@ -126,6 +129,40 @@ BEGIN
         END;
     END IF;
 
+    -- Out of resolved or closed into a working status: the customer replied
+    -- or reopened on the portal, or a teammate reopened it. The assignee
+    -- picks it back up; with nobody on it, admins and managers hear instead.
+    IF OLD.status IN ('resolved', 'closed')
+       AND NEW.status NOT IN ('resolved', 'closed')
+    THEN
+        BEGIN
+            INSERT INTO public.notifications (tenant_id, user_id, type, payload_json)
+            SELECT
+                NEW.tenant_id,
+                r.user_id,
+                'ticket_reopened',
+                jsonb_build_object(
+                    'ticket_id', NEW.id,
+                    'ticket_number', NEW.number,
+                    'subject', NEW.subject
+                )
+            FROM (
+                SELECT NEW.assignee_user_id AS user_id
+                WHERE NEW.assignee_user_id IS NOT NULL
+                UNION
+                SELECT m.user_id
+                FROM public.memberships m
+                WHERE NEW.assignee_user_id IS NULL
+                  AND m.tenant_id = NEW.tenant_id
+                  AND m.status = 'active'
+                  AND m.role IN ('tenant_admin', 'manager')
+            ) r
+            WHERE r.user_id IS DISTINCT FROM v_actor;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE WARNING 'notify_ticket_changed(%) reopen: %', NEW.id, SQLERRM;
+        END;
+    END IF;
+
     -- Only the step into `resolved`: the later auto-close to `closed` is
     -- housekeeping the customer has already been told about.
     IF NEW.status = 'resolved' AND OLD.status IS DISTINCT FROM 'resolved' THEN
@@ -142,12 +179,22 @@ $$;
 
 -- A public agent reply goes to the customer. Internal notes never do, and a
 -- customer's own message (or a system line) is not echoed back to them.
+--
+-- A customer's reply goes the other way: the ticket's assignee gets a "New
+-- reply" (ticket_updated, the `replies` preference) in the bell and, per their
+-- prefs, by email. The agent side writes the same notification from
+-- sendTicketMessageAction; the portal posts through the customer's own RLS
+-- client, which cannot write notifications, so it is done here. An unassigned
+-- ticket alerts nobody -- it is still in the queue.
 CREATE OR REPLACE FUNCTION public.notify_ticket_message()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+    v_ticket   public.tickets%rowtype;
+    v_customer text;
 BEGIN
     IF NEW.author_type = 'agent' AND NEW.visibility = 'public' THEN
         PERFORM public.queue_customer_ticket_email(
@@ -155,6 +202,38 @@ BEGIN
             NEW.tenant_id,
             jsonb_build_object('ticketId', NEW.ticket_id, 'messageId', NEW.id)
         );
+    END IF;
+
+    IF NEW.author_type = 'customer' THEN
+        BEGIN
+            SELECT * INTO v_ticket
+            FROM public.tickets
+            WHERE id = NEW.ticket_id;
+
+            IF v_ticket.assignee_user_id IS NOT NULL THEN
+                SELECT nullif(trim(c.full_name), '')
+                INTO v_customer
+                FROM public.customers c
+                WHERE c.id = v_ticket.requester_customer_id;
+
+                INSERT INTO public.notifications (tenant_id, user_id, type, payload_json)
+                VALUES (
+                    v_ticket.tenant_id,
+                    v_ticket.assignee_user_id,
+                    'ticket_updated',
+                    jsonb_build_object(
+                        'ticket_id', v_ticket.id,
+                        'ticket_number', v_ticket.number,
+                        'subject', v_ticket.subject,
+                        'title', coalesce(v_customer, 'The customer')
+                            || ' replied on #' || v_ticket.number,
+                        'body', left(regexp_replace(NEW.body, '\s+', ' ', 'g'), 200)
+                    )
+                );
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE WARNING 'notify_ticket_message(%) customer reply: %', NEW.id, SQLERRM;
+        END;
     END IF;
 
     RETURN NEW;

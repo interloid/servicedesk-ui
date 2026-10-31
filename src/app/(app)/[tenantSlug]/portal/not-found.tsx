@@ -30,7 +30,7 @@ export default function PortalNotFound() {
         account. Your requests are all still in one place.
       </p>
 
-      <Button asChild variant="outline" className="mt-2 h-9 font-semibold">
+      <Button asChild variant="outline" className="mt-2 h-10 font-semibold">
         <Link href={portalPath(tenantSlug, PORTAL_ROUTES.REQUESTS)}>
           Back to your requests
         </Link>

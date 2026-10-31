@@ -807,7 +807,7 @@ export function TeamTable({ members, callerRole, seats, now }: TeamTableProps) {
           Showing{" "}
           {filtered.length === 0
             ? 0
-            : `${start + 1}–${Math.min(start + PAGE_SIZE, filtered.length)}`}{" "}
+            : `${start + 1} -${Math.min(start + PAGE_SIZE, filtered.length)}`}{" "}
           of {filtered.length} {filtered.length === 1 ? "person" : "people"}
           {hasActiveFilters ? " matching your filters" : ""}.
         </span>

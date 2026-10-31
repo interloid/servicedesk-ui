@@ -19,6 +19,7 @@ const TYPE_TO_FEED: Record<string, NotificationFeedType> = {
   ticket_created: "ticket",
   ticket_updated: "ticket",
   ticket_closed: "ticket",
+  ticket_reopened: "ticket",
   mention: "reply",
   sla_breach: "sla",
   sla_warning: "sla",
@@ -37,6 +38,7 @@ const TYPE_TO_PREF: Record<string, NotificationEventKey> = {
   sla_warning: "sla",
   mention: "mention",
   ticket_created: "created",
+  ticket_reopened: "reopened",
 };
 
 const FALLBACK_TITLES: Record<string, string> = {
@@ -44,6 +46,7 @@ const FALLBACK_TITLES: Record<string, string> = {
   ticket_created: "New ticket",
   ticket_updated: "New reply",
   ticket_closed: "Ticket closed",
+  ticket_reopened: "Ticket reopened",
   mention: "You were mentioned",
 };
 

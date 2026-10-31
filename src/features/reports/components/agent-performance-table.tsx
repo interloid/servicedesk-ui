@@ -124,6 +124,7 @@ export function AgentPerformanceTable({
 
   return (
     <Card
+      data-pdf-expand
       className={cn(
         "min-w-0 gap-0 overflow-hidden rounded-xl bg-card p-0 shadow-sm ring-1",
         className,
@@ -147,7 +148,8 @@ export function AgentPerformanceTable({
             </p>
           </div>
         </div>
-        <div className="relative w-full sm:w-64">
+        {/* Left out of the PDF export: a search box means nothing on paper. */}
+        <div data-pdf-hide className="relative w-full sm:w-64">
           <Search
             aria-hidden
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -159,7 +161,7 @@ export function AgentPerformanceTable({
             placeholder="Search agents..."
             aria-label="Search agents"
             maxLength={200}
-            className="h-9 bg-card pl-9 text-sm"
+            className="h-10 bg-card pl-9 text-sm"
           />
         </div>
       </header>
@@ -170,6 +172,7 @@ export function AgentPerformanceTable({
           instead of crushing the columns. A plain <table> rather than <Table>, whose own
           overflow wrapper would become the sticky header's scroll parent. */}
       <div
+        data-pdf-expand
         className="max-h-(--rows-max-h) min-h-0 flex-1 overflow-auto xl:max-h-none"
         style={
           {

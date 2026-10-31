@@ -167,7 +167,7 @@ function AgentTableSkeleton({ className }: { className?: string }) {
             <Skeleton className="h-4 w-16" />
           </div>
         </div>
-        <Skeleton className="h-9 w-full rounded-md sm:w-64" />
+        <Skeleton className="h-10 w-full rounded-md sm:w-64" />
       </div>
 
       <div className="overflow-x-auto">
@@ -260,8 +260,8 @@ export function ReportsSkeleton() {
             <Skeleton className="h-5 w-80 max-w-full" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Skeleton className="h-9 w-24 rounded-md" />
-            <Skeleton className="h-9 w-40 rounded-md" />
+            <Skeleton className="h-10 w-24 rounded-md" />
+            <Skeleton className="h-10 w-40 rounded-md" />
           </div>
         </div>
 

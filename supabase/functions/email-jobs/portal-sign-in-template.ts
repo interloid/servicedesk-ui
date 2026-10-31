@@ -4,16 +4,69 @@
 
 import { escapeHtml } from "./invitation-template.ts";
 
+/**
+ * The three things this email can be: a link the customer asked for, a Tenant
+ * Admin's invitation, or the account setup that follows a first ticket filed
+ * signed out. One card, three sets of words.
+ */
+export function portalSignInEmailCopy({
+  workspace,
+  invited = false,
+  ticketNumber = null,
+}: {
+  workspace: string;
+  invited?: boolean;
+  ticketNumber?: number | null;
+}) {
+  if (ticketNumber !== null) {
+    return {
+      subject: `We received your request #${ticketNumber} - set your password for ${workspace} Support`,
+      title: `Set your password for ${workspace} Support`,
+      heading: "We received your request",
+      bodyHtml: `Your request <strong>#${ticketNumber}</strong> is with the <strong>${escapeHtml(workspace)} Support</strong> team. Use the button below to confirm this is your email and set a password, so you can follow its progress, reply, and raise new requests.`,
+      bodyText: `Your request #${ticketNumber} is with the ${workspace} Support team. Confirm this is your email and set a password, so you can follow its progress, reply, and raise new requests`,
+      button: "Set your password",
+      note: "This link works once and expires in 1 hour. After that, sign in from the portal with this email address to get a new one. If you didn't contact us, you can safely ignore this email.",
+    };
+  }
+
+  if (invited) {
+    return {
+      subject: `You're invited to ${workspace} Support`,
+      title: `You're invited to ${workspace} Support`,
+      heading: "You're invited",
+      bodyHtml: `You've been invited to <strong>${escapeHtml(workspace)} Support</strong>, where you can raise tickets and follow their progress. Use the button below to sign in. No password needed.`,
+      bodyText: `You've been invited to ${workspace} Support, where you can raise tickets and follow their progress`,
+      button: "Accept invitation",
+      note: "This link works once and expires in 1 hour. After that, sign in from the portal with this email address to get a new one.",
+    };
+  }
+
+  return {
+    subject: `Your sign-in link for ${workspace} Support`,
+    title: `Sign in to ${workspace} Support`,
+    heading: "Your sign-in link",
+    bodyHtml: `Use the button below to sign in to <strong>${escapeHtml(workspace)} Support</strong> and see your requests. No password needed.`,
+    bodyText: `Sign in to ${workspace} Support`,
+    button: "Sign in",
+    note: "This link works once and expires in 1 hour. If you didn't ask to sign in, you can safely ignore this email.",
+  };
+}
+
 export function portalSignInEmailHtml({
   workspace,
   link,
   invited = false,
+  ticketNumber = null,
 }: {
   workspace: string;
   link: string;
   /** Sent by a Tenant Admin's "Invite customer" rather than asked for. */
   invited?: boolean;
+  /** Sent after a first ticket filed signed out: worded as account setup. */
+  ticketNumber?: number | null;
 }): string {
+  const copy = portalSignInEmailCopy({ workspace, invited, ticketNumber });
   const safeWorkspace = escapeHtml(workspace);
   const safeInitial = escapeHtml(
     workspace.trim().charAt(0).toUpperCase() || "S",
@@ -26,7 +79,7 @@ export function portalSignInEmailHtml({
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${invited ? "You're invited to" : "Sign in to"} ${safeWorkspace} Support</title>
+  <title>${escapeHtml(copy.title)}</title>
 </head>
 
 <body
@@ -127,7 +180,7 @@ export function portalSignInEmailHtml({
                   color: #0f172a;
                 "
               >
-                ${invited ? "You're invited" : "Your sign-in link"}
+                ${escapeHtml(copy.heading)}
               </h1>
 
               <!-- Description -->
@@ -139,11 +192,7 @@ export function portalSignInEmailHtml({
                   color: #475569;
                 "
               >
-                ${
-                  invited
-                    ? `You've been invited to <strong>${safeWorkspace} Support</strong>, where you can raise tickets and follow their progress. Use the button below to sign in. No password needed.`
-                    : `Use the button below to sign in to <strong>${safeWorkspace} Support</strong> and see your requests. No password needed.`
-                }
+                ${copy.bodyHtml}
               </p>
 
               <!-- Sign In Button -->
@@ -171,7 +220,7 @@ export function portalSignInEmailHtml({
                         border: 1px solid #0f766e;
                       "
                     >
-                      ${invited ? "Accept invitation" : "Sign in"}
+                      ${escapeHtml(copy.button)}
                     </a>
                   </td>
                 </tr>
@@ -198,11 +247,7 @@ export function portalSignInEmailHtml({
                     color: #475569;
                   "
                 >
-                  ${
-                    invited
-                      ? "This link works once and expires in 1 hour. After that, sign in from the portal with this email address to get a new one."
-                      : "This link works once and expires in 1 hour. If you didn't ask to sign in, you can safely ignore this email."
-                  }
+                  ${escapeHtml(copy.note)}
                 </p>
               </div>
 

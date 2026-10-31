@@ -217,6 +217,9 @@ async function fetchFirstReplies(
  * `tenantId` is the caller's, from the same actor the page's role gate read, so
  * the gate and the data always name one tenant and a failed slug lookup can't
  * render as an empty period.
+ *
+ * The report is the whole workspace's for every role: an Agent sees the same
+ * figures and agent table as a Tenant Admin.
  */
 export async function fetchReportsData(
   tenantId: string,
@@ -752,23 +755,29 @@ async function computeAgentLoad(
     .eq("tenant_id", tenantId)
     .eq("status", "active")
     .in("role", ["agent", "manager", "tenant_admin"]);
-
   if (membershipsError) {
     throw new Error(
       `[reports] memberships lookup failed: ${membershipsError.message}`,
     );
   }
 
-  // Active staff, plus anyone who did work in the range and has since been
+  // Active agents, plus anyone who did work in the range and has since been
   // disabled or removed: dropping them made the per-agent Solved column stop
   // adding up to Tickets Solved, and lost a leaver's record for the period.
-  const activeIds = new Set((memberships || []).map((m) => m.user_id));
+  // Active admins and managers are left out: the table is about agents, even
+  // when an admin picks up a ticket themselves.
+  const activeIds = new Set(
+    (memberships || []).filter((m) => m.role === "agent").map((m) => m.user_id),
+  );
+  const nonAgentIds = new Set(
+    (memberships || []).filter((m) => m.role !== "agent").map((m) => m.user_id),
+  );
   const workedIds = [
     ...[...sets.created, ...sets.resolved, ...sets.backlog].map(
       (t) => t.assignee_user_id,
     ),
     ...sets.ratings.map((r) => r.agent_user_id),
-  ].filter((id): id is string => !!id);
+  ].filter((id): id is string => !!id && !nonAgentIds.has(id));
   const agentIds = [...new Set([...activeIds, ...workedIds])];
   if (agentIds.length === 0) return [];
 
@@ -804,7 +813,10 @@ async function computeAgentLoad(
     ).length;
     const sla = tallySla(assigned, sets.slaSetup, sets.now);
 
-    const replyMinutes = assigned
+    // Every ticket the agent answered, assigned or not: a reply on an
+    // unassigned ticket is still their work, and leaving it out emptied the
+    // table for teams that answer before (or without) assigning.
+    const replyMinutes = sets.created
       .map((t) => {
         const reply = sets.firstReplyByAgentAndTicket.get(`${id}:${t.id}`);
         // Same clock as the SLA column beside it, so the two agree.

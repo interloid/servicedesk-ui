@@ -246,7 +246,7 @@ export function ProfileModal({
                   <FormControl>
                     <Input
                       disabled={isSubmitting}
-                      className="h-11 text-xs sm:text-sm"
+                      className="h-10 text-sm"
                       {...field}
                     />
                   </FormControl>
@@ -267,7 +267,7 @@ export function ProfileModal({
                     <Input
                       type="email"
                       disabled
-                      className="h-11 text-xs sm:text-sm"
+                      className="h-10 text-sm"
                       {...field}
                     />
                   </FormControl>
@@ -285,7 +285,7 @@ export function ProfileModal({
                 <Input
                   value={companyName}
                   disabled
-                  className="bg-slate-100 text-slate-500 h-11 text-xs sm:text-sm"
+                  className="bg-slate-100 text-slate-500 h-10 text-sm"
                 />
               </FormControl>
 
@@ -318,14 +318,14 @@ export function ProfileModal({
                 variant="outline"
                 disabled={isSubmitting}
                 onClick={() => handleOpenChange(false)}
-                className="w-full sm:w-auto h-11 font-semibold text-xs sm:text-sm"
+                className="h-10 w-full text-sm font-semibold sm:w-auto"
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full sm:w-auto h-11 font-semibold text-xs sm:text-sm"
+                className="h-10 w-full text-sm font-semibold sm:w-auto"
               >
                 {isSubmitting ? "Saving..." : "Save changes"}
               </Button>

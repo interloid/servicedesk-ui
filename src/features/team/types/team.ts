@@ -99,6 +99,7 @@ export type TeamFailureCode =
   | "action-not-allowed"
   | "already-member"
   | "invite-already-sent"
+  | "invite-email-failed"
   | "seat-limit-reached"
   | "cannot-change-own-role"
   | "cannot-remove-self"

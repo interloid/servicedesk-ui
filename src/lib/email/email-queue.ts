@@ -43,6 +43,11 @@ export type PortalSignInPayload = {
   tenantName: string;
   /** Sent by a Tenant Admin's "Invite customer": worded as an invitation. */
   invited?: boolean;
+  /**
+   * Sent after a first ticket filed signed out: worded as "we received your
+   * request, set your password". The link is the same one.
+   */
+  ticketNumber?: number | null;
 };
 
 type EmailJobPayloads = {

@@ -50,6 +50,7 @@ import { enqueueEmail } from "@/lib/email/email-queue";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { statStoredObject } from "@/lib/supabase/storage-object";
 import { mentionsToNames, stripAllMentions } from "@/lib/mentions";
+import { ilikeOrValue } from "@/lib/postgrest";
 import { requestOrigin } from "@/features/auth/services/auth.service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { slaDayMins } from "@/features/sla-policies/duration";
@@ -120,7 +121,6 @@ type TenantRow = {
   // Optional: get_tenant_by_slug only returns these once migration
   // 20261022120000_get_tenant_by_slug_branding has been applied. Until then
   // they are absent and the portal falls back to the app defaults.
-  secondary_color?: string | null;
   text_color?: string | null;
   background_color?: string | null;
   show_logo_on_portal?: boolean | null;
@@ -226,7 +226,6 @@ export const getPortalTenant = cache(async function getPortalTenant(
     // these keys in the migration that added the fields, so a deployment where
     // the app is ahead of the database simply falls back to the defaults rather
     // than breaking the portal.
-    secondaryColor: row.secondary_color?.trim() || null,
     textColor: row.text_color?.trim() || null,
     backgroundColor: row.background_color?.trim() || null,
     // Shown unless the admin switched it off; absent (older database) = shown.
@@ -305,6 +304,44 @@ export async function isTeamEmail(email: string): Promise<boolean> {
 
   // No account at all: a brand-new customer, which is exactly who may onboard.
   return data ? hasTeamMembership(data.id) : false;
+}
+
+export const SIGN_IN_REQUIRED_MESSAGE =
+  "This email already has an account here. Sign in to create your ticket.";
+
+/**
+ * True when this address already has a portal sign-in on this workspace. The
+ * signed-out form asks this before uploading anything: such an address has to
+ * sign in to raise a ticket, and everyone else files it straight away. A
+ * failed lookup answers false, and portal_create_request still refuses the
+ * address when the ticket is filed.
+ */
+export async function hasPortalSignIn(
+  slug: string,
+  email: string,
+): Promise<boolean> {
+  const tenant = await getPortalTenant(slug);
+
+  if (!tenant) {
+    return false;
+  }
+
+  // customers.email is citext, so eq is already case-insensitive.
+  const { data, error } = await createSupabaseAdminClient()
+    .from("customers")
+    .select("id")
+    .eq("tenant_id", tenant.id)
+    .eq("email", email.trim().toLowerCase())
+    .not("portal_user_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[portal] sign-in lookup failed:", error.message);
+    return false;
+  }
+
+  return Boolean(data);
 }
 
 export const TEAM_ACCOUNT_MESSAGE =
@@ -482,6 +519,8 @@ export const getPortalIdentity = cache(async function getPortalIdentity(
 export async function sendPortalSignInLink(
   slug: string,
   email: string,
+  /** Set after a guest request: the email is worded as account setup. */
+  ticketNumber: number | null = null,
 ): Promise<void> {
   const tenant = await getPortalTenant(slug);
 
@@ -524,7 +563,7 @@ export async function sendPortalSignInLink(
   try {
     await enqueueEmail(
       "portal_sign_in",
-      { email, redirectTo, tenantName: tenant.name },
+      { email, redirectTo, tenantName: tenant.name, ticketNumber },
       {
         tenantId: tenant.id,
         // Asking twice while the first is still queued sends one email, not
@@ -1246,7 +1285,7 @@ export async function listPortalRequests(
     const term = filters.search?.trim();
 
     if (term) {
-      const pattern = likePatternValue(term);
+      const pattern = ilikeOrValue(term);
 
       query = query.or(`subject.ilike.${pattern},description.ilike.${pattern}`);
     }
@@ -1412,9 +1451,13 @@ export async function createPortalRequest({
     }
 
     if (error.code === "42501") {
+      // Signed out, the only 42501 is "this address has a sign-in": the form
+      // turns that code into a sign-in prompt rather than a dead end.
       throw new PortalError(
-        "That email is already registered here. Sign in first.",
-        "no_portal_access",
+        userId
+          ? "That email belongs to a different sign-in."
+          : SIGN_IN_REQUIRED_MESSAGE,
+        userId ? "no_portal_access" : "sign_in_required",
       );
     }
 
@@ -1476,6 +1519,79 @@ export async function createPortalRequest({
   }
 
   return { id: ticket.ticket_id, number: ticket.number };
+}
+
+/**
+ * A first-time customer's request, filed without signing in.
+ *
+ * portal_create_request finds the customer record for this workspace and email
+ * or creates one, then files the ticket against it with the workspace's SLA.
+ * An address that already has a portal sign-in is refused (sign_in_required):
+ * otherwise an address alone would be enough to post into somebody else's
+ * portal. The customer then gets the portal link, worded as "set your
+ * password": clicking it proves the address, and linkPortalSession claims the
+ * record -- and with it this ticket -- and sends them to the password step.
+ *
+ * Returns null for a team address, having filed nothing: the caller shows the
+ * same "check your inbox" as for anyone else, so the form cannot be used to
+ * test which addresses are staff (the same rule as sendPortalSignInLink).
+ */
+export async function createGuestPortalRequest(input: {
+  slug: string;
+  email: string;
+  fullName: string;
+  subject: string;
+  description: string;
+  uploads?: PortalUploadedFile[];
+}): Promise<{ id: string; number: number | null } | null> {
+  const tenant = await getPortalTenant(input.slug);
+
+  if (!tenant) {
+    throw new PortalError(
+      "That support portal doesn't exist.",
+      "tenant_not_found",
+    );
+  }
+
+  const email = input.email.trim().toLowerCase();
+
+  if (await isTeamEmail(email)) {
+    return null;
+  }
+
+  // A disabled customer is told so, as on the sign-in page, rather than
+  // filing a ticket they could never sign in to follow.
+  const { data: account } = await createSupabaseAdminClient()
+    .from("users")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (
+    account &&
+    (await portalMembershipStatus(tenant.id, account.id)) === "disabled"
+  ) {
+    throw new PortalError(PORTAL_ACCESS_DISABLED_MESSAGE, "access_disabled");
+  }
+
+  const ticket = await createPortalRequest({
+    slug: input.slug,
+    subject: input.subject,
+    description: input.description,
+    email,
+    fullName: input.fullName,
+    uploads: input.uploads,
+  });
+
+  // The ticket is filed; a failed email must not report it as lost. The
+  // check-email screen the customer lands on can send the link again.
+  try {
+    await sendPortalSignInLink(input.slug, email, ticket.number);
+  } catch (error) {
+    console.error("[portal] guest setup email failed:", error);
+  }
+
+  return ticket;
 }
 
 // ---------------------------------------------------------------------------
@@ -1764,25 +1880,6 @@ export const getPortalSupportHours = cache(async function getPortalSupportHours(
 const SEEDED_COPY_WINDOW_MS = 10_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * A typed search term as a quoted `ilike` value for PostgREST's `or()`.
- *
- * Two grammars, escaped in order:
- *
- *   1. LIKE: `%` and `_` are wildcards, `\` is the escape, and PostgREST also
- *      reads `*` as `%`. Each is backslash-escaped so "50%" or "a_b" match
- *      literally instead of matching everything.
- *   2. PostgREST: `,` `(` `)` end or nest a filter, and backslash escapes are
- *      honoured only inside double quotes -- outside them "login, again" splits
- *      the filter in two. So the whole value, wildcards included, is wrapped in
- *      quotes, and the `"` and `\` inside it are escaped for that quoting.
- */
-function likePatternValue(term: string): string {
-  const literal = term.replace(/[\\%_*]/g, "\\$&");
-
-  return `"%${literal.replace(/["\\]/g, "\\$&")}%"`;
-}
 
 type MessageRow = {
   id: string;
@@ -2176,9 +2273,9 @@ export async function recordPortalAttachments(params: {
 /**
  * Authorise uploads for a request that has not been created yet.
  *
- * Reachable without a session, because "you don't need an account to reach us"
- * is a supported way in. There is nothing to check ownership against at this
- * point, so the paths are server-minted under a random batch id and are
+ * Signed in or not -- a first-time customer files their request signed out --
+ * there is no ticket to check ownership against yet, so the paths are
+ * server-minted under a random batch id and are
  * useless to anyone who cannot guess it: nothing reads from the staging prefix,
  * and only attachStagedUploads can move a file out of it.
  */

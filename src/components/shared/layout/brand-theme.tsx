@@ -23,27 +23,21 @@ function safeHex(value: string | null | undefined): string | null {
 
 export function BrandTheme({
   primary,
-  secondary,
   text,
   background,
 }: {
   primary?: string | null;
-  secondary?: string | null;
   text?: string | null;
   background?: string | null;
 }) {
   const brand = safeHex(primary);
-  const secondaryColor = safeHex(secondary);
   const foreground = safeHex(text);
   const page = safeHex(background);
 
   // The same palette the branding preview paints with, so what an admin
-  // previews is what customers get. Secondary is the quiet colour (secondary
-  // buttons, muted surfaces) -- it used to take over --brand-accent, which
-  // painted the portal header in it while the preview showed the brand.
+  // previews is what customers get.
   const p = brandPalette({
     primary: brand,
-    secondary: secondaryColor,
     text: foreground,
     background: page,
   });
@@ -77,19 +71,18 @@ export function BrandTheme({
       `--brand-badge-foreground: ${p.badgeForeground}`,
       `--brand-soft: ${p.soft}`,
       `--brand-ink: ${p.base}`,
+      // The hover/highlight wash of menus, selects, the command list and
+      // outline buttons. Left alone it stays our teal on every brand.
+      `--accent: ${p.soft}`,
+      `--accent-foreground: ${p.badgeForeground}`,
+      `--sidebar-accent: ${p.soft}`,
+      `--sidebar-accent-foreground: ${p.badgeForeground}`,
     );
     // The dark theme's own badge tokens already sit on --accent, which reads on
     // a dark page; only the interaction shades need the brand.
     dark.push(
       `--brand-hover: color-mix(in srgb, ${p.base} 85%, white)`,
       `--brand-pressed: ${p.base}`,
-    );
-  }
-
-  if (secondaryColor) {
-    light.push(
-      `--secondary: ${p.secondary}`,
-      `--secondary-foreground: ${p.onSecondary}`,
     );
   }
 

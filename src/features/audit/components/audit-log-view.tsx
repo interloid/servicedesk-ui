@@ -12,6 +12,7 @@ import {
   Download,
   Eye,
   FileText,
+  FilterX,
   LayoutList,
   Loader2,
   Search,
@@ -34,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -51,7 +52,7 @@ import { exportAuditLogAction } from "@/features/audit/audit-actions";
 import { AuditDateRangePicker } from "@/features/audit/components/audit-date-range-picker";
 import { AuditEventDetails } from "@/features/audit/components/audit-event-details";
 import { AUDIT_ACTION_ICONS } from "@/features/audit/components/audit-icons";
-import { AuditSettingsDialog } from "@/features/audit/components/audit-settings-dialog";
+import { TEAM_DIALOG_CONTENT } from "@/features/team/components/modal-buttons";
 import {
   AUDIT_ACTION_BADGE,
   AUDIT_ACTION_FILTER_LABELS,
@@ -64,7 +65,6 @@ import {
   AUDIT_RESULT_BADGE,
   AUDIT_RESULT_LABELS,
   AUDIT_RESULTS,
-  AUDIT_SYSTEM_ACTOR,
   AUDIT_TAB_MODULES,
   auditFiltersToQuery,
   formatAuditTimestamp,
@@ -76,8 +76,18 @@ import {
 
 const ALL = "all";
 
+/**
+ * Header cells stick to the top of the table's own scroll box (see the
+ * wrapper around <Table>). The cells carry the background and the bottom rule
+ * themselves: a row's background and border don't travel with sticky cells.
+ * The colour is the old bg-muted/50 row mixed onto the card, made opaque so
+ * rows don't show through while they scroll underneath.
+ */
 const TH =
-  "h-11 px-4 text-xs font-semibold whitespace-nowrap text-muted-foreground";
+  "sticky top-0 z-10 h-11 bg-[color-mix(in_oklab,var(--muted)_50%,var(--card))] px-4 text-xs font-semibold whitespace-nowrap text-muted-foreground shadow-[inset_0_-1px_0_var(--border)]";
+
+/** Below lg, page sizes above this scroll inside the table, not the page. */
+const SCROLL_TABLE_ABOVE = 10;
 
 const TAB_ICONS: Record<(typeof AUDIT_TAB_MODULES)[number], LucideIcon> = {
   authentication: Bell,
@@ -98,18 +108,12 @@ function draftOf(filters: AuditFilters): Draft {
 function missingUserOption(
   user: string | null,
   data: AuditPageData,
-  pinned: { value: string; label: string } | null,
 ): { value: string; label: string }[] {
-  if (
-    !user ||
-    user === AUDIT_SYSTEM_ACTOR ||
-    data.users.some((option) => option.id === user)
-  ) {
+  if (!user || data.users.some((option) => option.id === user)) {
     return [];
   }
 
   const label =
-    (pinned?.value === user ? pinned.label : null) ??
     data.events.find((event) => event.actor?.id === user)?.actor?.name ??
     "Unknown user";
 
@@ -174,18 +178,12 @@ export function AuditLogView({
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
   const selected = data.events.find((event) => event.id === selectedId) ?? null;
-  // The last opened event stays rendered while the sheet slides closed, so
-  // the panel doesn't go blank mid-animation.
+  // The last opened event stays rendered while the popup fades out, so it
+  // doesn't go blank mid-animation.
   const [shown, setShown] = React.useState<AuditEvent | null>(null);
   if (selected && selected !== shown) {
     setShown(selected);
   }
-  // "Show this user's events" can pick a customer or a removed member, who is
-  // not in data.users; remember their name so the User filter isn't blank.
-  const [pinnedUser, setPinnedUser] = React.useState<{
-    value: string;
-    label: string;
-  } | null>(null);
   const pageCount = Math.max(1, Math.ceil(data.total / filters.pageSize));
 
   const hrefFor = (next: Partial<AuditFilters>) => {
@@ -252,20 +250,14 @@ export function AuditLogView({
     data.total === 0 ? 0 : (filters.page - 1) * filters.pageSize + 1;
   const lastRow = Math.min(filters.page * filters.pageSize, data.total);
 
-  const showUserEvents = (event: AuditEvent) => {
-    const user = event.actor?.id ?? AUDIT_SYSTEM_ACTOR;
-    if (event.actor) {
-      setPinnedUser({ value: event.actor.id, label: event.actor.name });
-    }
-    setSelectedId(null);
-    setDraft({ ...draftOf(filters), user });
-    go({ ...draftOf(filters), user });
-  };
-
   return (
     <>
-      <div className="h-full min-w-0 overflow-y-auto p-4 font-sans text-slate-900 sm:p-6 lg:p-8 dark:text-foreground">
-        <div className="mx-auto flex w-full flex-col gap-6">
+      {/* From lg the page is exactly the window's height and never scrolls:
+          the header, cards, filters and pagination keep their size and the
+          table body shrinks to what is left, scrolling inside it. Below lg
+          there is no room for that, so the page scrolls as usual. */}
+      <div className="h-full min-w-0 overflow-y-auto p-4 font-sans text-slate-900 sm:p-6 lg:overflow-hidden lg:p-8 dark:text-foreground">
+        <div className="mx-auto flex w-full flex-col gap-6 lg:h-full lg:min-h-0">
           {/* Header */}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex flex-col gap-1">
@@ -305,9 +297,6 @@ export function AuditLogView({
                 )}
                 Export
               </Button>
-              <div className="flex-1 sm:flex-none *:w-full">
-                <AuditSettingsDialog timeZone={timeZone} />
-              </div>
             </div>
           </div>
 
@@ -340,7 +329,7 @@ export function AuditLogView({
           </div>
 
           {/* Filters, tabs, table */}
-          <div className="flex flex-col rounded-[14px] border border-border bg-card shadow-xs">
+          <div className="flex flex-col rounded-[14px] border border-border bg-card shadow-xs lg:min-h-0">
             <form
               className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:flex xl:flex-wrap xl:items-center"
               onSubmit={(event) => {
@@ -398,8 +387,7 @@ export function AuditLogView({
                     value: user.id,
                     label: user.name,
                   })),
-                  ...missingUserOption(draft.user, data, pinnedUser),
-                  { value: AUDIT_SYSTEM_ACTOR, label: "System" },
+                  ...missingUserOption(draft.user, data),
                 ]}
                 onChange={(user) => setDraft({ ...draft, user })}
               />
@@ -438,9 +426,9 @@ export function AuditLogView({
 
             <nav
               aria-label="Modules"
-              // overflow-x alone makes overflow-y auto too, and the tabs'
-              // -mb-px then shows a vertical scrollbar beside them.
-              className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-border px-4 scrollbar-none"
+              // overflow-x alone makes overflow-y auto too, so hide y to keep
+              // a vertical scrollbar from showing beside the tabs.
+              className="flex shrink-0 gap-2 overflow-x-auto overflow-y-hidden border-b border-border p-3 sm:px-4 scrollbar-none"
             >
               <TabButton
                 active={filters.module === null}
@@ -461,16 +449,24 @@ export function AuditLogView({
               ))}
             </nav>
 
+            {/* One scroll box for both directions, so the sticky header has
+                something to stick to: the Table's own wrapper would otherwise
+                be the scroller and the header would never pin. From lg it
+                takes whatever height the page leaves (see the outer wrapper);
+                below lg, 25+ rows a page are capped instead. */}
             <div
               className={cn(
-                "overflow-x-auto transition-opacity",
+                "overflow-auto transition-opacity *:data-[slot=table-container]:overflow-visible",
+                "lg:min-h-0",
+                filters.pageSize > SCROLL_TABLE_ABOVE &&
+                  "max-h-[70vh] lg:max-h-none",
                 navigating && "pointer-events-none opacity-60",
               )}
               aria-busy={navigating}
             >
               <Table className="min-w-270">
                 <TableHeader>
-                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableRow className="border-b-0 hover:bg-transparent">
                     <TableHead className={TH}>
                       <span className="flex items-center gap-1">
                         Date &amp; time
@@ -503,11 +499,12 @@ export function AuditLogView({
                         </p>
                         {anyFilter && (
                           <Button
+                            type="button"
                             variant="outline"
-                            size="sm"
-                            className="mt-4"
+                            className="mt-4 h-10 bg-card px-4 font-semibold"
                             onClick={clear}
                           >
+                            <FilterX className="size-4" />
                             Clear filters
                           </Button>
                         )}
@@ -529,11 +526,11 @@ export function AuditLogView({
               </Table>
             </div>
 
-            <div className="flex flex-col items-center justify-between gap-3 border-t border-border px-4 py-3 sm:flex-row">
+            <div className="flex shrink-0 flex-col items-center justify-between gap-3 border-t border-border px-4 py-3 sm:flex-row">
               <p className="text-sm text-muted-foreground">
                 {data.total === 0
                   ? "No events"
-                  : `Showing ${firstRow}–${lastRow} of ${data.total.toLocaleString("en-US")} ${data.total === 1 ? "event" : "events"}`}
+                  : `Showing ${firstRow} - ${lastRow} of ${data.total.toLocaleString("en-US")} ${data.total === 1 ? "event" : "events"}`}
               </p>
               <div className="flex flex-wrap items-center justify-center gap-4">
                 {pageCount > 1 && (
@@ -551,14 +548,23 @@ export function AuditLogView({
                     onValueChange={(value) => go({ pageSize: Number(value) })}
                   >
                     <SelectTrigger
-                      className="h-9 w-20"
+                      className="min-h-10 w-20"
                       aria-label="Events per page"
                     >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent
+                      side="bottom"
+                      align="start"
+                      position="popper"
+                      className="p-1 w-(--radix-select-trigger-width) max-h-[60vh]"
+                    >
                       {AUDIT_PAGE_SIZES.map((size) => (
-                        <SelectItem key={size} value={String(size)}>
+                        <SelectItem
+                          key={size}
+                          value={String(size)}
+                          className="p-2 cursor-pointer"
+                        >
                           {size}
                         </SelectItem>
                       ))}
@@ -571,28 +577,22 @@ export function AuditLogView({
         </div>
       </div>
 
-      {/* Details open over the page, so the table keeps its full width. */}
-      <Sheet
+      {/* Details open in a popup, styled like the app's other dialogs. */}
+      <Dialog
         open={Boolean(selected)}
         onOpenChange={(open) => !open && setSelectedId(null)}
       >
-        <SheetContent
-          side="right"
-          showCloseButton={false}
-          className="gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md"
-        >
-          <SheetTitle className="sr-only">Event details</SheetTitle>
-          {shown && (
-            <AuditEventDetails
-              event={shown}
-              timeZone={timeZone}
-              now={now}
-              onClose={() => setSelectedId(null)}
-              onShowUserEvents={() => showUserEvents(shown)}
-            />
+        <DialogContent
+          className={cn(
+            "w-[calc(100%-2rem)] max-w-lg min-w-0 overflow-hidden sm:max-w-lg",
+            TEAM_DIALOG_CONTENT,
           )}
-        </SheetContent>
-      </Sheet>
+        >
+          {shown && (
+            <AuditEventDetails event={shown} timeZone={timeZone} now={now} />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -665,10 +665,10 @@ function TabButton({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "-mb-px flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm font-medium whitespace-nowrap transition-colors",
+        "flex h-10 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium whitespace-nowrap transition-colors",
         active
-          ? "border-brand-accent text-brand-accent"
-          : "border-transparent text-muted-foreground hover:text-foreground",
+          ? "border-primary! bg-primary/10 font-semibold text-primary"
+          : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
       )}
     >
       <Icon className="size-4" aria-hidden />
@@ -677,7 +677,7 @@ function TabButton({
         className={cn(
           "rounded-full px-2 py-0.5 text-xs tabular-nums",
           active
-            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+            ? "bg-primary/15 text-primary"
             : "bg-muted text-muted-foreground",
         )}
       >

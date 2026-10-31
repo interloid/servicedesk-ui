@@ -64,7 +64,11 @@ function PaymentCancelContent() {
 
   // One timeout per tick, so the redirect is a side effect of render and not
   // of a state updater, and leaving the page (the button) stops the timer.
+  // Held while the abort is still running, so the plans page never shows the
+  // pending switch the abort is about to drop.
   useEffect(() => {
+    if (state === "checking") return;
+
     if (countdown <= 0) {
       router.push(targetRedirectUrl);
       return;
@@ -73,7 +77,7 @@ function PaymentCancelContent() {
     const timer = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
 
     return () => clearTimeout(timer);
-  }, [countdown, router, targetRedirectUrl]);
+  }, [state, countdown, router, targetRedirectUrl]);
 
   const title =
     state === "checking"

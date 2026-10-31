@@ -43,7 +43,8 @@ const HEADS = [
 function FilterField({ className }: { className: string }) {
   return (
     <div className={cn("space-y-1", className)}>
-      <Skeleton className="h-4 w-14" />
+      {/* The real label is text-[11px]: a 15px line, not 16. */}
+      <Skeleton className="h-3.75 w-14" />
       <div className="h-10 w-full rounded-md border border-slate-200 bg-white" />
     </div>
   );
@@ -64,11 +65,10 @@ export function TicketsTableSkeleton() {
             <Skeleton className="mt-0.5 h-4 w-52 sm:h-5" />
           </div>
 
-          {/* Columns, New ticket, Import from CSV. */}
+          {/* Columns, New ticket. */}
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <Skeleton className="h-10 w-26 rounded-md" />
             <Skeleton className="h-10 w-28 rounded-md" />
-            <Skeleton className="h-10 w-56 rounded-md" />
           </div>
         </div>
 
@@ -296,8 +296,10 @@ export function TicketDetailSkeleton() {
       aria-label="Loading ticket"
     >
       <div className="mx-auto flex w-full flex-1 flex-col gap-6 lg:min-h-0">
-        {/* Back to queue. */}
-        <Skeleton className="h-5 w-28" />
+        {/* Back to queue: the link's row is its 22px line box. */}
+        <div className="flex h-5.5 items-center">
+          <Skeleton className="h-5 w-28" />
+        </div>
 
         <div className="space-y-2">
           {/* Number and SLA headline badge. */}

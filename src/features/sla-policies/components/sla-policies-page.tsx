@@ -81,8 +81,8 @@ export function ClickablePolicyRow({
         }
       }}
       className={cn(
-        "cursor-pointer border-gray-100 align-middle",
-        "hover:bg-gray-50/70",
+        "cursor-pointer border-slate-100 align-middle",
+        "hover:bg-slate-50/70",
         "focus-visible:outline-none focus-visible:ring-2",
         "focus-visible:ring-brand-accent focus-visible:ring-inset",
       )}
@@ -126,7 +126,7 @@ export const SlaPoliciesPage: React.FC<SlaPoliciesPageProps> = ({
           )}
         </div>
 
-        <Card className="gap-0 border border-gray-200/80 bg-white py-0 shadow-xs ring-0">
+        <Card className="gap-0 border border-slate-200/80 bg-white py-0 shadow-xs ring-0">
           <Table className="rounded-none border-0">
             <TableHeader>
               <TableRow className="h-14 border-slate-100 bg-slate-50 hover:bg-slate-50">
@@ -146,7 +146,7 @@ export const SlaPoliciesPage: React.FC<SlaPoliciesPageProps> = ({
                 <TableRow className="hover:bg-transparent">
                   <TableCell
                     colSpan={COLUMNS.length}
-                    className="p-8 text-center text-sm text-gray-400"
+                    className="p-8 text-center text-sm text-slate-400"
                   >
                     No SLA policies yet. Create one to start tracking targets.
                   </TableCell>
@@ -178,7 +178,7 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
     <ClickablePolicyRow href={href}>
       <TableCell className="max-w-60 px-4 py-4 align-middle whitespace-normal">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold capitalize text-gray-900 transition-colors group-hover:text-brand-accent">
+          <span className="font-semibold capitalize text-slate-900 transition-colors group-hover:text-brand-accent">
             {policy.name}
           </span>
 
@@ -210,7 +210,7 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
           )}
         </div>
 
-        <p className="mt-1 line-clamp-2 text-xs text-gray-500">
+        <p className="mt-1 line-clamp-2 text-xs text-slate-500">
           {policy.description}
         </p>
       </TableCell>
@@ -219,19 +219,19 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
         <div className="flex items-center gap-2.5">
           {calendar ? (
             <CalendarDays
-              className="size-5 shrink-0 text-gray-500"
+              className="size-5 shrink-0 text-slate-500"
               aria-hidden
             />
           ) : (
-            <Clock className="size-5 shrink-0 text-gray-500" aria-hidden />
+            <Clock className="size-5 shrink-0 text-slate-500" aria-hidden />
           )}
 
           <div>
-            <p className="font-medium text-gray-900">
+            <p className="font-medium text-slate-900">
               {calendar ? "Business Hours" : "24/7"}
             </p>
 
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-500">
               {calendar
                 ? `${formatWorkingDays(calendar.workingDays)}, ${formatWorkingHours(calendar)}`
                 : "All days, 24 hours"}
@@ -262,7 +262,7 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
                   key={label}
                   className="flex items-center gap-2 whitespace-nowrap"
                 >
-                  <span className="font-semibold tabular-nums text-gray-900">
+                  <span className="font-semibold tabular-nums text-slate-900">
                     {formatDurationShort(
                       target.first_response_mins,
                       target.first_response_unit,
@@ -293,7 +293,7 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
       </TableCell>
 
       <TableCell className="px-4 py-4 align-middle whitespace-normal">
-        <p className="text-gray-900">
+        <p className="text-slate-900">
           {policy.applies_to === "Selected customers"
             ? `${policy.selected_customer_count} selected customer${
                 policy.selected_customer_count === 1 ? "" : "s"
@@ -301,19 +301,19 @@ function PolicyRow({ tenant, policy }: { tenant: string; policy: SlaPolicy }) {
             : "All customers"}
         </p>
 
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-slate-500">
           {policy.appliedTickets.toLocaleString("en-US")} ticket
           {policy.appliedTickets === 1 ? "" : "s"}
         </p>
       </TableCell>
 
       <TableCell className="px-4 py-4 align-middle">
-        <p className="whitespace-nowrap text-gray-900">
+        <p className="whitespace-nowrap text-slate-900">
           {formatUpdatedDate(policy.updated_at)}
         </p>
 
         {policy.updated_by_name && (
-          <p className="mt-0.5 whitespace-nowrap text-xs text-gray-500">
+          <p className="mt-0.5 whitespace-nowrap text-xs text-slate-500">
             by {policy.updated_by_name}
           </p>
         )}

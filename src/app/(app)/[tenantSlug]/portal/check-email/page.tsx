@@ -29,5 +29,14 @@ export default async function PortalCheckEmailPage({
     redirect(portalPath(tenantSlug, PORTAL_ROUTES.LOGIN));
   }
 
-  return <PortalCheckEmail tenantSlug={tenantSlug} email={email} />;
+  // Set after a request filed signed out: the screen says it was received.
+  const afterRequest = query.request === "1";
+
+  return (
+    <PortalCheckEmail
+      tenantSlug={tenantSlug}
+      email={email}
+      afterRequest={afterRequest}
+    />
+  );
 }

@@ -385,3 +385,37 @@ export async function deleteNotification(id: string): Promise<void> {
     });
   }
 }
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Deletes the given notifications of the signed-in user. The bell passes the
+ * ids it shows, so rows hidden by the in-app preferences are left alone.
+ */
+export async function deleteNotifications(ids: string[]): Promise<void> {
+  if (
+    ids.length === 0 ||
+    ids.length > 200 ||
+    !ids.every((id) => typeof id === "string" && UUID_RE.test(id))
+  ) {
+    throw new NotificationError("Those notifications couldn't be cleared.", {
+      status: 400,
+      code: "validation",
+    });
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const actor = await requireActor(supabase);
+
+  const { error } = await supabase
+    .from("notifications")
+    .delete()
+    .in("id", ids)
+    .eq("tenant_id", actor.tenantId)
+    .eq("user_id", actor.userId);
+
+  if (error) {
+    throw fail("We couldn't clear your notifications.", error);
+  }
+}

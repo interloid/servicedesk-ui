@@ -5,7 +5,10 @@ import type { InviteCustomerValues } from "@/features/customers/schemas/customer
 import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
 import { getActorOrNull } from "@/features/team/services/team.service";
 import { enqueueEmail } from "@/lib/email/email-queue";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  createAuditedAdminClient,
+  createSupabaseAdminClient,
+} from "@/lib/supabase/admin";
 
 export type CustomerInviteFailure =
   "action-not-allowed" | "conflict" | "unknown";
@@ -78,7 +81,8 @@ export async function inviteCustomer(
   const givenName = values.fullName?.trim() || null;
   const fullName = givenName ?? nameFromEmail(email);
   const company = values.company?.trim() || null;
-  const admin = createSupabaseAdminClient();
+  // Audited: the customer's membership is recorded against this Tenant Admin.
+  const admin = await createAuditedAdminClient(actor.userId);
 
   const { data: tenant, error: tenantError } = await admin
     .from("tenants")
@@ -365,7 +369,7 @@ export async function setCustomerPortalAccess(
     customerId,
   );
 
-  const admin = createSupabaseAdminClient();
+  const admin = await createAuditedAdminClient(actor.userId);
 
   const { data: membership, error } = userId
     ? await admin

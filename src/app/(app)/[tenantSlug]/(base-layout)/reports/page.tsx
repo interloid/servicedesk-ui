@@ -22,14 +22,18 @@ export default async function ReportsPage({
   params,
   searchParams,
 }: ReportsPageProps) {
-  // Gate on the server, before anything is read. The sidebar only hides the
-  // link, and the proxy and RoleRouteGuard let agents through, so without this
-  // an agent with the URL sees every colleague's figures.
+  // Gate on the server, before anything is read. Tenant Admins, Managers and
+  // Agents all see the same workspace-wide report.
   // The actor's tenant also scopes the data below, so the gate and the figures
   // always name the same tenant.
   const actor = await getActorOrNull();
 
-  if (!actor || (actor.role !== "Tenant Admin" && actor.role !== "Manager")) {
+  if (
+    !actor ||
+    (actor.role !== "Tenant Admin" &&
+      actor.role !== "Manager" &&
+      actor.role !== "Agent")
+  ) {
     notFound();
   }
 

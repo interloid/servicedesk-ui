@@ -46,7 +46,7 @@ export default async function TenantNotFound() {
         It may have been deleted, or the link may be out of date.
       </p>
 
-      <Button asChild variant="outline" className="mt-2 h-9 font-semibold">
+      <Button asChild variant="outline" className="mt-2 h-10 font-semibold">
         <Link href={href}>{label}</Link>
       </Button>
     </div>

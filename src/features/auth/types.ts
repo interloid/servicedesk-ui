@@ -37,8 +37,3 @@ export type ActionResult<TData> =
       code: AuthFailureCode;
       fieldErrors?: Record<string, string[]>;
     };
-
-export type ActiveMembership = {
-  tenant_id: string;
-  role: string;
-};

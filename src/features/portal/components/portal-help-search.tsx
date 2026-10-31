@@ -164,7 +164,7 @@ export function PortalHelpSearch({
 
           {/* Submits the form above, so the request opens with what the
               customer just typed already in the subject. */}
-          <Button type="submit" className="mt-5 h-9 px-4 font-semibold">
+          <Button type="submit" className="mt-5 h-10 px-4 font-semibold">
             Create a request
           </Button>
         </div>

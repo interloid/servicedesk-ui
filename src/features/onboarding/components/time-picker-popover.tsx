@@ -126,7 +126,7 @@ export function TimePickerPopover({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            "h-11 w-full justify-between px-3 text-left font-normal text-slate-800 shadow-sm hover:bg-background",
+            "h-11 w-full justify-between px-3 text-left font-normal text-slate-800 shadow-none hover:bg-background",
             className,
           )}
         >

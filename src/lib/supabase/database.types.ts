@@ -1482,10 +1482,13 @@ export type Database = {
           assignee_user_id: string | null;
           closed_at: string | null;
           created_at: string;
+          created_by: string | null;
           description: string;
           first_response_at: string | null;
           id: string;
           number: number;
+          opened_at: string | null;
+          opened_by: string | null;
           priority: Database["public"]["Enums"]["ticket_priority"];
           requester_customer_id: string;
           resolved_at: string | null;
@@ -1499,10 +1502,13 @@ export type Database = {
           assignee_user_id?: string | null;
           closed_at?: string | null;
           created_at?: string;
+          created_by?: string | null;
           description: string;
           first_response_at?: string | null;
           id?: string;
           number: number;
+          opened_at?: string | null;
+          opened_by?: string | null;
           priority?: Database["public"]["Enums"]["ticket_priority"];
           requester_customer_id: string;
           resolved_at?: string | null;
@@ -1516,10 +1522,13 @@ export type Database = {
           assignee_user_id?: string | null;
           closed_at?: string | null;
           created_at?: string;
+          created_by?: string | null;
           description?: string;
           first_response_at?: string | null;
           id?: string;
           number?: number;
+          opened_at?: string | null;
+          opened_by?: string | null;
           priority?: Database["public"]["Enums"]["ticket_priority"];
           requester_customer_id?: string;
           resolved_at?: string | null;
@@ -1810,7 +1819,8 @@ export type Database = {
         | "billing"
         | "system"
         | "sla_breach"
-        | "sla_warning";
+        | "sla_warning"
+        | "ticket_reopened";
       sla_event_status: "pending" | "completed" | "breached";
       sla_event_type: "first_response" | "resolution";
       sla_policy_status: "active" | "paused" | "draft";
@@ -1982,6 +1992,7 @@ export const Constants = {
         "system",
         "sla_breach",
         "sla_warning",
+        "ticket_reopened",
       ],
       sla_event_status: ["pending", "completed", "breached"],
       sla_event_type: ["first_response", "resolution"],

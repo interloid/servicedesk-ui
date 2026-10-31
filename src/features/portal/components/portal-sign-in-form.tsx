@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { cn } from "@/lib/utils";
 import {
   passwordSignInAction,
   requestSignInLinkAction,
@@ -41,8 +42,16 @@ import {
 
 const FIELD_CLASS = "h-11 rounded-lg bg-background/60 text-sm";
 
-const SWITCH_CLASS =
-  "w-fit rounded-md text-sm font-semibold text-brand-ink underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none";
+/** Both actions share one row from sm up, each half the card; stacked on a phone. */
+const ACTIONS_CLASS = "grid grid-cols-1 gap-2.5 sm:grid-cols-2";
+
+const ACTION_CLASS = "h-11 w-full px-4 font-semibold";
+
+/** The other way in: an outlined twin of the primary, not a text link. */
+const SWITCH_CLASS = cn(
+  ACTION_CLASS,
+  "border-brand-accent text-brand-ink hover:bg-brand-accent/10 hover:text-brand-ink focus:bg-brand-accent/10 focus:text-brand-ink",
+);
 
 type Mode = "link" | "password";
 
@@ -50,16 +59,19 @@ export function PortalSignInForm({
   tenantSlug,
   initialMode = "link",
   initialError,
+  initialEmail = "",
 }: {
   tenantSlug: string;
   initialMode?: Mode;
   initialError?: string;
+  /** Carried over from the ticket form's sign-in / sign-up prompt. */
+  initialEmail?: string;
 }) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [banner, setBanner] = useState<string | undefined>(initialError);
   // Shared by both modes, so switching between a link and a password keeps
   // the email already typed rather than asking for it again.
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
 
   function switchTo(next: Mode) {
     setBanner(undefined);
@@ -121,7 +133,7 @@ export function PortalSignInForm({
 
       {/* Both modes. Someone who chose a password is as likely to be arriving
           for the first time as someone who asked for a link, and the note is
-          the only thing on the card that says no account is needed at all. */}
+          the only thing on the card that says how to sign up. */}
       <FirstTimeNote tenantSlug={tenantSlug} />
     </PortalSplit>
   );
@@ -193,7 +205,7 @@ function MagicLinkForm({
                   }}
                   type="email"
                   autoComplete="email"
-                  autoFocus
+                  autoFocus={!email}
                   placeholder="you@company.com"
                   className={FIELD_CLASS}
                 />
@@ -203,27 +215,33 @@ function MagicLinkForm({
           )}
         />
 
-        <Button
-          type="submit"
-          size="lg"
-          className="h-11 w-full px-5 font-semibold sm:w-fit"
-          disabled={form.formState.isSubmitting}
-        >
-          {form.formState.isSubmitting ? (
-            <>
-              <Loader2 aria-hidden className="size-4 animate-spin" />
-              Sending…
-            </>
-          ) : (
-            "Email me a sign-in link"
-          )}
-        </Button>
+        <div className={ACTIONS_CLASS}>
+          <Button
+            type="submit"
+            size="lg"
+            className={ACTION_CLASS}
+            disabled={form.formState.isSubmitting}
+          >
+            {form.formState.isSubmitting ? (
+              <>
+                <Loader2 aria-hidden className="size-4 animate-spin" />
+                Sending…
+              </>
+            ) : (
+              "Email me a sign-in link"
+            )}
+          </Button>
 
-        <Divider />
-
-        <button type="button" onClick={onSwitch} className={SWITCH_CLASS}>
-          Sign in with a password instead
-        </button>
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className={SWITCH_CLASS}
+            onClick={onSwitch}
+          >
+            Sign in with a password
+          </Button>
+        </div>
       </form>
     </Form>
   );
@@ -324,68 +342,68 @@ function PasswordForm({
           )}
         />
 
-        <Button
-          type="submit"
-          size="lg"
-          className="h-11 w-full px-6 font-semibold sm:w-fit"
-          disabled={form.formState.isSubmitting}
-        >
-          {form.formState.isSubmitting ? (
-            <>
-              <Loader2 aria-hidden className="size-4 animate-spin" />
-              Signing in…
-            </>
-          ) : (
-            "Sign in"
-          )}
-        </Button>
-
-        <Divider />
-
         {/* No "Forgot password?" link: there is no reset-by-email flow. A
             customer who has lost their password gets back in with a sign-in
             link, and can set a new one from there once they are in. */}
-        <button type="button" onClick={onSwitch} className={SWITCH_CLASS}>
-          Use a sign-in link instead
-        </button>
+        <div className={ACTIONS_CLASS}>
+          <Button
+            type="submit"
+            size="lg"
+            className={ACTION_CLASS}
+            disabled={form.formState.isSubmitting}
+          >
+            {form.formState.isSubmitting ? (
+              <>
+                <Loader2 aria-hidden className="size-4 animate-spin" />
+                Signing in…
+              </>
+            ) : (
+              "Sign in"
+            )}
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className={SWITCH_CLASS}
+            onClick={onSwitch}
+          >
+            Email me a link instead
+          </Button>
+        </div>
       </form>
     </Form>
   );
 }
 
-function Divider() {
-  return (
-    <div className="flex items-center gap-3" aria-hidden>
-      <span className="h-px flex-1 bg-border" />
-      <span className="text-xs text-muted-foreground">or</span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
-  );
-}
-
 function FirstTimeNote({ tenantSlug }: { tenantSlug: string }) {
   return (
-    <div className="mt-6 rounded-xl border bg-muted/40 p-4">
-      <p className="flex items-center gap-2.5 text-sm font-semibold text-foreground">
-        <span
-          aria-hidden
-          className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-card text-brand-accent shadow-xs"
-        >
-          <UserPlus className="size-4" />
-        </span>
-        First time here?
-      </p>
+    <>
+      <hr className="mt-6 border-border" />
+      <div className="mt-6 rounded-xl border bg-muted/40 p-4">
+        <p className="flex items-center gap-2.5 text-sm font-semibold text-foreground">
+          <span
+            aria-hidden
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-card text-brand-accent shadow-xs"
+          >
+            <UserPlus className="size-4" />
+          </span>
+          First time here?
+        </p>
 
-      <p className="mt-2.5 text-xs leading-5 text-muted-foreground">
-        You don&apos;t need an account to reach us.{" "}
-        <Link
-          href={portalPath(tenantSlug, PORTAL_ROUTES.NEW_REQUEST)}
-          className="font-semibold text-brand-ink underline-offset-4 hover:text-brand-ink hover:underline"
-        >
-          Submit a request
-        </Link>{" "}
-        and we&apos;ll set one up from your email.
-      </p>
-    </div>
+        <p className="mt-2.5 text-xs leading-5 text-muted-foreground">
+          No need to sign up first.{" "}
+          <Link
+            href={portalPath(tenantSlug, PORTAL_ROUTES.NEW_REQUEST)}
+            className="font-semibold text-brand-ink underline-offset-4 hover:underline"
+          >
+            Submit a request
+          </Link>{" "}
+          with your name and email - we&apos;ll set up your account and email
+          you a link to set a password.
+        </p>
+      </div>
+    </>
   );
 }

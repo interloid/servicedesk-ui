@@ -170,7 +170,6 @@ export type PortalTenant = {
   slug: string;
   initial: string;
   primaryColor: string | null;
-  secondaryColor: string | null;
   textColor: string | null;
   backgroundColor: string | null;
   /** Branding's "show logo on portal": false hides the header mark entirely. */
@@ -478,6 +477,8 @@ export const PORTAL_FAILURE_CODES = [
   "tenant_not_found",
   "not_signed_in",
   "no_portal_access",
+  // A signed-out ticket for an email that already has a portal sign-in.
+  "sign_in_required",
   "access_disabled",
   "not_found",
   "unknown",

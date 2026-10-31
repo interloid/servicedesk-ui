@@ -19,7 +19,7 @@ export function MentionText({
             key={i}
             className="inline-flex items-center rounded px-1 font-semibold text-brand-accent"
           >
-            @{seg.content}
+            {seg.content}
           </span>
         ) : (
           <span key={i}>

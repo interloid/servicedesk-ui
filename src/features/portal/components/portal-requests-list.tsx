@@ -423,7 +423,7 @@ function Pagination({
       <p className="text-xs text-muted-foreground">
         Showing{" "}
         <span className="font-semibold tabular-nums text-foreground">
-          {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)}
+          {(page - 1) * perPage + 1} - {Math.min(page * perPage, total)}
         </span>{" "}
         of{" "}
         <span className="font-semibold tabular-nums text-foreground">

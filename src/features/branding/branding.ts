@@ -3,13 +3,10 @@ import { PORTAL_BASE_DOMAIN } from "@/lib/tenancy";
 export interface BrandingJson {
   logo_url?: string | null;
   primary_color?: string | null;
-  /** Fills secondary buttons and quiet surfaces. Null = app default. */
-  secondary_color?: string | null;
   /** Body text. Null = app default. */
   text_color?: string | null;
   /** Page background behind cards. Null = app default. */
   background_color?: string | null;
-  support_email?: string | null;
   /** Portal header shows the logo; false = the initial. Absent = true. */
   show_logo_on_portal?: boolean;
 }
@@ -17,7 +14,6 @@ export interface BrandingJson {
 // These mirror the :root block in globals.css. They are the values the app
 // already paints with, so a tenant who leaves a field blank sees no change.
 export const DEFAULT_BRAND_COLOR = "#0f766e";
-export const DEFAULT_SECONDARY_COLOR = "#f1f5f9";
 export const DEFAULT_TEXT_COLOR = "#0f172a";
 export const DEFAULT_BACKGROUND_COLOR = "#f8fafc";
 
@@ -75,10 +71,8 @@ export interface TenantBranding {
   portalUrl: string;
   logoUrl: string | null;
   primaryColor: string | null;
-  secondaryColor: string | null;
   textColor: string | null;
   backgroundColor: string | null;
-  supportEmail: string | null;
   showLogoOnPortal: boolean;
 }
 
@@ -94,14 +88,7 @@ export type BrandingFailureCode = (typeof BRANDING_FAILURE_CODE_VALUES)[number];
 
 /** The editor fields a failed save can point at. */
 export type BrandingField =
-  | "name"
-  | "slug"
-  | "color"
-  | "secondaryColor"
-  | "textColor"
-  | "backgroundColor"
-  | "email"
-  | "logoUrl";
+  "name" | "slug" | "color" | "textColor" | "backgroundColor" | "logoUrl";
 
 export interface BrandingActionResult<T = undefined> {
   ok: boolean;
@@ -225,7 +212,6 @@ export function isHexColor(value: string | null | undefined): boolean {
 /** The colours a tenant can set. Null means "use the app default". */
 export type BrandColors = {
   primary?: string | null;
-  secondary?: string | null;
   text?: string | null;
   background?: string | null;
 };
@@ -241,8 +227,6 @@ export type BrandPalette = {
   badgeForeground: string;
   chart2: string;
 
-  secondary: string;
-  onSecondary: string;
   text: string;
   mutedText: string;
   background: string;
@@ -250,10 +234,6 @@ export type BrandPalette = {
 
 export function brandPalette(colors: BrandColors): BrandPalette {
   const base = normalizeHexColor(colors.primary, DEFAULT_BRAND_COLOR);
-  const secondary = normalizeHexColor(
-    colors.secondary,
-    DEFAULT_SECONDARY_COLOR,
-  );
   const text = normalizeHexColor(colors.text, DEFAULT_TEXT_COLOR);
   const background = normalizeHexColor(
     colors.background,
@@ -270,8 +250,6 @@ export function brandPalette(colors: BrandColors): BrandPalette {
     badgeForeground: shade(base, 0.42),
     chart2: shade(base, 0.2),
 
-    secondary,
-    onSecondary: bestForeground(secondary, text),
     text,
     // Muted text is the body colour faded toward the page, so it stays legible
     // whatever pair the tenant picked rather than being a fixed slate grey.

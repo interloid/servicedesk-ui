@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Paperclip, Loader2, X } from "lucide-react";
+import { Paperclip, Loader2, X, Download } from "lucide-react";
 import {
   Ticket,
   TicketMessage,
@@ -39,12 +39,13 @@ import {
   TICKET_STATUS_LABELS,
   isPriorityLowered,
 } from "@/features/tickets/types/tickets.types";
-import { PriorityReasonDialog } from "@/features/tickets/components/priority-reason-dialog";
+import { PriorityConfirmDialog } from "@/features/tickets/components/priority-confirm-dialog";
 import { AssignableAgent } from "@/features/tickets/services/tickets.service";
 import {
   sendTicketMessageAction,
   updateTicketDetailsAction,
   assignTicketToMeAction,
+  markTicketOpenedAction,
 } from "@/features/tickets/actions/tickets.actions";
 import { CharacterCount } from "@/components/shared/character-count";
 import { MentionText } from "@/components/shared/mention-text";
@@ -156,6 +157,76 @@ function SavingHint({ active }: { active: boolean }) {
   );
 }
 
+/**
+ * A message's files inside its bubble: pictures as a preview, anything else
+ * as a file row. Each opens its signed link in a new tab.
+ */
+function MessageFiles({
+  files,
+  fileExtension,
+  formatSize,
+}: {
+  files: TicketAttachment[];
+  fileExtension: (name: string) => string;
+  formatSize: (bytes: number) => string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {files.map((att) =>
+        att.mime?.startsWith("image/") && att.signed_url ? (
+          <a
+            key={att.id}
+            href={att.signed_url}
+            target="_blank"
+            rel="noreferrer"
+            className="block overflow-hidden rounded-lg border border-black/5 bg-white"
+          >
+            {/* Signed storage URLs: next/image would need every host listed. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={att.signed_url}
+              alt={att.original_filename}
+              className="max-h-56 w-full max-w-72 object-cover"
+            />
+          </a>
+        ) : (
+          <a
+            key={att.id}
+            href={att.signed_url || "#"}
+            target="_blank"
+            rel="noreferrer"
+            className="flex min-w-0 max-w-72 items-center gap-2.5 rounded-lg border border-black/5 bg-white px-2.5 py-2 transition-colors hover:bg-slate-50"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded bg-slate-100 text-[10px] font-bold text-slate-500">
+              {(att.extension || fileExtension(att.original_filename))
+                .toUpperCase()
+                .slice(0, 3)}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-semibold text-slate-800">
+                {att.original_filename}
+              </span>
+              <span className="block text-[10px] text-slate-400">
+                {formatSize(att.size)}
+              </span>
+            </span>
+            <Download
+              className="size-3.5 shrink-0 text-slate-400"
+              aria-hidden
+            />
+          </a>
+        ),
+      )}
+    </div>
+  );
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  tenant_admin: "Tenant Admin",
+  manager: "Manager",
+  agent: "Agent",
+};
+
 const CLOCK_LABELS: Record<SlaEvent["type"], string> = {
   first_response: "First response",
   resolution: "Resolution",
@@ -195,6 +266,28 @@ export default function TicketDetailView({
   autoCloseDays = 0,
 }: TicketDetailViewProps) {
   const router = useRouter();
+  // The first staff member to open the ticket. Nobody yet: this viewer is,
+  // recorded once (the database keeps the first one if two race).
+  const [openedBy, setOpenedBy] = useState<string | null>(
+    ticket.opened_by ?? null,
+  );
+  const needsOpener = !ticket.opened_by && !!currentUserId;
+  useEffect(() => {
+    if (!needsOpener) return;
+    let cancelled = false;
+    markTicketOpenedAction({ ticketId: ticket.id, tenantSlug: tenant })
+      .then((res) => {
+        if (!cancelled && res.success && res.openedBy) {
+          setOpenedBy(res.openedBy);
+        }
+      })
+      .catch(() => {
+        // Only the header line depends on it; the next visit tries again.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsOpener, ticket.id, tenant]);
   const { events: slaEvents, replaceEvents: replaceSlaEvents } =
     useRealtimeSlaEvents(ticket.id, initialSlaEvents);
 
@@ -234,7 +327,7 @@ export default function TicketDetailView({
   const isUpdatingTicket = updatingField !== null;
   const [status, setStatus] = useState<TicketStatus>(ticket.status);
   const [priority, setPriority] = useState<TicketPriority>(ticket.priority);
-  // A lowered priority waiting for its reason.
+  // A lowered priority waiting for confirmation.
   const [lowerTo, setLowerTo] = useState<TicketPriority | null>(null);
   // Anyone on staff counts as a real assignee here, so a ticket already given
   // to a tenant admin (before only agents and managers could be picked) still
@@ -280,6 +373,35 @@ export default function TicketDetailView({
     if (statusMoved || row.sla_policy_id !== (slaPolicy?.id ?? null))
       router.refresh();
   });
+
+  // Each message's files sit in its bubble; files sent with the ticket itself
+  // (no message) go with the opening request.
+  const attachmentsByMessage = useMemo(() => {
+    const map = new Map<string, TicketAttachment[]>();
+    for (const att of attachments) {
+      const key = att.message_id ?? `${ticket.id}:description`;
+      map.set(key, [...(map.get(key) ?? []), att]);
+    }
+    return map;
+  }, [attachments, ticket.id]);
+
+  // Someone else's message arrives over realtime without its files (they are
+  // recorded just after it, and links are signed on the server): refetch the
+  // page shortly after so they show in the bubble.
+  const lastMessage = messages.at(-1);
+  const lastFromOther =
+    !!lastMessage &&
+    !(
+      lastMessage.author_type === "agent" &&
+      lastMessage.author_id === currentUserId
+    ) &&
+    !attachmentsByMessage.has(lastMessage.id);
+  const [seenLastId] = useState(lastMessageId);
+  useEffect(() => {
+    if (!lastFromOther || lastMessageId === seenLastId) return;
+    const id = setTimeout(() => router.refresh(), 1500);
+    return () => clearTimeout(id);
+  }, [lastFromOther, lastMessageId, seenLastId, router]);
 
   useEffect(() => {
     if (attachments.length === 0) return;
@@ -327,8 +449,6 @@ export default function TicketDetailView({
   const supportClosed = useSupportClosed(slaPolicy?.calendar);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionActive, setMentionActive] = useState(false);
-  const [showAllAttachments, setShowAllAttachments] = useState(false);
-  const VISIBLE_ATTACHMENTS = 3;
   const mentionStartRef = useRef<number | null>(null);
 
   const mentionMatches = mentionActive
@@ -556,6 +676,25 @@ export default function TicketDetailView({
     (name.match(/\.([^.]+)$/) || [])[1]?.toUpperCase() || "FILE";
 
   const activityAt = lastActivityAt ?? ticket.created_at;
+
+  // A staff member's name and role from the tenant's staff list; someone who
+  // has since left the team is "Team member".
+  const staffName = (id: string) =>
+    id === currentUserId ? "You" : (memberNameById[id] ?? "Team member");
+  const staffRole = (id: string) => {
+    const role = mentionableMembers
+      .concat(agents)
+      .find((m) => m.id === id)?.role;
+    return (role && ROLE_LABELS[role]) || "Staff";
+  };
+  // No creator recorded: the customer raised it on the portal (or it predates
+  // the column).
+  const createdBy = ticket.created_by
+    ? { name: staffName(ticket.created_by), role: staffRole(ticket.created_by) }
+    : {
+        name: ticket.requester_name || "Customer",
+        role: "Customer",
+      };
   const handleStatusChange = (val: TicketStatus) => {
     const prev = status;
     setStatus(val);
@@ -600,7 +739,7 @@ export default function TicketDetailView({
     !isClosed && !supportClosed,
   );
 
-  const savePriority = (val: TicketPriority, reason?: string) => {
+  const savePriority = (val: TicketPriority) => {
     const prev = priority;
     setPriority(val);
     setUpdatingField("priority");
@@ -610,7 +749,6 @@ export default function TicketDetailView({
           ticketId: ticket.id,
           tenantSlug: tenant,
           priority: val,
-          priorityReason: reason,
         });
         if (!res.success) {
           setPriority(prev);
@@ -634,7 +772,7 @@ export default function TicketDetailView({
     });
   };
 
-  // Raising is immediate; lowering asks why first.
+  // Raising is immediate; lowering asks for confirmation first.
   const handlePriorityChange = (val: TicketPriority) => {
     if (val === priority) return;
     if (isPriorityLowered(priority, val)) {
@@ -751,15 +889,17 @@ export default function TicketDetailView({
           <p className="text-xs text-slate-500">
             Created by{" "}
             <span className="font-semibold text-slate-700">
-              {ticket.requester_name}
-            </span>
-            {ticket.requester_company && (
+              {createdBy.name}
+            </span>{" "}
+            <span className="text-slate-400">({createdBy.role})</span>
+            {openedBy && (
               <>
                 {" "}
-                ·{" "}
-                <span className="text-slate-700">
-                  {ticket.requester_company}
-                </span>
+                · Opened by{" "}
+                <span className="font-semibold text-slate-700">
+                  {staffName(openedBy)}
+                </span>{" "}
+                <span className="text-slate-400">({staffRole(openedBy)})</span>
               </>
             )}
             <LastActivity at={activityAt} />
@@ -774,8 +914,10 @@ export default function TicketDetailView({
         </div>
 
         {/* min-h keeps a short laptop screen from squeezing the thread to
-            nothing -- there the page scrolls instead. */}
-        <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:min-h-112 lg:flex-1 lg:grid-cols-3">
+            nothing -- there the page scrolls instead. grid-rows-1 is
+            minmax(0, 1fr): with the default auto row the taller column (the
+            sidebar) set the row's height and pushed the page into a scroll. */}
+        <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:min-h-112 lg:flex-1 lg:grid-cols-3 lg:grid-rows-1">
           <section className="flex h-[75dvh] min-h-112 flex-col overflow-hidden rounded-xl bg-white shadow-sm lg:col-span-2 lg:h-auto lg:min-h-0">
             {/* The only part of the card that scrolls. */}
             <div
@@ -804,9 +946,17 @@ export default function TicketDetailView({
                 const newDay =
                   mounted && (!prev || formatChatDay(prev.created_at) !== day);
 
-                // The portal's message, seen from the team's side: the
-                // team's messages on the right, the customer's on the left
-                // with an avatar. Your own replies drop the name.
+                // A chat seen by whoever is looking: your own messages on the
+                // right without a name, everyone else's (the customer and
+                // teammates) on the left with an avatar and name.
+                const files = attachmentsByMessage.get(msg.id) ?? [];
+                const initials =
+                  msg.author_initials ||
+                  (isCustomer
+                    ? ticket.requester_name
+                      ? getInitials(ticket.requester_name, "")
+                      : "CU"
+                    : getInitials(authorName, ""));
                 return (
                   <Fragment key={msg.id}>
                     {newDay && (
@@ -817,13 +967,13 @@ export default function TicketDetailView({
                     <article
                       className={cn(
                         "flex min-w-0 flex-col gap-1",
-                        isCustomer ? "items-start" : "items-end",
+                        isMine ? "items-end" : "items-start",
                       )}
                     >
                       <p
                         className={cn(
                           "flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-slate-500",
-                          isCustomer && "ml-10.5",
+                          !isMine && "ml-10.5",
                         )}
                       >
                         {!isMine && (
@@ -844,31 +994,45 @@ export default function TicketDetailView({
                       <div
                         className={cn(
                           "flex w-full min-w-0 items-start gap-2.5",
-                          !isCustomer && "justify-end",
+                          isMine && "justify-end",
                         )}
                       >
-                        {isCustomer && (
+                        {!isMine && (
                           <span
                             aria-hidden
-                            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-accent text-[11px] font-bold text-brand-accent-foreground"
+                            className={cn(
+                              "flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+                              isCustomer
+                                ? "bg-brand-accent text-brand-accent-foreground"
+                                : "bg-slate-600 text-white",
+                            )}
                           >
-                            {msg.author_initials ||
-                              (ticket.requester_name
-                                ? getInitials(ticket.requester_name, "")
-                                : "CU")}
+                            {initials}
                           </span>
                         )}
                         <div
                           className={cn(
-                            "min-w-0 max-w-[85%] rounded-lg px-3.5 py-2 text-sm leading-[1.6] whitespace-pre-line wrap-break-word text-slate-800 sm:max-w-[75%]",
-                            isCustomer
-                              ? "bg-slate-100"
-                              : isInternal
-                                ? "border border-amber-200 bg-amber-50"
-                                : "bg-brand-accent/10",
+                            "min-w-0 max-w-[85%] space-y-2 rounded-2xl px-3.5 py-2 text-sm leading-[1.6] text-slate-800 sm:max-w-[75%]",
+                            isMine ? "rounded-tr-sm" : "rounded-tl-sm",
+                            isInternal
+                              ? "border border-amber-200 bg-amber-50"
+                              : isMine
+                                ? "bg-brand-accent/10"
+                                : "bg-slate-100",
                           )}
                         >
-                          <MentionText text={msg.body} />
+                          {msg.body.trim() && (
+                            <div className="whitespace-pre-line wrap-break-word">
+                              <MentionText text={msg.body} />
+                            </div>
+                          )}
+                          {files.length > 0 && (
+                            <MessageFiles
+                              files={files}
+                              fileExtension={fileExtension}
+                              formatSize={formatSize}
+                            />
+                          )}
                         </div>
                       </div>
                     </article>
@@ -924,25 +1088,77 @@ export default function TicketDetailView({
                   </Button>
                 </div>
 
-                <div className="relative px-3 pt-2 sm:px-4">
-                  <textarea
-                    ref={replyInputRef}
-                    rows={2}
-                    value={replyText}
-                    onChange={handleReplyTextChange}
-                    onKeyDown={handleReplyKeyDown}
-                    onPaste={handleReplyPaste}
-                    maxLength={TICKET_REPLY_MAX}
-                    disabled={!!supportClosed}
-                    placeholder={
-                      supportClosed
-                        ? "Replies are disabled while support is closed."
-                        : replyType === "internal"
-                          ? "Visible to your team only - context, root cause, next steps."
-                          : `Write a reply to ${ticket.requester_name || "John Doe"}...`
-                    }
-                    className="block max-h-40 min-h-16 w-full resize-none overflow-y-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-0 focus-visible:ring-0 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                  />
+                {/* One box, as a chat app's: the files going with the message
+                    sit above the text, the paperclip beside it. */}
+                <div className="relative mx-3 mt-2 rounded-lg border border-slate-200 bg-white focus-within:border-slate-300 sm:mx-4">
+                  {pendingFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2 px-2.5 pt-2.5">
+                      {pendingFiles.map((file, i) => (
+                        <div
+                          key={`${file.name}-${i}`}
+                          className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md pl-2 pr-1 py-1 text-[11px] font-medium text-slate-700"
+                        >
+                          <span className="w-4 h-4 rounded bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 shrink-0">
+                            {fileExtension(file.name).slice(0, 3)}
+                          </span>
+                          <span className="truncate max-w-30">{file.name}</span>
+                          <span className="text-slate-400 text-[10px] shrink-0">
+                            {formatSize(file.size)}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => removePendingFile(i)}
+                            aria-label={`Remove ${file.name}`}
+                            className="ml-1 shrink-0 text-slate-400 hover:text-slate-700"
+                          >
+                            <X className="size-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-end gap-1 pr-1.5">
+                    <textarea
+                      ref={replyInputRef}
+                      rows={2}
+                      value={replyText}
+                      onChange={handleReplyTextChange}
+                      onKeyDown={handleReplyKeyDown}
+                      onPaste={handleReplyPaste}
+                      maxLength={TICKET_REPLY_MAX}
+                      disabled={!!supportClosed}
+                      placeholder={
+                        supportClosed
+                          ? "Replies are disabled while support is closed."
+                          : replyType === "internal"
+                            ? "Visible to your team only - context, root cause, next steps."
+                            : `Write a reply to ${ticket.requester_name || "John Doe"}...`
+                      }
+                      className="block max-h-40 min-h-16 w-full flex-1 resize-none overflow-y-auto rounded-lg border-0 bg-transparent px-3 py-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:outline-none focus:ring-0 focus-visible:ring-0 disabled:cursor-not-allowed sm:text-sm"
+                    />
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept={TICKET_ATTACHMENT_ACCEPT}
+                      className="hidden"
+                      onChange={handleFilesSelected}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={!!supportClosed}
+                      aria-label="Attach files"
+                      title="Attach files"
+                      className="mb-1.5 size-8 shrink-0 text-slate-500 hover:text-slate-800"
+                    >
+                      <Paperclip className="size-4" />
+                    </Button>
+                  </div>
                   {/* Opens upward: the composer sits at the bottom of the card. */}
                   {mentionActive && mentionMatches.length > 0 && (
                     <div className="absolute bottom-full left-3 z-30 mb-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg sm:left-4">
@@ -999,55 +1215,8 @@ export default function TicketDetailView({
                   className="px-3 pt-1 sm:px-4"
                 />
 
-                {pendingFiles.length > 0 && (
-                  <div className="px-3 sm:px-4 pt-2 flex flex-wrap gap-2">
-                    {pendingFiles.map((file, i) => (
-                      <div
-                        key={`${file.name}-${i}`}
-                        className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-md pl-2 pr-1 py-1 text-[11px] font-medium text-slate-700 shadow-sm"
-                      >
-                        <span className="w-4 h-4 rounded bg-slate-100 flex items-center justify-center text-[8px] font-bold text-slate-500 shrink-0">
-                          {fileExtension(file.name).slice(0, 3)}
-                        </span>
-                        <span className="truncate max-w-30">{file.name}</span>
-                        <span className="text-slate-400 text-[10px] shrink-0">
-                          {formatSize(file.size)}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={() => removePendingFile(i)}
-                          aria-label={`Remove ${file.name}`}
-                          className="ml-1 shrink-0 text-slate-400 hover:text-slate-700"
-                        >
-                          <X className="size-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 <div className="px-3 sm:px-4 pt-2 pb-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
                   <div className="flex items-center space-x-3">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      accept={TICKET_ATTACHMENT_ACCEPT}
-                      className="hidden"
-                      onChange={handleFilesSelected}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-10 px-3 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={!!supportClosed}
-                    >
-                      <Paperclip className="size-4 mr-1.5 text-slate-600" />
-                      Attach
-                    </Button>
                     <span className="text-[10px] sm:text-xs text-slate-400 hidden sm:inline">
                       {replyType === "internal"
                         ? "Not sent to the customer."
@@ -1080,16 +1249,21 @@ export default function TicketDetailView({
             )}
           </section>
 
-          {/* Scrolls on its own from lg up, beside the fixed chat card. */}
-          <div className="space-y-4 lg:min-h-0 lg:overflow-y-auto">
-            <Card className="shadow-sm border-slate-200 bg-white ring-0 relative">
+          {/* From lg up the sidebar is as tall as the chat card: the details
+              and SLA cards keep their size and the attachments card takes the
+              rest, scrolling its own list. The cards carry their padding once
+              (CardContent's), not Card's py on top, so details and SLA fit
+              and only the attachments scroll. On a screen too short for even
+              that the column scrolls -- never the page. */}
+          <div className="flex flex-col gap-4 lg:min-h-0 lg:overflow-y-auto">
+            <Card className="relative shrink-0 gap-0 py-0 shadow-sm border-slate-200 bg-white ring-0">
               <div className="absolute top-0 left-0 right-0 z-10">
                 <IndeterminateProgress
                   active={isUpdatingTicket}
                   label="Updating ticket"
                 />
               </div>
-              <CardContent className="p-5 space-y-4 text-xs">
+              <CardContent className="p-4 space-y-3 text-xs">
                 <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
                   <div className="w-9 h-9 rounded-full bg-slate-500 text-white flex items-center justify-center text-xs font-bold">
                     {ticket.requester_name
@@ -1108,7 +1282,7 @@ export default function TicketDetailView({
                   </div>
                 </div>
 
-                <div className="grid gap-2">
+                <div className="grid gap-1.5">
                   <Label
                     htmlFor="status"
                     className="flex items-center justify-between font-semibold text-slate-700"
@@ -1123,7 +1297,7 @@ export default function TicketDetailView({
                   >
                     <SelectTrigger
                       id="status"
-                      className="h-10 min-h-10 w-full bg-white border-slate-200"
+                      className="h-9 min-h-9 w-full bg-white border-slate-200"
                     >
                       <SelectValue />
                     </SelectTrigger>
@@ -1146,7 +1320,7 @@ export default function TicketDetailView({
                   </Select>
                 </div>
 
-                <div className="grid gap-2">
+                <div className="grid gap-1.5">
                   <Label
                     htmlFor="priority"
                     className="flex items-center justify-between font-semibold text-slate-700"
@@ -1161,7 +1335,7 @@ export default function TicketDetailView({
                   >
                     <SelectTrigger
                       id="priority"
-                      className="h-10 min-h-10 w-full bg-white border-slate-200"
+                      className="h-9 min-h-9 w-full bg-white border-slate-200"
                     >
                       <SelectValue />
                     </SelectTrigger>
@@ -1184,7 +1358,7 @@ export default function TicketDetailView({
                   </Select>
                 </div>
 
-                <div className="grid gap-2">
+                <div className="grid gap-1.5">
                   <Label
                     htmlFor="assignee"
                     className="flex items-center justify-between font-semibold text-slate-700"
@@ -1199,7 +1373,7 @@ export default function TicketDetailView({
                   >
                     <SelectTrigger
                       id="assignee"
-                      className="h-10 min-h-10 w-full bg-white border-slate-200"
+                      className="h-9 min-h-9 w-full bg-white border-slate-200"
                     >
                       <SelectValue placeholder="Unassigned" />
                     </SelectTrigger>
@@ -1269,16 +1443,18 @@ export default function TicketDetailView({
               </CardContent>
             </Card>
 
-            <TicketSlaCard
-              events={slaEvents}
-              policy={slaPolicy}
-              updating={isUpdatingTicket}
-              priority={priority}
-            />
+            <div className="shrink-0">
+              <TicketSlaCard
+                events={slaEvents}
+                policy={slaPolicy}
+                updating={isUpdatingTicket}
+                priority={priority}
+              />
+            </div>
 
-            <Card className="shadow-sm border-slate-200 bg-white ring-0">
-              <CardContent className="p-5 space-y-3 text-xs">
-                <h4 className="font-bold uppercase tracking-wider text-[11px] text-slate-400">
+            <Card className="shrink-0 gap-0 py-0 shadow-sm border-slate-200 bg-white ring-0 lg:min-h-28 lg:flex-1 lg:shrink lg:basis-0">
+              <CardContent className="flex min-h-0 flex-1 flex-col gap-3 p-4 text-xs">
+                <h4 className="shrink-0 font-bold uppercase tracking-wider text-[11px] text-slate-400">
                   Attachments
                 </h4>
 
@@ -1287,54 +1463,31 @@ export default function TicketDetailView({
                     No attachments on this ticket.
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    {attachments
-                      .slice(
-                        0,
-                        showAllAttachments
-                          ? attachments.length
-                          : VISIBLE_ATTACHMENTS,
-                      )
-                      .map((att) => (
-                        <a
-                          key={att.id}
-                          href={att.signed_url || "#"}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="p-2.5 rounded-lg border border-slate-200 flex items-center space-x-3 bg-white hover:bg-slate-50 transition-colors"
-                        >
-                          <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                            {(
-                              att.extension ||
-                              fileExtension(att.original_filename)
-                            ).slice(0, 3)}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-bold text-slate-800 truncate">
-                              {att.original_filename}
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              {formatSize(att.size)}
-                            </div>
-                          </div>
-                        </a>
-                      ))}
-                    {attachments.length > VISIBLE_ATTACHMENTS && (
-                      <Button
-                        type="button"
-                        variant="link"
-                        onClick={() => setShowAllAttachments((prev) => !prev)}
-                        className="h-auto p-0 text-xs font-semibold text-[#0e7adf]"
+                  <div className="-mr-2 max-h-72 min-h-0 flex-1 space-y-2 overflow-y-auto pr-2 lg:max-h-none">
+                    {attachments.map((att) => (
+                      <a
+                        key={att.id}
+                        href={att.signed_url || "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-2.5 rounded-lg border border-slate-200 flex items-center space-x-3 bg-white hover:bg-slate-50 transition-colors"
                       >
-                        {showAllAttachments
-                          ? "Show less"
-                          : `Show ${attachments.length - VISIBLE_ATTACHMENTS} more attachment${
-                              attachments.length - VISIBLE_ATTACHMENTS > 1
-                                ? "s"
-                                : ""
-                            }`}
-                      </Button>
-                    )}
+                        <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                          {(
+                            att.extension ||
+                            fileExtension(att.original_filename)
+                          ).slice(0, 3)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-800 truncate">
+                            {att.original_filename}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {formatSize(att.size)}
+                          </div>
+                        </div>
+                      </a>
+                    ))}
                   </div>
                 )}
               </CardContent>
@@ -1343,12 +1496,12 @@ export default function TicketDetailView({
         </div>
       </div>
 
-      <PriorityReasonDialog
+      <PriorityConfirmDialog
         open={lowerTo !== null}
         to={lowerTo}
         pending={isUpdatingTicket}
         onCancel={() => setLowerTo(null)}
-        onConfirm={(reason) => lowerTo && savePriority(lowerTo, reason)}
+        onConfirm={() => lowerTo && savePriority(lowerTo)}
       />
     </div>
   );

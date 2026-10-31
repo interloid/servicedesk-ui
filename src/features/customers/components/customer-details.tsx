@@ -168,7 +168,7 @@ export function CustomerTicketsTab({
       {tickets.pageCount > 1 ? (
         <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:px-6">
           <span>
-            Showing {(tickets.page - 1) * CUSTOMER_TICKET_PAGE_SIZE + 1}–
+            Showing {(tickets.page - 1) * CUSTOMER_TICKET_PAGE_SIZE + 1} -
             {Math.min(tickets.page * CUSTOMER_TICKET_PAGE_SIZE, tickets.total)}{" "}
             of {tickets.total} tickets
           </span>

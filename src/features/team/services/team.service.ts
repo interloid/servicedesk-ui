@@ -3,7 +3,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { enqueueEmail } from "@/lib/email/email-queue";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  createAuditedAdminClient,
+  createSupabaseAdminClient,
+} from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { TENANT_ROUTES, tenantPath } from "@/lib/tenancy";
 
@@ -495,7 +498,8 @@ export async function addInvitedStaffMember(values: {
   // sign-in.
   const name = email.split("@")[0] || "Team member";
 
-  const admin = createSupabaseAdminClient();
+  // Audited: the membership rows below are recorded against the inviter.
+  const admin = await createAuditedAdminClient(actor.userId);
 
   // 1. Check whether the user already exists in users table
   const { data: existingUser, error: existingUserError } = await admin
@@ -709,7 +713,7 @@ async function queueTeamInvitation({
     console.error("[team] queueing the invitation email failed:", error);
     throw new TeamError(
       "We couldn't email that person their invite. Use Resend invite to try again.",
-      { status: 502, code: "unknown" },
+      { status: 502, code: "invite-email-failed" },
     );
   }
 }
@@ -884,7 +888,9 @@ export async function changeMemberRole(
   // checked above -- is written with the admin client. Pinned to the tenant
   // and to the role we just read, so a row that changed in between (say an
   // admin promoted them meanwhile) is left alone rather than overwritten.
-  const { data, error } = await createSupabaseAdminClient()
+  const { data, error } = await (
+    await createAuditedAdminClient(actor.userId)
+  )
     .from("memberships")
     .update({
       role: ROLE_TO_DB[values.role],
@@ -959,7 +965,7 @@ export async function changeMemberStatus(
     }
   }
 
-  let statusUpdate = createSupabaseAdminClient()
+  let statusUpdate = (await createAuditedAdminClient(actor.userId))
     .from("memberships")
     .update({
       status: STATUS_TO_DB[values.status],
@@ -1013,7 +1019,9 @@ export async function removeMember(values: RemoveMemberValues): Promise<void> {
     "cannot-remove-self",
   );
 
-  const { data, error } = await createSupabaseAdminClient()
+  const { data, error } = await (
+    await createAuditedAdminClient(actor.userId)
+  )
     .from("memberships")
     .delete()
     .eq("id", values.memberId)

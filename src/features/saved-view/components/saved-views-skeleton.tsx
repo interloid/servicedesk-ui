@@ -33,11 +33,6 @@ function RowSkeleton({ index, hasMenu }: { index: number; hasMenu: boolean }) {
       {/* Order badge. */}
       <Skeleton className="h-8 w-full rounded-md" />
 
-      {/* Bookmark icon. */}
-      <div className="flex justify-center">
-        <Skeleton className="size-5 rounded" />
-      </div>
-
       {/* Name, summary, and the phone-only count line. */}
       <div className="min-w-0">
         <Line box="h-5" bar={cn("h-3.5", NAME_WIDTHS[index % 4])} />
@@ -112,7 +107,6 @@ function SectionSkeleton({
       >
         <span />
         <Skeleton className="h-2.5 w-9 justify-self-center" />
-        <span />
         <Skeleton className="h-2.5 w-16" />
         <Skeleton className="h-2.5 w-12" />
         <Skeleton className="h-2.5 w-20" />

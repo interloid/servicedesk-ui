@@ -23,6 +23,7 @@ import {
   MessageSquare,
   MoreVertical,
   Reply,
+  RotateCcw,
   Search,
   Settings2,
   Smartphone,
@@ -102,6 +103,14 @@ const PREFERENCE_ROWS: PreferenceRow[] = [
     icon: Ticket,
     tone: "slate",
   },
+  {
+    id: "reopened",
+    label: "A ticket is reopened",
+    description:
+      "Get notified when a resolved or closed ticket is reopened. Goes to its assignee, or to admins and managers when nobody has it.",
+    icon: RotateCcw,
+    tone: "teal",
+  },
 ];
 
 const CHANNELS: {
@@ -132,7 +141,7 @@ const DATE_FILTERS = [
 type DateFilter = (typeof DATE_FILTERS)[number]["id"];
 type Tab = "all" | "unread" | "history";
 
-const PAGE_SIZE = 8;
+const PAGE_SIZE = 7;
 
 const TONES = {
   red: "bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400",
@@ -143,6 +152,16 @@ const TONES = {
     "bg-violet-50 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400",
   slate: "bg-muted text-muted-foreground",
 } as const;
+
+/** The unread dot on a row's icon, in the icon's colour with a soft halo. */
+const TONE_DOTS: Record<keyof typeof TONES, string> = {
+  red: "bg-red-600 ring-red-500/20 dark:bg-red-400",
+  amber: "bg-amber-500 ring-amber-500/25 dark:bg-amber-400",
+  blue: "bg-sky-600 ring-sky-500/20 dark:bg-sky-400",
+  teal: "bg-primary ring-primary/20",
+  violet: "bg-violet-600 ring-violet-500/20 dark:bg-violet-400",
+  slate: "bg-slate-500 ring-slate-500/20",
+};
 
 /**
  * Breaches are red and warnings amber; first-response clocks get the mail
@@ -240,7 +259,11 @@ function FilterMenu<T extends string>({
           onValueChange={(next) => onChange(next as T)}
         >
           {options.map((option) => (
-            <DropdownMenuRadioItem key={option.id} value={option.id}>
+            <DropdownMenuRadioItem
+              key={option.id}
+              value={option.id}
+              className="p-2 text-sm"
+            >
               {option.label}
             </DropdownMenuRadioItem>
           ))}
@@ -384,9 +407,14 @@ export default function NotificationsView({ data }: NotificationsViewProps) {
   ];
 
   return (
-    <div className="h-full p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto space-y-4 sm:space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    // From lg the page is exactly the window's height and never scrolls, like
+    // the Audit log: the header, the preferences (shown in full, never
+    // scrolled) and the list's toolbar and pagination keep their size, and
+    // only the list scrolls in what is left. Below lg there is no room for
+    // that, so the page scrolls as usual.
+    <div className="h-full overflow-y-auto p-4 sm:p-6 lg:overflow-hidden lg:p-8">
+      <div className="mx-auto space-y-4 sm:space-y-6 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:space-y-0 lg:gap-6">
+        <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
               Notifications
@@ -407,10 +435,10 @@ export default function NotificationsView({ data }: NotificationsViewProps) {
           </Button>
         </div>
 
-        <Card className="gap-4 rounded-xl bg-card p-4 sm:p-5 lg:p-6">
+        <Card className="gap-4 rounded-xl bg-card p-4 sm:p-5 lg:shrink-0 lg:p-6">
           {/* Same column gap and right inset (px-3 + 1px border) as the rows
               below, so the channel headings sit centred over their switches. */}
-          <div className="grid grid-cols-1 items-end gap-x-3 gap-y-1 sm:pr-[13px] sm:grid-cols-[minmax(0,1fr)_112px_112px] lg:grid-cols-[minmax(0,1fr)_160px_160px]">
+          <div className="grid grid-cols-1 items-end gap-x-3 gap-y-1 sm:pr-3.25 sm:grid-cols-[minmax(0,1fr)_112px_112px] lg:grid-cols-[minmax(0,1fr)_160px_160px]">
             <div className="min-w-0 space-y-0.5">
               <h2 className="text-base font-bold text-foreground">
                 Notification preferences
@@ -476,12 +504,12 @@ export default function NotificationsView({ data }: NotificationsViewProps) {
           </div>
         </Card>
 
-        <Card className="gap-0 overflow-hidden rounded-xl bg-card p-0">
-          <div className="flex flex-col gap-3 border-b px-3 pt-2 sm:px-5 sm:pt-3 xl:flex-row xl:items-center xl:justify-between">
+        <Card className="gap-0 overflow-hidden rounded-xl bg-card p-0 lg:min-h-0">
+          <div className="flex shrink-0 flex-col gap-3 border-b px-3 py-3 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
             <div
               role="tablist"
               aria-label="Notifications"
-              className="-mx-3 -mb-px flex gap-1 overflow-x-auto px-3 scrollbar-none sm:mx-0 sm:px-0"
+              className="-mx-3 flex gap-2 overflow-x-auto px-3 scrollbar-none sm:mx-0 sm:px-0"
             >
               {tabs.map((t) => (
                 <button
@@ -491,10 +519,10 @@ export default function NotificationsView({ data }: NotificationsViewProps) {
                   aria-selected={tab === t.id}
                   onClick={() => resetPage(setTab)(t.id)}
                   className={cn(
-                    "shrink-0 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors",
+                    "h-10 shrink-0 whitespace-nowrap rounded-full border px-5 text-sm font-medium transition-colors",
                     tab === t.id
-                      ? "border-primary! font-semibold text-primary"
-                      : "border-transparent text-muted-foreground hover:text-foreground",
+                      ? "border-primary! bg-primary/10 font-semibold text-primary"
+                      : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
                   {t.label}
@@ -502,7 +530,7 @@ export default function NotificationsView({ data }: NotificationsViewProps) {
               ))}
             </div>
 
-            <div className="flex flex-col gap-2 pb-3 sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative w-full sm:flex-1 xl:w-64 xl:flex-none">
                 <Search
                   aria-hidden
@@ -539,153 +567,172 @@ export default function NotificationsView({ data }: NotificationsViewProps) {
             </div>
           </div>
 
-          {tab === "history" ? (
-            pageHistory.length === 0 ? (
-              <EmptyState icon={Settings2}>
-                No preference changes to show.
+          {/* The one part of the page that scrolls, from lg. */}
+          <div className="lg:min-h-0 lg:overflow-y-auto">
+            {tab === "history" ? (
+              pageHistory.length === 0 ? (
+                <EmptyState icon={Settings2}>
+                  No preference changes to show.
+                </EmptyState>
+              ) : (
+                <ul className="divide-y">
+                  {pageHistory.map((change) => {
+                    const row = PREFERENCE_ROWS.find(
+                      (r) => r.id === change.event,
+                    );
+                    const channel = CHANNELS.find(
+                      (c) => c.id === change.channel,
+                    );
+                    return (
+                      <li
+                        key={change.id}
+                        className="flex items-start gap-3 px-4 py-3 sm:items-center sm:px-5"
+                      >
+                        <IconBadge
+                          icon={change.enabled ? Bell : BellOff}
+                          tone={change.enabled ? "teal" : "slate"}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-foreground">
+                            {channel?.label} {change.enabled ? "on" : "off"} for
+                            “{row?.label}”
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            You turned {change.enabled ? "on" : "off"}{" "}
+                            {channel?.label.toLowerCase()} notifications for
+                            this event.
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {change.time}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )
+            ) : pageItems.length === 0 ? (
+              <EmptyState icon={Bell}>
+                {notifications.length === 0
+                  ? "No notifications yet. Ticket assignments and SLA alerts will show up here."
+                  : tab === "unread" && unreadCount === 0
+                    ? "You're all caught up."
+                    : "No notifications match your filters."}
               </EmptyState>
             ) : (
               <ul className="divide-y">
-                {pageHistory.map((change) => {
-                  const row = PREFERENCE_ROWS.find(
-                    (r) => r.id === change.event,
-                  );
-                  const channel = CHANNELS.find((c) => c.id === change.channel);
+                {pageItems.map((item) => {
+                  const { icon, tone } = notificationIcon(item);
+                  const href = ticketHref(item);
                   return (
                     <li
-                      key={change.id}
-                      className="flex items-start gap-3 px-4 py-3 sm:items-center sm:px-5"
+                      key={item.id}
+                      className="group relative flex items-center gap-2  border-transparent pr-2 transition-colors hover:border-primary hover:bg-primary/5 sm:pr-3"
                     >
-                      <IconBadge
-                        icon={change.enabled ? Bell : BellOff}
-                        tone={change.enabled ? "teal" : "slate"}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-foreground">
-                          {channel?.label} {change.enabled ? "on" : "off"} for “
-                          {row?.label}”
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          You turned {change.enabled ? "on" : "off"}{" "}
-                          {channel?.label.toLowerCase()} notifications for this
-                          event.
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {change.time}
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openItem(item)}
+                        className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left sm:pl-5"
+                      >
+                        <span className="relative shrink-0">
+                          <IconBadge icon={icon} tone={tone} />
+                          {item.unread && (
+                            <span
+                              aria-label="Unread"
+                              className="absolute -top-0.5 -right-0.5 flex size-2.5"
+                            >
+                              {/* Blinking halo; still for reduced motion. */}
+                              <span
+                                aria-hidden
+                                className={cn(
+                                  "absolute inset-0 animate-ping rounded-full opacity-75 motion-reduce:hidden",
+                                  TONE_DOTS[tone],
+                                )}
+                              />
+                              <span
+                                className={cn(
+                                  "relative size-2.5 rounded-full ring-4",
+                                  TONE_DOTS[tone],
+                                )}
+                              />
+                            </span>
+                          )}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className={cn(
+                              "truncate text-sm text-foreground",
+                              item.unread ? "font-semibold" : "font-medium",
+                            )}
+                          >
+                            {item.title}
+                          </p>
+                          {item.subtitle && (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {item.subtitle}
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground md:hidden">
+                            {item.time}
+                          </p>
+                        </div>
+                        <span className="hidden w-32 shrink-0 text-xs text-muted-foreground md:block">
+                          {item.time}
+                        </span>
+                      </button>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 shrink-0 text-muted-foreground"
+                            aria-label={`Actions for ${item.title}`}
+                          >
+                            <MoreVertical className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          {href && (
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={href}
+                                onClick={() => setRead(item.id, true)}
+                              >
+                                <ExternalLink />
+                                Open ticket
+                              </Link>
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            disabled={isPending}
+                            onSelect={() => setRead(item.id, item.unread)}
+                          >
+                            {item.unread ? <MailOpen /> : <Mail />}
+                            {item.unread ? "Mark as read" : "Mark as unread"}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            disabled={isPending}
+                            onSelect={() => remove(item.id)}
+                          >
+                            <Trash2 />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </li>
                   );
                 })}
               </ul>
-            )
-          ) : pageItems.length === 0 ? (
-            <EmptyState icon={Bell}>
-              {notifications.length === 0
-                ? "No notifications yet. Ticket assignments and SLA alerts will show up here."
-                : tab === "unread" && unreadCount === 0
-                  ? "You're all caught up."
-                  : "No notifications match your filters."}
-            </EmptyState>
-          ) : (
-            <ul className="divide-y">
-              {pageItems.map((item) => {
-                const { icon, tone } = notificationIcon(item);
-                const href = ticketHref(item);
-                return (
-                  <li
-                    key={item.id}
-                    className="group relative flex items-center gap-2  border-transparent pr-2 transition-colors hover:border-primary hover:bg-primary/5 sm:pr-3"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => openItem(item)}
-                      className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-4 text-left sm:pl-5"
-                    >
-                      <IconBadge icon={icon} tone={tone} />
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className={cn(
-                            "truncate text-sm text-foreground",
-                            item.unread ? "font-semibold" : "font-medium",
-                          )}
-                        >
-                          {item.title}
-                        </p>
-                        {item.subtitle && (
-                          <p className="truncate text-xs text-muted-foreground">
-                            {item.subtitle}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground md:hidden">
-                          {item.time}
-                        </p>
-                      </div>
-                      <span className="hidden w-32 shrink-0 text-xs text-muted-foreground md:block">
-                        {item.time}
-                      </span>
-                    </button>
-
-                    <span className="flex w-6 shrink-0 justify-center">
-                      {item.unread && (
-                        <span
-                          className="size-2 rounded-full bg-primary"
-                          aria-label="Unread"
-                        />
-                      )}
-                    </span>
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 shrink-0 text-muted-foreground"
-                          aria-label={`Actions for ${item.title}`}
-                        >
-                          <MoreVertical className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        {href && (
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={href}
-                              onClick={() => setRead(item.id, true)}
-                            >
-                              <ExternalLink />
-                              Open ticket
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                          disabled={isPending}
-                          onSelect={() => setRead(item.id, item.unread)}
-                        >
-                          {item.unread ? <MailOpen /> : <Mail />}
-                          {item.unread ? "Mark as read" : "Mark as unread"}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          disabled={isPending}
-                          onSelect={() => remove(item.id)}
-                        >
-                          <Trash2 />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+            )}
+          </div>
 
           {total > 0 && (
-            <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 sm:flex-row sm:px-5">
+            <div className="flex shrink-0 flex-col items-center justify-between gap-3 border-t px-4 py-3 sm:flex-row sm:px-5">
               <p className="text-sm text-muted-foreground">
-                Showing {start + 1}–{Math.min(start + PAGE_SIZE, total)} of{" "}
+                Showing {start + 1} - {Math.min(start + PAGE_SIZE, total)} of{" "}
                 {total} {tab === "history" ? "changes" : "notifications"}
               </p>
               {pageCount > 1 && (

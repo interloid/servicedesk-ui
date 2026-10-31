@@ -150,7 +150,7 @@ export function AppSidebar({ identity }: { identity: ShellIdentity | null }) {
           label: "Reports",
           href: TENANT_ROUTES.REPORTS,
           icon: BarChart2,
-          roles: ["tenant_admin", "manager"],
+          roles: ["tenant_admin", "manager", "agent"],
           locked: !planIncludesReports(identity?.org.planName),
         },
       ],

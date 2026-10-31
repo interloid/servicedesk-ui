@@ -3,9 +3,9 @@ import "server-only";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { env } from "@/config/env";
-import { AUTH_COOKIE_DOMAIN } from "@/lib/tenancy";
 import { auditForwardHeaders } from "@/lib/request-context";
 import {
+  AUTH_COOKIE_SCOPE,
   REMEMBER_COOKIE,
   authCookieLifetime,
   isCookieDeletion,
@@ -43,16 +43,6 @@ export async function createSupabaseServerClient(
     options.remember ??
     isRememberedSession(cookieStore.get(REMEMBER_COOKIE)?.value);
 
-  const isProduction = process.env.NODE_ENV === "production";
-
-  const isHttps =
-    isProduction &&
-    !env.NEXT_PUBLIC_SITE_URL.startsWith("http://localhost") &&
-    !env.NEXT_PUBLIC_SITE_URL.startsWith("http://127.0.0.1");
-
-  const domainOption =
-    isProduction && AUTH_COOKIE_DOMAIN ? { domain: AUTH_COOKIE_DOMAIN } : {};
-
   return createServerClient(url, key, {
     global: { headers: await auditForwardHeaders() },
     cookies: {
@@ -64,13 +54,8 @@ export async function createSupabaseServerClient(
         for (const { name, value, options: cookieOptions } of cookiesToSet) {
           cookieStore.set(name, value, {
             ...cookieOptions,
-
-            ...domainOption,
-
-            path: "/",
-            sameSite: cookieOptions?.sameSite ?? "lax",
-            secure: cookieOptions?.secure ?? isHttps,
-
+            // Same scope as the proxy's writes (see remember.ts).
+            ...AUTH_COOKIE_SCOPE,
             ...authCookieLifetime(cookieOptions, remember),
           });
         }
@@ -85,11 +70,8 @@ export async function createSupabaseServerClient(
           const keepMarker = !signedOut && options.remember === false;
 
           cookieStore.set(REMEMBER_COOKIE, keepMarker ? "0" : "", {
-            ...domainOption,
-            path: "/",
+            ...AUTH_COOKIE_SCOPE,
             httpOnly: true,
-            sameSite: "lax",
-            secure: isHttps,
             ...(keepMarker ? {} : { maxAge: 0, expires: new Date(0) }),
           });
         }

@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createPayPalTokenProvider } from "../_shared/paypal-auth.ts";
+import { auditHeaders } from "../_shared/audit-headers.ts";
 import {
   storePayPalPaymentMethod,
   type AdminClient,
@@ -90,9 +91,12 @@ const UPGRADE_STUCK_MESSAGE =
   "Your payment was received, but your subscription could not be moved to the new plan. Please contact support — we can either apply it or refund you.";
 
 // The exact client the request builds, so helpers below accept it without a
-// generic mismatch against supabase-js's default type parameters.
-const createAdminClient = () =>
-  createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+// generic mismatch against supabase-js's default type parameters. `headers`
+// name the signed-in person for the audit log (see _shared/audit-headers.ts).
+const createAdminClient = (headers: Record<string, string> = {}) =>
+  createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    global: { headers },
+  });
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -841,8 +845,6 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const admin = createAdminClient();
-
     const {
       data: { user },
       error: userError,
@@ -855,6 +857,10 @@ Deno.serve(async (req) => {
         { status: 401 },
       );
     }
+
+    // Every write below is this Tenant Admin's or Billing Admin's: named so
+    // the audit log and subscriptions.billing_actor_id record who it was.
+    const admin = createAdminClient(auditHeaders(req, user.id));
 
     const { data: tenant, error: tenantError } = await admin
       .from("tenants")

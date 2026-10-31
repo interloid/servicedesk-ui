@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { auditHeaders } from "../_shared/audit-headers.ts";
 import { createPayPalTokenProvider } from "../_shared/paypal-auth.ts";
 import {
   parsePayPalSubscriber,
@@ -93,8 +94,6 @@ Deno.serve(async (req) => {
       },
     });
 
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
     const {
       data: { user },
       error: userError,
@@ -106,6 +105,12 @@ Deno.serve(async (req) => {
         { status: 401 },
       );
     }
+
+    // Names this person on every write, so the audit log and
+    // subscriptions.billing_actor_id record who changed billing.
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      global: { headers: auditHeaders(req, user.id) },
+    });
 
     const { data: tenant, error: tenantError } = await admin
       .from("tenants")

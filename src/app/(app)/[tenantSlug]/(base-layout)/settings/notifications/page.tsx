@@ -25,7 +25,8 @@ export default async function NotificationsPage() {
   const data: NotificationsData = { prefs, notifications, history };
 
   return (
-    <main className="w-full">
+    // Full height, so the view can fit the window and scroll only its list.
+    <main className="h-full w-full">
       <NotificationsView data={data} />
     </main>
   );

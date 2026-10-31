@@ -32,7 +32,8 @@ import { normalizeTagName } from "../lib/tags";
 import { CALENDAR_SELECT, one, toSlaCalendar } from "../lib/sla-calendar-row";
 import { DurationUnit, isDurationUnit } from "@/features/sla-policies/duration";
 import { getInitials } from "@/lib/format";
-import { filterToPostgrest, searchTerm } from "@/features/saved-view/filters";
+import { filterToPostgrest } from "@/features/saved-view/filters";
+import { ilikeOrValue } from "@/lib/postgrest";
 import {
   attachmentContentType,
   attachmentExtension,
@@ -212,11 +213,11 @@ function applyTicketFilters<Q extends TicketFilterable<Q>>(
     filtered = filtered.eq("assignee_user_id", filters.assigneeUserId);
   }
 
-  // Commas, parentheses and quotes are syntax in a PostgREST or-filter, so
-  // they are dropped and the pattern quoted: "login, password" is plain text.
-  const term = searchTerm(filters.search ?? "");
-  const searchLogic = term
-    ? `or(subject.ilike."%${term}%",description.ilike."%${term}%")`
+  // Quoted and escaped, so "login, password" or "50%" is plain text.
+  const term = filters.search?.trim();
+  const value = term ? ilikeOrValue(term) : null;
+  const searchLogic = value
+    ? `or(subject.ilike.${value},description.ilike.${value})`
     : null;
 
   // One or= parameter holding both trees, ANDed, rather than two that
@@ -939,6 +940,35 @@ export async function createMessage(params: {
   return data;
 }
 
+/**
+ * Records the viewer as the ticket's opener, if nobody has opened it yet.
+ * tickets_stamp_people sets who and when from auth.uid(); a ticket already
+ * opened is left as it is.
+ */
+export async function markTicketOpened(
+  ticketId: string,
+  tenantSlug: string,
+  userId: string,
+) {
+  const supabase = await createSupabaseServerClient();
+  const tenantId = await getTenantIdBySlug(tenantSlug);
+  if (!tenantId) throw new Error("Tenant not found");
+
+  const { data, error } = await supabase
+    .from("tickets")
+    .update({ opened_by: userId })
+    .eq("id", ticketId)
+    .eq("tenant_id", tenantId)
+    .is("opened_by", null)
+    .select("opened_by, opened_at")
+    .maybeSingle();
+
+  if (error) {
+    fail("mark ticket opened", error, "Couldn't update the ticket.");
+  }
+  return data;
+}
+
 export async function updateTicketDetails(
   ticketId: string,
   tenantSlug: string,
@@ -973,8 +1003,9 @@ export async function updateTicketDetails(
 
 /**
  * Changes a ticket's priority through change_ticket_priority, which owns the
- * rules: lowering needs a reason, a clock due soon keeps its deadline, a
- * breach stays recorded, and every change is written to audit_logs.
+ * rules: a clock due soon keeps its deadline when lowering, a breach stays
+ * recorded, and every change is written to audit_logs (with a reason, when
+ * one is given -- it is optional).
  */
 export async function changeTicketPriority(
   ticketId: string,
@@ -994,8 +1025,8 @@ export async function changeTicketPriority(
       throw new Error(error.message);
     }
     if (error.code === "PGRST202") {
-      // No plain-update fallback: it would skip the reason check, the kept
-      // deadline and the audit entry that make a priority change trustworthy.
+      // No plain-update fallback: it would skip the kept deadline and the
+      // audit entry that make a priority change trustworthy.
       console.error(
         "change_ticket_priority is missing; apply migration 20261011120000_ticket_priority_change_rules.sql.",
       );
@@ -1497,10 +1528,11 @@ export async function searchTenantCustomers(
     .eq("tenant_id", tenantId);
 
   // Same escaping as the ticket search: these are or-filter syntax.
-  const term = searchTerm(query).slice(0, 100);
+  const term = query.trim().slice(0, 100);
   if (term) {
+    const value = ilikeOrValue(term);
     request = request.or(
-      `full_name.ilike."%${term}%",email.ilike."%${term}%",company.ilike."%${term}%"`,
+      `full_name.ilike.${value},email.ilike.${value},company.ilike.${value}`,
     );
   }
 
@@ -1542,14 +1574,12 @@ export async function searchTenantTickets(
   if (!tenantId) throw new Error("Tenant not found.");
 
   // Same escaping as the list search: these are or-filter syntax.
-  const term = searchTerm(query).slice(0, 100);
+  const term = query.trim().slice(0, 100);
   if (!term) return [];
 
   const numberMatch = /^#?(\d{1,9})$/.exec(term);
-  const clauses = [
-    `subject.ilike."%${term}%"`,
-    `description.ilike."%${term}%"`,
-  ];
+  const value = ilikeOrValue(term);
+  const clauses = [`subject.ilike.${value}`, `description.ilike.${value}`];
   if (numberMatch) clauses.push(`number.eq.${Number(numberMatch[1])}`);
 
   const { data, error } = await supabase

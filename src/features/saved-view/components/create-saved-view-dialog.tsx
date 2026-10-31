@@ -51,7 +51,6 @@ import {
   repeatedRuleIndexes,
   ruleValueLabel,
   SEARCH_MAX,
-  searchTerm,
   toFilterJson,
   VIEW_CONDITIONS_MAX,
   VIEW_CONDITIONS_MIN,
@@ -251,15 +250,6 @@ export default function SavedViewFormDialog({
         .map((other) => other.value),
     );
 
-  // Only punctuation is no text to search for: it would match every ticket.
-  const blankSearchRowIds = new Set(
-    rows
-      .filter(
-        (r) => r.field === "search" && r.value.trim() && !searchTerm(r.value),
-      )
-      .map((r) => r.id),
-  );
-
   // "Status is Pending AND Status is Open" can never match: say so.
   const impossible = conditionsOk && !canMatchAnything(filter);
 
@@ -290,7 +280,6 @@ export default function SavedViewFormDialog({
     trimmed.length <= VIEW_NAME_MAX &&
     conditionsOk &&
     repeatedRowIds.size === 0 &&
-    blankSearchRowIds.size === 0 &&
     !impossible &&
     !duplicate &&
     !sameName &&
@@ -384,10 +373,7 @@ export default function SavedViewFormDialog({
             <ol className="space-y-1.5">
               {rows.map((r, index) => {
                 const options = optionsFor(r.field);
-                const invalid =
-                  repeatedRowIds.has(r.id) ||
-                  blankSearchRowIds.has(r.id) ||
-                  undefined;
+                const invalid = repeatedRowIds.has(r.id) || undefined;
                 return (
                   <li key={r.id} className="space-y-1.5">
                     {index > 0 ? (
@@ -547,10 +533,6 @@ export default function SavedViewFormDialog({
               <p className="text-xs font-medium text-destructive">
                 The same condition is in the list twice. Change or remove the
                 highlighted row.
-              </p>
-            ) : blankSearchRowIds.size ? (
-              <p className="text-xs font-medium text-destructive">
-                Text conditions need letters or numbers, not only punctuation.
               </p>
             ) : impossible ? (
               <p className="text-xs font-medium text-destructive">

@@ -1,35 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  ArrowRight,
-  Check,
-  Code,
-  Copy,
-  FileText,
-  Users,
-  X,
-} from "lucide-react";
+import { ArrowRight, Check, Copy, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { formatRelativeTime, getInitials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import {
-  TEAM_DIALOG_CONTENT,
-  TEAM_DIALOG_TITLE,
-} from "@/features/team/components/modal-buttons";
+import { TEAM_DIALOG_TITLE } from "@/features/team/components/modal-buttons";
 import { AUDIT_ACTION_ICONS } from "@/features/audit/components/audit-icons";
 import {
   AUDIT_ACTION_BADGE,
@@ -116,46 +102,35 @@ function Row({
 }
 
 /**
- * Everything recorded about one event. Drawn in a sheet over the page, so it
- * takes no layout of its own beyond a scrolling column.
+ * Everything recorded about one event: the inside of the details popup -- its
+ * header and a scrolling body. The caller supplies the
+ * Dialog and its DialogContent (with TEAM_DIALOG_CONTENT), so it looks like
+ * every other popup in the app; the dialog's own cross closes it.
  */
 export function AuditEventDetails({
   event,
   timeZone,
   now,
-  onClose,
-  onShowUserEvents,
-  showClose = true,
 }: {
   event: AuditEvent;
   timeZone: string;
   now: number;
-  onClose: () => void;
-  onShowUserEvents?: () => void;
-  showClose?: boolean;
 }) {
   const ActionIcon = AUDIT_ACTION_ICONS[event.action];
   const relative = formatRelativeTime(event.createdAt, now);
   const failed = event.result === "failure";
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
-        <h2 className="text-lg font-semibold tracking-tight">Event details</h2>
-        {showClose && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 text-muted-foreground hover:bg-transparent hover:text-foreground"
-            aria-label="Close event details"
-            onClick={onClose}
-          >
-            <X className="size-4" aria-hidden />
-          </Button>
-        )}
-      </div>
+    <>
+      <DialogHeader className="min-w-0 pr-6">
+        <DialogTitle className={TEAM_DIALOG_TITLE}>Event details</DialogTitle>
+        <DialogDescription>
+          Everything recorded about this event.
+        </DialogDescription>
+      </DialogHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+      {/* Only the body scrolls: the title stays in view. */}
+      <div className="-mx-5 max-h-[60vh] min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-5">
         <div className="flex items-start gap-3 border-b border-border pb-4">
           <span
             className={cn(
@@ -316,90 +291,7 @@ export function AuditEventDetails({
             </div>
           </section>
         )}
-
-        <div className="mt-6 flex flex-col gap-2">
-          {onShowUserEvents && (
-            <Button
-              variant="outline"
-              className="h-10 w-full gap-2 rounded-lg font-semibold shadow-none"
-              onClick={onShowUserEvents}
-            >
-              <Users className="size-4" aria-hidden />
-              {event.actor ? "Show this user's events" : "Show system events"}
-            </Button>
-          )}
-          <RawDataDialog event={event} />
-        </div>
       </div>
-    </div>
-  );
-}
-
-function RawDataDialog({ event }: { event: AuditEvent }) {
-  const raw = JSON.stringify(
-    {
-      id: event.id,
-      created_at: event.createdAt,
-      action: event.action,
-      module: event.module,
-      result: event.result,
-      entity: event.entity,
-      entity_id: event.entityId,
-      actor_id: event.actor?.id ?? null,
-      ip: event.ip,
-      user_agent: event.userAgent,
-      meta: event.meta,
-    },
-    null,
-    2,
-  );
-
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          className="h-10 w-full gap-2 rounded-lg font-semibold shadow-none"
-        >
-          <Code className="size-4" aria-hidden />
-          View raw data
-        </Button>
-      </DialogTrigger>
-      <DialogContent className={`sm:max-w-2xl ${TEAM_DIALOG_CONTENT}`}>
-        <DialogHeader className="pr-6">
-          <DialogTitle className={TEAM_DIALOG_TITLE}>
-            Raw event data
-          </DialogTitle>
-          <DialogDescription>
-            The event exactly as it was recorded.
-          </DialogDescription>
-        </DialogHeader>
-        <pre className="max-h-[60vh] overflow-auto rounded-xl border border-border bg-muted/40 p-4 font-mono text-xs leading-relaxed">
-          {raw}
-        </pre>
-        <div className="flex justify-end">
-          <CopyJsonButton raw={raw} />
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function CopyJsonButton({ raw }: { raw: string }) {
-  const { copied, copy } = useCopy(raw, "Raw data");
-  const Icon = copied ? Check : Copy;
-
-  return (
-    <Button
-      variant="outline"
-      className="h-10 gap-2 rounded-lg font-semibold shadow-none"
-      onClick={copy}
-    >
-      <Icon
-        className={cn("size-4", copied && "text-emerald-600")}
-        aria-hidden
-      />
-      <span aria-live="polite">{copied ? "Copied" : "Copy JSON"}</span>
-    </Button>
+    </>
   );
 }

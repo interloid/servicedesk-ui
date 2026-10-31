@@ -48,10 +48,8 @@ const FIELD_BY_KEY: Record<string, BrandingField> = {
   name: "name",
   slug: "slug",
   primaryColor: "color",
-  secondaryColor: "secondaryColor",
   textColor: "textColor",
   backgroundColor: "backgroundColor",
-  supportEmail: "email",
   logoUrl: "logoUrl",
 };
 

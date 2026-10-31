@@ -485,7 +485,7 @@ export default function SavedViewsList({
                   onClick={handleOpenCreate}
                   variant="outline"
                   size="sm"
-                  className="mt-3 h-9 gap-1.5 rounded-lg"
+                  className="mt-3 h-10 gap-1.5 rounded-lg"
                 >
                   <Plus className="size-4" />
                   New view
@@ -599,7 +599,6 @@ function ViewSection({
       >
         <span />
         <span className="text-center">Order</span>
-        <span />
         <span>View name</span>
         <span>Tickets</span>
         <span>Last updated</span>
@@ -671,14 +670,6 @@ function ViewRow({
     ? "Built-in"
     : (formatRelativeTime(view.updated_at ?? view.created_at, now) ?? "—");
 
-  const visibility = view.isSystem
-    ? "Built-in, visible to your team"
-    : view.is_shared
-      ? view.isOwn
-        ? "Shared with your team"
-        : "Shared with you by a teammate"
-      : "Private to you";
-
   const canManage = canManageView(view);
 
   return (
@@ -713,27 +704,6 @@ function ViewRow({
       >
         {order}
       </span>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className="flex justify-center"
-            aria-label={visibility}
-            role="img"
-          >
-            <Bookmark
-              aria-hidden
-              className={cn(
-                "size-5",
-                view.isSystem || view.is_shared
-                  ? "fill-brand-accent text-brand-accent"
-                  : "text-slate-500",
-              )}
-            />
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>{visibility}</TooltipContent>
-      </Tooltip>
 
       {/* Phones wrap the name and summary; the desktop table truncates. */}
       <div className="min-w-0">

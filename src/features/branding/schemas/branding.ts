@@ -45,17 +45,8 @@ function optionalColor(message: string) {
     .optional();
 }
 
-const secondaryColor = optionalColor("Enter a hex color like #F1F5F9.");
 const textColor = optionalColor("Enter a hex color like #0F172A.");
 const backgroundColor = optionalColor("Enter a hex color like #F8FAFC.");
-
-const supportEmail = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .email("Enter a valid support email.")
-  .max(254, "That email is too long.")
-  .or(z.literal(""));
 
 const logoUrl = z
   .string()
@@ -71,10 +62,8 @@ const brandingInput = z.object({
   name,
   slug,
   primaryColor: primaryColor.default(DEFAULT_BRAND_COLOR),
-  secondaryColor,
   textColor,
   backgroundColor,
-  supportEmail,
   logoUrl,
   showLogoOnPortal,
 });

@@ -18,11 +18,11 @@ import { cn } from "@/lib/utils";
  * How the picker presents itself.
  *
  * `dropzone` is the panel on the request form -- it owns its own heading, so it
- * reads as the field it is. `button` is the compact one under the reply box,
+ * reads as the field it is. `icon` is the paperclip inside the reply composer,
  * where the composer already says what it is and a second heading would be
  * noise.
  */
-type Variant = "dropzone" | "button";
+type Variant = "dropzone" | "icon";
 
 /**
  * Picks files to send with a request or a reply.
@@ -40,8 +40,7 @@ export function PortalAttachmentPicker({
   onChange,
   onError,
   disabled,
-  variant = "button",
-  compact,
+  variant = "icon",
   className,
   listClassName,
 }: {
@@ -51,11 +50,6 @@ export function PortalAttachmentPicker({
   onError: (message?: string) => void;
   disabled?: boolean;
   variant?: Variant;
-  /**
-   * `button` only: below sm the trigger fills the width with the limits line
-   * under it, for a composer that stacks its controls one per row there.
-   */
-  compact?: boolean;
   className?: string;
   /** Lets a parent place the list -- e.g. on its own row under the trigger. */
   listClassName?: string;
@@ -186,42 +180,24 @@ export function PortalAttachmentPicker({
           )}
         </button>
       ) : (
-        <div
-          className={cn(
-            "flex min-w-0 flex-wrap items-center gap-3",
-            compact && "max-sm:grid max-sm:grid-cols-1 max-sm:gap-1.5",
-          )}
+        // A secondary control inside the composer, as WhatsApp or Teams have
+        // it: the message is the point of the row, so attaching is an icon
+        // beside it rather than a button competing with Send. The limits are
+        // in its tooltip, and the composer's hint line says them as well.
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title={
+            full ? `${MAX_ATTACHMENTS_PER_MESSAGE} files is the limit` : limits
+          }
+          className="size-10 shrink-0 rounded-full text-muted-foreground hover:bg-brand-accent/10 hover:text-brand-accent focus-visible:bg-brand-accent/10 focus-visible:text-brand-accent"
+          disabled={locked}
+          onClick={open}
         >
-          {/* h-11 to match the Send and Reopen buttons it shares a row with.
-              At the sm size it sat a third of their height under the same
-              baseline, and a control you have to aim at should not be the
-              smallest thing in its own row. */}
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            className={cn(
-              "h-11 px-5 font-semibold hover:bg-brand-accent/10 hover:text-brand-accent focus:bg-brand-accent/10 focus:text-brand-accent",
-              compact && "max-sm:w-full",
-            )}
-            disabled={locked}
-            onClick={open}
-          >
-            <Paperclip aria-hidden className="size-4" />
-            <span>Attach files</span>
-          </Button>
-
-          <span
-            className={cn(
-              "text-xs text-muted-foreground",
-              compact && "max-sm:text-center",
-            )}
-          >
-            {full
-              ? `${MAX_ATTACHMENTS_PER_MESSAGE} files is the limit`
-              : limits}
-          </span>
-        </div>
+          <Paperclip aria-hidden className="size-5" />
+          <span className="sr-only">Attach files</span>
+        </Button>
       )}
 
       {files.length > 0 ? (
@@ -230,8 +206,9 @@ export function PortalAttachmentPicker({
         // past the card and the name's truncate never got a width to cut at.
         <ul
           className={cn(
-            "grid grid-cols-1 gap-2.5",
-            variant === "dropzone" && "sm:grid-cols-2",
+            variant === "dropzone"
+              ? "grid grid-cols-1 gap-2.5 sm:grid-cols-2"
+              : "flex flex-wrap gap-2",
             listClassName,
           )}
         >
@@ -242,12 +219,18 @@ export function PortalAttachmentPicker({
             return (
               <li
                 key={`${file.name}-${file.size}-${file.lastModified}`}
-                className="flex min-w-0 items-center gap-3 rounded-xl border bg-card p-3 shadow-xs"
+                className={cn(
+                  "flex min-w-0 items-center rounded-xl border bg-card shadow-xs",
+                  variant === "dropzone"
+                    ? "gap-3 p-3"
+                    : "max-w-full gap-2 py-1.5 pr-1.5 pl-2 sm:max-w-64",
+                )}
               >
                 <span
                   aria-hidden
                   className={cn(
-                    "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                    "flex shrink-0 items-center justify-center rounded-lg",
+                    variant === "dropzone" ? "size-9" : "size-8",
                     isImage
                       ? "bg-sky-50 text-sky-600 dark:bg-sky-950/50 dark:text-sky-300"
                       : "bg-muted text-muted-foreground",

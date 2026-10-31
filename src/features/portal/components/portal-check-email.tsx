@@ -33,9 +33,12 @@ import { PORTAL_ROUTES, portalPath } from "@/features/portal/portal";
 export function PortalCheckEmail({
   tenantSlug,
   email,
+  afterRequest = false,
 }: {
   tenantSlug: string;
   email: string;
+  /** Arrived from a ticket filed signed out: the link sets up the account. */
+  afterRequest?: boolean;
 }) {
   const router = useRouter();
 
@@ -78,11 +81,13 @@ export function PortalCheckEmail({
       </span>
 
       <h1 className="mt-4 text-2xl font-bold tracking-tight text-balance text-foreground">
-        Check your inbox
+        {afterRequest ? "We received your request" : "Check your inbox"}
       </h1>
 
       <p className="mt-1.5 text-sm leading-[1.6] text-muted-foreground">
-        We sent a sign-in link to
+        {afterRequest
+          ? "Your ticket is with our support team. To follow it and reply, set a password with the link we sent to"
+          : "We sent a sign-in link to"}
       </p>
 
       <p className="mt-2 flex items-center gap-2.5 rounded-xl border bg-muted/40 px-3.5 py-3 text-sm font-semibold text-foreground">
@@ -99,8 +104,9 @@ export function PortalCheckEmail({
           <span className="font-semibold text-foreground">
             Open it on any device.
           </span>{" "}
-          The link signs you in wherever you open it, and works once. If it has
-          expired, come back here and send a new one.
+          {afterRequest
+            ? "The link confirms your email and lets you set a password. It works once; if it has expired, come back here and send a new one."
+            : "The link signs you in wherever you open it, and works once. If it has expired, come back here and send a new one."}
         </span>
       </p>
 
@@ -154,7 +160,7 @@ export function PortalCheckEmail({
           onClick={() =>
             router.push(portalPath(tenantSlug, PORTAL_ROUTES.LOGIN))
           }
-          className="h-11 w-full px-5 font-semibold"
+          className="h-11 w-full px-5 font-semibold hover:bg-brand-accent/10 hover:text-brand-ink focus:bg-brand-accent/10 focus:text-brand-ink"
         >
           <AtSign aria-hidden className="size-4" />
           Use a different email

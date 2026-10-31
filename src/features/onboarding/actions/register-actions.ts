@@ -11,6 +11,19 @@ import {
 
 export async function registerOnboardingAction(payload: RegisterInput) {
   try {
+    // Each sign-up creates an account and a workspace and mails every invitee.
+    const { allowed } = await rateLimit(`signup:${await clientKey()}`, {
+      limit: 3,
+      windowMs: 60 * 60_000,
+    });
+
+    if (!allowed) {
+      return {
+        success: false,
+        error: "Too many sign-ups from this network. Try again later.",
+      };
+    }
+
     const result = await registerTenant(payload);
 
     return {
@@ -55,7 +68,7 @@ export async function checkEmailTenantAction(
   email: string,
 ): Promise<{ exists: boolean; rateLimited?: boolean }> {
   try {
-    const { allowed } = rateLimit(`check-email:${await clientKey()}`, {
+    const { allowed } = await rateLimit(`check-email:${await clientKey()}`, {
       limit: 10,
       windowMs: 60_000,
     });
@@ -76,7 +89,7 @@ export async function checkEmailTenantAction(
 
 export async function checkSlugAvailabilityAction(slug: string) {
   try {
-    const { allowed } = rateLimit(`check-slug:${await clientKey()}`, {
+    const { allowed } = await rateLimit(`check-slug:${await clientKey()}`, {
       limit: 20,
       windowMs: 60_000,
     });

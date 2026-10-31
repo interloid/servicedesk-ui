@@ -11,9 +11,11 @@ import {
   Download,
   FilePlus2,
   ListChecks,
+  Loader2,
   Star,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -30,6 +32,7 @@ import {
   ReportRange,
   ReportsData,
 } from "../types/types";
+import { exportReportsPdf } from "../lib/export-pdf";
 import { AgentPerformanceTable } from "./agent-performance-table";
 import { PrioritySlaCard } from "./priority-sla-card";
 import { ReportsSkeletonBody } from "./reports-skeleton";
@@ -48,75 +51,6 @@ const plural = (count: number, word: string) =>
  * formula, and agent names are typed by the agents themselves. A leading
  * apostrophe makes Excel and Sheets show the text as text.
  */
-const csvCell = (value: string | number) => {
-  const text = String(value);
-  const safe =
-    typeof value === "string" && /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
-  return `"${safe.replace(/"/g, '""')}"`;
-};
-
-const exportCsv = (data: ReportsData) => {
-  const rangeLabel = REPORT_RANGES[data.range].label;
-  const rows: (string | number)[][] = [
-    ["Period", rangeLabel],
-    [],
-    ["Metric", "Value"],
-    ["SLA Attainment", data.summary.slaAttainment ?? "N/A"],
-    ["SLA Met", `${data.summary.slaMetCount} / ${data.summary.slaEligible}`],
-    ["Median First Response", data.summary.medianFirstResponse ?? "N/A"],
-    ["Tickets Solved", data.summary.ticketsSolved],
-    ["Tickets Created", data.summary.ticketsCreated],
-    ["Open Tickets (now)", data.summary.openBacklog],
-    ["CSAT Average", data.summary.csatAverage ?? "N/A"],
-    [
-      "CSAT Positive Rate",
-      data.summary.csatPositiveRate === null
-        ? "N/A"
-        : `${data.summary.csatPositiveRate}%`,
-    ],
-    ["CSAT Responses", data.summary.csatResponses],
-    [],
-    [
-      "Agent",
-      "Email",
-      "Open",
-      "Solved",
-      "Median 1st Reply",
-      "SLA Met",
-      "CSAT",
-      "Ratings",
-    ],
-    ...data.agents.map((a) => [
-      a.inactive ? `${a.name} (inactive)` : a.name,
-      a.email,
-      a.open,
-      a.solved,
-      a.medianFirstReply ?? "N/A",
-      a.slaMet === null
-        ? "N/A"
-        : `${a.slaMet}% (${a.slaMetCount}/${a.slaEligible})`,
-      a.csatAverage ?? "N/A",
-      a.csatResponses,
-    ]),
-  ];
-
-  const csv = rows.map((r) => r.map(csvCell).join(",")).join("\n");
-
-  // The BOM makes Excel read the file as UTF-8; without it, non-ASCII names
-  // come out garbled as Windows-1252.
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `reports-${data.range}.csv`;
-  // In the document, and revoked a tick later: some browsers cancel a
-  // download whose link is detached or whose URL is already gone.
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-};
-
 interface StatCardProps {
   icon: LucideIcon;
   iconClassName: string;
@@ -166,7 +100,7 @@ function RangePicker({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="h-9 gap-2 bg-card px-3 text-sm">
+        <Button variant="outline" className="h-10 gap-2 bg-card px-3 text-sm">
           <CalendarDays className="size-4 text-muted-foreground" />
           {REPORT_RANGES[range].label}
           <ChevronDown className="size-4 text-muted-foreground" />
@@ -197,6 +131,22 @@ export default function ReportsDashboard({ data }: ReportsDashboardProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = React.useTransition();
+  // The report body, captured by the PDF export.
+  const reportRef = React.useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = React.useState(false);
+
+  const exportPdf = async () => {
+    if (!reportRef.current || exporting) return;
+    setExporting(true);
+    try {
+      await exportReportsPdf(reportRef.current, data);
+    } catch (error) {
+      console.error("[reports] PDF export failed:", error);
+      toast.error("Couldn't export the report. Try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const { summary } = data;
   const rangeLabel = REPORT_RANGES[data.range].label;
@@ -233,18 +183,23 @@ export default function ReportsDashboard({ data }: ReportsDashboardProps) {
             {hasData && (
               <Button
                 variant="outline"
-                onClick={() => exportCsv(data)}
-                className="h-9 gap-2 bg-card px-3 text-sm"
+                onClick={() => void exportPdf()}
+                disabled={exporting || isPending}
+                className="h-10 gap-2 bg-card px-3 text-sm"
               >
-                <Download className="size-4" />
-                Export
+                {exporting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Download className="size-4" />
+                )}
+                {exporting ? "Exporting…" : "Export PDF"}
               </Button>
             )}
             <RangePicker range={data.range} onChange={changeRange} />
           </div>
         </div>
 
-        <div aria-busy={isPending} className="space-y-6">
+        <div ref={reportRef} aria-busy={isPending} className="space-y-6">
           {/* A new period swaps the body for its skeleton, so the old numbers
               never sit under the new period's label. The heading and picker
               stay put. */}
@@ -279,7 +234,11 @@ export default function ReportsDashboard({ data }: ReportsDashboardProps) {
                   figures below are partial. Pick a shorter range.
                 </p>
               )}
-              <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+              <div
+                data-pdf-block
+                data-pdf-row
+                className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5"
+              >
                 <StatCard
                   icon={Crown}
                   iconClassName="bg-success-soft text-success-strong"
@@ -349,13 +308,20 @@ export default function ReportsDashboard({ data }: ReportsDashboardProps) {
               {/* Charts stacked on the left; on xl the agent table sits
                   beside them and is pinned to their height, so its rows
                   scroll inside instead of stretching the row. */}
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+              <div
+                data-pdf-stack
+                className="grid grid-cols-1 gap-6 xl:grid-cols-2"
+              >
                 <div className="flex min-w-0 flex-col gap-6">
-                  <TicketPerformanceCard data={data} />
-                  <PrioritySlaCard items={data.prioritySla} />
+                  <div data-pdf-block>
+                    <TicketPerformanceCard data={data} />
+                  </div>
+                  <div data-pdf-block>
+                    <PrioritySlaCard items={data.prioritySla} />
+                  </div>
                 </div>
 
-                <div className="min-w-0 xl:relative">
+                <div data-pdf-block className="min-w-0 xl:relative">
                   <AgentPerformanceTable
                     agents={data.agents}
                     className="xl:absolute xl:inset-0"

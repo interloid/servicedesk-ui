@@ -32,13 +32,13 @@ export default async function BrandingPage({
     notFound();
   }
 
-  // Free plan: the editor is shown blurred and read-only under a lock. The
-  // save and upload actions refuse on their own as well.
+  // Free plan: a blurred, read-only editor filled with sample values sits
+  // under the lock, so removing the overlay in dev tools shows nothing real.
+  // The save and upload actions refuse on their own as well.
   if (!(await hasBrandingAccess(actor.tenantId))) {
     return (
       <BrandingLocked
         tenantSlug={tenantSlug}
-        branding={branding}
         portalOrigin={origin}
         canUpgrade={actor.role === "Tenant Admin"}
       />

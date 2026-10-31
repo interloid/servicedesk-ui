@@ -49,7 +49,7 @@ function StatCard({ value }: { value: string }) {
         <div className="min-w-0 flex-1">
           {/* label, value */}
           <Skeleton className="h-6 w-24 max-w-full" />
-          <Skeleton className={cn("mt-1 h-7.5 @[15rem]:h-9", value)} />
+          <Skeleton className={cn("mt-1 h-7.5 @[15rem]:h-9.5", value)} />
         </div>
       </div>
     </div>
@@ -156,7 +156,10 @@ export function CustomerHeaderSkeleton() {
   return (
     <>
       <div>
-        <Skeleton className="h-5 w-24" />
+        {/* The back link's row is its 22px line box, not the 20px link. */}
+        <div className="flex h-5.5 items-center">
+          <Skeleton className="h-5 w-24" />
+        </div>
 
         <div className="mt-4 flex min-w-0 items-center gap-3.5 sm:gap-5">
           {/* Carries the same white edge and green hairline as the real

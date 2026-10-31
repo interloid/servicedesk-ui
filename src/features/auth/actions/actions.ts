@@ -48,7 +48,7 @@ export async function loginAction(
   values: LoginValues,
   next?: string | null,
 ): Promise<ActionResult<LoginSuccess>> {
-  const { allowed } = rateLimit(
+  const { allowed } = await rateLimit(
     `login:${await clientKey()}`,
     LOGIN_ATTEMPT_LIMIT,
   );
@@ -163,7 +163,7 @@ export async function logoutAction(): Promise<ActionResult<null>> {
 }
 
 export async function resetPasswordAction(values: ForgotPasswordValues) {
-  const { allowed } = rateLimit(
+  const { allowed } = await rateLimit(
     `password-reset:${await clientKey()}`,
     RESET_REQUEST_LIMIT,
   );
@@ -202,7 +202,7 @@ export async function resetTenantPasswordAction(
   values: ForgotPasswordValues,
   slug: string,
 ) {
-  const { allowed } = rateLimit(
+  const { allowed } = await rateLimit(
     `password-reset:${await clientKey()}`,
     RESET_REQUEST_LIMIT,
   );

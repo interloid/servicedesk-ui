@@ -399,7 +399,7 @@ export function LoadingState({ showBanner }: { showBanner: boolean }) {
     <div className="h-full p-4 font-sans text-slate-900 sm:p-8">
       <div className="mx-auto space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2">
+          <div className="space-y-1">
             <Skeleton className="h-8 w-32 bg-slate-200" />
             <Skeleton className="h-5 w-72 max-w-full bg-slate-200" />
           </div>

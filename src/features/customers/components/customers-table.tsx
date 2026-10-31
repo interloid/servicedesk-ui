@@ -410,7 +410,7 @@ export default function CustomersTable({
                   Showing{" "}
                   {total === 0
                     ? 0
-                    : `${start + 1}–${Math.min(
+                    : `${start + 1} - ${Math.min(
                         start + CUSTOMER_LIST_PAGE_SIZE,
                         total,
                       )}`}{" "}

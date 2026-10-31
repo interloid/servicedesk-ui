@@ -176,9 +176,6 @@ export const DEFAULT_AUDIT_RANGE_DAYS = 7;
 /** Rows a single CSV export carries. */
 export const AUDIT_EXPORT_LIMIT = 10_000;
 
-/** "system" picks events with no user behind them. */
-export const AUDIT_SYSTEM_ACTOR = "system";
-
 export type AuditFilters = {
   /** Calendar days (YYYY-MM-DD) in the workspace time zone, both inclusive. */
   from: string;
@@ -186,7 +183,7 @@ export type AuditFilters = {
   q: string;
   module: AuditModule | null;
   action: AuditAction | null;
-  /** A user id, AUDIT_SYSTEM_ACTOR, or null for everybody. */
+  /** A user id, or null for everybody. */
   user: string | null;
   result: AuditResult | null;
   page: number;
@@ -255,8 +252,7 @@ export function parseAuditFilters(
     q: (first(params.q) ?? "").trim().slice(0, 100),
     module: isAuditModule(moduleParam) ? moduleParam : null,
     action: isAuditAction(action) ? action : null,
-    user:
-      user === AUDIT_SYSTEM_ACTOR || (user && UUID.test(user)) ? user : null,
+    user: user && UUID.test(user) ? user : null,
     result: isAuditResult(result) ? result : null,
     page: Number.isInteger(page) && page > 0 ? page : 1,
     pageSize: (AUDIT_PAGE_SIZES as readonly number[]).includes(pageSize)

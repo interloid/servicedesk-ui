@@ -35,7 +35,7 @@ export const TEAM_DIALOG_FOOTER =
   "-mx-5 -mb-5 mt-1 gap-3 border-t border-border p-5 sm:justify-end";
 
 export const TEAM_MODAL_BUTTON =
-  "h-10 w-full gap-2 rounded-lg px-5 text-sm font-semibold shadow-none duration-200 ease-out motion-safe:active:scale-[0.98] sm:w-auto";
+  "h-10 w-full gap-2 rounded-lg border px-5 bg-transparent text-sm font-semibold shadow-none duration-200 ease-out motion-safe:active:scale-[0.98] sm:w-auto hover:border-border hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50";
 
 /** The affirmative action in a dialog footer. */
 export const TEAM_MODAL_BUTTON_PRIMARY =
@@ -47,4 +47,4 @@ export const TEAM_MODAL_BUTTON_PRIMARY =
  * the default choice on a screen where it never is.
  */
 export const TEAM_MODAL_BUTTON_DANGER =
-  "border border-red-200 bg-background text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-950/30";
+  "border border-red-200! bg-transparent text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-950/30";
